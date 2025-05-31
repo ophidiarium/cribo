@@ -1,0 +1,11 @@
+# yaml-language-server: =https://json.schemastore.org/lefthook.json
+assert_lefthook_installed: true
+pre-commit:
+  commands:
+    format:
+      glob: '**/*.rs'
+      run: cargo fmt --edition 2024 {staged_files}
+      stage_fixed: true
+    lint:
+      glob: '**/*.rs'
+      run: cargo clippy

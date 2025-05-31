@@ -105,6 +105,15 @@ wheels = [
 ]
 
 [[package]]
+name = "lefthook"
+version = "1.11.13"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/36/84/07633188c49b0bedd13851bb49f89e224bcdbaaa792dbaf26863da83931a/lefthook-1.11.13.tar.gz", hash = "sha256:5e8d2c0d99b39bca7efff99f971a41cd1c8ad5db82c087d2a54eca8203745738", size = 49479895, upload_time = "2025-05-16T06:54:39.512Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/0f/4ac809a1a005ba393ab5fa05a0731f4b5614e47d5ec2023421df97e172db/lefthook-1.11.13-py3-none-any.whl", hash = "sha256:b868faee65329949d607189a6db5c431c61f6d7bccb477e31a9544f929d1896c", size = 49719067, upload_time = "2025-05-16T06:54:35.218Z" },
+]
+
+[[package]]
 name = "maturin"
 version = "1.8.6"
 source = { registry = "https://pypi.org/simple" }
@@ -182,7 +191,9 @@ source = { editable = "." }
 
 [package.dev-dependencies]
 dev = [
+    { name = "lefthook" },
     { name = "maturin" },
+    { name = "vale" },
 ]
 test = [
     { name = "pytest" },
@@ -192,7 +203,11 @@ test = [
 [package.metadata]
 
 [package.metadata.requires-dev]
-dev = [{ name = "maturin" }]
+dev = [
+    { name = "lefthook", specifier = ">=1.11.13" },
+    { name = "maturin" },
+    { name = "vale", specifier = ">=3.11.2.0" },
+]
 test = [
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -244,4 +259,13 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/00/67/af195c0d40dd803c262ce4829e249e84a2e9afe0aa676c1c15101d55d277/typing_extensions-4.14.0rc1.tar.gz", hash = "sha256:90196079d79b4658568e177f50c24c327b73a85e664c0af9f3937e2015b65956", size = 107459, upload_time = "2025-05-24T21:38:38.027Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ed/c9/c300c1f8f0137484a7594bf33c793dcafb33e1aab2435eb8fcf54dd2aefe/typing_extensions-4.14.0rc1-py3-none-any.whl", hash = "sha256:6cd49c8b914bb3869a16ed9d1001e3d0ff1d84fae4838076fe3b361ab8b32b65", size = 44449, upload_time = "2025-05-24T21:38:36.233Z" },
+]
+
+[[package]]
+name = "vale"
+version = "3.11.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6f/b2/a0667b80bb280bbeb32ddf56c931ae9fe8437395d681d9eba069204d2d8e/vale-3.11.2.0.tar.gz", hash = "sha256:8e5da5bbcae110c184562d631efc808bf04ef2f32e9f2f1e739f8bc6f3b8bb6f", size = 5304, upload_time = "2025-05-05T08:17:42.615Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/34/7e/26b2e4645ff8142c33a57548eac58a6e67b7561f7dd6da20cd17248d5353/vale-3.11.2.0-py3-none-any.whl", hash = "sha256:35e65271d51d5dcf4efe01ec3cbff5a5a6880369848ab5329f08da730d59a8b0", size = 5903, upload_time = "2025-05-05T08:17:41.106Z" },
 ]

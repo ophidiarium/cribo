@@ -3,10 +3,12 @@
         "--all-features"
     ],
     "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.checkOnSave": true,
     "[json][jsonc][yaml][github-actions-workflow][python][toml]": {
         "editor.defaultFormatter": "dprint.dprint",
         "editor.formatOnSave": true
     },
+    "evenBetterToml.schema.enabled": true,
     "cSpell.enabled": false,
     "chat.agent.enabled": true,
     "chat.promptFiles": true,

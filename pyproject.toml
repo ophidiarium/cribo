@@ -33,7 +33,11 @@ Issues = "https://github.com/tinovyatkin/serpen/issues"
 
 [dependency-groups]
 test = ["pytest", "pytest-cov"]
-dev = ["maturin"]
+dev = [
+    "lefthook>=1.11.13",
+    "maturin",
+    "vale>=3.11.2.0",
+]
 
 [tool.maturin]
 bindings = "bin"

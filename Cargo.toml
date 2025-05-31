@@ -4,11 +4,11 @@ members = ["crates/*"]
 
 [workspace.package]
 version = "0.1.0"
-edition = "2024"
 authors = ["Konstantin Vyatkin <tino@vtkn.io>"]
+edition = "2024"
+homepage = "https://github.com/tinovyatkin/serpen"
 license = "MIT"
 repository = "https://github.com/tinovyatkin/serpen"
-homepage = "https://github.com/tinovyatkin/serpen"
 description = "Python source bundler that produces a single .py file from multi-module projects"
 
 [workspace.dependencies]
@@ -26,16 +26,16 @@ toml = "0.8"
 
 # Error handling and logging
 anyhow = "1.0"
-log = "0.4"
 env_logger = "0.11"
+log = "0.4"
 
 # Graph and data structures
-petgraph = "0.8"
 indexmap = "2.0"
+petgraph = "0.8"
 
 # Utilities
-walkdir = "2.3"
 regex = "1.5"
+walkdir = "2.3"
 
 # Python bindings (optional)
 pyo3 = "0.25"
