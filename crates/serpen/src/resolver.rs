@@ -55,7 +55,7 @@ impl ModuleResolver {
                 if !path.is_file()
                     || path
                         .extension()
-                        .is_none_or(|ext| !ext.eq_ignore_ascii_case("py"))
+                        .map_or(true, |ext| !ext.eq_ignore_ascii_case("py"))
                 {
                     continue;
                 }
