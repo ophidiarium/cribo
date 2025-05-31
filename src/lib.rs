@@ -1,11 +1,6 @@
 //! Serpen core library modules
 
 pub mod resolver;
-// you can also expose other modules if needed:
-// pub mod bundler;
-// pub mod emit;
-// pub mod main; // if you factor out your CLI
-
 pub mod bundler;
 pub mod config;
 pub mod dependency_graph;
