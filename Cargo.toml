@@ -38,8 +38,8 @@ walkdir = "2.3"
 regex = "1.5"
 
 # Python bindings (optional)
-pyo3 = "0.20"
-pyo3-build-config = "0.20"
+pyo3 = "0.25"
+pyo3-build-config = "0.25"
 
 # Testing
 tempfile = "3.8"
