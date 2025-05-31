@@ -1,0 +1,7 @@
+{
+    "rust-analyzer.check.extraArgs": [
+        "--all-features"
+    ],
+    "rust-analyzer.check.command": "clippy",
+    "cSpell.enabled": false
+}

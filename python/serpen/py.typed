@@ -1,0 +1,22 @@
+"""Type stubs for serpen"""
+
+class Bundler:
+    """Python source bundler that produces a single .py file from multi-module projects."""
+    
+    def __init__(self) -> None:
+        """Initialize a new bundler with default configuration."""
+        ...
+    
+    def bundle(self, entry_path: str, output_path: str, emit_requirements: bool = False) -> None:
+        """
+        Bundle a Python project into a single file.
+        
+        Args:
+            entry_path: Path to the entry point Python script
+            output_path: Path where the bundled output will be written
+            emit_requirements: Whether to generate a requirements.txt file
+            
+        Raises:
+            RuntimeError: If bundling fails
+        """
+        ...

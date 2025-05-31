@@ -1,0 +1,23 @@
+# Serpen Configuration File
+# This file configures the Python source bundler
+
+# Source directories to scan for first-party modules
+src = ["src", ".", "lib"]
+
+# Known first-party module names (beyond what's discovered in src dirs)
+known_first_party = [
+    # "my_internal_package",
+]
+
+# Known third-party module names (to explicitly mark as external)
+known_third_party = [
+    # "requests",
+    # "numpy",
+    # "pandas",
+]
+
+# Whether to preserve comments in the bundled output
+preserve_comments = true
+
+# Whether to preserve type hints in the bundled output
+preserve_type_hints = true
