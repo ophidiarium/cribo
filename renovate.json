@@ -13,6 +13,12 @@
   },
   "packageRules": [
     {
+      "matchCategories": [
+        "python"
+      ],
+      "enabled": true
+    },
+    {
       "description": "Automerge non-major updates",
       "matchUpdateTypes": [
         "minor",
@@ -99,9 +105,6 @@
     }
   ],
   "cargo": {
-    "enabled": true
-  },
-  "python": {
     "enabled": true
   },
   "ignoreDeps": [],
