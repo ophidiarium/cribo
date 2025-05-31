@@ -1,6 +1,11 @@
 {
     "recommendations": [
         "rust-lang.rust-analyzer",
-        "tekumara.typos-vscode"
+        "tekumara.typos-vscode",
+        "github.copilot-chat",
+        "github.vscode-pull-request-github",
+        "github.copilot",
+        "github.vscode-github-actions",
+        "tamasfe.even-better-toml"
     ]
 }
