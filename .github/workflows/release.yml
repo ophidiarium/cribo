@@ -72,7 +72,7 @@ jobs:
             echo "=== Inspecting $wheel ==="
             python -m zipfile -l "$wheel" | head -20
             echo "=== Metadata for $wheel ==="
-            uv run --with pkginfo  -c "
+            python -c "
             import sys, pkginfo
             try:
                 w = pkginfo.Wheel(sys.argv[1])
