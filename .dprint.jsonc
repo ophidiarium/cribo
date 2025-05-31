@@ -1,0 +1,44 @@
+{
+    // Inspired by https://github.com/microsoft/typescript-go/blob/main/.dprint.jsonc
+    "indentWidth": 4,
+    "lineWidth": 1000,
+    "newLineKind": "auto",
+    "useTabs": false,
+    "yaml": {
+        "indentWidth": 2,
+        "quotes": "preferSingle"
+    },
+    "json": {
+        // This would be good to do in known-JSONC files, but VS Code warns on trailing commas.
+        "trailingCommas": "never"
+    },
+    "exec": {
+        "cwd": "${configDir}",
+        "commands": [
+            {
+                "command": "rustfmt --edition 2024",
+                "exts": [
+                    "rs"
+                ]
+            }
+        ]
+    },
+    "ruff": {
+        "preview": true
+    },
+    "excludes": [
+        "**/.git",
+        "**/node_modules",
+        "**/*-lock.json",
+        "**/testdata",
+        "_submodules/**",
+    ],
+    // Note: if adding new languages, make sure settings.template.json is updated too.
+    "plugins": [
+        "https://plugins.dprint.dev/json-0.20.0.wasm",
+        "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.5.1.wasm",
+        "https://plugins.dprint.dev/ruff-0.3.9.wasm",
+        "https://plugins.dprint.dev/toml-0.7.0.wasm",
+        "https://plugins.dprint.dev/exec-0.5.1.json"
+    ]
+}

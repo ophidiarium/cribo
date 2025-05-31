@@ -6,6 +6,7 @@
         "github.vscode-pull-request-github",
         "github.copilot",
         "github.vscode-github-actions",
-        "tamasfe.even-better-toml"
+        "tamasfe.even-better-toml",
+        "dprint.dprint",
     ]
 }
