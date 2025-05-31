@@ -10,6 +10,7 @@ authors = [{ name = "Konstantin Vyatkin", email = "tino@vtkn.io" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = []
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
