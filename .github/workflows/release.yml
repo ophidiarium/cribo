@@ -6,56 +6,85 @@ on:
       - "v*.*.*"
 
 jobs:
-  build-and-publish:
-    runs-on: ubuntu-latest
+  build:
+    name: Build distribution 📦
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          python-version: 3.11
+          shared-key: rust-deps
+          cache-on-failure: true
 
-      - name: Install maturin
-        run: pip install maturin
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.x"
+
+      - name: Run Rust tests
+        run: cargo test --workspace
 
       - name: Build wheels
-        run: maturin build --release --manylinux off
+        run: uv run --with maturin -- maturin build --release
 
-      - name: Upload wheels
-        uses: actions/upload-artifact@v3
+      - name: Store the distribution packages
+        uses: actions/upload-artifact@v4
         with:
-          name: serpen-wheels
-          path: target/wheels/*.whl
+          name: python-package-distributions-${{ matrix.os }}
+          path: target/wheels/
 
-  publish:
-    needs: build-and-publish
+  publish-to-testpypi:
+    name: Publish Python 🐍 distribution 📦 to TestPyPI
+    needs: build
     runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/serpen
+    permissions:
+      id-token: write # IMPORTANT: mandatory for trusted publishing
+
     steps:
-      - name: Download wheels
-        uses: actions/download-artifact@v3
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
         with:
-          name: serpen-wheels
+          pattern: python-package-distributions-*
+          path: dist/
+          merge-multiple: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Publish distribution 📦 to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          python-version: 3.11
+          repository-url: https://test.pypi.org/legacy/
 
-      - name: Install twine
-        run: pip install twine
+  publish-to-pypi:
+    name: >-
+      Publish Python 🐍 distribution 📦 to PyPI
+    needs: [build, publish-to-testpypi] # Ensure TestPyPI publish succeeds first
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/serpen
+    permissions:
+      id-token: write # IMPORTANT: mandatory for trusted publishing
 
-      - name: Publish to PyPI
-        run: |
-          twine upload target/wheels/*.whl
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+    steps:
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          pattern: python-package-distributions-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Publish distribution 📦 to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
