@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*.*.*"
+      - 'v*.*.*'
   workflow_dispatch:
 
 jobs:
@@ -31,13 +31,15 @@ jobs:
         uses: astral-sh/setup-uv@f0ec1fc3b38f5e7cd731bb6ce540c5af426746bb # v6
         with:
           enable-cache: true
-          python-version: "3.12"
+          python-version: '3.12'
 
       - name: Run Rust tests
         run: cargo test --workspace
 
       - name: Build wheels
-        run: uv run --with maturin -- maturin build --release
+        # manylinux2014 provides broad compatibility across Linux distributions
+        # Alternative options: manylinux_2_28, manylinux_2_24 (newer, fewer compatible systems)
+        run: uv run --with maturin -- maturin build --release --compatibility manylinux2014
 
       - name: Store the distribution packages
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -62,6 +64,18 @@ jobs:
           pattern: python-package-distributions-*
           path: dist/
           merge-multiple: true
+
+      - name: Inspect wheel platform tags
+        run: |
+          ls -la dist/
+          echo "=== Wheel platform tags ==="
+          for wheel in dist/*.whl; do
+            echo "Wheel: $(basename $wheel)"
+            python -c "import zipfile, sys; z = zipfile.ZipFile(sys.argv[1]); [print(f'  {f}') for f in z.namelist() if f.endswith('WHEEL')]" "$wheel"
+            echo "Contents of WHEEL file:"
+            python -c "import zipfile, sys; z = zipfile.ZipFile(sys.argv[1]); [print(z.read(f).decode()) for f in z.namelist() if f.endswith('WHEEL')]" "$wheel"
+            echo "---"
+          done
 
       - name: Publish distribution 📦 to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -92,3 +106,7 @@ jobs:
 
       - name: Publish distribution 📦 to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          verbose: true
+          print-hash: true
+          skip-existing: true
