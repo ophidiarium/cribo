@@ -1,10 +1,11 @@
+use once_cell::sync::Lazy;
 use std::collections::HashSet;
 
 /// Python 3.10+ standard library modules
 /// This list includes the most common standard library modules
-pub fn get_stdlib_modules() -> HashSet<&'static str> {
+/// A lazily-initialized static set of Python standard library module names
+static STD_LIB_MODULES: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     let mut modules = HashSet::new();
-    
     // Core modules
     modules.insert("sys");
     modules.insert("os");
@@ -35,7 +36,6 @@ pub fn get_stdlib_modules() -> HashSet<&'static str> {
     modules.insert("queue");
     modules.insert("asyncio");
     modules.insert("concurrent");
-    
     // File and data formats
     modules.insert("csv");
     modules.insert("xml");
@@ -45,7 +45,6 @@ pub fn get_stdlib_modules() -> HashSet<&'static str> {
     modules.insert("binascii");
     modules.insert("struct");
     modules.insert("codecs");
-    
     // Network and internet
     modules.insert("urllib");
     modules.insert("http");
@@ -53,17 +52,14 @@ pub fn get_stdlib_modules() -> HashSet<&'static str> {
     modules.insert("ssl");
     modules.insert("ftplib");
     modules.insert("smtplib");
-    
     // Compression
     modules.insert("gzip");
     modules.insert("zipfile");
     modules.insert("tarfile");
     modules.insert("zlib");
-    
     // Testing
     modules.insert("unittest");
     modules.insert("doctest");
-    
     // Development tools
     modules.insert("pdb");
     modules.insert("profile");
@@ -76,7 +72,6 @@ pub fn get_stdlib_modules() -> HashSet<&'static str> {
     modules.insert("dis");
     modules.insert("code");
     modules.insert("codeop");
-    
     // Platform specific
     modules.insert("platform");
     modules.insert("ctypes");
@@ -84,7 +79,6 @@ pub fn get_stdlib_modules() -> HashSet<&'static str> {
     modules.insert("select");
     modules.insert("fcntl");
     modules.insert("termios");
-    
     // Misc
     modules.insert("hashlib");
     modules.insert("hmac");
@@ -100,21 +94,22 @@ pub fn get_stdlib_modules() -> HashSet<&'static str> {
     modules.insert("weakref");
     modules.insert("types");
     modules.insert("builtins");
-    
     modules
+});
+
+/// Return the lazily-initialized set of standard library module names
+pub fn get_stdlib_modules() -> &'static HashSet<&'static str> {
+    &*STD_LIB_MODULES
 }
 
 pub fn is_stdlib_module(module_name: &str) -> bool {
-    let stdlib_modules = get_stdlib_modules();
-    
     // Check direct match
-    if stdlib_modules.contains(module_name) {
+    if STD_LIB_MODULES.contains(module_name) {
         return true;
     }
-    
     // Check if it's a submodule of a stdlib module
     if let Some(top_level) = module_name.split('.').next() {
-        stdlib_modules.contains(top_level)
+        STD_LIB_MODULES.contains(top_level)
     } else {
         false
     }

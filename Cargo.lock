@@ -755,6 +755,7 @@ dependencies = [
  "env_logger",
  "indexmap",
  "log",
+ "once_cell",
  "petgraph",
  "regex",
  "rustpython-parser",

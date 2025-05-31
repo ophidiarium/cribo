@@ -8,6 +8,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+once_cell = { workspace = true }
 clap = { workspace = true }
 rustpython-parser = { workspace = true }
 serde = { workspace = true }
