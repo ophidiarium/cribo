@@ -45,6 +45,7 @@ jobs:
           sccache: true
 
       - name: List built wheels
+        shell: bash
         run: |
           ls -la dist/
           echo "=== Wheel details ==="
