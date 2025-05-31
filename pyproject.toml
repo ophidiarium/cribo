@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "serpen"
 version = "0.1.0"
 description = "Python source bundler that produces a single .py file from multi-module projects"
-authors = [{ name = "Tino Vyatkin", email = "tino@vyatk.in" }]
+authors = [{ name = "Konstantin Vyatkin", email = "tino@vtkn.io" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,7 +30,15 @@ Repository = "https://github.com/tinovyatkin/serpen"
 Documentation = "https://github.com/tinovyatkin/serpen#readme"
 Issues = "https://github.com/tinovyatkin/serpen/issues"
 
+[dependency-groups]
+test = ["pytest", "pytest-cov"]
+dev = ["maturin"]
+
 [tool.maturin]
 bindings = "bin"
 python-source = "python"
 manifest-path = "crates/serpen/Cargo.toml"
+
+[tool.uv]
+link-mode = "symlink"
+default-groups = ["test", "dev"]
