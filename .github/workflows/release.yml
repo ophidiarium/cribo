@@ -37,15 +37,32 @@ jobs:
         run: cargo test --workspace
 
       - name: Build wheels
-        # manylinux2014 provides broad compatibility across Linux distributions
-        # Alternative options: manylinux_2_28, manylinux_2_24 (newer, fewer compatible systems)
-        run: uv run --with maturin -- maturin build --release --compatibility manylinux2014
+        uses: PyO3/maturin-action@v1.49.1
+        with:
+          command: build
+          args: --release --out dist
+          manylinux: 2014
+          sccache: true
+
+      - name: List built wheels
+        run: |
+          ls -la dist/
+          echo "=== Wheel details ==="
+          for wheel in dist/*.whl; do
+            if [ -f "$wheel" ]; then
+              echo "Wheel: $(basename "$wheel")"
+              python -c "import zipfile; z = zipfile.ZipFile('$wheel'); [print(f'  {f}') for f in z.namelist() if f.endswith('WHEEL')]"
+              echo "WHEEL file contents:"
+              python -c "import zipfile; z = zipfile.ZipFile('$wheel'); [print(z.read(f).decode()) for f in z.namelist() if f.endswith('WHEEL')]"
+              echo "---"
+            fi
+          done
 
       - name: Store the distribution packages
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: python-package-distributions-${{ matrix.os }}
-          path: target/wheels/
+          path: dist/
 
   publish-to-testpypi:
     name: Publish Python 🐍 distribution 📦 to TestPyPI
