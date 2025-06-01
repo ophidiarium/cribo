@@ -4,7 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/serpen.svg)](https://pypi.org/project/serpen/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Serpen** is a CLI and Python library that produces a single `.py` file from a multi-module Python project by inlining all *first-party* source files. This approach is inspired by JavaScript bundlers and aims to simplify deployment, especially in constrained environments like PySpark jobs, AWS Lambdas, and notebooks.
+**Serpen** is a CLI and Python library that produces a single `.py` file from a multi-module Python project by inlining all _first-party_ source files. This approach is inspired by JavaScript bundlers and aims to simplify deployment, especially in constrained environments like PySpark jobs, AWS Lambdas, and notebooks.
 
 ## Features
 
@@ -203,12 +203,12 @@ Error: Circular dependency detected involving module: utils.helpers
 
 ## Comparison with Other Tools
 
-| Tool | Language | Tree Shaking | PySpark Ready | Type Hints |
-|------|----------|--------------|---------------|------------|
-| Serpen | Rust | ✅ | ✅ | ✅ |
-| PyInstaller | Python | ❌ | ❌ | ✅ |
-| Nuitka | Python | ❌ | ❌ | ✅ |
-| Pex | Python | ❌ | ❌ | ✅ |
+| Tool        | Language | Tree Shaking | PySpark Ready | Type Hints |
+| ----------- | -------- | ------------ | ------------- | ---------- |
+| Serpen      | Rust     | ✅           | ✅            | ✅         |
+| PyInstaller | Python   | ❌           | ❌            | ✅         |
+| Nuitka      | Python   | ❌           | ❌            | ✅         |
+| Pex         | Python   | ❌           | ❌            | ✅         |
 
 ## Development
 
@@ -247,6 +247,59 @@ serpen/
 ```
 
 ## Contributing
+
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/tinovyatkin/serpen.git
+cd serpen
+
+# Install Rust toolchain and components
+rustup component add llvm-tools-preview
+cargo install cargo-llvm-cov
+
+# Build Rust CLI
+cargo build --release
+
+# Build Python package
+pip install maturin
+maturin develop
+
+# Run tests
+cargo test
+```
+
+### Code Coverage
+
+The project uses `cargo-llvm-cov` for code coverage analysis:
+
+```bash
+# Generate text coverage report (Istanbul-style)
+cargo coverage-text
+
+# Generate HTML coverage report and open in browser
+cargo coverage
+
+# Generate LCOV format for CI
+cargo coverage-lcov
+
+# Clean coverage data
+cargo coverage-clean
+```
+
+**Branch Coverage (Experimental)**:
+
+```bash
+# Requires nightly Rust for branch coverage
+cargo +nightly coverage-branch
+```
+
+Coverage reports are automatically generated in CI and uploaded to Codecov. See [`docs/coverage.md`](docs/coverage.md) for detailed coverage documentation.
+
+**Note**: If you see zeros in the "Branch Coverage" column in HTML reports, this is expected with stable Rust. Branch coverage requires nightly Rust and is experimental.
+
+### Contributing Guidelines
 
 1. Fork the repository
 2. Create a feature branch

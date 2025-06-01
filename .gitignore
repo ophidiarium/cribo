@@ -32,3 +32,11 @@ dist/
 +*.whl
 +venv/
 +.venv/
+
+# Coverage reports
+coverage/
+coverage.lcov
+target/llvm-cov/
+*.profraw
+*.profdata
+baseline_coverage.txt

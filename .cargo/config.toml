@@ -1,0 +1,12 @@
+[alias]
+# Coverage commands using cargo-llvm-cov
+coverage = "llvm-cov --html --open"
+coverage-text = "llvm-cov --text"
+coverage-lcov = "llvm-cov --lcov --output-path target/llvm-cov/lcov.info"
+coverage-json = "llvm-cov --json --output-path target/llvm-cov/coverage.json"
+coverage-clean = "llvm-cov clean"
+
+# Branch coverage commands (requires nightly Rust)
+coverage-branch = "llvm-cov --html --open --branch"
+coverage-branch-text = "llvm-cov --text --branch"
+coverage-branch-lcov = "llvm-cov --lcov --output-path target/llvm-cov/lcov-branch.info --branch"
