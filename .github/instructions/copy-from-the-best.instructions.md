@@ -32,9 +32,9 @@ When implementing bundling logic, dependency resolution, tree shaking, or module
    - **Use for**: Module graph construction, dependency resolution, plugin systems, parallel processing
    - **Key areas**: `crates/rspack_core/`, dependency graph algorithms, module federation
 
-2. **[evanw/esbuild](https://github.com/evanw/esbuild)** - Extremely fast JavaScript bundler
-   - **Use for**: Efficient bundling algorithms, tree shaking implementation, source map generation, optimization techniques
-   - **Key areas**: Go bundling logic, resolver implementation, transformation pipelines
+2. **[umijs/mako](https://github.com/umijs/mako)** - Modern Rust-based bundler algorithms reference
+   - **Use for**: Efficient bundling algorithm implementations, tree shaking strategies, plugin architectures
+   - **Key areas**: core bundler algorithms, module resolution, optimization passes
 
 ## Implementation Guidelines
 
@@ -45,7 +45,7 @@ When implementing bundling logic, dependency resolution, tree shaking, or module
 # Example: If implementing dependency resolution
 # 1. Search uv for dependency resolution patterns
 # 2. Search rspack for module graph construction
-# 3. Search esbuild for efficient algorithms
+# 3. Search mako for efficient algorithms
 ```
 
 **Process:**
@@ -90,9 +90,9 @@ When implementing bundling logic, dependency resolution, tree shaking, or module
 
 #### Tree Shaking and Dead Code Elimination
 
-- **Reference**: `esbuild` tree shaking
+- **Reference**: `mako` tree shaking
 - **Pattern**: Usage analysis, side-effect tracking, optimization passes
-- **Files to check**: `internal/bundler/`, `internal/graph/`
+- **Files to check**: core bundler algorithms, optimization passes
 
 #### AST Manipulation and Transformation
 
@@ -126,7 +126,7 @@ Follow testing approaches from reference repositories:
 
 - **Unit tests**: Copy comprehensive test coverage patterns from `ruff`
 - **Integration tests**: Follow `uv`'s approach to testing complex workflows
-- **Benchmarks**: Use `esbuild`'s benchmarking patterns for performance validation
+- **Benchmarks**: Use `mako`'s benchmarking patterns for performance validation
 - **Property-based tests**: Adopt `rspack`'s fuzzing and property testing
 
 ### 5. Performance Optimization
@@ -134,7 +134,7 @@ Follow testing approaches from reference repositories:
 Reference performance patterns:
 
 - **Parallel processing**: `rspack`'s parallel compilation strategies
-- **Memory efficiency**: `esbuild`'s memory management techniques
+- **Memory efficiency**: `mako`'s memory management techniques
 - **Incremental compilation**: `ruff`'s incremental analysis patterns
 - **Caching strategies**: `uv`'s caching mechanisms
 
@@ -178,12 +178,12 @@ When facing design decisions:
 - Parallel processing strategies
 - Webpack compatibility patterns
 
-### Use esbuild for:
+### Use Mako for:
 
-- Extreme performance optimization
 - Efficient bundling algorithms
-- Minimal memory footprint techniques
-- Fast transformation pipelines
+- Tree shaking strategies
+- Plugin architecture design
+- Optimization passes
 
 ## Maintenance
 

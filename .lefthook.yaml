@@ -2,17 +2,24 @@
 assert_lefthook_installed: true
 pre-commit:
   commands:
+    install:
+      skip: true
+      run: rustup component add rustfmt clippy
     format:
       glob: '**/*.rs'
-      run: cargo fmt --edition 2024 {staged_files}
+      run: cargo fmt -- {staged_files}
       stage_fixed: true
-    lint:
-      glob: '**/*.rs'
-      run: cargo clippy --all-targets --all-features -- -D warnings
     dprint:
       glob: '*.{json,jsonc,yaml,yml,md,toml,py}'
       run: dprint fmt {staged_files}
       stage_fixed: true
+    lint:
+      glob: '**/*.rs'
+      run: cargo clippy --all-targets --all-features --fix --allow-dirty -- -D warnings
+      stage_fixed: true
+    update-index:
+      glob: '**/*.rs'
+      run: git update-index --again
 
 post-checkout:
   commands:
