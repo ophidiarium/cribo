@@ -31,7 +31,7 @@
         "**/node_modules",
         "**/*-lock.json",
         "**/testdata",
-        "_submodules/**",
+        "_submodules/**"
     ],
     // Note: if adding new languages, make sure settings.template.json is updated too.
     "plugins": [
@@ -39,6 +39,7 @@
         "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.5.1.wasm",
         "https://plugins.dprint.dev/ruff-0.3.9.wasm",
         "https://plugins.dprint.dev/toml-0.7.0.wasm",
-        "https://plugins.dprint.dev/exec-0.5.1.json"
+        "https://plugins.dprint.dev/exec-0.5.1.json",
+        "https://plugins.dprint.dev/markdown-0.18.0.wasm"
     ]
 }

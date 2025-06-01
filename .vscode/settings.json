@@ -4,7 +4,7 @@
     ],
     "rust-analyzer.check.command": "clippy",
     "rust-analyzer.checkOnSave": true,
-    "[json][jsonc][yaml][github-actions-workflow][python][toml]": {
+    "[json][jsonc][yaml][github-actions-workflow][python][toml][markdown]": {
         "editor.defaultFormatter": "dprint.dprint",
         "editor.formatOnSave": true
     },
@@ -13,7 +13,7 @@
     "chat.agent.enabled": true,
     "chat.promptFiles": true,
     "chat.instructionsFilesLocations": {
-        ".github/instructions": true,
+        ".github/instructions": true
     },
     "github.copilot.chat.agent.thinkingTool": true,
     "github.copilot.advanced": {
