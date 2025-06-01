@@ -24,6 +24,10 @@ When working with Python analysis, AST manipulation, configuration handling, or 
    - **Use for**: Type inference, incremental analysis, large codebase handling, Python semantics
    - **Key areas**: Type system implementation, incremental checking, performance optimization
 
+4. **[quarylabs/sqruff](https://github.com/quarylabs/sqruff)** - SQL linter and formatter with advanced lineage analysis
+   - **Use for**: SQL parsing and formatting, lineage analysis, test inference algorithms, benchmarking setup, modular crate architecture
+   - **Key areas**: `crates/lineage/`, `crates/lib-core/`, benchmarking with Criterion, SQL AST manipulation
+
 ### Bundling and Dependency Graph Patterns
 
 When implementing bundling logic, dependency resolution, tree shaking, or module analysis:
@@ -94,11 +98,34 @@ When implementing bundling logic, dependency resolution, tree shaking, or module
 - **Pattern**: Usage analysis, side-effect tracking, optimization passes
 - **Files to check**: core bundler algorithms, optimization passes
 
+#### SQL Analysis and Lineage Tracking
+
+- **Reference**: `sqruff` lineage analysis
+- **Pattern**: SQL AST traversal, dependency graph construction, column-level lineage tracking
+- **Files to check**: `crates/lineage/src/`, scope analysis, IR construction
+
+#### Advanced Benchmarking Setup
+
+- **Reference**: `sqruff` benchmarking infrastructure
+- **Pattern**: Criterion-based performance testing, profiling integration, flamegraph generation
+- **Files to check**: Benchmarking setup with PProfProfiler, performance regression detection
+
 #### AST Manipulation and Transformation
 
 - **Reference**: `ruff` Python AST handling
 - **Pattern**: Visitor patterns, safe transformations, preserving semantics
 - **Files to check**: `crates/ruff_python_ast/`
+
+#### Lineage Analysis and Data Flow Tracking
+
+- **Reference**: `sqruff` lineage implementation
+- **Pattern**: Multi-pass analysis (lowering → expansion → qualification → scope building), intermediate representation design
+- **Files to check**: `crates/lineage/src/ir.rs`, `crates/lineage/src/scope.rs`, `crates/lineage/src/qualify.rs`
+- **Key techniques**:
+  - Scope-based traversal with hierarchical source tracking
+  - Expression graph construction with parent-child relationships
+  - Column-level dependency resolution through table and CTE analysis
+  - Union and subquery handling with proper scope isolation
 
 ### 3. Code Documentation Standards
 
@@ -109,7 +136,14 @@ When adapting patterns from these repositories:
 /// Inspired by uv's resolver: https://github.com/astral-sh/uv/blob/main/crates/uv-resolver/
 /// Key improvements: [describe your adaptations]
 pub struct DependencyResolver {
-  // Implementation details
+    // Implementation details
+}
+
+/// Implements column-level lineage tracking using scope-based analysis
+/// Inspired by sqruff's lineage engine: https://github.com/quarylabs/sqruff/tree/main/crates/lineage/
+/// Adapted for [your specific domain] with improvements in [describe adaptations]
+pub struct LineageTracker {
+    // Implementation based on sqruff's ir.rs and scope.rs patterns
 }
 ```
 
@@ -128,6 +162,7 @@ Follow testing approaches from reference repositories:
 - **Integration tests**: Follow `uv`'s approach to testing complex workflows
 - **Benchmarks**: Use `mako`'s benchmarking patterns for performance validation
 - **Property-based tests**: Adopt `rspack`'s fuzzing and property testing
+- **Lineage validation**: Follow `sqruff`'s approach to testing complex data flow scenarios
 
 ### 5. Performance Optimization
 
@@ -137,6 +172,7 @@ Reference performance patterns:
 - **Memory efficiency**: `mako`'s memory management techniques
 - **Incremental compilation**: `ruff`'s incremental analysis patterns
 - **Caching strategies**: `uv`'s caching mechanisms
+- **Graph traversal optimization**: `sqruff`'s efficient scope-based analysis
 
 ## Decision Making Process
 
@@ -184,6 +220,16 @@ When facing design decisions:
 - Tree shaking strategies
 - Plugin architecture design
 - Optimization passes
+
+### Use Sqruff for:
+
+- SQL parsing and AST manipulation
+- Advanced lineage analysis and dependency tracking
+- Column-level data flow analysis
+- Modular crate architecture patterns
+- Comprehensive benchmarking and profiling setup
+- Test inference algorithms for data validation
+- Schema evolution and migration patterns
 
 ## Maintenance
 

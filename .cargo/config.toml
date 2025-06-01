@@ -1,3 +1,6 @@
+[build]
+rustflags = ["-Ctarget-cpu=native"]
+
 [alias]
 # Coverage commands using cargo-llvm-cov
 coverage = "llvm-cov --html --open"
