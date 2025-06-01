@@ -600,7 +600,196 @@ impl Default for UnusedImportAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use insta::{assert_snapshot, with_settings};
 
+    fn format_unused_imports(unused_imports: &[UnusedImport]) -> String {
+        if unused_imports.is_empty() {
+            "No unused imports".to_string()
+        } else {
+            let mut formatted: Vec<_> = unused_imports
+                .iter()
+                .map(|import| (import.name.clone(), import.qualified_name.clone()))
+                .collect();
+            formatted.sort();
+            formatted
+                .into_iter()
+                .map(|(name, qualified_name)| format!("- {} ({})", name, qualified_name))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+    }
+
+    #[test]
+    fn test_unused_import_detection_snapshots() {
+        let test_cases = vec![
+            (
+                "basic_unused_detection",
+                r#"
+import os
+import sys
+from pathlib import Path
+
+def main():
+    print(sys.version)
+    p = Path(".")
+    print(p)
+
+if __name__ == "__main__":
+    main()
+"#,
+            ),
+            (
+                "star_import_handling",
+                r#"
+from pathlib import *
+
+def main():
+    p = Path(".")
+    print(p)
+"#,
+            ),
+            (
+                "all_export_handling",
+                r#"
+import os
+import json
+import sys
+
+__all__ = ["os"]
+
+def main():
+    print(sys.version)
+"#,
+            ),
+            (
+                "complex_import_scenarios",
+                r#"
+import os
+import sys
+import json
+from typing import List, Dict, Optional
+from collections import defaultdict, Counter
+import re
+
+def main():
+    # Use sys
+    print(sys.version)
+
+    # Use List from typing
+    numbers: List[int] = [1, 2, 3]
+
+    # Use defaultdict
+    dd = defaultdict(int)
+    dd["test"] = 5
+
+    print(f"Numbers: {numbers}")
+    print(f"Defaultdict: {dict(dd)}")
+"#,
+            ),
+            (
+                "future_imports",
+                r#"
+from __future__ import annotations, print_function
+import sys
+import json
+
+def main():
+    print(sys.version)
+"#,
+            ),
+            (
+                "no_unused_imports",
+                r#"
+import math
+import json
+
+def calculate(x):
+    result = math.sqrt(x)
+    data = json.dumps({"result": result})
+    return data
+"#,
+            ),
+        ];
+
+        let mut output = String::new();
+
+        for (description, source) in test_cases {
+            let mut analyzer = UnusedImportAnalyzer::new();
+            let unused_imports = analyzer.analyze_file(source).unwrap();
+
+            output.push_str(&format!("## {}\n", description));
+            output.push_str(&format!("Source:\n{}\n", source.trim()));
+            output.push_str(&format!(
+                "Unused imports:\n{}\n\n",
+                format_unused_imports(&unused_imports)
+            ));
+        }
+
+        with_settings!({
+            description => "Unused import detection handles various Python import patterns correctly"
+        }, {
+            assert_snapshot!(output);
+        });
+    }
+
+    #[test]
+    fn test_analyzer_independence_snapshots() {
+        let mut analyzer = UnusedImportAnalyzer::new();
+
+        let test_files = vec![
+            (
+                "file_1_os_unused",
+                r#"
+import os
+import sys
+
+def main():
+    print(sys.version)
+"#,
+            ),
+            (
+                "file_2_json_unused",
+                r#"
+import json
+import pathlib
+
+def process():
+    p = pathlib.Path(".")
+    return p
+"#,
+            ),
+            (
+                "file_3_all_used",
+                r#"
+import math
+
+def calculate(x):
+    return math.sqrt(x)
+"#,
+            ),
+        ];
+
+        let mut output = String::new();
+
+        for (description, source) in test_files {
+            let unused_imports = analyzer.analyze_file(source).unwrap();
+
+            output.push_str(&format!("## {}\n", description));
+            output.push_str(&format!("Source:\n{}\n", source.trim()));
+            output.push_str(&format!(
+                "Unused imports:\n{}\n\n",
+                format_unused_imports(&unused_imports)
+            ));
+        }
+
+        with_settings!({
+            description => "Analyzer maintains independence between multiple file analyses"
+        }, {
+            assert_snapshot!(output);
+        });
+    }
+
+    // Legacy tests - keeping these for backwards compatibility during transition
     #[test]
     fn test_unused_import_detection() {
         let source = r#"

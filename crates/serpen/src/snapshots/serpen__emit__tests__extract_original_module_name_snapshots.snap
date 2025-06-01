@@ -1,0 +1,32 @@
+---
+source: crates/serpen/src/emit.rs
+description: Module name extraction handles aliases and whitespace correctly
+expression: output
+---
+Input: numpy
+Original: numpy
+Name: numpy
+
+Input: numpy as np
+Original: numpy
+Name: np
+
+Input: matplotlib.pyplot as plt
+Original: matplotlib.pyplot
+Name: plt
+
+Input: requests as req  # HTTP lib
+Original: requests
+Name: req
+
+Input:   pandas   as   pd  
+Original: pandas
+Name: pd
+
+Input: collections.defaultdict
+Original: collections.defaultdict
+Name: collections.defaultdict
+
+Input: typing.List as List
+Original: typing.List
+Name: List

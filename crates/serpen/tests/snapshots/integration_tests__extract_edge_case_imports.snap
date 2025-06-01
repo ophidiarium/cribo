@@ -1,0 +1,20 @@
+---
+source: crates/serpen/tests/integration_tests.rs
+description: Import extraction from complex Python file with various import patterns
+expression: output
+---
+Extracted imports from edge cases file:
+  1: os
+  2: sys
+  3: json
+  4: collections
+  5: typing
+  6: numpy
+  7: pandas
+  8: pathlib
+  9: tests.fixtures.utils
+  10: tests.parent
+  11: grandparent.deep
+  12: tests.fixtures.relative_module
+  13: importlib
+  14: concurrent.futures

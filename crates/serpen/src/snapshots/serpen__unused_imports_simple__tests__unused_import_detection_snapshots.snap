@@ -1,0 +1,96 @@
+---
+source: crates/serpen/src/unused_imports_simple.rs
+description: Unused import detection handles various Python import patterns correctly
+expression: output
+---
+## basic_unused_detection
+Source:
+import os
+import sys
+from pathlib import Path
+
+def main():
+    print(sys.version)
+    p = Path(".")
+    print(p)
+
+if __name__ == "__main__":
+    main()
+Unused imports:
+- os (os)
+
+## star_import_handling
+Source:
+from pathlib import *
+
+def main():
+    p = Path(".")
+    print(p)
+Unused imports:
+No unused imports
+
+## all_export_handling
+Source:
+import os
+import json
+import sys
+
+__all__ = ["os"]
+
+def main():
+    print(sys.version)
+Unused imports:
+- json (json)
+
+## complex_import_scenarios
+Source:
+import os
+import sys
+import json
+from typing import List, Dict, Optional
+from collections import defaultdict, Counter
+import re
+
+def main():
+    # Use sys
+    print(sys.version)
+
+    # Use List from typing
+    numbers: List[int] = [1, 2, 3]
+
+    # Use defaultdict
+    dd = defaultdict(int)
+    dd["test"] = 5
+
+    print(f"Numbers: {numbers}")
+    print(f"Defaultdict: {dict(dd)}")
+Unused imports:
+- Counter (collections.Counter)
+- Dict (typing.Dict)
+- Optional (typing.Optional)
+- json (json)
+- os (os)
+- re (re)
+
+## future_imports
+Source:
+from __future__ import annotations, print_function
+import sys
+import json
+
+def main():
+    print(sys.version)
+Unused imports:
+- json (json)
+
+## no_unused_imports
+Source:
+import math
+import json
+
+def calculate(x):
+    result = math.sqrt(x)
+    data = json.dumps({"result": result})
+    return data
+Unused imports:
+No unused imports

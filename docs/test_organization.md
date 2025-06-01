@@ -16,8 +16,22 @@ Located in `crates/serpen/src/` within each module file:
 
 Located in `crates/serpen/tests/`:
 
-- `integration_tests.rs` - Main integration tests for bundling functionality
+- `integration_tests.rs` - Main integration tests for bundling functionality, utilizing snapshot testing (`insta`) to verify outputs.
 - `test_relative_imports.rs` - Tests for relative import resolution
+
+#### Snapshot Testing in Integration Tests
+
+- Snapshot files for integration tests are stored in `crates/serpen/tests/snapshots/`.
+- These snapshots help ensure that the output of certain operations (like module resolution or code generation) remains consistent across changes.
+- To review changes to snapshots, use the command:
+  ```bash
+  cargo insta review
+  ```
+- To accept new or updated snapshots, use:
+  ```bash
+  cargo insta accept
+  ```
+- It's crucial to ensure that data being snapshotted is deterministic (e.g., by sorting collections like HashSets or HashMaps before serialization) to avoid flaky tests.
 
 ### Test Fixtures
 

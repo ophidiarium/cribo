@@ -1,0 +1,13 @@
+---
+source: crates/serpen/tests/integration_tests.rs
+description: Dependency graph creation and topological sorting results
+expression: output
+---
+Graph has 3 modules
+
+Dependencies:
+Module main depends on: ["models.user", "utils.helpers"]
+Module models.user depends on: []
+Module utils.helpers depends on: []
+
+Topological sort: ["models.user", "utils.helpers", "main"]

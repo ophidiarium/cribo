@@ -1,0 +1,59 @@
+---
+source: crates/serpen/src/emit.rs
+description: Import rewriting functionality preserves used imports and removes unused ones
+expression: output
+---
+## simple_import_with_unused
+Input: import os, sys
+Unused: ["sys"]
+Output: import os
+
+## from_import_with_unused
+Input: from collections import defaultdict, Counter
+Unused: ["Counter"]
+Output: from collections import defaultdict
+
+## import_all_unused
+Input: import os, sys
+Unused: ["os", "sys"]
+Output: <removed>
+
+## import_with_comment
+Input: import os, sys  # System imports
+Unused: ["sys"]
+Output: import os  # System imports
+
+## from_import_with_comment
+Input: from pathlib import Path, PurePath  # Path utilities
+Unused: ["PurePath"]
+Output: from pathlib import Path  # Path utilities
+
+## import_none_unused
+Input: import os, sys
+Unused: []
+Output: import os, sys
+
+## import_with_aliases
+Input: import numpy as np, pandas as pd
+Unused: ["pd"]
+Output: import numpy as np
+
+## complex_from_import
+Input: from package.submodule import func1, func2, func3
+Unused: ["func2"]
+Output: from package.submodule import func1, func3
+
+## mixed_whitespace
+Input: import   os,   sys  ,  json
+Unused: ["sys"]
+Output: import os, json
+
+## single_import_unused
+Input: import sys
+Unused: ["sys"]
+Output: <removed>
+
+## single_import_kept
+Input: import os
+Unused: []
+Output: import os

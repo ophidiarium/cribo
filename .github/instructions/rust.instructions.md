@@ -10,7 +10,7 @@ Apply the [general coding guidelines](./general-coding.instructions.md) to all c
 
 - Use idiomatic, modern Rust (2024 edition or later).
 - Use strong typing and Rust’s safety/concurrency principles throughout.
-- Use `rust-lang.rust-analyzer` for formatting and linting.
+- Use `rust-lang.rust-analyzer` for formatting, linting and running tests.
 - Ensure usage of proper error handling, using `Option` or `Result` types where appropriate. Utilize a custom error type for the project when reasonable.
 - Ensure functions are documented with comments that abide by Rust's documentation standards
 - Ensure that functions are tested in a way that is consistent with the rest of the codebase
@@ -20,8 +20,22 @@ Apply the [general coding guidelines](./general-coding.instructions.md) to all c
 - `alloc` is available for heap allocation, but use it sparingly
 - Ensure that any feature gates that are added are added to the Cargo.toml and documented
 - Ensure that any dependencies that are added are added to the Cargo.toml and documented
-- When making asynchronous functions, use `async fn` and `await` for calling other asynchronous functions, do not return a `Future` directly unless absolutely necessary
-- When reviewing Rust code, always make sure there is enough context to ensure the borrow checker is satisfied
+
+## Snapshot Testing with Insta
+
+This project uses `insta` for snapshot testing. Snapshots are a way to test that the output of a function or a piece of code remains consistent over time.
+
+- When a test using `insta` is run for the first time, or when the output changes, a new snapshot file (e.g., `.snap`) will be created or updated.
+- To review changes to snapshots, use:
+  ```bash
+  cargo insta review
+  ```
+- To accept new or updated snapshots, use:
+  ```bash
+  cargo insta accept
+  ```
+- Ensure that snapshot files are committed to the repository along with the code changes.
+- When snapshot tests fail due to non-deterministic output (e.g., from iterating over `HashSet`s or `HashMap`s), modify the code or the test to produce a stable, sorted output before snapshotting.
 
 ## Logging Guidelines
 
@@ -95,10 +109,3 @@ If coverage drops significantly (>2%):
 - **During development**: Write tests as you implement each function/method
 - **Before committing**: Verify coverage meets requirements
 - **In PRs**: GitHub Actions will automatically generate branch coverage reports
-
-## Related Rust Processes
-
-- Use `cargo clippy` for linting and code quality checks
-- Use `cargo fmt` for formatting
-- Use `cargo test` for unit tests and integration tests
-- Use `cargo doc` for generating documentation

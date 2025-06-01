@@ -1,0 +1,19 @@
+---
+source: crates/serpen/tests/integration_tests.rs
+description: Module resolution results showing discovered modules and import classifications
+expression: output
+---
+First-party modules discovered: [
+    "main",
+    "models",
+    "models.user",
+    "utils",
+    "utils.helpers",
+]
+
+Import classifications:
+  .relative_module -> FirstParty
+  ..parent_module -> FirstParty
+  ...grandparent.module -> FirstParty
+  os -> StandardLibrary
+  unknown_package -> ThirdParty

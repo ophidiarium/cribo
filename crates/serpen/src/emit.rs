@@ -694,6 +694,7 @@ impl CodeEmitter {
 mod tests {
     use super::*;
     use crate::config::Config;
+    use insta::{assert_snapshot, with_settings};
     use std::collections::HashSet;
 
     fn create_test_emitter() -> CodeEmitter {
@@ -702,6 +703,215 @@ mod tests {
         CodeEmitter::new(resolver, false, false)
     }
 
+    #[test]
+    fn test_import_rewriting_snapshots() {
+        let emitter = create_test_emitter();
+
+        let scenarios = vec![
+            // (description, import_statement, unused_imports)
+            ("simple_import_with_unused", "import os, sys", &["sys"][..]),
+            (
+                "from_import_with_unused",
+                "from collections import defaultdict, Counter",
+                &["Counter"][..],
+            ),
+            ("import_all_unused", "import os, sys", &["os", "sys"][..]),
+            (
+                "import_with_comment",
+                "import os, sys  # System imports",
+                &["sys"][..],
+            ),
+            (
+                "from_import_with_comment",
+                "from pathlib import Path, PurePath  # Path utilities",
+                &["PurePath"][..],
+            ),
+            ("import_none_unused", "import os, sys", &[][..]),
+            (
+                "import_with_aliases",
+                "import numpy as np, pandas as pd",
+                &["pd"][..],
+            ),
+            (
+                "complex_from_import",
+                "from package.submodule import func1, func2, func3",
+                &["func2"][..],
+            ),
+            (
+                "mixed_whitespace",
+                "import   os,   sys  ,  json",
+                &["sys"][..],
+            ),
+            ("single_import_unused", "import sys", &["sys"][..]),
+            ("single_import_kept", "import os", &[][..]),
+        ];
+
+        let mut output = String::new();
+
+        for (description, import_statement, unused_list) in scenarios {
+            let mut unused = HashSet::new();
+            for unused_import in unused_list {
+                unused.insert(unused_import.to_string());
+            }
+
+            let result = emitter.rewrite_import_without_unused(import_statement, &unused);
+
+            output.push_str(&format!("## {}\n", description));
+            output.push_str(&format!("Input: {}\n", import_statement));
+            output.push_str(&format!("Unused: {:?}\n", unused_list));
+            match result {
+                Some(rewritten) => output.push_str(&format!("Output: {}\n", rewritten)),
+                None => output.push_str("Output: <removed>\n"),
+            }
+            output.push('\n');
+        }
+
+        with_settings!({
+            description => "Import rewriting functionality preserves used imports and removes unused ones"
+        }, {
+            assert_snapshot!(output);
+        });
+    }
+
+    #[test]
+    fn test_extract_import_modules_snapshots() {
+        let emitter = create_test_emitter();
+
+        let test_cases = vec![
+            "import os, sys",
+            "import numpy as np, pandas as pd",
+            "import os, numpy as np, sys",
+            "import matplotlib.pyplot as plt",
+            "from collections import defaultdict",
+            "from package.submodule import func",
+            "import requests as req  # HTTP library",
+            "",
+            "invalid import statement",
+            "from typing import List, Dict, Optional",
+            "import json  # JSON parsing",
+        ];
+
+        let mut output = String::new();
+
+        for import_statement in test_cases {
+            let result = emitter.extract_import_modules(import_statement);
+            output.push_str(&format!("Input: {}\n", import_statement));
+            output.push_str(&format!("Modules: {:?}\n\n", result));
+        }
+
+        with_settings!({
+            description => "Module extraction from import statements handles all import formats"
+        }, {
+            assert_snapshot!(output);
+        });
+    }
+
+    #[test]
+    fn test_extract_original_module_name_snapshots() {
+        let emitter = create_test_emitter();
+
+        let test_cases = vec![
+            "numpy",
+            "numpy as np",
+            "matplotlib.pyplot as plt",
+            "requests as req  # HTTP lib",
+            "  pandas   as   pd  ",
+            "collections.defaultdict",
+            "typing.List as List",
+        ];
+
+        let mut output = String::new();
+
+        for module_spec in test_cases {
+            let original = emitter.extract_original_module_name(module_spec);
+            let name = emitter.extract_import_name(module_spec);
+
+            output.push_str(&format!("Input: {}\n", module_spec));
+            output.push_str(&format!("Original: {}\n", original));
+            output.push_str(&format!("Name: {}\n\n", name));
+        }
+
+        with_settings!({
+            description => "Module name extraction handles aliases and whitespace correctly"
+        }, {
+            assert_snapshot!(output);
+        });
+    }
+
+    #[test]
+    fn test_logical_statement_indentation_snapshots() {
+        let emitter = create_test_emitter();
+        let first_party_imports = HashSet::new();
+
+        let test_cases = vec![
+            (
+                "4_space_indentation",
+                "    import os, sys  # Test comment",
+                &["sys"][..],
+            ),
+            (
+                "tab_indentation",
+                "\tfrom collections import Counter, defaultdict",
+                &["Counter"][..],
+            ),
+            ("no_indentation", "import json, pathlib", &["pathlib"][..]),
+            (
+                "mixed_whitespace",
+                "        \timport typing, collections",
+                &["typing"][..],
+            ),
+            (
+                "deep_indentation",
+                "            import math, random",
+                &["random"][..],
+            ),
+            (
+                "all_removed",
+                "    import unused1, unused2",
+                &["unused1", "unused2"][..],
+            ),
+        ];
+
+        let mut output = String::new();
+
+        for (description, statement, unused_list) in test_cases {
+            let mut output_lines = Vec::new();
+            let mut unused_imports = HashSet::new();
+
+            for unused in unused_list {
+                unused_imports.insert(unused.to_string());
+            }
+
+            let ctx = LogicalStatementContext {
+                statement,
+                first_party_imports: &first_party_imports,
+                unused_import_names: &unused_imports,
+                output_lines: &mut output_lines,
+            };
+
+            emitter.process_logical_statement(ctx);
+
+            output.push_str(&format!("## {}\n", description));
+            output.push_str(&format!("Input: {:?}\n", statement));
+            output.push_str(&format!("Unused: {:?}\n", unused_list));
+            if output_lines.is_empty() {
+                output.push_str("Output: <statement removed>\n");
+            } else {
+                for (i, line) in output_lines.iter().enumerate() {
+                    output.push_str(&format!("Output[{}]: {:?}\n", i, line));
+                }
+            }
+            output.push('\n');
+        }
+
+        with_settings!({
+            description => "Logical statement processing preserves indentation and handles import filtering"
+        }, {
+            assert_snapshot!(output);
+        });
+    }
+
+    // Legacy tests - keeping these for backwards compatibility during transition
     #[test]
     fn test_rewrite_simple_import_with_unused() {
         let emitter = create_test_emitter();

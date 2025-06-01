@@ -1,0 +1,34 @@
+---
+source: crates/serpen/src/emit.rs
+description: Logical statement processing preserves indentation and handles import filtering
+expression: output
+---
+## 4_space_indentation
+Input: "    import os, sys  # Test comment"
+Unused: ["sys"]
+Output[0]: "    import os  # Test comment"
+
+## tab_indentation
+Input: "\tfrom collections import Counter, defaultdict"
+Unused: ["Counter"]
+Output[0]: "\tfrom collections import defaultdict"
+
+## no_indentation
+Input: "import json, pathlib"
+Unused: ["pathlib"]
+Output[0]: "import json"
+
+## mixed_whitespace
+Input: "        \timport typing, collections"
+Unused: ["typing"]
+Output[0]: "        \timport collections"
+
+## deep_indentation
+Input: "            import math, random"
+Unused: ["random"]
+Output[0]: "            import math"
+
+## all_removed
+Input: "    import unused1, unused2"
+Unused: ["unused1", "unused2"]
+Output: <statement removed>

@@ -1,0 +1,34 @@
+---
+source: crates/serpen/src/unused_imports_simple.rs
+description: Analyzer maintains independence between multiple file analyses
+expression: output
+---
+## file_1_os_unused
+Source:
+import os
+import sys
+
+def main():
+    print(sys.version)
+Unused imports:
+- os (os)
+
+## file_2_json_unused
+Source:
+import json
+import pathlib
+
+def process():
+    p = pathlib.Path(".")
+    return p
+Unused imports:
+- json (json)
+
+## file_3_all_used
+Source:
+import math
+
+def calculate(x):
+    return math.sqrt(x)
+Unused imports:
+No unused imports

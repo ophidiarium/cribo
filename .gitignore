@@ -40,3 +40,7 @@ target/llvm-cov/
 *.profraw
 *.profdata
 baseline_coverage.txt
+
+# Insta snapshot testing
+# Review snapshots before committing
+*.snap.new

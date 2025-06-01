@@ -2,8 +2,14 @@
     "rust-analyzer.check.extraArgs": [
         "--all-features"
     ],
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer",
+        "editor.formatOnSave": true
+    },
     "rust-analyzer.check.command": "clippy",
     "rust-analyzer.checkOnSave": true,
+    "rust-analyzer.testExplorer": true,
+    "rust-analyzer.workspace.symbol.search.scope": "workspace",
     "[json][jsonc][yaml][github-actions-workflow][python][toml][markdown]": {
         "editor.defaultFormatter": "dprint.dprint",
         "editor.formatOnSave": true
