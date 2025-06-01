@@ -37,7 +37,7 @@ jobs:
         run: cargo test --workspace
 
       - name: Build wheels
-        uses: PyO3/maturin-action@v1.49.1
+        uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3 # v1.49.1
         with:
           command: build
           args: --release --out dist
