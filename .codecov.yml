@@ -33,13 +33,14 @@ github_checks:
 
 # Ignore patterns for coverage reporting
 ignore:
-  - 'target/'
-  - 'tests/'
+  - 'python'
+  - '**/tests/'
   - 'benches/'
   - 'examples/'
   - 'scripts/'
   - 'docs/'
   - '*.md'
+  - '*.py'
   - 'Cargo.toml'
   - 'Cargo.lock'
 

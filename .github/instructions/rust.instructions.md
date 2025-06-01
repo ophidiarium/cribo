@@ -10,6 +10,7 @@ Apply the [general coding guidelines](./general-coding.instructions.md) to all c
 
 - Use idiomatic, modern Rust (2024 edition or later).
 - Use strong typing and Rust’s safety/concurrency principles throughout.
+- Use `rust-lang.rust-analyzer` for formatting and linting.
 - Ensure usage of proper error handling, using `Option` or `Result` types where appropriate. Utilize a custom error type for the project when reasonable.
 - Ensure functions are documented with comments that abide by Rust's documentation standards
 - Ensure that functions are tested in a way that is consistent with the rest of the codebase

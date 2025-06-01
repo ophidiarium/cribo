@@ -27,6 +27,12 @@
                 "id": "github_token",
                 "description": "GitHub Personal Access Token",
                 "password": true
+            },
+            {
+                "type": "promptString",
+                "id": "smithery_key",
+                "description": "Smithery.ai Key",
+                "password": false
             }
         ],
         "servers": {
@@ -50,6 +56,17 @@
                 "env": {
                     "GITHUB_PERSONAL_ACCESS_TOKEN": "${input:github_token}"
                 }
+            },
+            "rust-docs-mcp-server": {
+                "command": "npx",
+                "args": [
+                    "-y",
+                    "@smithery/cli@latest",
+                    "run",
+                    "@laptou/rust-docs-mcp-server",
+                    "--key",
+                    "${input:smithery_key}"
+                ]
             }
         }
     }

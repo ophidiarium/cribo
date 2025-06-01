@@ -1,25 +1,25 @@
 [package]
 name = "serpen"
 version.workspace = true
+authors.workspace = true
 edition.workspace = true
-description.workspace = true
 license.workspace = true
 repository.workspace = true
-authors.workspace = true
+description.workspace = true
 
 [dependencies]
-once_cell = { workspace = true }
+anyhow = { workspace = true }
 clap = { workspace = true }
+env_logger = { workspace = true }
+indexmap = { workspace = true }
+log = { workspace = true }
+once_cell = { workspace = true }
+petgraph = { workspace = true }
+regex = { workspace = true }
 rustpython-parser = { workspace = true }
 serde = { workspace = true }
-anyhow = { workspace = true }
-log = { workspace = true }
-env_logger = { workspace = true }
-petgraph = { workspace = true }
 toml = { workspace = true }
 walkdir = { workspace = true }
-indexmap = { workspace = true }
-regex = { workspace = true }
 
 # Binary target only - no library for Python bindings following Ruff's pattern
 [[bin]]

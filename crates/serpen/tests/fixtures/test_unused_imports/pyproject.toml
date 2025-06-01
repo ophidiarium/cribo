@@ -1,0 +1,4 @@
+[tool.serpen]
+name = "test_unused_imports"
+entry = "main.py"
+output = "bundled.py"

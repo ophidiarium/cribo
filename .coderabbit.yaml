@@ -1,7 +1,7 @@
-language: "en-US"
+language: 'en-US'
 early_access: true
 reviews:
-  profile: "assertive"
+  profile: 'assertive'
   request_changes_workflow: true
   high_level_summary: true
   poem: false
@@ -17,3 +17,6 @@ knowledge_base:
     scope: local
   web_search:
     enabled: true
+path_filters:
+  # Exclude test fixtures from review
+  - '!crates/serpen/tests/fixtures/**'
