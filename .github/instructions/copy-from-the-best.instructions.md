@@ -44,19 +44,28 @@ When implementing bundling logic, dependency resolution, tree shaking, or module
 
 ### 1. Research Before Implementation
 
+**GitHub MCP Server Tools Available:**
+
+- `github_repo` - Search specific repositories for code snippets (use this for targeted searches)
+- `f1e_search_code` - Search code across all GitHub repositories
+- `f1e_get_file_contents` - Retrieve specific files from reference repositories
+- `f1e_search_repositories` - Find additional high-quality reference repositories
+
+**Example Research Process:**
+
 ```bash
-# Before implementing new functionality, search these repositories:
 # Example: If implementing dependency resolution
-# 1. Search uv for dependency resolution patterns
-# 2. Search rspack for module graph construction
-# 3. Search mako for efficient algorithms
+# 1. Use github_repo to search "astral-sh/uv" for dependency resolution patterns
+# 2. Use github_repo to search "web-infra-dev/rspack" for module graph construction  
+# 3. Use github_repo to search "umijs/mako" for efficient algorithms
+# 4. Use f1e_get_file_contents to examine specific implementation files
 ```
 
 **Process:**
 
 1. Identify the core functionality you're implementing
 2. Determine which repositories are most relevant
-3. Search for similar implementations in those repositories
+3. Use GitHub MCP tools to search for similar implementations in those repositories
 4. Adapt their patterns to your specific use case
 5. Document the source of inspiration in code comments
 

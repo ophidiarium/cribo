@@ -272,7 +272,11 @@ impl Bundler {
     ) {
         if let Stmt::Import(import_stmt) = stmt {
             for alias in &import_stmt.names {
-                imports.push(alias.name.to_string());
+                // For dotted imports like "xml.etree.ElementTree", we need to extract
+                // the root module name "xml" for classification purposes, but we should
+                // preserve the full import path for the output
+                let module_name = alias.name.to_string();
+                imports.push(module_name);
             }
         } else if let Stmt::ImportFrom(import_from_stmt) = stmt {
             self.process_import_from_statement(import_from_stmt, imports, file_path);

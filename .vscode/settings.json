@@ -7,13 +7,31 @@
         "editor.formatOnSave": true
     },
     "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.cargo.buildScripts.enable": true,
+    "rust-analyzer.cargo.extraEnv": {
+        "RUSTC_BOOTSTRAP": "1",
+        "RUSTFLAGS": "--cfg proc_macro_span --cfg verus_keep_ghost"
+    },
+    "rust-analyzer.runnableEnv": {
+        "RUSTC_BOOTSTRAP": "1"
+    },
     "rust-analyzer.checkOnSave": true,
     "rust-analyzer.testExplorer": true,
-    "rust-analyzer.workspace.symbol.search.scope": "workspace",
+    "rust-analyzer.procMacro.enable": true,
+    "rust-analyzer.workspace.symbol.search.scope": "workspace_and_dependencies",
+    "rust-analyzer.diagnostics.disabled": [
+        "unresolved-extern-crate",
+        "syntax-error"
+    ],
+    "rust-analyzer.imports.granularity.enforce": true,
+    "rust-analyzer.imports.granularity.group": "crate",
+    "rust-analyzer.imports.group.enable": true,
+    "rust-analyzer.debug.engine": "vadimcn.vscode-lldb",
     "[json][jsonc][yaml][github-actions-workflow][python][toml][markdown]": {
         "editor.defaultFormatter": "dprint.dprint",
         "editor.formatOnSave": true
     },
+    "ruff.enable": false,
     "evenBetterToml.schema.enabled": true,
     "cSpell.enabled": false,
     "chat.agent.enabled": true,
@@ -33,12 +51,6 @@
                 "id": "github_token",
                 "description": "GitHub Personal Access Token",
                 "password": true
-            },
-            {
-                "type": "promptString",
-                "id": "smithery_key",
-                "description": "Smithery.ai Key",
-                "password": false
             }
         ],
         "servers": {
@@ -62,17 +74,6 @@
                 "env": {
                     "GITHUB_PERSONAL_ACCESS_TOKEN": "${input:github_token}"
                 }
-            },
-            "rust-docs-mcp-server": {
-                "command": "npx",
-                "args": [
-                    "-y",
-                    "@smithery/cli@latest",
-                    "run",
-                    "@laptou/rust-docs-mcp-server",
-                    "--key",
-                    "${input:smithery_key}"
-                ]
             }
         }
     }

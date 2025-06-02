@@ -19,6 +19,7 @@ regex = { workspace = true }
 rustpython-parser = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
+unparser = { workspace = true }
 walkdir = { workspace = true }
 
 # Binary target only - no library for Python bindings following Ruff's pattern

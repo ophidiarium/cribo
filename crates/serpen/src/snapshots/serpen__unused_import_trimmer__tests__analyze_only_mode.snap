@@ -1,0 +1,7 @@
+---
+source: crates/serpen/src/unused_import_trimmer.rs
+description: Analyze-only mode identifies unused imports without modifying code
+expression: output
+---
+Unused imports count: 1
+  - os (os)

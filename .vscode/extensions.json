@@ -8,5 +8,7 @@
         "github.vscode-github-actions",
         "tamasfe.even-better-toml",
         "dprint.dprint",
+        "mitsuhiko.insta",
+        "vadimcn.vscode-lldb"
     ]
 }

@@ -1,0 +1,25 @@
+---
+source: crates/serpen/src/unused_import_trimmer.rs
+description: Complex import scenario with mixed used and unused imports
+expression: format_trim_result(&result)
+---
+Has changes: true
+Removed imports count: 6
+Removed imports:
+  - Counter (collections.Counter)
+  - Dict (typing.Dict)
+  - Optional (typing.Optional)
+  - json (json)
+  - os (os)
+  - re (re)
+Transformed code:
+import sys
+from typing import List
+from collections import defaultdict
+def main():
+    print(sys.version)
+    numbers: List[int] = [1, 2, 3]
+    dd = defaultdict(int)
+    dd['test'] = 5
+    print(f"Numbers: {numbers}")
+    print(f"Defaultdict: {dict(dd)}")

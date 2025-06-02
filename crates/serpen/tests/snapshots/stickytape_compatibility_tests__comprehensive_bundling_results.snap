@@ -1,0 +1,27 @@
+---
+source: crates/serpen/tests/stickytape_compatibility_tests.rs
+description: Comprehensive bundling test results across multiple scenarios
+expression: summary
+---
+Bundling Test Results Summary:
+✓ single_file (Single file without dependencies)
+  Lines: 7, Size: 176 bytes
+  Execution: Success: 
+
+✓ script_with_single_local_import (Script with local module import)
+  Lines: 10, Size: 231 bytes
+  Execution: Success: 
+
+✓ script_using_module_in_package (Script importing from package)
+  Lines: 10, Size: 251 bytes
+  Execution: Success: 
+
+✓ script_with_single_local_from_import (Script with from-import syntax)
+  Lines: 10, Size: 222 bytes
+  Execution: Success: 
+
+✓ imports_in_imported_modules (Nested module imports)
+  Lines: 13, Size: 261 bytes
+  Execution: Success: 
+
+Successful: 5, Failed: 0, Total scenarios: 5

@@ -1,0 +1,14 @@
+---
+source: crates/serpen/src/unused_import_trimmer.rs
+description: Future imports are preserved by default configuration
+expression: format_trim_result(&result)
+---
+Has changes: true
+Removed imports count: 1
+Removed imports:
+  - json (json)
+Transformed code:
+from __future__ import annotations, print_function
+import sys
+def main():
+    print(sys.version)

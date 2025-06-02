@@ -1,0 +1,18 @@
+---
+source: crates/serpen/src/unused_import_trimmer.rs
+description: Basic unused import trimming removes only unused imports
+expression: format_trim_result(&result)
+---
+Has changes: true
+Removed imports count: 1
+Removed imports:
+  - os (os)
+Transformed code:
+import sys
+from pathlib import Path
+def main():
+    print(sys.version)
+    p = Path('.')
+    print(p)
+if __name__ == '__main__':
+    main()

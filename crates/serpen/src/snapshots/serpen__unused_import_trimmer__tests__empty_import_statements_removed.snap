@@ -1,0 +1,16 @@
+---
+source: crates/serpen/src/unused_import_trimmer.rs
+description: Import statements with all unused items are completely removed
+expression: format_trim_result(&result)
+---
+Has changes: true
+Removed imports count: 4
+Removed imports:
+  - Counter (collections.Counter)
+  - Union (typing.Union)
+  - deque (collections.deque)
+  - json (json)
+Transformed code:
+from typing import Optional
+def process(data: Optional[str]) -> str:
+    return data or 'default'

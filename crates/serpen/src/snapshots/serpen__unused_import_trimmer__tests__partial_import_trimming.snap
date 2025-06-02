@@ -1,0 +1,17 @@
+---
+source: crates/serpen/src/unused_import_trimmer.rs
+description: Partial import trimming removes unused items from import statements
+expression: format_trim_result(&result)
+---
+Has changes: false
+Removed imports count: 2
+Removed imports:
+  - Optional (typing.Optional)
+  - Union (typing.Union)
+Transformed code:
+from typing import List, Dict
+def process_data(items: List[str]) -> Dict[(str, int)]:
+    result = {}
+    for item in items:
+        result[item] = len(item)
+    return result

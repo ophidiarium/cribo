@@ -17,10 +17,6 @@ struct Cli {
     #[arg(short, long)]
     output: PathBuf,
 
-    /// Emit requirements.txt with third-party dependencies
-    #[arg(long)]
-    emit_requirements: bool,
-
     /// Enable verbose logging
     #[arg(short, long)]
     verbose: bool,
@@ -28,6 +24,10 @@ struct Cli {
     /// Configuration file path
     #[arg(short, long)]
     config: Option<PathBuf>,
+
+    /// Emit requirements.txt with third-party dependencies
+    #[arg(long)]
+    emit_requirements: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -38,6 +38,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or(log_level)).init();
 
     info!("Starting Serpen Python bundler");
+
     debug!("Entry point: {:?}", cli.entry);
     debug!("Output: {:?}", cli.output);
 
@@ -50,5 +51,6 @@ fn main() -> anyhow::Result<()> {
     bundler.bundle(&cli.entry, &cli.output, cli.emit_requirements)?;
 
     info!("Bundle created successfully at {:?}", cli.output);
+
     Ok(())
 }

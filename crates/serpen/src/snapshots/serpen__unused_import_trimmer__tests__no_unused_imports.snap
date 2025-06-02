@@ -1,0 +1,15 @@
+---
+source: crates/serpen/src/unused_import_trimmer.rs
+description: Code with no unused imports remains unchanged
+expression: format_trim_result(&result)
+---
+Has changes: false
+Removed imports count: 0
+Transformed code:
+import math
+import json
+
+def calculate(x):
+    result = math.sqrt(x)
+    data = json.dumps({"result": result})
+    return data
