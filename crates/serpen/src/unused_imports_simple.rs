@@ -207,13 +207,21 @@ impl UnusedImportAnalyzer {
 
     /// Extract the full dotted name from an attribute expression
     /// For example, xml.etree.ElementTree.__name__ -> "xml.etree.ElementTree"
-    fn extract_full_dotted_name(&self, expr: &ast::Expr) -> Option<String> {
+    fn extract_full_dotted_name(expr: &ast::Expr) -> Option<String> {
         match expr {
             ast::Expr::Name(name_expr) => Some(name_expr.id.as_str().to_string()),
-            ast::Expr::Attribute(attr_expr) => self
-                .extract_full_dotted_name(&attr_expr.value)
+            ast::Expr::Attribute(attr_expr) => Self::extract_full_dotted_name(&attr_expr.value)
                 .map(|base_name| format!("{}.{}", base_name, attr_expr.attr.as_str())),
             _ => None,
+        }
+    }
+
+    /// Process attribute usage to reduce nesting in track_usage_in_expression
+    fn process_attribute_usage(&mut self, expr: &ast::Expr) {
+        if let Some(full_name) = Self::extract_full_dotted_name(expr) {
+            if self.imported_names.contains_key(&full_name) {
+                self.used_names.insert(full_name);
+            }
         }
     }
 
@@ -329,12 +337,7 @@ impl UnusedImportAnalyzer {
                 self.used_names.insert(name.to_string());
             }
             ast::Expr::Attribute(attr_expr) => {
-                // Extract the full dotted name and check if it matches any imported name
-                if let Some(full_name) = self.extract_full_dotted_name(expr) {
-                    if self.imported_names.contains_key(&full_name) {
-                        self.used_names.insert(full_name);
-                    }
-                }
+                self.process_attribute_usage(expr);
                 // Continue with recursive processing
                 self.track_usage_in_expression(&attr_expr.value);
             }

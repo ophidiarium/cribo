@@ -685,6 +685,45 @@ impl Unparser {
         }
     }
     fn unparse_stmt_expr(&mut self, node: &StmtExpr<TextRange>) {
+        // Check if this is a comment (string literal on its own line)
+        if let Expr::Constant(ExprConstant {
+            value: Constant::Str(content),
+            ..
+        }) = &*node.value
+        {
+            // Special case for comments created using the string constant trick
+            // If it's the first line in the file and starts with shebang, handle it specially
+            if content.starts_with("#!/") {
+                // Don't add an indentation or newline before the shebang
+                // Just write it at the start of the file
+                self.write_str(content);
+                self.fill("");
+                return;
+            }
+            // Handle empty lines for spacing
+            else if content.is_empty() {
+                self.fill("");
+                return;
+            }
+            // Handle regular comments (starting with #)
+            else if content.starts_with('#') {
+                // Write the comment as-is without quotes
+                self.fill("");
+                self.write_str(content);
+                return;
+            }
+            // Handle module header comments with special formatting
+            else if content.contains("─ Module:")
+                || content.contains("─ Entry Module:")
+                || content == "Preserved imports"
+            {
+                self.fill("");
+                self.write_str(&format!("# {}", content));
+                return;
+            }
+        }
+
+        // Default handling for non-comment expression statements
         self.fill("");
         self.with_precedence(Precedence::Yield, |block_self| {
             block_self.unparse_expr(&node.value);

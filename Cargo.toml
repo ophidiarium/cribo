@@ -46,6 +46,8 @@ pyo3-build-config = "0.25"
 
 # Testing
 insta = { version = "1.34", features = ["filters"] }
+pretty_assertions = "1.3.0"
+rand = "0.8.5"
 tempfile = "3.8"
 
 [workspace.lints.rust]
