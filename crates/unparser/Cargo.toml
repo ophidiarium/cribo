@@ -18,6 +18,5 @@ rustpython-literal = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
-rand = { workspace = true }
 rustpython-ast = { workspace = true, features = ["fold", "unparse"] }
 rustpython-parser = { workspace = true }

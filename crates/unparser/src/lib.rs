@@ -18,7 +18,6 @@ mod tests {
     use std::fs;
     use std::io;
     use std::path::Path;
-    use std::process::Command;
 
     struct RangesEraser {}
 
@@ -106,27 +105,5 @@ mod tests {
     #[test]
     fn test_predefined_files() -> io::Result<()> {
         run_tests_on_folders("./test_files", "./test_files_unparsed")
-    }
-    #[test]
-    #[ignore = "Fuzzy tests are unstable and should only be used to explore new test cases"]
-    fn test_fuzzy_files() -> io::Result<()> {
-        let seed = rand::random::<usize>();
-
-        for i in 0..10 {
-            let file_name = format!("./fuzzy_test_files/fuzzy_test{}.py", i);
-
-            let file_content = Command::new(".venv/bin/python")
-                .arg("-m")
-                .arg("pysource_codegen")
-                .arg("--seed")
-                .arg(seed.to_string())
-                .output()
-                .expect("failed to execute process");
-            fs::write(&file_name, &file_content.stdout)?;
-        }
-
-        run_tests_on_folders("./fuzzy_test_files", "./fuzzy_test_files_unparsed")?;
-
-        Ok(())
     }
 }
