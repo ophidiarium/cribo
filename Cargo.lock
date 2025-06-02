@@ -869,7 +869,7 @@ dependencies = [
 
 [[package]]
 name = "serpen"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1092,7 +1092,7 @@ dependencies = [
 
 [[package]]
 name = "unparser"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pretty_assertions",
  "rustpython-ast",

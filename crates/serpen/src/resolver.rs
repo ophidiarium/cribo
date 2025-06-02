@@ -7,6 +7,76 @@ use walkdir::WalkDir;
 use crate::config::Config;
 use crate::python_stdlib::is_stdlib_module;
 
+/// A scoped guard for safely setting and cleaning up the PYTHONPATH environment variable.
+///
+/// This guard ensures that the PYTHONPATH environment variable is properly restored
+/// to its original value when the guard is dropped, even if a panic occurs during testing.
+///
+/// # Example
+///
+/// ```rust
+/// use serpen::resolver::PythonPathGuard;
+/// let _guard = PythonPathGuard::new("/tmp/test");
+/// // PYTHONPATH is now set to "/tmp/test"
+/// // When _guard goes out of scope, PYTHONPATH is restored to its original value
+/// ```
+#[must_use = "PythonPathGuard must be held in scope to ensure cleanup"]
+pub struct PythonPathGuard {
+    /// The original value of PYTHONPATH, if it was set
+    /// None if PYTHONPATH was not set originally
+    original_value: Option<String>,
+}
+
+impl PythonPathGuard {
+    /// Create a new PYTHONPATH guard with the given value.
+    ///
+    /// This will set the PYTHONPATH environment variable to the specified value
+    /// and store the original value for restoration when the guard is dropped.
+    pub fn new(new_value: &str) -> Self {
+        let original_value = std::env::var("PYTHONPATH").ok();
+
+        // SAFETY: This is safe in test contexts where we control the environment
+        // and ensure proper cleanup via the Drop trait.
+        unsafe {
+            std::env::set_var("PYTHONPATH", new_value);
+        }
+
+        Self { original_value }
+    }
+
+    /// Create a new PYTHONPATH guard that ensures PYTHONPATH is unset.
+    ///
+    /// This will remove the PYTHONPATH environment variable and store the
+    /// original value for restoration when the guard is dropped.
+    pub fn unset() -> Self {
+        let original_value = std::env::var("PYTHONPATH").ok();
+
+        // SAFETY: This is safe in test contexts where we control the environment
+        // and ensure proper cleanup via the Drop trait.
+        unsafe {
+            std::env::remove_var("PYTHONPATH");
+        }
+
+        Self { original_value }
+    }
+}
+
+impl Drop for PythonPathGuard {
+    fn drop(&mut self) {
+        // Always attempt cleanup, even during panics - that's the whole point of a scope guard!
+        // We catch and ignore any errors to prevent double panics, but we must try to clean up.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // SAFETY: This is safe as we're restoring the environment to its original state
+            unsafe {
+                match self.original_value.take() {
+                    Some(original) => std::env::set_var("PYTHONPATH", original),
+                    None => std::env::remove_var("PYTHONPATH"),
+                }
+            }
+        }));
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportType {
     FirstParty,
@@ -25,46 +95,90 @@ pub struct ModuleResolver {
 
 impl ModuleResolver {
     pub fn new(config: Config) -> Result<Self> {
+        Self::new_with_pythonpath(config, None)
+    }
+
+    /// Create a new ModuleResolver with optional PYTHONPATH override for testing
+    pub fn new_with_pythonpath(config: Config, pythonpath_override: Option<&str>) -> Result<Self> {
         let mut resolver = Self {
             config,
             module_cache: HashMap::new(),
             first_party_modules: HashSet::new(),
         };
 
-        resolver.discover_first_party_modules()?;
+        resolver.discover_first_party_modules_with_pythonpath(pythonpath_override)?;
         Ok(resolver)
     }
 
-    /// Scan src directories to discover all first-party Python modules
-    #[allow(clippy::excessive_nesting)]
-    fn discover_first_party_modules(&mut self) -> Result<()> {
-        for src_dir in &self.config.src {
-            if !src_dir.exists() {
-                continue;
+    /// Get all directories to scan for modules (configured src + PYTHONPATH)
+    /// Returns deduplicated, canonicalized paths
+    pub fn get_scan_directories(&self) -> Vec<PathBuf> {
+        self.get_scan_directories_with_pythonpath(None)
+    }
+
+    /// Get all directories to scan for modules with optional PYTHONPATH override
+    /// Returns deduplicated, canonicalized paths
+    pub fn get_scan_directories_with_pythonpath(
+        &self,
+        pythonpath_override: Option<&str>,
+    ) -> Vec<PathBuf> {
+        let mut unique_dirs = HashSet::new();
+
+        // Add configured src directories
+        for dir in &self.config.src {
+            if let Ok(canonical) = dir.canonicalize() {
+                unique_dirs.insert(canonical);
+            } else {
+                // If canonicalize fails (e.g., path doesn't exist), use the original path
+                unique_dirs.insert(dir.clone());
             }
+        }
 
-            debug!("Scanning source directory: {:?}", src_dir);
+        // Add PYTHONPATH directories
+        let pythonpath = pythonpath_override
+            .map(|p| p.to_string())
+            .or_else(|| std::env::var("PYTHONPATH").ok());
 
-            for entry in WalkDir::new(src_dir)
-                .follow_links(false)
-                .into_iter()
-                .filter_map(|e| e.ok())
-            {
-                let path = entry.path();
-
-                // Skip non-Python files
-                if !self.is_python_file(path) {
-                    continue;
-                }
-
-                // Convert file path to module name
-                if let Some(module_name) = self.path_to_module_name(src_dir, path) {
-                    debug!("Found first-party module: {}", module_name);
-                    self.first_party_modules.insert(module_name.clone());
-                    self.module_cache
-                        .insert(module_name, Some(path.to_path_buf()));
-                }
+        if let Some(pythonpath) = pythonpath {
+            // Use platform-appropriate path separator: ';' on Windows, ':' on Unix
+            let separator = if cfg!(windows) { ';' } else { ':' };
+            for path_str in pythonpath.split(separator) {
+                self.add_pythonpath_directory(&mut unique_dirs, path_str);
             }
+        }
+
+        unique_dirs.into_iter().collect()
+    }
+
+    /// Helper method to add a PYTHONPATH directory to the unique set
+    fn add_pythonpath_directory(&self, unique_dirs: &mut HashSet<PathBuf>, path_str: &str) {
+        if path_str.is_empty() {
+            return;
+        }
+
+        let path = PathBuf::from(path_str);
+        if !path.exists() || !path.is_dir() {
+            return;
+        }
+
+        if let Ok(canonical) = path.canonicalize() {
+            unique_dirs.insert(canonical);
+        } else {
+            // If canonicalize fails but path exists, use the original path
+            unique_dirs.insert(path);
+        }
+    }
+
+    /// Discover first-party modules with optional PYTHONPATH override
+    /// This method is useful for testing to avoid environment variable pollution
+    fn discover_first_party_modules_with_pythonpath(
+        &mut self,
+        pythonpath_override: Option<&str>,
+    ) -> Result<()> {
+        let directories_to_scan = self.get_scan_directories_with_pythonpath(pythonpath_override);
+
+        for src_dir in &directories_to_scan {
+            self.scan_directory_for_modules(src_dir)?;
         }
 
         // Add configured known first-party modules
@@ -73,6 +187,40 @@ impl ModuleResolver {
         }
 
         Ok(())
+    }
+
+    /// Scan a single directory for Python modules
+    fn scan_directory_for_modules(&mut self, src_dir: &Path) -> Result<()> {
+        if !src_dir.exists() {
+            return Ok(());
+        }
+
+        debug!("Scanning source directory: {:?}", src_dir);
+
+        let entries = WalkDir::new(src_dir)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok());
+
+        for entry in entries {
+            self.process_directory_entry(src_dir, entry.path());
+        }
+
+        Ok(())
+    }
+
+    /// Process a single directory entry and add it as a module if it's a Python file
+    fn process_directory_entry(&mut self, src_dir: &Path, path: &Path) {
+        if !self.is_python_file(path) {
+            return;
+        }
+
+        if let Some(module_name) = self.path_to_module_name(src_dir, path) {
+            debug!("Found first-party module: {}", module_name);
+            self.first_party_modules.insert(module_name.clone());
+            self.module_cache
+                .insert(module_name, Some(path.to_path_buf()));
+        }
     }
 
     /// Check if a path is a Python file
@@ -164,8 +312,9 @@ impl ModuleResolver {
             return Ok(None);
         }
 
-        // Try to find the module file
-        for src_dir in &self.config.src {
+        // Try to find the module file in all directories
+        let directories_to_search = self.get_scan_directories();
+        for src_dir in &directories_to_search {
             if let Some(path) = self.find_module_file(src_dir, module_name)? {
                 self.module_cache
                     .insert(module_name.to_string(), Some(path.clone()));
@@ -244,5 +393,60 @@ mod tests {
             resolver.path_to_module_name(src_dir, file_path),
             Some("mypkg".to_string())
         );
+    }
+
+    #[test]
+    fn test_get_scan_directories_with_pythonpath() {
+        let config = Config {
+            src: vec![PathBuf::from("/src1"), PathBuf::from("/src2")],
+            ..Config::default()
+        };
+        let resolver = ModuleResolver {
+            config,
+            module_cache: HashMap::new(),
+            first_party_modules: HashSet::new(),
+        };
+
+        // Use scope guard to safely set PYTHONPATH for testing
+        let separator = if cfg!(windows) { ';' } else { ':' };
+        let pythonpath_value = format!(
+            "/pythonpath1{}/pythonpath2{}/nonexistent",
+            separator, separator
+        );
+        let _guard = PythonPathGuard::new(&pythonpath_value);
+
+        let scan_dirs = resolver.get_scan_directories();
+
+        // Should contain configured src directories
+        assert!(scan_dirs.contains(&PathBuf::from("/src1")));
+        assert!(scan_dirs.contains(&PathBuf::from("/src2")));
+
+        // Note: PYTHONPATH directories are only included if they exist,
+        // so we can't test for their presence without creating actual directories
+
+        // No manual cleanup needed - guard handles it automatically
+    }
+
+    #[test]
+    fn test_get_scan_directories_without_pythonpath() {
+        let config = Config {
+            src: vec![PathBuf::from("/src1"), PathBuf::from("/src2")],
+            ..Config::default()
+        };
+        let resolver = ModuleResolver {
+            config,
+            module_cache: HashMap::new(),
+            first_party_modules: HashSet::new(),
+        };
+
+        // Use scope guard to ensure PYTHONPATH is not set
+        let _guard = PythonPathGuard::unset();
+
+        let scan_dirs = resolver.get_scan_directories();
+
+        // Should only contain configured src directories
+        assert_eq!(scan_dirs.len(), 2);
+        assert!(scan_dirs.contains(&PathBuf::from("/src1")));
+        assert!(scan_dirs.contains(&PathBuf::from("/src2")));
     }
 }
