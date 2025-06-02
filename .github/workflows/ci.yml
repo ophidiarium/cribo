@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ['3.10', '3.11', '3.12']
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -23,9 +23,9 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
         with:
-          # Use a shared cache key across different Python versions
-          # to avoid rebuilding Rust dependencies for each Python version
-          shared-key: rust-deps
+          # Use a shared cache key based on Cargo.lock hash for better cache invalidation
+          # Include hash to ensure cache is invalidated when dependencies change
+          shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
           # Cache even on build failures to speed up subsequent runs
           cache-on-failure: true
 

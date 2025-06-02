@@ -21,16 +21,32 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
         with:
-          shared-key: rust-deps
+          shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
           cache-on-failure: true
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
+      - name: Install cargo2junit
+        run: cargo install cargo2junit --locked
+
+      - name: Run tests and generate JUnit XML
+        run: |
+          cargo test --workspace --all-targets --no-fail-fast -- --format=json -Z unstable-options | cargo2junit --input-format=json > junit.xml
+
       - name: Generate coverage report
         run: |
           mkdir -p target/llvm-cov
-          cargo coverage-branch-lcov
+          cargo llvm-cov --workspace --all-features --lcov --output-path target/llvm-cov/lcov-branch.info
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@v1
+        with:
+          files: junit.xml
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5.4.3
