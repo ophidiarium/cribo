@@ -4,10 +4,10 @@ build-backend = "maturin"
 
 [project]
 name = "serpen"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Python source bundler that produces a single .py file from multi-module projects"
 authors = [{ name = "Konstantin Vyatkin", email = "tino@vtkn.io" }]
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
