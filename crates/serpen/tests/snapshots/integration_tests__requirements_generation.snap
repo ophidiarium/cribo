@@ -16,22 +16,26 @@ import typing
 import pydantic
 
 # ─ Module: utils.validation ─
-'Validation utilities.'
+"""Validation utilities."""
+
 import re
 from typing import Union
 def validate_email(email: str) -> bool:
-    'Simple email validation.'
+    """Simple email validation."""
+    
     pattern = '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'
     return bool(re.match(pattern, email))
 def sanitize_input(text: str) -> str:
-    'Sanitize input text.'
+    """Sanitize input text."""
+    
     dangerous_chars = ['<', '>', '"', "'", '&']
     sanitized = text
     for char in dangerous_chars:
         sanitized = sanitized.replace(char, '')
     return sanitized.strip()
 def validate_age(age: Union[(int, str)]) -> bool:
-    'Validate age value.'
+    """Validate age value."""
+    
     try:
         age_int = int(age)
         return 0 <= age_int <= 150
@@ -39,28 +43,33 @@ def validate_age(age: Union[(int, str)]) -> bool:
         return False
 
 # ─ Module: schemas.user ─
-'User schema definitions using Pydantic.'
+"""User schema definitions using Pydantic."""
+
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 class UserSchema(BaseModel):
-    'User model with Pydantic validation.'
+    """User model with Pydantic validation."""
+    
     name: str = Field(..., min_length=1, max_length=100, description="User's full name")
     email: EmailStr = Field(..., description="User's email address")
     age: int = Field(..., ge=0, le=150, description="User's age")
     is_active: bool = Field(default=True, description='Whether the user is active')
     bio: Optional[str] = Field(default=None, max_length=500, description="User's biography")
     class Config:
-        'Pydantic configuration.'
+        """Pydantic configuration."""
+        
         json_encoders = {}
         schema_extra = {'example': {'name': 'John Doe', 'email': 'john@example.com', 'age': 30, 'is_active': True, 'bio': 'Software developer'}}
 class CreateUserRequest(BaseModel):
-    'Request model for creating a new user.'
+    """Request model for creating a new user."""
+    
     name: str = Field(..., min_length=1, max_length=100)
     email: EmailStr
     age: Optional[int] = Field(default=None, ge=0, le=150)
     bio: Optional[str] = Field(default=None, max_length=500)
 class UserResponse(BaseModel):
-    'Response model for user data.'
+    """Response model for user data."""
+    
     id: int
     name: str
     email: str
@@ -69,9 +78,11 @@ class UserResponse(BaseModel):
     bio: Optional[str] = None
 
 # ─ Entry Module: main ─
-'Pydantic test project entry point.'
+"""Pydantic test project entry point."""
+
 def main():
-    'Main function demonstrating Pydantic usage.'
+    """Main function demonstrating Pydantic usage."""
+    
     user_data = {'name': 'John Doe', 'email': 'john@example.com', 'age': 25}
     try:
         user = UserSchema(**user_data)
