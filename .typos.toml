@@ -1,0 +1,21 @@
+# https://github.com/crate-ci/typos
+# cargo install typos-cli
+# typos
+
+[files]
+extend-exclude = [
+    "**/*.{css,map,json,txt,snap,bak,diff,html}",
+    "**/tests/**",
+    "tests/**",
+    "**/CHANGELOG.md",
+    "GOVERNANCE.md",
+]
+
+[default.extend-words]
+Colum = "Colum"
+Nd = "Nd"
+fo = "fo"
+splitted = "splitted"
+ws = "ws"
+Pn = "Pn"
+styl = "styl"
