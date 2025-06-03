@@ -10,6 +10,7 @@
 - **⚡ Eliminated Duplication**: Removed separate `build-npm-binaries` job that used the `cross` tool
 - **🏗️ Consistent Tooling**: Both PyPI wheels and npm binaries use maturin-action containers for cross-compilation
 - **📦 Enhanced Coverage**: Now building 8 platform variants (added musl and explicit macOS targets)
+- **🤖 Dependency Management**: Configured Renovate to ignore internal `@serpen/*` packages to prevent unwanted updates
 
 ### **Current Workflow:**
 
@@ -25,6 +26,14 @@ Each build job now:
 3. Uploads both as separate artifacts
 
 The `generate-npm-packages` job then downloads all npm binaries and creates platform-specific packages.
+
+### **Dependency Management:**
+
+The project uses Renovate for automated dependency updates, but excludes internal platform-specific packages:
+
+- **Internal packages ignored**: All `@serpen/*` packages (e.g., `@serpen/linux-x64-gnu`, `@serpen/darwin-arm64`)
+- **Rationale**: These packages are managed by the CI/CD release workflow and should not be updated independently
+- **Configuration**: Added to `renovate.json` with pattern `^@serpen/` and `enabled: false`
 
 **For detailed technical implementation, see:** `docs/pypi-aarch64-support.md`
 
