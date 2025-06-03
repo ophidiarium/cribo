@@ -201,48 +201,6 @@ jobs:
           target: ${{ matrix.platform.rust_target }}
           maturin-version: '1.7.4'
 
-      - name: Fix wheel tag ordering (PEP 425 compliance)
-        shell: bash
-        run: |
-          # Fix wheel filenames to ensure platform tags are properly sorted per PEP 425
-          # This addresses the issue where maturin/auditwheel doesn't sort compressed tag sets
-
-          echo "🔧 Checking and fixing wheel tag ordering..."
-
-          for wheel in dist/*.whl; do
-            if [[ -f "$wheel" ]]; then
-              filename=$(basename "$wheel")
-              echo "Processing: $filename"
-
-              # Check if this is a problematic manylinux wheel with multiple platform tags
-              problematic_pattern="manylinux2014_aarch64\.manylinux_2_17_aarch64"
-              if [[ "$filename" =~ $problematic_pattern ]]; then
-                # Extract the correct sorted filename
-                corrected_filename=$(echo "$filename" | \
-                  sed 's/manylinux2014_aarch64\.manylinux_2_17_aarch64/manylinux_2_17_aarch64.manylinux2014_aarch64/')
-
-                echo "  ❌ Found incorrectly ordered tags: $filename"
-                echo "  ✅ Renaming to PEP 425 compliant: $corrected_filename"
-
-                mv "$wheel" "dist/$corrected_filename"
-              elif [[ "$filename" =~ manylinux2014_x86_64\.manylinux_2_17_x86_64 ]]; then
-                # Handle x86_64 case if it exists
-                corrected_filename=$(echo "$filename" | \
-                  sed 's/manylinux2014_x86_64\.manylinux_2_17_x86_64/manylinux_2_17_x86_64.manylinux2014_x86_64/')
-
-                echo "  ❌ Found incorrectly ordered tags: $filename"
-                echo "  ✅ Renaming to PEP 425 compliant: $corrected_filename"
-
-                mv "$wheel" "dist/$corrected_filename"
-              else
-                echo "  ✅ Wheel has correct tag ordering: $filename"
-              fi
-            fi
-          done
-
-          echo "📋 Final wheel listing:"
-          ls -la dist/
-
       - name: Build npm binary
         shell: bash
         env:
