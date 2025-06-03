@@ -65,6 +65,14 @@ jobs:
         with:
           targets: ${{ matrix.platform.rust_target }}
 
+      - name: Set up cross-compilation environment
+        if: contains(matrix.platform.rust_target, 'aarch64-unknown-linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
         with:
@@ -191,6 +199,10 @@ jobs:
 
       - name: Build npm binary
         shell: bash
+        env:
+          # Clear sccache environment variables to avoid conflicts
+          RUSTC_WRAPPER: ''
+          SCCACHE_CACHE_SIZE: ''
         run: |
           # Get current version from Cargo.toml
           CURRENT_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
@@ -217,6 +229,11 @@ jobs:
             echo "✅ Built binary: ${BINARY_PATH} -> target/npm-binaries/${RUST_TARGET}/${BINARY_NAME}"
             ls -la "target/npm-binaries/${RUST_TARGET}/${BINARY_NAME}"
           else
+            echo "❌ Binary not found at: ${BINARY_PATH}"
+            echo "Available files in target directory:"
+            find target -name "${BINARY_NAME}" -type f || echo "No binaries found"
+            exit 1
+          fi
             echo "❌ Binary not found at: ${BINARY_PATH}"
             echo "Available files in target directory:"
             find target -name "${BINARY_NAME}" -type f || echo "No binaries found"
