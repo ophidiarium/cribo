@@ -128,7 +128,9 @@ jobs:
         run: cargo test --workspace
 
       - name: Set up QEMU
+        if: matrix.platform.os != 'macos-latest'
         uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
