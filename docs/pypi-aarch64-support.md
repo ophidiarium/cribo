@@ -4,6 +4,8 @@
 
 Added aarch64 (ARM64) Linux support to PyPI wheel building and optimized the release workflow by consolidating npm binary building with PyPI wheel building. This ensures both PyPI wheels and npm binaries are available for ARM64 Linux platforms while eliminating build process duplication.
 
+> **📋 Important**: This document includes a fix for PyPI wheel tag ordering issues that were causing publishing failures. See [PyPI Wheel Tag Ordering Fix](pypi-wheel-tag-ordering-fix.md) for details.
+
 ## Key Achievements
 
 1. **✅ Enhanced Platform Coverage**: Added aarch64 Linux support for both PyPI wheels and npm binaries
