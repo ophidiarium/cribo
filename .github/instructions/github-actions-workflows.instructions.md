@@ -6,7 +6,8 @@ applyTo: "**/.github/workflows/*.yml,**/github-actions.md"
 
 ## Overview
 
-This document outlines standards and best practices for implementing Continuous Integration (CI) and Continuous Deployment (CD) workflows using GitHub Actions. Following these guidelines ensures reliable, secure, and efficient deployment pipelines on the GitHub platform.
+This document outlines standards and best practices for implementing Continuous Integration (CI) and Continuous Deployment (CD) workflows using GitHub Actions.
+Following these guidelines ensures reliable, secure, and efficient deployment pipelines on the GitHub platform.
 
 ## GitHub Actions Basics
 
@@ -20,7 +21,8 @@ This document outlines standards and best practices for implementing Continuous 
 
 **IMPORTANT**: Always verify current platform support before configuring matrix builds or target platforms. GitHub frequently updates their hosted runners, adds new platforms, and deprecates old ones.
 
-**Required Research Step**: Before implementing or updating any workflow that uses platform matrices, cross-compilation, or specific runner configurations, consult the official GitHub documentation:
+**Required Research Step**: Before implementing or updating any workflow that uses platform matrices,
+cross-compilation, or specific runner configurations, consult the official GitHub documentation:
 
 📖 **Primary Source**: [GitHub-hosted runners documentation](https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories)
 
@@ -419,9 +421,14 @@ The project uses a custom `.yamllint` configuration optimized for GitHub Actions
 **After making any changes to workflow files**:
 
 1. **Run yamllint validation**:
+
    ```bash
    yamllint .github/workflows/filename.yml
    ```
+
+````
+```text
+````
 
 2. **Fix any reported issues** before committing
 
@@ -431,7 +438,7 @@ The project uses a custom `.yamllint` configuration optimized for GitHub Actions
 
 **Long lines**: Split using YAML continuation or folding:
 
-```yaml
+```text
 # Before (too long)
 description: 'Very long description that exceeds the line length limit and needs to be split'
 
@@ -443,14 +450,17 @@ description: >-
 
 **Complex shell commands**: Use multi-line format:
 
-```yaml
+````
 # Before (too long)
+
 run: cargo test --workspace --all-targets --no-fail-fast -- --format=json -Z unstable-options | cargo2junit
 
 # After (multi-line)
+
 run: |
   cargo test --workspace --all-targets --no-fail-fast -- \
     --format=json -Z unstable-options | cargo2junit
+
 ```
 
 #### VS Code Integration
@@ -468,37 +478,44 @@ When using VS Code, yamllint errors are automatically highlighted. The custom co
 - **Hard-to-debug failures** where YAML parser errors obscure the actual issue
 - **Maintenance complexity** mixing Python and YAML syntax
 
-**❌ Problematic Pattern:**
+## ❌ Problematic Pattern
+````
 
-```yaml
 - name: Complex Python operation
   shell: python
   run: |
-    import zipfile
-    import os
-    wheel_file = "${{ env.WHEEL_FILE }}"
-    with zipfile.ZipFile(wheel_file, 'r') as zip_ref:
-        for file_info in zip_ref.infolist():
-            if file_info.filename.endswith('.dist-info/WHEEL'):
-                content = zip_ref.read(file_info).decode('utf-8')
-                print(content)
-```
+  import zipfile
+  import os
+  wheel_file = "${{ env.WHEEL_FILE }}"
+  with zipfile.ZipFile(wheel_file, 'r') as zip_ref:
+  for file_info in zip_ref.infolist():
+  if file_info.filename.endswith('.dist-info/WHEEL'):
+  content = zip_ref.read(file_info).decode('utf-8')
+  print(content)
 
-**✅ Recommended Alternatives:**
+````
+## ✅ Recommended Alternatives
 
 1. **Use shell commands with appropriate tools:**
-   ```yaml
-   - name: Inspect wheel contents
-     run: unzip -p "${{ env.WHEEL_FILE }}" "*.dist-info/WHEEL"
-   ```
 
-2. **Extract to separate Python script file:**
-   ```yaml
-   - name: Run Python analysis
-     run: python scripts/analyze_wheel.py "${{ env.WHEEL_FILE }}"
-   ```
+```text
 
-3. **Use existing GitHub Actions from marketplace:**
+- name: Inspect wheel contents
+  run: unzip -p "${{ env.WHEEL_FILE }}" "*.dist-info/WHEEL"
+````
+
+```text
+1. **Extract to separate Python script file:**
+```
+
+- name: Run Python analysis
+  run: python scripts/analyze_wheel.py "${{ env.WHEEL_FILE }}"
+
+```text
+```
+
+1. **Use existing GitHub Actions from marketplace:**
+
    ```yaml
    - name: Analyze Python package
      uses: some-org/wheel-analyzer-action@v1
@@ -506,34 +523,213 @@ When using VS Code, yamllint errors are automatically highlighted. The custom co
        wheel-path: ${{ env.WHEEL_FILE }}
    ```
 
-#### Shell Script Best Practices
+```
+```
 
-**Keep inline shell scripts simple and focused:**
+#### Cross-Platform Command Compatibility
 
-```yaml
-# ✅ Good: Simple, single-purpose commands
+## ⚠️ Critical Issue: Line Continuation Syntax
+
+Different shells use different line continuation syntax, which can cause workflow failures when targeting multiple platforms:
+
+- **Unix/Linux/macOS (bash/zsh)**: Uses backslash (`\`) for line continuation
+- **Windows PowerShell**: Uses backtick (`` ` ``) for line continuation
+- **Problem**: YAML workflows with shell-specific syntax fail on other platforms
+
+## ❌ Problematic Pattern
+
+```
+## This breaks on Windows PowerShell
+
+- name: Long command with backslash continuation
+  run: |
+    uv run python -m tool \
+      --entry very/long/path/to/file.py \
+      --output another/long/path/output.py
+```
+
+## Error on Windows
+
+````
+ParserError: Missing expression after unary operator '--'.
+
+```text
+
+## ✅ Recommended Solutions
+
+1. **Use environment variables (preferred for long paths):**
+````
+
+- name: Cross-platform command with env vars
+  env:
+  ENTRY_FILE: very/long/path/to/file.py
+  OUTPUT_FILE: another/long/path/output.py
+  run: |
+  uv run python -m tool --entry $ENTRY_FILE --output $OUTPUT_FILE
+
+```text
+```
+
+1. **Keep commands on single line (if under 120 chars):**
+
+   ```yaml
+   - name: Short command on single line
+     run: uv run python -m tool --entry file.py --output out.py
+   ```
+
+```
+```
+
+1. **Use platform-specific steps when necessary:**
+
+```
+  - name: Complex command (Unix)
+     if: runner.os != 'Windows'
+     run: |
+       very-long-command \
+         --with-many-flags \
+         --and-parameters
+
+  - name: Complex command (Windows)
+     if: runner.os == 'Windows'
+     run: |
+       very-long-command `
+         --with-many-flags `
+         --and-parameters
+```
+
+````
+## Benefits of environment variables approach
+
+- ✅ Works on all platforms (Linux, macOS, Windows)
+- ✅ Maintains yamllint compliance (shorter lines)
+- ✅ Improves readability and maintainability
+- ✅ No shell-specific syntax required
+- ✅ GitHub Actions handles variable expansion automatically
+
+**Key takeaway**: Always test workflows on all target platforms, and prefer environment variables for complex commands to ensure cross-platform compatibility.
+
+#### Environment Variable Handling Best Practices
+
+## ⚠️ Critical Issue: Cross-Platform Environment Variable Expansion
+
+Environment variable expansion syntax varies between shells and can cause workflow failures when targeting multiple platforms, particularly when using shell-specific syntax instead of GitHub Actions expressions.
+
+## ❌ Problematic Pattern - Shell-specific syntax
+
+```text
+
+## This fails on Windows due to shell-specific variable expansion
+
+- name: E2E bundle test
+  env:
+    ENTRY_FILE: crates/serpen/tests/fixtures/simple_project/main.py
+    OUTPUT_FILE: bundle-test/out.py
+  run: |
+    mkdir bundle-test
+    uv run python -m serpen --entry $ENTRY_FILE --output $OUTPUT_FILE
+    uv run python $OUTPUT_FILE
+````
+
+## Windows Error
+
+````
+ParserError: The term '$ENTRY_FILE' is not recognized as the name of a cmdlet, function, script file, or operable program.
+
+```
+
+## ✅ Recommended Solution - GitHub Actions expressions
+````
+
+## Cross-platform compatible using GitHub Actions syntax
+
+- name: E2E bundle test
+  env:
+  ENTRY_FILE: crates/serpen/tests/fixtures/simple_project/main.py
+  OUTPUT_FILE: bundle-test/out.py
+  run: |
+  mkdir bundle-test
+  uv run python -m serpen --entry "${{ env.ENTRY_FILE }}" --output "${{ env.OUTPUT_FILE }}"
+  uv run python "${{ env.OUTPUT_FILE }}"
+
+````
+## Key Differences
+
+| Approach       | Unix/Linux/macOS   | Windows PowerShell | Cross-Platform |
+| -------------- | ------------------ | ------------------ | -------------- |
+| Shell syntax   | `$VAR` or `${VAR}` | `$env:VAR`         | ❌ No          |
+| GitHub Actions | `${{ env.VAR }}`   | `${{ env.VAR }}`   | ✅ Yes         |
+
+## Best Practices
+
+1. **Always use GitHub Actions expression syntax:** `${{ env.VARIABLE_NAME }}`
+2. **Quote paths to handle spaces:** `"${{ env.FILE_PATH }}"`
+3. **Test on all target platforms** to catch cross-platform issues early
+4. **Avoid shell-specific variable syntax** (`$VAR`, `$env:VAR`) in favor of GitHub Actions expressions
+5. **Use environment blocks** to clearly define variables at the step level
+
+## Additional Examples
+
+```text
+
+## ✅ Correct: Multiple environment variables with proper quoting
+
+- name: Build with custom paths
+  env:
+  SOURCE_DIR: src/main/typescript
+  BUILD_DIR: dist/production
+  CONFIG_FILE: configs/production.json
+  run: |
+  npm run build\
+  --source-dir="${{ env.SOURCE_DIR }}" \
+      --output-dir="${{ env.BUILD_DIR }}"\
+  --config="${{ env.CONFIG_FILE }}"
+
+## ✅ Correct: Conditional environment variables
+
+- name: Deploy with environment-specific settings
+  env:
+  DEPLOY_URL: ${{ github.ref == 'refs/heads/main' && 'https://prod.example.com' || 'https://staging.example.com' }}
+  API_KEY: ${{ github.ref == 'refs/heads/main' && secrets.PROD_API_KEY || secrets.STAGING_API_KEY }}
+  run: |
+    curl -X POST "${{ env.DEPLOY_URL }}/deploy"\
+  -H "Authorization: Bearer ${{ env.API_KEY }}"
+````
+
+This approach ensures reliable cross-platform execution and prevents common CI failures related to environment variable handling.
+
+### Shell Script Best Practices
+
+## Keep inline shell scripts simple and focused
+
+```text
+## ✅ Good: Simple, single-purpose commands
+
 - name: Extract version
   run: echo "VERSION=$(grep version pyproject.toml | cut -d '"' -f 2)" >> $GITHUB_ENV
 
-# ✅ Good: Multi-line for readability, but still simple
+## ✅ Good: Multi-line for readability, but still simple
+
 - name: Build and test
   run: |
-    cargo build --release
-    cargo test --workspace
-    echo "Build completed successfully"
+  cargo build --release
+  cargo test --workspace
+  echo "Build completed successfully"
 
-# ❌ Avoid: Complex logic mixing multiple languages/tools
+## ❌ Avoid: Complex logic mixing multiple languages/tools
+
 - name: Complex analysis
   run: |
-    python -c "
-    import sys, json, subprocess
-    result = subprocess.run(['cargo', 'metadata'], capture_output=True, text=True)
-    data = json.loads(result.stdout)
-    # ... 20 more lines of Python ...
-    "
+  python -c "
+  import sys, json, subprocess
+  result = subprocess.run(['cargo', 'metadata'], capture_output=True, text=True)
+  data = json.loads(result.stdout)
+
+## # ... 20 more lines of Python 
+  "
 ```
 
-#### YAML Syntax Validation Checklist
+### YAML Syntax Validation Checklist
 
 Before committing workflow changes:
 
@@ -545,47 +741,55 @@ Before committing workflow changes:
 
 #### Common YAML Pitfalls in Workflows
 
-**Inconsistent indentation:**
+## Inconsistent indentation
 
-```yaml
-# ❌ Wrong
-steps:
-  - name: Step 1
-    run: echo "hello"
-    - name: Step 2  # Wrong indentation
-      run: echo "world"
+```text
+## ❌ Wrong
 
-# ✅ Correct
 steps:
-  - name: Step 1
-    run: echo "hello"
-  - name: Step 2
+
+- name: Step 1
+  run: echo "hello"
+  - name: Step 2 # Wrong indentation
     run: echo "world"
+
+## ✅ Correct
+
+steps:
+
+- name: Step 1
+  run: echo "hello"
+- name: Step 2
+  run: echo "world"
 ```
 
-**Incorrect multi-line string handling:**
+## Incorrect multi-line string handling
 
-```yaml
-# ❌ Wrong: Will cause parsing errors
+```text
+## ❌ Wrong: Will cause parsing errors
+
 - name: Multi-line command
   run: echo "This is a very long command that spans multiple lines
-    and will break YAML parsing"
+  and will break YAML parsing"
 
-# ✅ Correct: Use proper YAML multi-line syntax
+## ✅ Correct: Use proper YAML multi-line syntax
+
 - name: Multi-line command
   run: |
-    echo "This is a very long command that spans multiple lines"
-    echo "and is properly formatted"
+  echo "This is a very long command that spans multiple lines"
+  echo "and is properly formatted"
 ```
 
-**Environment variable syntax errors:**
+## Environment variable syntax errors
 
-```yaml
-# ❌ Wrong: Missing quotes can cause parsing issues
+```text
+## ❌ Wrong: Missing quotes can cause parsing issues
+
 - name: Use environment variable
   run: echo ${{ env.MY_VAR }}
 
-# ✅ Correct: Properly quoted
+## ✅ Correct: Properly quoted
+
 - name: Use environment variable
   run: echo "${{ env.MY_VAR }}"
 ```
@@ -598,17 +802,21 @@ steps:
 - Validate inputs for scripts and commands
 - Use OpenID Connect for cloud provider authentication
 
-```yaml
+```text
 jobs:
-  deploy:
-    # Limit token permissions
-    permissions:
-      contents: read
-      deployments: write
-    runs-on: ubuntu-latest
-    steps:
-      # Pin action versions with SHA
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
+deploy:
+
+## Limit token permissions
+
+permissions:
+contents: read
+deployments: write
+runs-on: ubuntu-latest
+steps:
+
+## Pin action versions with SHA
+
+- uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
 ```
 
 ## GitHub Actions Monitoring
@@ -623,94 +831,99 @@ jobs:
 
 ### Monorepo Pattern
 
-```yaml
+```text
 name: Monorepo CI
 
 on:
-  push:
-    paths:
-      - 'packages/frontend/**'
-      - 'packages/backend/**'
-      - 'packages/common/**'
+push:
+paths:
+
+- 'packages/frontend/**'
+- 'packages/backend/**'
+- 'packages/common/**'
 
 jobs:
-  detect-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      frontend: ${{ steps.filter.outputs.frontend }}
-      backend: ${{ steps.filter.outputs.backend }}
-    steps:
-      - uses: actions/checkout@v3
-      - uses: dorny/paths-filter@v2
-        id: filter
-        with:
-          filters: |
-            frontend:
-              - 'packages/frontend/**'
-              - 'packages/common/**'
-            backend:
-              - 'packages/backend/**'
-              - 'packages/common/**'
+detect-changes:
+runs-on: ubuntu-latest
+outputs:
+frontend: ${{ steps.filter.outputs.frontend }}
+backend: ${{ steps.filter.outputs.backend }}
+steps:
+
+- uses: actions/checkout@v3
+- uses: dorny/paths-filter@v2
+  id: filter
+  with:
+  filters: |
+  frontend:
+  - 'packages/frontend/**'
+  - 'packages/common/**'
+    backend:
+- 'packages/backend/**'
+- 'packages/common/**'
 
   frontend:
-    needs: detect-changes
-    if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
-      - name: Install dependencies
-        run: cd packages/frontend && npm ci
-      - name: Run tests
-        run: cd packages/frontend && npm test
+  needs: detect-changes
+  if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
+  runs-on: ubuntu-latest
+  steps:
+- uses: actions/checkout@v3
+- name: Setup Node.js
+  uses: actions/setup-node@v3
+  with:
+  node-version: '16'
+- name: Install dependencies
+  run: cd packages/frontend && npm ci
+- name: Run tests
+  run: cd packages/frontend && npm test
 ```
 
 ### Feature Branch Pattern
 
-```yaml
+```text
 name: Feature Branch CI
 
 on:
-  push:
-    branches:
-      - 'feature/**'
-      - 'bugfix/**'
+push:
+branches:
+
+- 'feature/**'
+- 'bugfix/**'
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
-      - name: Install dependencies
-        run: npm ci
-      - name: Run tests
-        run: npm test
-      - name: Create preview environment
-        id: preview
-        run: |
-          BRANCH_NAME=${GITHUB_REF##*/}
-          echo "Creating preview for branch $BRANCH_NAME"
+build-and-test:
+runs-on: ubuntu-latest
+steps:
+
+- uses: actions/checkout@v3
+- name: Setup Node.js
+  uses: actions/setup-node@v3
+  with:
+  node-version: '16'
+- name: Install dependencies
+  run: npm ci
+- name: Run tests
+  run: npm test
+- name: Create preview environment
+  id: preview
+  run: |
+  BRANCH_NAME=${GITHUB_REF##*/}
+  echo "Creating preview for branch $BRANCH_NAME"
           PREVIEW_URL="https://preview-${BRANCH_NAME}.example.com"
-          echo "url=$PREVIEW_URL" >> $GITHUB_OUTPUT
-      - name: Comment PR with preview URL
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const previewUrl = '${{ steps.preview.outputs.url }}';
-            const issueNumber = context.issue.number;
-            github.rest.issues.createComment({
-              issue_number: issueNumber,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `Preview environment deployed to: ${previewUrl}`
-            });
+  echo "url=$PREVIEW_URL" >> $GITHUB_OUTPUT
+
+- name: Comment PR with preview URL
+  uses: actions/github-script@v6
+  with:
+  script: |
+  const previewUrl = '${{ steps.preview.outputs.url }}';
+  const issueNumber = context.issue.number;
+  github.rest.issues.createComment({
+  issue_number: issueNumber,
+  owner: context.repo.owner,
+  repo: context.repo.repo,
+  body: `Preview environment deployed to: ${previewUrl}`
+  });
 ```
 
 ## Migration from Other CI/CD Systems
@@ -777,13 +990,13 @@ jobs:
 
 - **VS Code with GitHub Actions Extension:** Use VS Code with the GitHub Actions extension for syntax highlighting, code completion, and validation.
 - **GitHub CLI:** Use the GitHub CLI to interact with the GitHub API from your workflows.
-- **`act`:** Use `act` to test your workflows locally.
+- **:** Use `act` to test your workflows locally.
 - **YAML Linter:** Use a YAML linter to catch syntax errors in your workflow files.
 
 ### Build Configuration
 
-- **`.github/workflows/`:** Place all workflow files in this directory.
-- **`action.yml`:** For reusable actions, define their metadata in this file.
+- **:** Place all workflow files in this directory.
+- **:** For reusable actions, define their metadata in this file.
 
 ### Linting and Formatting
 
@@ -809,3 +1022,6 @@ jobs:
 - [GitHub Actions Marketplace](https://github.com/marketplace?type=actions)
 - [GitHub Actions Community Forum](https://github.community/c/actions/41)
 - [GitHub Actions Starter Workflows](https://github.com/actions/starter-workflows)
+
+```text
+```

@@ -1,13 +1,11 @@
 {
-    "rust-analyzer.check.extraArgs": [
-        "--all-features"
-    ],
     "[rust]": {
         "editor.defaultFormatter": "rust-lang.rust-analyzer",
         "editor.formatOnSave": true
     },
     "rust-analyzer.check.command": "clippy",
     "rust-analyzer.cargo.buildScripts.enable": true,
+    "rust-analyzer.cargo.features": "all",
     "rust-analyzer.cargo.extraEnv": {
         "RUSTC_BOOTSTRAP": "1",
         "RUSTFLAGS": "--cfg proc_macro_span --cfg verus_keep_ghost"
@@ -27,6 +25,7 @@
     "rust-analyzer.imports.granularity.group": "crate",
     "rust-analyzer.imports.group.enable": true,
     "rust-analyzer.debug.engine": "llvm-vs-code-extensions.lldb-dap",
+    "python.languageServer": "None",
     "[json][jsonc][yaml][github-actions-workflow][python][toml][markdown]": {
         "editor.defaultFormatter": "dprint.dprint",
         "editor.formatOnSave": true

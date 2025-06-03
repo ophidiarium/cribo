@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/serpen.svg)](https://pypi.org/project/serpen/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Serpen** is a CLI and Python library that produces a single `.py` file from a multi-module Python project by inlining all _first-party_ source files. This approach is inspired by JavaScript bundlers and aims to simplify deployment, especially in constrained environments like PySpark jobs, AWS Lambdas, and notebooks.
+**Serpen** is a CLI and Python library that produces a single `.py` file from a multi-module Python project by inlining all *first-party* source files. This approach is inspired by JavaScript bundlers and aims to simplify deployment, especially in constrained environments like PySpark jobs, AWS Lambdas, and notebooks.
 
 ## Features
 
@@ -117,7 +117,7 @@ def greet(name: str) -> str:
 
 # ─ Module: models/user.py ─
 class User:
-    def __init__(self, name: str):
+    def **init**(self, name: str):
         self.name = name
 
 # ─ Entry Module: main.py ─
@@ -128,7 +128,7 @@ def main():
     user = User("Alice")
     print(greet(user.name))
 
-if __name__ == "__main__":
+if **name** == "**main**":
     main()
 ```
 
@@ -186,7 +186,7 @@ Serpen preserves class identity and module structure to ensure Pydantic models w
 class User(BaseModel):
     name: str
 
-# Bundled output preserves __module__ and class structure
+# Bundled output preserves **module** and class structure
 ```
 
 ### Pandera Decorators
@@ -240,7 +240,7 @@ cargo test
 
 ### Project Structure
 
-```
+```text
 serpen/
 ├── src/                    # Rust source code
 │   ├── main.rs            # CLI entry point

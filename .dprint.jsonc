@@ -32,6 +32,11 @@
     "ruff": {
         "preview": true
     },
+    "markdown": {
+        "lineWidth": 200,
+        "emphasisKind": "asterisks",
+        "strongKind": "asterisks"
+    },
     "excludes": [
         "**/.git",
         "**/node_modules",

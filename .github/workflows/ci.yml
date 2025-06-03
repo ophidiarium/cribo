@@ -47,9 +47,10 @@ jobs:
           uv run serpen --version
 
       - name: E2E bundle test
+        env:
+          ENTRY_FILE: crates/serpen/tests/fixtures/simple_project/main.py
+          OUTPUT_FILE: bundle-test/out.py
         run: |
           mkdir bundle-test
-          uv run python -m serpen \
-            --entry crates/serpen/tests/fixtures/simple_project/main.py \
-            --output bundle-test/out.py
-          uv run python bundle-test/out.py
+          uv run python -m serpen --entry "${{ env.ENTRY_FILE }}" --output "${{ env.OUTPUT_FILE }}"
+          uv run python "${{ env.OUTPUT_FILE }}"
