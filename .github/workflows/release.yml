@@ -252,17 +252,9 @@ jobs:
           for wheel in dist/*.whl; do
             if [ -f "$wheel" ]; then
               echo "Wheel: $(basename "$wheel")"
-              python -c "
-                import zipfile
-                z = zipfile.ZipFile('$wheel')
-                [print(f'  {f}') for f in z.namelist() if f.endswith('WHEEL')]
-              "
-              echo "WHEEL file contents:"
-              python -c "
-                import zipfile
-                z = zipfile.ZipFile('$wheel')
-                [print(z.read(f).decode()) for f in z.namelist() if f.endswith('WHEEL')]
-              "
+              # Display WHEEL metadata content
+              echo "WHEEL metadata content:"
+              unzip -p "$wheel" "*.dist-info/WHEEL"
               echo "---"
             fi
           done
