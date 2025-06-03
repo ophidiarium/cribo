@@ -169,11 +169,11 @@ jobs:
         run: cargo test --workspace
 
       - name: Set up QEMU
-        if: matrix.platform.os != 'macos-latest'
+        if: matrix.platform.os != 'macos-latest' && matrix.platform.os != 'macos-13'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        if: matrix.platform.os != 'macos-latest'
+        if: matrix.platform.os != 'macos-latest' && matrix.platform.os != 'macos-13'
         uses: docker/setup-buildx-action@v3
 
       - name: Build wheels
