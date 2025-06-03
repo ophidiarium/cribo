@@ -1,5 +1,6 @@
 use anyhow::Result;
 use log::debug;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -24,6 +25,26 @@ use crate::python_stdlib::is_stdlib_module;
 pub struct PythonPathGuard {
     /// The original value of PYTHONPATH, if it was set
     /// None if PYTHONPATH was not set originally
+    original_value: Option<String>,
+}
+
+/// A scoped guard for safely setting and cleaning up the VIRTUAL_ENV environment variable.
+///
+/// This guard ensures that the VIRTUAL_ENV environment variable is properly restored
+/// to its original value when the guard is dropped, even if a panic occurs during testing.
+///
+/// # Example
+///
+/// ```rust
+/// use serpen::resolver::VirtualEnvGuard;
+/// let _guard = VirtualEnvGuard::new("/path/to/venv");
+/// // VIRTUAL_ENV is now set to "/path/to/venv"
+/// // When _guard goes out of scope, VIRTUAL_ENV is restored to its original value
+/// ```
+#[must_use = "VirtualEnvGuard must be held in scope to ensure cleanup"]
+pub struct VirtualEnvGuard {
+    /// The original value of VIRTUAL_ENV, if it was set
+    /// None if VIRTUAL_ENV was not set originally
     original_value: Option<String>,
 }
 
@@ -77,6 +98,56 @@ impl Drop for PythonPathGuard {
     }
 }
 
+impl VirtualEnvGuard {
+    /// Create a new VIRTUAL_ENV guard with the given value.
+    ///
+    /// This will set the VIRTUAL_ENV environment variable to the specified value
+    /// and store the original value for restoration when the guard is dropped.
+    pub fn new(new_value: &str) -> Self {
+        let original_value = std::env::var("VIRTUAL_ENV").ok();
+
+        // SAFETY: This is safe in test contexts where we control the environment
+        // and ensure proper cleanup via the Drop trait.
+        unsafe {
+            std::env::set_var("VIRTUAL_ENV", new_value);
+        }
+
+        Self { original_value }
+    }
+
+    /// Create a new VIRTUAL_ENV guard that ensures VIRTUAL_ENV is unset.
+    ///
+    /// This will remove the VIRTUAL_ENV environment variable and store the
+    /// original value for restoration when the guard is dropped.
+    pub fn unset() -> Self {
+        let original_value = std::env::var("VIRTUAL_ENV").ok();
+
+        // SAFETY: This is safe in test contexts where we control the environment
+        // and ensure proper cleanup via the Drop trait.
+        unsafe {
+            std::env::remove_var("VIRTUAL_ENV");
+        }
+
+        Self { original_value }
+    }
+}
+
+impl Drop for VirtualEnvGuard {
+    fn drop(&mut self) {
+        // Always attempt cleanup, even during panics - that's the whole point of a scope guard!
+        // We catch and ignore any errors to prevent double panics, but we must try to clean up.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // SAFETY: This is safe as we're restoring the environment to its original state
+            unsafe {
+                match self.original_value.take() {
+                    Some(original) => std::env::set_var("VIRTUAL_ENV", original),
+                    None => std::env::remove_var("VIRTUAL_ENV"),
+                }
+            }
+        }));
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportType {
     FirstParty,
@@ -91,29 +162,49 @@ pub struct ModuleResolver {
     module_cache: HashMap<String, Option<PathBuf>>,
     /// Set of all first-party modules discovered in src directories
     first_party_modules: HashSet<String>,
+    /// Cache of virtual environment packages to avoid repeated filesystem scans
+    virtualenv_packages_cache: RefCell<Option<HashSet<String>>>,
 }
 
 impl ModuleResolver {
     pub fn new(config: Config) -> Result<Self> {
-        Self::new_with_pythonpath(config, None)
+        Self::new_with_overrides(config, None, None)
     }
 
     /// Create a new ModuleResolver with optional PYTHONPATH override for testing
     pub fn new_with_pythonpath(config: Config, pythonpath_override: Option<&str>) -> Result<Self> {
+        Self::new_with_overrides(config, pythonpath_override, None)
+    }
+
+    /// Create a new ModuleResolver with optional VIRTUAL_ENV override for testing
+    pub fn new_with_virtualenv(config: Config, virtualenv_override: Option<&str>) -> Result<Self> {
+        Self::new_with_overrides(config, None, virtualenv_override)
+    }
+
+    /// Create a new ModuleResolver with optional PYTHONPATH and VIRTUAL_ENV overrides for testing
+    pub fn new_with_overrides(
+        config: Config,
+        pythonpath_override: Option<&str>,
+        virtualenv_override: Option<&str>,
+    ) -> Result<Self> {
         let mut resolver = Self {
             config,
             module_cache: HashMap::new(),
             first_party_modules: HashSet::new(),
+            virtualenv_packages_cache: RefCell::new(None),
         };
 
-        resolver.discover_first_party_modules_with_pythonpath(pythonpath_override)?;
+        resolver.discover_first_party_modules_with_overrides(
+            pythonpath_override,
+            virtualenv_override,
+        )?;
         Ok(resolver)
     }
 
-    /// Get all directories to scan for modules (configured src + PYTHONPATH)
+    /// Get all directories to scan for modules (configured src + PYTHONPATH + VIRTUAL_ENV)
     /// Returns deduplicated, canonicalized paths
     pub fn get_scan_directories(&self) -> Vec<PathBuf> {
-        self.get_scan_directories_with_pythonpath(None)
+        self.get_scan_directories_with_overrides(None, None)
     }
 
     /// Get all directories to scan for modules with optional PYTHONPATH override
@@ -121,6 +212,26 @@ impl ModuleResolver {
     pub fn get_scan_directories_with_pythonpath(
         &self,
         pythonpath_override: Option<&str>,
+    ) -> Vec<PathBuf> {
+        self.get_scan_directories_with_overrides(pythonpath_override, None)
+    }
+
+    /// Get all directories to scan for modules with optional VIRTUAL_ENV override
+    /// Returns deduplicated, canonicalized paths
+    pub fn get_scan_directories_with_virtualenv(
+        &self,
+        virtualenv_override: Option<&str>,
+    ) -> Vec<PathBuf> {
+        self.get_scan_directories_with_overrides(None, virtualenv_override)
+    }
+
+    /// Get all directories to scan for modules with optional PYTHONPATH override
+    /// Returns deduplicated, canonicalized paths
+    /// NOTE: VIRTUAL_ENV is NOT included here as it's used for third-party classification, not first-party discovery
+    pub fn get_scan_directories_with_overrides(
+        &self,
+        pythonpath_override: Option<&str>,
+        _virtualenv_override: Option<&str>,
     ) -> Vec<PathBuf> {
         let mut unique_dirs = HashSet::new();
 
@@ -134,7 +245,7 @@ impl ModuleResolver {
             }
         }
 
-        // Add PYTHONPATH directories
+        // Add PYTHONPATH directories (for first-party module discovery)
         let pythonpath = pythonpath_override
             .map(|p| p.to_string())
             .or_else(|| std::env::var("PYTHONPATH").ok());
@@ -169,13 +280,207 @@ impl ModuleResolver {
         }
     }
 
+    /// Detect common virtual environment directory names in the current working directory
+    /// Returns a list of paths that appear to be virtual environments
+    fn detect_fallback_virtualenv_paths(&self) -> Vec<PathBuf> {
+        let mut venv_paths = Vec::new();
+
+        // Common virtual environment directory names, in order of preference
+        let common_venv_names = [".venv", "venv", "env", ".virtualenv", "virtualenv"];
+
+        // Get current working directory
+        if let Ok(current_dir) = std::env::current_dir() {
+            for venv_name in &common_venv_names {
+                let potential_venv = current_dir.join(venv_name);
+
+                // Check if directory exists
+                if potential_venv.exists() && potential_venv.is_dir() {
+                    // Verify it's actually a virtual environment by checking for site-packages
+                    let site_packages_dirs = self.get_virtualenv_site_packages_directories(
+                        &potential_venv.to_string_lossy(),
+                    );
+
+                    // If we found site-packages directories, this is likely a virtual environment
+                    if !site_packages_dirs.is_empty() {
+                        venv_paths.push(potential_venv);
+                    }
+                }
+            }
+        }
+
+        venv_paths
+    }
+
+    /// Get site-packages directories from a virtual environment path
+    /// This is used for third-party dependency detection, not first-party module discovery
+    fn get_virtualenv_site_packages_directories(&self, virtualenv_path: &str) -> Vec<PathBuf> {
+        let mut site_packages_dirs = Vec::new();
+        let venv_root = PathBuf::from(virtualenv_path);
+
+        if !venv_root.exists() || !venv_root.is_dir() {
+            return site_packages_dirs;
+        }
+
+        // Windows: %VIRTUAL_ENV%\Lib\site-packages
+        if cfg!(windows) {
+            let site_packages = venv_root.join("Lib").join("site-packages");
+            if site_packages.exists() && site_packages.is_dir() {
+                site_packages_dirs.push(site_packages);
+            }
+        } else {
+            // Unix-like: $VIRTUAL_ENV/lib/python*/site-packages
+            let lib_dir = venv_root.join("lib");
+            if lib_dir.exists() && lib_dir.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&lib_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_dir() {
+                            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                                if name.starts_with("python") {
+                                    let site_packages = path.join("site-packages");
+                                    if site_packages.exists() && site_packages.is_dir() {
+                                        site_packages_dirs.push(site_packages);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        site_packages_dirs
+    }
+
+    /// Get the set of third-party packages installed in the virtual environment
+    /// Used for improving import classification accuracy
+    fn get_virtualenv_packages(&self, virtualenv_override: Option<&str>) -> HashSet<String> {
+        // If we have a cached result and no override is specified, return it
+        if virtualenv_override.is_none() {
+            if let Some(cached_packages) = self.get_cached_virtualenv_packages() {
+                return cached_packages;
+            }
+        }
+
+        // Compute the packages
+        self.compute_virtualenv_packages(virtualenv_override)
+    }
+
+    /// Get cached virtualenv packages if available
+    fn get_cached_virtualenv_packages(&self) -> Option<HashSet<String>> {
+        let cache_ref = self.virtualenv_packages_cache.try_borrow().ok()?;
+        cache_ref.as_ref().cloned()
+    }
+
+    /// Compute virtualenv packages by scanning the filesystem
+    fn compute_virtualenv_packages(&self, virtualenv_override: Option<&str>) -> HashSet<String> {
+        let mut packages = HashSet::new();
+
+        // First, try to get explicit VIRTUAL_ENV (either override or environment variable)
+        let explicit_virtualenv = virtualenv_override
+            .map(|v| v.to_string())
+            .or_else(|| std::env::var("VIRTUAL_ENV").ok());
+
+        let virtualenv_paths = if let Some(virtualenv_path) = explicit_virtualenv {
+            // Use explicit VIRTUAL_ENV if provided
+            vec![PathBuf::from(virtualenv_path)]
+        } else {
+            // Fallback: detect common virtual environment directory names
+            self.detect_fallback_virtualenv_paths()
+        };
+
+        // Scan all discovered virtual environment paths
+        for venv_path in virtualenv_paths {
+            let virtualenv_path_str = venv_path.to_string_lossy();
+            for site_packages_dir in
+                self.get_virtualenv_site_packages_directories(&virtualenv_path_str)
+            {
+                self.scan_site_packages_directory(&site_packages_dir, &mut packages);
+            }
+        }
+
+        // Cache the result if no override was specified (for subsequent calls)
+        if virtualenv_override.is_none() {
+            if let Ok(mut cache_ref) = self.virtualenv_packages_cache.try_borrow_mut() {
+                *cache_ref = Some(packages.clone());
+            }
+        }
+
+        packages
+    }
+
+    /// Scan a site-packages directory and add found packages to the set
+    fn scan_site_packages_directory(
+        &self,
+        site_packages_dir: &PathBuf,
+        packages: &mut HashSet<String>,
+    ) {
+        let Ok(entries) = std::fs::read_dir(site_packages_dir) else {
+            return;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+
+            // Skip common non-package entries
+            if name.starts_with('_') || name.contains("-info") || name.contains(".dist-info") {
+                continue;
+            }
+
+            // For directories, use the directory name as package name
+            if path.is_dir() {
+                packages.insert(name.to_string());
+            }
+            // For .py files, use the filename without extension
+            else if let Some(package_name) = name.strip_suffix(".py") {
+                packages.insert(package_name.to_string());
+            }
+        }
+    }
+
+    /// Check if a module name exists in the virtual environment packages
+    /// Used for improving import classification accuracy
+    fn is_virtualenv_package(&self, module_name: &str) -> bool {
+        let virtualenv_packages = self.get_virtualenv_packages(None);
+
+        // Check for exact match
+        if virtualenv_packages.contains(module_name) {
+            return true;
+        }
+
+        // Check if this is a submodule of a virtual environment package
+        // e.g., for "requests.auth", check if "requests" is in virtualenv
+        if let Some(root_module) = module_name.split('.').next() {
+            if virtualenv_packages.contains(root_module) {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Discover first-party modules with optional PYTHONPATH override
     /// This method is useful for testing to avoid environment variable pollution
+    #[allow(dead_code)]
     fn discover_first_party_modules_with_pythonpath(
         &mut self,
         pythonpath_override: Option<&str>,
     ) -> Result<()> {
-        let directories_to_scan = self.get_scan_directories_with_pythonpath(pythonpath_override);
+        self.discover_first_party_modules_with_overrides(pythonpath_override, None)
+    }
+
+    /// Discover first-party modules with optional PYTHONPATH and VIRTUAL_ENV overrides
+    /// This method is useful for testing to avoid environment variable pollution
+    fn discover_first_party_modules_with_overrides(
+        &mut self,
+        pythonpath_override: Option<&str>,
+        virtualenv_override: Option<&str>,
+    ) -> Result<()> {
+        let directories_to_scan =
+            self.get_scan_directories_with_overrides(pythonpath_override, virtualenv_override);
 
         for src_dir in &directories_to_scan {
             self.scan_directory_for_modules(src_dir)?;
@@ -267,6 +572,12 @@ impl ModuleResolver {
         // Check if it's a first-party module (exact match or parent)
         if self.is_first_party_module(module_name) {
             return ImportType::FirstParty;
+        }
+
+        // Use VIRTUAL_ENV to improve third-party vs standard library classification
+        // If the module exists in the virtual environment, it's definitely third-party
+        if self.is_virtualenv_package(module_name) {
+            return ImportType::ThirdParty;
         }
 
         // Default to third-party
@@ -388,6 +699,7 @@ mod tests {
             config: Config::default(),
             module_cache: HashMap::new(),
             first_party_modules: HashSet::new(),
+            virtualenv_packages_cache: RefCell::new(None),
         };
         assert_eq!(
             resolver.path_to_module_name(src_dir, file_path),
@@ -405,6 +717,7 @@ mod tests {
             config,
             module_cache: HashMap::new(),
             first_party_modules: HashSet::new(),
+            virtualenv_packages_cache: RefCell::new(None),
         };
 
         // Use scope guard to safely set PYTHONPATH for testing
@@ -437,6 +750,7 @@ mod tests {
             config,
             module_cache: HashMap::new(),
             first_party_modules: HashSet::new(),
+            virtualenv_packages_cache: RefCell::new(None),
         };
 
         // Use scope guard to ensure PYTHONPATH is not set

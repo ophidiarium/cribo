@@ -85,6 +85,20 @@ Use the following guidelines:
    - Do not modify or remove any non-code context unless explicitly instructed.
    - Avoid introducing new, irrelevant comments in the code.
 
+10. Environment Variable Documentation
+
+- **MANDATORY**: When adding support for any new environment variable, you MUST update the environment variables reference document at `docs/environment_variables.md`
+- **Required Documentation Elements**:
+  - Add the variable to the summary table in the "Serpen Environment Variables" section
+  - Create a detailed variable reference entry with:
+    - Variable type (Serpen-specific or Standard)
+    - Official documentation links (for standard variables)
+    - Purpose and behavior in Serpen
+    - Format and usage examples
+    - Platform-specific considerations if applicable
+- **Integration Requirements**: Ensure the new variable integrates properly with existing environment variable handling patterns
+- **Testing**: Update or add tests that verify the environment variable behavior, including edge cases
+
 ## How to handle a question
 
 - If you are unsure about how to implement a specific functionality, ask the user for clarification.

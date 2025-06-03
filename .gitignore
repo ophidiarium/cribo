@@ -46,3 +46,6 @@ baseline_coverage.txt
 *.snap.new
 
 npm-dist-test/
+.DS_Store
+
+**/.claude/settings.local.json

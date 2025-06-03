@@ -14,7 +14,8 @@
         "ms-python.python",
         "ms-vscode.vscode-commander",
         "ms-vscode.vscode-websearchforcopilot",
-        "redhat.vscode-yaml"
+        "redhat.vscode-yaml",
+        "unifiedjs.vscode-remark"
     ],
     "unwantedRecommendations": [
         "ms-python.vscode-pylance",
