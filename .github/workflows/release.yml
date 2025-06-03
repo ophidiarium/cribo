@@ -234,11 +234,6 @@ jobs:
             find target -name "${BINARY_NAME}" -type f || echo "No binaries found"
             exit 1
           fi
-            echo "❌ Binary not found at: ${BINARY_PATH}"
-            echo "Available files in target directory:"
-            find target -name "${BINARY_NAME}" -type f || echo "No binaries found"
-            exit 1
-          fi
 
       - name: List built wheels
         shell: bash
