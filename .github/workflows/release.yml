@@ -491,6 +491,9 @@ jobs:
     name: Publish to npm 📦
     needs: [build, generate-npm-packages]
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write # IMPORTANT: mandatory for npm provenance generation
+      contents: read # required for checkout
 
     steps:
       - name: Checkout repository

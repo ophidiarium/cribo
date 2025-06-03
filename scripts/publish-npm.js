@@ -41,7 +41,7 @@ function updatePackageVersion(packagePath, version) {
   console.log(`Updated ${packageJsonPath} to version ${version}`);
 }
 
-function publishPackage(packagePath, tag = 'latest', dryRun = false) {
+function publishPackage(packagePath, tag = 'latest', dryRun = false, enableProvenance = false) {
   const packageJson = JSON.parse(fs.readFileSync(path.join(packagePath, 'package.json'), 'utf8'));
   const packageName = packageJson.name;
 
@@ -53,6 +53,12 @@ function publishPackage(packagePath, tag = 'latest', dryRun = false) {
     `--tag ${tag}`,
     '--access public'
   ];
+
+  // Add provenance support when running on GitHub Actions
+  if (enableProvenance) {
+    publishCmd.push('--provenance');
+    console.log(`📋 Including provenance attestation for ${packageName}`);
+  }
 
   if (dryRun) {
     publishCmd.push('--dry-run');
@@ -79,6 +85,10 @@ function main() {
   const dryRun = args.includes('--dry-run');
   const tag = args.includes('--tag') ? args[args.indexOf('--tag') + 1] : 'latest';
 
+  // Detect if we're running on GitHub Actions and provenance is supported
+  const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+  const enableProvenance = isGitHubActions && !dryRun; // Don't use provenance for dry runs
+
   if (!version) {
     console.error('Usage: node publish-npm.js <version> [npm-dist-dir] [--dry-run] [--tag <tag>]');
     console.error('');
@@ -93,6 +103,10 @@ function main() {
   console.log(`📁 Distribution directory: ${npmDistDir}`);
   console.log(`🏷️  Tag: ${tag}`);
   console.log(`🧪 Dry run: ${dryRun ? 'Yes' : 'No'}`);
+  console.log(`🔐 Provenance: ${enableProvenance ? 'Enabled (GitHub Actions)' : 'Disabled'}`);
+  if (enableProvenance) {
+    console.log(`📋 Packages will include SLSA provenance attestations`);
+  }
   console.log('');
 
   // Update base package version
@@ -145,15 +159,13 @@ function main() {
 
   console.log(`Found ${platformPackages.length} platform packages:`);
   platformPackages.forEach(pkg => console.log(`  - ${pkg.name}`));
-  console.log('');
-
-  // Publish platform packages first
+  console.log('');    // Publish platform packages first
   let successCount = 0;
   let failureCount = 0;
 
   for (const pkg of platformPackages) {
     try {
-      publishPackage(pkg.path, tag, dryRun);
+      publishPackage(pkg.path, tag, dryRun, enableProvenance);
       successCount++;
     } catch (error) {
       console.error(`Failed to publish ${pkg.name}`);
@@ -164,7 +176,7 @@ function main() {
   // Only publish base package if all platform packages succeeded (or dry run)
   if (failureCount === 0 || dryRun) {
     try {
-      publishPackage(basePackagePath, tag, dryRun);
+      publishPackage(basePackagePath, tag, dryRun, enableProvenance);
       successCount++;
       console.log('\n🎉 All packages published successfully!');
     } catch (error) {

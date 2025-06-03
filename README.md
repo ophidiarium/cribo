@@ -24,6 +24,18 @@
 pip install serpen
 ```
 
+### From npm (Node.js CLI)
+
+```bash
+# Global installation
+npm install -g serpen
+
+# One-time use
+npx serpen --help
+```
+
+> **🔐 Supply Chain Security**: All npm packages include [provenance attestations](docs/NPM_PROVENANCE.md) for enhanced security and verification.
+
 ### From Source
 
 ```bash

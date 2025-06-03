@@ -1,6 +1,6 @@
 {
     "name": "serpen",
-    "version": "0.3.0",
+    "version": "0.3.0-test",
     "description": "Python source bundler that produces a single .py file from multi-module projects",
     "keywords": [
         "bundler",
