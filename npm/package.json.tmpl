@@ -1,0 +1,34 @@
+{
+  "name": "${node_pkg}",
+  "version": "${node_version}",
+  "description": "Serpen binary for ${node_os}-${node_arch}",
+  "keywords": ["bundler", "python", "deployment", "pyspark", "lambda", "rust", "cli"],
+  "homepage": "https://github.com/tinovyatkin/serpen",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tinovyatkin/serpen.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tinovyatkin/serpen/issues"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Konstantin Vyatkin",
+    "email": "tino@vtkn.io"
+  },
+  "os": ["${node_os}"],
+  "cpu": ["${node_arch}"],
+  "bin": {
+    "serpen": "./bin/serpen${extension}"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

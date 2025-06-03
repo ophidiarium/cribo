@@ -44,3 +44,5 @@ baseline_coverage.txt
 # Insta snapshot testing
 # Review snapshots before committing
 *.snap.new
+
+npm-dist-test/

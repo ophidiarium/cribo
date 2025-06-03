@@ -155,6 +155,96 @@ jobs:
             version-metadata.json
           retention-days: 7 # Clean up after 7 days to prevent confusion
 
+  build-npm-binaries:
+    name: Build npm binaries 📦
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0 # Fetch all history for tags
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: |
+            x86_64-unknown-linux-gnu
+            x86_64-unknown-linux-musl
+            aarch64-unknown-linux-gnu
+            aarch64-unknown-linux-musl
+            x86_64-apple-darwin
+            aarch64-apple-darwin
+            x86_64-pc-windows-msvc
+            i686-pc-windows-msvc
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
+        with:
+          shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
+          cache-on-failure: true
+
+      - name: Download version info
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: version-info-${{ github.run_id }}
+          path: ./
+
+      - name: Set version from artifact
+        shell: bash
+        run: |
+          VERSION=$(cat version.txt)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "Building npm binaries for version: ${VERSION}"
+
+      - name: Update Cargo.toml with version
+        shell: bash
+        run: |
+          # Update version in workspace.package section
+          sed -i "s/^version = \"[0-9]*\.[0-9]*\.[0-9]*.*\"/version = \"${VERSION}\"/" Cargo.toml
+          echo "Updated Cargo.toml to version ${VERSION}"
+
+      - name: Install cross for cross-compilation
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build binaries for all platforms
+        run: ./scripts/build-npm-binaries.sh --output-dir target/npm-binaries
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4.4.0 # v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Generate npm packages
+        run: |
+          node scripts/generate-npm-packages.js "${VERSION}" ./npm-dist ./target/npm-binaries
+
+      - name: List generated packages
+        run: |
+          echo "Generated npm packages:"
+          ls -la npm-dist/
+          for pkg in npm-dist/*/; do
+            if [ -d "$pkg" ]; then
+              echo "Package: $(basename "$pkg")"
+              echo "  Contents:"
+              ls -la "$pkg"
+              if [ -f "$pkg/package.json" ]; then
+                echo "  package.json:"
+                cat "$pkg/package.json"
+              fi
+              echo "---"
+            fi
+          done
+
+      - name: Store npm packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-packages-${{ github.run_id }}
+          path: npm-dist/
+          retention-days: 7
+
   publish-to-testpypi:
     name: Publish Python 🐍 distribution 📦 to TestPyPI
     needs: build
@@ -268,3 +358,51 @@ jobs:
           verbose: true
           print-hash: true
           skip-existing: true
+
+  publish-to-npm:
+    name: Publish to npm 📦
+    needs: [build, build-npm-binaries]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download npm packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: npm-packages-${{ github.run_id }}
+          path: npm-dist/
+
+      - name: Download version info
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: version-info-${{ github.run_id }}
+          path: ./
+
+      - name: Display publishing info
+        shell: bash
+        run: |
+          echo "=== npm Publishing Info ==="
+          echo "Workflow run ID: ${{ github.run_id }}"
+          echo "GitHub ref: ${{ github.ref }}"
+          echo "Event name: ${{ github.event_name }}"
+          VERSION=$(cat version.txt)
+          echo "Publishing version: ${VERSION}"
+          echo ""
+          echo "=== Available packages ==="
+          ls -la npm-dist/
+          echo ""
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION=$(cat version.txt)
+          node scripts/publish-npm.js "${VERSION}" ./npm-dist
