@@ -1,5 +1,35 @@
 # Publishing **Serpen** CLI to npm with Cross-Platform Binaries – Implementation Plan
 
+## ✅ **IMPLEMENTED OPTIMIZATION UPDATE**
+
+**Status: Completed** - The npm publishing implementation has been optimized to use a unified build approach.
+
+### **Key Changes Made:**
+
+- **🔄 Unified Build Matrix**: npm binaries are now built alongside PyPI wheels in the same matrix jobs
+- **⚡ Eliminated Duplication**: Removed separate `build-npm-binaries` job that used the `cross` tool
+- **🏗️ Consistent Tooling**: Both PyPI wheels and npm binaries use maturin-action containers for cross-compilation
+- **📦 Enhanced Coverage**: Now building 8 platform variants (added musl and explicit macOS targets)
+
+### **Current Workflow:**
+
+```
+build (8 matrix jobs) → generate-npm-packages → publish-to-npm
+                    ↘ publish-to-testpypi → publish-to-pypi
+```
+
+Each build job now:
+
+1. Builds PyPI wheel using maturin-action
+2. Builds npm binary using cargo with same target
+3. Uploads both as separate artifacts
+
+The `generate-npm-packages` job then downloads all npm binaries and creates platform-specific packages.
+
+**For detailed technical implementation, see:** `docs/pypi-aarch64-support.md`
+
+---
+
 ## 1. Project Structure & Required Changes
 
 To package Serpen for npm (similar to Rust projects **rspack** and **mako**), we will introduce a new subdirectory (e.g. `npm/`) in the repository to hold npm-related packages. This keeps the Rust crate separate from Node packaging. The structure will include:

@@ -15,8 +15,14 @@ jobs:
         platform:
           - os: ubuntu-latest
             target: ''
+          - os: ubuntu-latest
+            target: 'x86_64-unknown-linux-musl'
           - os: macos-latest
             target: ''
+          - os: macos-latest
+            target: 'x86_64-apple-darwin'
+          - os: macos-latest
+            target: 'aarch64-apple-darwin'
           - os: windows-latest
             target: ''
           - os: ubuntu-latest
@@ -130,6 +136,43 @@ jobs:
           sccache: true
           target: ${{ matrix.platform.target != '' && matrix.platform.target || '' }}
 
+      - name: Build npm binary
+        shell: bash
+        run: |
+          # Get current version from Cargo.toml
+          CURRENT_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+          echo "Building npm binary for version: ${CURRENT_VERSION}"
+
+          # Determine binary name based on platform
+          BINARY_NAME="serpen"
+          if [[ "${{ matrix.platform.os }}" == "windows-latest" ]]; then
+            BINARY_NAME="serpen.exe"
+          fi
+
+          # Build the binary - use same target as maturin if specified
+          if [[ -n "${{ matrix.platform.target }}" ]]; then
+            # For cross-compilation targets, cargo should already be configured by maturin-action
+            cargo build --release --package serpen --target ${{ matrix.platform.target }}
+            BINARY_PATH="target/${{ matrix.platform.target }}/release/${BINARY_NAME}"
+          else
+            # For native builds
+            cargo build --release --package serpen
+            BINARY_PATH="target/release/${BINARY_NAME}"
+          fi
+
+          # Create npm-binaries directory and copy binary
+          mkdir -p target/npm-binaries
+          if [[ -f "${BINARY_PATH}" ]]; then
+            cp "${BINARY_PATH}" "target/npm-binaries/${BINARY_NAME}"
+            echo "✅ Built binary: ${BINARY_PATH} -> target/npm-binaries/${BINARY_NAME}"
+            ls -la "target/npm-binaries/${BINARY_NAME}"
+          else
+            echo "❌ Binary not found at: ${BINARY_PATH}"
+            echo "Available files in target directory:"
+            find target -name "${BINARY_NAME}" -type f || echo "No binaries found"
+            exit 1
+          fi
+
       - name: List built wheels
         shell: bash
         run: |
@@ -156,6 +199,13 @@ jobs:
           path: dist/
           retention-days: 7 # Clean up after 7 days to prevent confusion
 
+      - name: Store npm binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-binary-${{ matrix.platform.os }}-${{ matrix.platform.target || 'native' }}-${{ github.run_id }}
+          path: target/npm-binaries/
+          retention-days: 7 # Clean up after 7 days to prevent confusion
+
       - name: Upload version info
         if: matrix.platform.os == 'ubuntu-latest' && matrix.platform.target == ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -166,8 +216,8 @@ jobs:
             version-metadata.json
           retention-days: 7 # Clean up after 7 days to prevent confusion
 
-  build-npm-binaries:
-    name: Build npm binaries 📦
+  generate-npm-packages:
+    name: Generate npm packages 📦
     needs: build
     runs-on: ubuntu-latest
 
@@ -177,50 +227,42 @@ jobs:
         with:
           fetch-depth: 0 # Fetch all history for tags
 
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: |
-            x86_64-unknown-linux-gnu
-            x86_64-unknown-linux-musl
-            aarch64-unknown-linux-gnu
-            aarch64-unknown-linux-musl
-            x86_64-apple-darwin
-            aarch64-apple-darwin
-            x86_64-pc-windows-msvc
-            i686-pc-windows-msvc
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
-        with:
-          shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
-          cache-on-failure: true
-
       - name: Download version info
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: version-info-${{ github.run_id }}
           path: ./
 
-      - name: Set version from artifact
+      - name: Download all npm binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: npm-binary-*-${{ github.run_id }}
+          path: npm-binaries-download/
+          merge-multiple: false
+
+      - name: Organize npm binaries
         shell: bash
         run: |
           VERSION=$(cat version.txt)
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          echo "Building npm binaries for version: ${VERSION}"
+          echo "Organizing npm binaries for version: ${VERSION}"
 
-      - name: Update Cargo.toml with version
-        shell: bash
-        run: |
-          # Update version in workspace.package section
-          sed -i "s/^version = \"[0-9]*\.[0-9]*\.[0-9]*.*\"/version = \"${VERSION}\"/" Cargo.toml
-          echo "Updated Cargo.toml to version ${VERSION}"
+          # Create target directory
+          mkdir -p target/npm-binaries
 
-      - name: Install cross for cross-compilation
-        run: cargo install cross --git https://github.com/cross-rs/cross
+          echo "Downloaded artifact structure:"
+          find npm-binaries-download -type f -name "serpen*" | head -20
 
-      - name: Build binaries for all platforms
-        run: ./scripts/build-npm-binaries.sh --output-dir target/npm-binaries
+          # Copy binaries from artifact directories to organized structure
+          for artifact_dir in npm-binaries-download/*/; do
+            if [[ -d "$artifact_dir" ]]; then
+              echo "Processing artifact directory: $artifact_dir"
+              # Copy any serpen binaries found
+              find "$artifact_dir" -name "serpen*" -type f -exec cp {} target/npm-binaries/ \;
+            fi
+          done
+
+          echo "Organized npm binaries:"
+          ls -la target/npm-binaries/
 
       - name: Set up Node.js
         uses: actions/setup-node@v4.4.0 # v4
@@ -230,6 +272,7 @@ jobs:
 
       - name: Generate npm packages
         run: |
+          VERSION=$(cat version.txt)
           node scripts/generate-npm-packages.js "${VERSION}" ./npm-dist ./target/npm-binaries
 
       - name: List generated packages
@@ -318,6 +361,7 @@ jobs:
           verbose: true
           print-hash: true
           skip-existing: true
+          attestations: false
 
   publish-to-pypi:
     name: >-
@@ -372,7 +416,7 @@ jobs:
 
   publish-to-npm:
     name: Publish to npm 📦
-    needs: [build, build-npm-binaries]
+    needs: [build, generate-npm-packages]
     runs-on: ubuntu-latest
 
     steps:
