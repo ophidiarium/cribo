@@ -1,6 +1,7 @@
 # Serpen: Python Source Bundler
 
 [![PyPI](https://img.shields.io/pypi/v/serpen.svg)](https://pypi.org/project/serpen/)
+[![npm](https://img.shields.io/npm/v/serpen.svg)](https://www.npmjs.com/package/serpen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Serpen** is a CLI and Python library that produces a single `.py` file from a multi-module Python project by inlining all *first-party* source files. This approach is inspired by JavaScript bundlers and aims to simplify deployment, especially in constrained environments like PySpark jobs, AWS Lambdas, and notebooks.
