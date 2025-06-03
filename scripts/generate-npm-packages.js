@@ -73,6 +73,14 @@ const PLATFORM_MAPPINGS = [
     nodeArch: 'ia32',
     extension: '.exe',
     binaryName: 'serpen.exe'
+  },
+  {
+    rustTarget: 'aarch64-pc-windows-msvc',
+    nodePkg: '@serpen/win32-arm64',
+    nodeOs: 'win32',
+    nodeArch: 'arm64',
+    extension: '.exe',
+    binaryName: 'serpen.exe'
   }
 ];
 
@@ -108,8 +116,18 @@ function generatePackages(version, targetDir, binariesDir) {
       }
     }
 
-    // Create package directory
-    const pkgDir = path.join(targetDir, nodePkg);
+    // Create package directory - handle scoped packages properly
+    let pkgDir;
+    if (nodePkg.startsWith('@')) {
+      // For scoped packages like @serpen/darwin-arm64, create @serpen/darwin-arm64/
+      const [scope, packageName] = nodePkg.split('/');
+      const scopeDir = path.join(targetDir, scope);
+      pkgDir = path.join(scopeDir, packageName);
+    } else {
+      // For regular packages like serpen-darwin-arm64
+      pkgDir = path.join(targetDir, nodePkg);
+    }
+
     const binDir = path.join(pkgDir, 'bin');
 
     fs.mkdirSync(pkgDir, { recursive: true });

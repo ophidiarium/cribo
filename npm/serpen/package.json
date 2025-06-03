@@ -37,14 +37,15 @@
         "node": ">=18.0.0"
     },
     "optionalDependencies": {
-        "@serpen/linux-x64-gnu": "0.3.0",
-        "@serpen/linux-x64-musl": "0.3.0",
-        "@serpen/linux-arm64-gnu": "0.3.0",
-        "@serpen/linux-arm64-musl": "0.3.0",
-        "@serpen/darwin-x64": "0.3.0",
-        "@serpen/darwin-arm64": "0.3.0",
-        "@serpen/win32-x64": "0.3.0",
-        "@serpen/win32-ia32": "0.3.0"
+        "@serpen/linux-x64-gnu": "0.3.0-test",
+        "@serpen/linux-x64-musl": "0.3.0-test",
+        "@serpen/linux-arm64-gnu": "0.3.0-test",
+        "@serpen/linux-arm64-musl": "0.3.0-test",
+        "@serpen/darwin-x64": "0.3.0-test",
+        "@serpen/darwin-arm64": "0.3.0-test",
+        "@serpen/win32-x64": "0.3.0-test",
+        "@serpen/win32-ia32": "0.3.0-test",
+        "@serpen/win32-arm64": "0.3.0-test"
     },
     "publishConfig": {
         "access": "public"
