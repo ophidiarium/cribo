@@ -26,7 +26,7 @@
     "rust-analyzer.imports.granularity.enforce": true,
     "rust-analyzer.imports.granularity.group": "crate",
     "rust-analyzer.imports.group.enable": true,
-    "rust-analyzer.debug.engine": "vadimcn.vscode-lldb",
+    "rust-analyzer.debug.engine": "llvm-vs-code-extensions.lldb-dap",
     "[json][jsonc][yaml][github-actions-workflow][python][toml][markdown]": {
         "editor.defaultFormatter": "dprint.dprint",
         "editor.formatOnSave": true

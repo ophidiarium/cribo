@@ -16,6 +16,31 @@ This document outlines standards and best practices for implementing Continuous 
 - **Steps**: Individual tasks that run commands or actions
 - **Actions**: Reusable units of code that can be shared
 
+### Platform Support and Runners
+
+**IMPORTANT**: Always verify current platform support before configuring matrix builds or target platforms. GitHub frequently updates their hosted runners, adds new platforms, and deprecates old ones.
+
+**Required Research Step**: Before implementing or updating any workflow that uses platform matrices, cross-compilation, or specific runner configurations, consult the official GitHub documentation:
+
+📖 **Primary Source**: [GitHub-hosted runners documentation](https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories)
+
+**What to verify**:
+
+- Currently supported operating systems (Ubuntu, Windows, macOS versions)
+- Available architectures (x64, ARM64 availability and preview status)
+- New additions, including preview/beta runner labels
+- Deprecated or sunset runner images
+- Hardware specifications and limitations
+- Any platform-specific constraints or requirements
+- Differences between public and private repository runners
+
+**Implementation Impact**:
+
+- Use only documented runner labels in `runs-on` fields (including preview runners like `ubuntu-24.04-arm`, `windows-11-arm`)
+- Configure cross-compilation only for supported target combinations
+- Account for preview/beta status when planning production workflows
+- Consider hardware limitations when designing build matrices
+
 ## Standard Workflow Components
 
 ### 1. Continuous Integration
@@ -40,7 +65,7 @@ jobs:
       - name: Set up environment
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: '16'
       - name: Install dependencies
         run: npm ci
       - name: Run linter
@@ -53,7 +78,7 @@ jobs:
       - name: Set up environment
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: '16'
       - name: Install dependencies
         run: npm ci
       - name: Check formatting
@@ -80,7 +105,7 @@ jobs:
       - name: Set up environment
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: '16'
       - name: Install dependencies
         run: npm ci
       - name: Run unit tests
@@ -97,7 +122,7 @@ jobs:
       - name: Set up environment
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: '16'
       - name: Install dependencies
         run: npm ci
       - name: Run integration tests
@@ -116,7 +141,7 @@ on:
   pull_request:
     branches: [main, develop]
   schedule:
-    - cron: "0 0 * * 0" # Weekly
+    - cron: '0 0 * * 0' # Weekly
 
 jobs:
   dependency-scan:
@@ -126,7 +151,7 @@ jobs:
       - name: Set up environment
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: '16'
       - name: Install dependencies
         run: npm ci
       - name: Run dependency audit
@@ -164,7 +189,7 @@ jobs:
       - name: Set up environment
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: '16'
       - name: Install dependencies
         run: npm ci
       - name: Build
@@ -195,7 +220,7 @@ jobs:
       - name: Set up environment
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: '16'
       - name: Install dependencies
         run: npm ci
       - name: Build
@@ -215,7 +240,7 @@ jobs:
       - name: Set up environment
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: '16'
       - name: Install dependencies
         run: npm ci
       - name: Build
@@ -262,7 +287,7 @@ steps:
   - name: Set up environment
     uses: actions/setup-node@v3
     with:
-      node-version: "16"
+      node-version: '16'
   - name: Cache dependencies
     uses: actions/cache@v3
     with:
@@ -319,7 +344,7 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: ${{ inputs.node-version }}
-          registry-url: "https://registry.npmjs.org"
+          registry-url: 'https://registry.npmjs.org'
       - name: Install dependencies
         run: npm ci
         env:
@@ -335,7 +360,7 @@ jobs:
   call-build:
     uses: ./.github/workflows/reusable-build.yml
     with:
-      node-version: "16"
+      node-version: '16'
     secrets:
       npm-token: ${{ secrets.NPM_TOKEN }}
 ```
@@ -413,9 +438,9 @@ name: Monorepo CI
 on:
   push:
     paths:
-      - "packages/frontend/**"
-      - "packages/backend/**"
-      - "packages/common/**"
+      - 'packages/frontend/**'
+      - 'packages/backend/**'
+      - 'packages/common/**'
 
 jobs:
   detect-changes:
@@ -445,7 +470,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: '16'
       - name: Install dependencies
         run: cd packages/frontend && npm ci
       - name: Run tests
@@ -460,8 +485,8 @@ name: Feature Branch CI
 on:
   push:
     branches:
-      - "feature/**"
-      - "bugfix/**"
+      - 'feature/**'
+      - 'bugfix/**'
 
 jobs:
   build-and-test:
@@ -471,7 +496,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: '16'
       - name: Install dependencies
         run: npm ci
       - name: Run tests
