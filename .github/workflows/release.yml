@@ -27,22 +27,32 @@ jobs:
     strategy:
       matrix:
         platform:
+          # Linux x86_64
           - os: ubuntu-latest
-            target: ''
+            target: 'x86_64-unknown-linux-gnu'
+            rust_target: 'x86_64-unknown-linux-gnu'
           - os: ubuntu-latest
             target: 'x86_64-unknown-linux-musl'
-          - os: macos-13 # intel
-            target: ''
+            rust_target: 'x86_64-unknown-linux-musl'
+          # Linux aarch64 (cross-compiled)
+          - os: ubuntu-latest
+            target: 'aarch64-unknown-linux-gnu'
+            rust_target: 'aarch64-unknown-linux-gnu'
+          - os: ubuntu-latest
+            target: 'aarch64-unknown-linux-musl'
+            rust_target: 'aarch64-unknown-linux-musl'
+          # macOS Intel x86_64
+          - os: macos-13
+            target: 'x86_64-apple-darwin'
+            rust_target: 'x86_64-apple-darwin'
+          # macOS Apple Silicon aarch64
           - os: macos-latest
-            target: ''
+            target: 'aarch64-apple-darwin'
+            rust_target: 'aarch64-apple-darwin'
+          # Windows x86_64
           - os: windows-latest
-            target: ''
-          - os: windows-11-arm
-            target: ''
-          - os: ubuntu-24.04-arm
-            target: ''
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
+            target: 'x86_64-pc-windows-msvc'
+            rust_target: 'x86_64-pc-windows-msvc'
 
     steps:
       - name: Checkout repository
@@ -52,6 +62,8 @@ jobs:
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.rust_target }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
@@ -91,19 +103,19 @@ jobs:
             echo "Using provided version: ${MANUAL_VERSION}"
           else
             # Generate auto version based on release type
-            # Use PEP 440 compliant formats for Python compatibility
+            # Use SemVer compliant formats for Cargo compatibility
             case "$RELEASE_TYPE" in
               "test")
-                MANUAL_VERSION="0.0.0.dev${{ github.run_number }}"
+                MANUAL_VERSION="0.0.0-dev${{ github.run_number }}"
                 ;;
               "preview")
-                MANUAL_VERSION="0.0.0a${{ github.run_number }}"
+                MANUAL_VERSION="0.0.0-alpha${{ github.run_number }}"
                 ;;
               *)
-                MANUAL_VERSION="0.0.0.dev${{ github.run_number }}"
+                MANUAL_VERSION="0.0.0-dev${{ github.run_number }}"
                 ;;
             esac
-            echo "Generated PEP 440 compliant auto version: ${MANUAL_VERSION}"
+            echo "Generated SemVer compliant auto version: ${MANUAL_VERSION}"
           fi
 
           echo "VERSION=${MANUAL_VERSION}" >> $GITHUB_OUTPUT
@@ -141,7 +153,7 @@ jobs:
           grep -A 2 "workspace.package" Cargo.toml
 
       - name: Save version to file
-        if: matrix.platform.os == 'ubuntu-latest' && matrix.platform.target == ''
+        if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
         shell: bash
         run: |
           UPDATED_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
@@ -168,14 +180,6 @@ jobs:
       - name: Run Rust tests
         run: cargo test --workspace
 
-      - name: Set up QEMU
-        if: matrix.platform.os != 'macos-latest' && matrix.platform.os != 'macos-13'
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        if: matrix.platform.os != 'macos-latest' && matrix.platform.os != 'macos-13'
-        uses: docker/setup-buildx-action@v3
-
       - name: Build wheels
         uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3 # v1.49.1
         with:
@@ -183,7 +187,7 @@ jobs:
           args: --release --out dist
           manylinux: 2014
           sccache: true
-          target: ${{ matrix.platform.target != '' && matrix.platform.target || '' }}
+          target: ${{ matrix.platform.rust_target }}
 
       - name: Build npm binary
         shell: bash
@@ -192,29 +196,26 @@ jobs:
           CURRENT_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
           echo "Building npm binary for version: ${CURRENT_VERSION}"
 
+          RUST_TARGET="${{ matrix.platform.rust_target }}"
+          echo "Building for Rust target: ${RUST_TARGET}"
+
           # Determine binary name based on platform
           BINARY_NAME="serpen"
-          if [[ "${{ matrix.platform.os }}" == "windows-latest" ]]; then
+          if [[ "$RUST_TARGET" == *"windows"* ]]; then
             BINARY_NAME="serpen.exe"
           fi
 
-          # Build the binary - use same target as maturin if specified
-          if [[ -n "${{ matrix.platform.target }}" ]]; then
-            # For cross-compilation targets, cargo should already be configured by maturin-action
-            cargo build --release --package serpen --target ${{ matrix.platform.target }}
-            BINARY_PATH="target/${{ matrix.platform.target }}/release/${BINARY_NAME}"
-          else
-            # For native builds
-            cargo build --release --package serpen
-            BINARY_PATH="target/release/${BINARY_NAME}"
-          fi
+          # Build the binary for the specific target
+          cargo build --release --package serpen --target "$RUST_TARGET"
+          BINARY_PATH="target/${RUST_TARGET}/release/${BINARY_NAME}"
 
-          # Create npm-binaries directory and copy binary
-          mkdir -p target/npm-binaries
+          # Create npm-binaries directory with target-specific naming
+          mkdir -p "target/npm-binaries/${RUST_TARGET}"
+
           if [[ -f "${BINARY_PATH}" ]]; then
-            cp "${BINARY_PATH}" "target/npm-binaries/${BINARY_NAME}"
-            echo "✅ Built binary: ${BINARY_PATH} -> target/npm-binaries/${BINARY_NAME}"
-            ls -la "target/npm-binaries/${BINARY_NAME}"
+            cp "${BINARY_PATH}" "target/npm-binaries/${RUST_TARGET}/${BINARY_NAME}"
+            echo "✅ Built binary: ${BINARY_PATH} -> target/npm-binaries/${RUST_TARGET}/${BINARY_NAME}"
+            ls -la "target/npm-binaries/${RUST_TARGET}/${BINARY_NAME}"
           else
             echo "❌ Binary not found at: ${BINARY_PATH}"
             echo "Available files in target directory:"
@@ -244,19 +245,19 @@ jobs:
       - name: Store the distribution packages
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: python-package-distributions-${{ matrix.platform.os }}-${{ matrix.platform.target || 'native' }}-${{ github.run_id }}
+          name: python-package-distributions-${{ matrix.platform.rust_target }}-${{ github.run_id }}
           path: dist/
           retention-days: 7 # Clean up after 7 days to prevent confusion
 
       - name: Store npm binary
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: npm-binary-${{ matrix.platform.os }}-${{ matrix.platform.target || 'native' }}-${{ github.run_id }}
-          path: target/npm-binaries/
+          name: npm-binary-${{ matrix.platform.rust_target }}-${{ github.run_id }}
+          path: target/npm-binaries/${{ matrix.platform.rust_target }}/
           retention-days: 7 # Clean up after 7 days to prevent confusion
 
       - name: Upload version info
-        if: matrix.platform.os == 'ubuntu-latest' && matrix.platform.target == ''
+        if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: version-info-${{ github.run_id }}
@@ -295,23 +296,38 @@ jobs:
           VERSION=$(cat version.txt)
           echo "Organizing npm binaries for version: ${VERSION}"
 
-          # Create target directory
+          # Create target directory structure
           mkdir -p target/npm-binaries
 
           echo "Downloaded artifact structure:"
           find npm-binaries-download -type f -name "serpen*" | head -20
 
-          # Copy binaries from artifact directories to organized structure
+          # Copy binaries from artifact directories to organized structure by target
           for artifact_dir in npm-binaries-download/*/; do
             if [[ -d "$artifact_dir" ]]; then
               echo "Processing artifact directory: $artifact_dir"
-              # Copy any serpen binaries found
-              find "$artifact_dir" -name "serpen*" -type f -exec cp {} target/npm-binaries/ \;
+
+              # Extract target from artifact directory name (format: npm-binary-{target}-{run_id})
+              artifact_name=$(basename "$artifact_dir")
+              if [[ "$artifact_name" =~ npm-binary-([^-]+.*)-[0-9]+ ]]; then
+                rust_target="${BASH_REMATCH[1]}"
+                echo "Detected Rust target: $rust_target"
+
+                # Create target-specific directory
+                mkdir -p "target/npm-binaries/$rust_target"
+
+                # Copy binaries for this target
+                find "$artifact_dir" -name "serpen*" -type f -exec cp {} "target/npm-binaries/$rust_target/" \;
+              else
+                echo "Warning: Could not extract target from artifact name: $artifact_name"
+                # Fallback: copy to a generic location
+                find "$artifact_dir" -name "serpen*" -type f -exec cp {} target/npm-binaries/ \;
+              fi
             fi
           done
 
-          echo "Organized npm binaries:"
-          ls -la target/npm-binaries/
+          echo "Organized npm binaries by target:"
+          find target/npm-binaries -type f | sort
 
       - name: Set up Node.js
         uses: actions/setup-node@v4.4.0 # v4

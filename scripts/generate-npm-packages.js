@@ -95,11 +95,17 @@ function generatePackages(version, targetDir, binariesDir) {
   for (const platform of PLATFORM_MAPPINGS) {
     const { rustTarget, nodePkg, nodeOs, nodeArch, extension, binaryName } = platform;
 
-    // Check if binary exists for this platform
-    const binaryPath = path.join(binariesDir, binaryName);
+    // Check if binary exists for this platform - look in target-specific directory first
+    let binaryPath = path.join(binariesDir, rustTarget, binaryName);
     if (!fs.existsSync(binaryPath)) {
-      console.warn(`Warning: Binary not found for ${rustTarget}: ${binaryPath}`);
-      continue;
+      // Fallback to flat structure for backward compatibility
+      binaryPath = path.join(binariesDir, binaryName);
+      if (!fs.existsSync(binaryPath)) {
+        console.warn(`Warning: Binary not found for ${rustTarget} at either:
+  - ${path.join(binariesDir, rustTarget, binaryName)}
+  - ${path.join(binariesDir, binaryName)}`);
+        continue;
+      }
     }
 
     // Create package directory
