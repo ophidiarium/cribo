@@ -153,29 +153,6 @@ serpen --entry lambda_handler.py --output deployment/handler.py
 # Upload handler.py + requirements.txt to Lambda
 ```
 
-### Jupyter Notebooks
-
-Create self-contained notebooks:
-
-```python
-# In your notebook
-from serpen import Bundler
-bundler = Bundler()
-bundler.bundle("my_analysis.py", "notebook_bundle.py")
-```
-
-### Code Cleanup
-
-Clean up unused imports in development:
-
-```bash
-# Review what imports would be removed
-serpen trim src/**/*.py --dry-run
-
-# Clean up entire codebase
-find src -name "*.py" -exec serpen trim {} \;
-```
-
 ## Special Considerations
 
 ### Pydantic Compatibility
