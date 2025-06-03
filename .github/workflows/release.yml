@@ -7,7 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., 1.2.3, 1.2.3-beta.1, 1.2.3.dev1, 1.2.3a1). Leave empty for auto-generated version.'
+        description: >-
+          Version to release (e.g., 1.2.3, 1.2.3-beta.1, 1.2.3.dev1, 1.2.3a1).
+          Leave empty for auto-generated version.
         required: false
         type: string
       release_type:
@@ -83,7 +85,8 @@ jobs:
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
           # Validate semver format - basic check for N.N.N pattern
           if ! [[ $TAG_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9\.]+)?$ ]]; then
-            echo "::error::Invalid version format in tag: $TAG_VERSION. Expected semver format like 1.2.3 or 1.2.3-beta.1"
+            echo "::error::Invalid version format in tag: $TAG_VERSION."
+            echo "::error::Expected semver format like 1.2.3 or 1.2.3-beta.1"
             exit 1
           fi
           echo "VERSION=${TAG_VERSION}" >> $GITHUB_OUTPUT
@@ -99,8 +102,10 @@ jobs:
 
           if [[ -n "$INPUT_VERSION" ]]; then
             # Validate provided version format (accept both SemVer and PEP 440 formats)
-            if ! [[ $INPUT_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.(dev[0-9]+)|a[0-9]+|b[0-9]+|rc[0-9]+|[-][a-zA-Z0-9\.-]+)?$ ]]; then
-              echo "::error::Invalid version format: $INPUT_VERSION. Expected semver (1.2.3, 1.2.3-beta.1) or PEP 440 (1.2.3.dev1, 1.2.3a1) format"
+            regex="^[0-9]+\.[0-9]+\.[0-9]+(\.(dev[0-9]+)|a[0-9]+|b[0-9]+|rc[0-9]+|[-][a-zA-Z0-9\.-]+)?$"
+            if ! [[ $INPUT_VERSION =~ $regex ]]; then
+              echo "::error::Invalid version format: $INPUT_VERSION."
+              echo "::error::Expected semver (1.2.3, 1.2.3-beta.1) or PEP 440 (1.2.3.dev1, 1.2.3a1) format"
               exit 1
             fi
             MANUAL_VERSION="$INPUT_VERSION"
@@ -189,8 +194,10 @@ jobs:
         with:
           command: build
           args: --release --out dist
-          manylinux: 2014
-          sccache: true
+          # Use auto manylinux detection following maturin CI patterns
+          manylinux: auto
+          # Disable sccache for release builds to ensure clean builds (following maturin CI pattern)
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           target: ${{ matrix.platform.rust_target }}
           maturin-version: '1.7.4'
 
@@ -208,9 +215,11 @@ jobs:
               echo "Processing: $filename"
 
               # Check if this is a problematic manylinux wheel with multiple platform tags
-              if [[ "$filename" =~ manylinux2014_aarch64\.manylinux_2_17_aarch64 ]]; then
+              problematic_pattern="manylinux2014_aarch64\.manylinux_2_17_aarch64"
+              if [[ "$filename" =~ $problematic_pattern ]]; then
                 # Extract the correct sorted filename
-                corrected_filename=$(echo "$filename" | sed 's/manylinux2014_aarch64\.manylinux_2_17_aarch64/manylinux_2_17_aarch64.manylinux2014_aarch64/')
+                corrected_filename=$(echo "$filename" | \
+                  sed 's/manylinux2014_aarch64\.manylinux_2_17_aarch64/manylinux_2_17_aarch64.manylinux2014_aarch64/')
 
                 echo "  ❌ Found incorrectly ordered tags: $filename"
                 echo "  ✅ Renaming to PEP 425 compliant: $corrected_filename"
@@ -218,7 +227,8 @@ jobs:
                 mv "$wheel" "dist/$corrected_filename"
               elif [[ "$filename" =~ manylinux2014_x86_64\.manylinux_2_17_x86_64 ]]; then
                 # Handle x86_64 case if it exists
-                corrected_filename=$(echo "$filename" | sed 's/manylinux2014_x86_64\.manylinux_2_17_x86_64/manylinux_2_17_x86_64.manylinux2014_x86_64/')
+                corrected_filename=$(echo "$filename" | \
+                  sed 's/manylinux2014_x86_64\.manylinux_2_17_x86_64/manylinux_2_17_x86_64.manylinux2014_x86_64/')
 
                 echo "  ❌ Found incorrectly ordered tags: $filename"
                 echo "  ✅ Renaming to PEP 425 compliant: $corrected_filename"
@@ -275,7 +285,8 @@ jobs:
         shell: bash
         run: |
           # Get current version from Cargo.toml
-          CURRENT_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+          CURRENT_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | \
+            grep "version" | cut -d'"' -f2)
           echo "Building version: ${CURRENT_VERSION}"
 
           ls -la dist/
@@ -283,9 +294,17 @@ jobs:
           for wheel in dist/*.whl; do
             if [ -f "$wheel" ]; then
               echo "Wheel: $(basename "$wheel")"
-              python -c "import zipfile; z = zipfile.ZipFile('$wheel'); [print(f'  {f}') for f in z.namelist() if f.endswith('WHEEL')]"
+              python -c "
+                import zipfile
+                z = zipfile.ZipFile('$wheel')
+                [print(f'  {f}') for f in z.namelist() if f.endswith('WHEEL')]
+              "
               echo "WHEEL file contents:"
-              python -c "import zipfile; z = zipfile.ZipFile('$wheel'); [print(z.read(f).decode()) for f in z.namelist() if f.endswith('WHEEL')]"
+              python -c "
+                import zipfile
+                z = zipfile.ZipFile('$wheel')
+                [print(z.read(f).decode()) for f in z.namelist() if f.endswith('WHEEL')]
+              "
               echo "---"
             fi
           done
@@ -293,16 +312,18 @@ jobs:
       - name: Store the distribution packages
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: python-package-distributions-${{ matrix.platform.rust_target }}-${{ github.run_id }}
+          # Improved artifact naming following maturin CI patterns
+          name: wheels-${{ matrix.platform.target }}-${{ github.run_id }}
           path: dist/
           retention-days: 7 # Clean up after 7 days to prevent confusion
 
       - name: Store npm binary
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: npm-binary-${{ matrix.platform.rust_target }}-${{ github.run_id }}
+          # Consistent naming with platform target
+          name: npm-binary-${{ matrix.platform.target }}-${{ github.run_id }}
           path: target/npm-binaries/${{ matrix.platform.rust_target }}/
-          retention-days: 7 # Clean up after 7 days to prevent confusion
+          retention-days: 7
 
       - name: Upload version info
         if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
@@ -313,6 +334,30 @@ jobs:
             version.txt
             version-metadata.json
           retention-days: 7 # Clean up after 7 days to prevent confusion
+
+  # Source distribution job following maturin CI patterns
+  build-sdist:
+    name: Build source distribution 📦
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0 # Fetch all history for tags
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3 # v1.49.1
+        with:
+          command: sdist
+          args: --out dist
+          maturin-version: '1.7.4'
+
+      - name: Store source distribution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wheels-sdist-${{ github.run_id }}
+          path: dist/
+          retention-days: 7
 
   generate-npm-packages:
     name: Generate npm packages 📦
@@ -414,7 +459,7 @@ jobs:
 
   publish-to-testpypi:
     name: Publish Python 🐍 distribution 📦 to TestPyPI
-    needs: build
+    needs: [build, build-sdist]
     runs-on: ubuntu-latest
     environment:
       name: testpypi
@@ -426,7 +471,7 @@ jobs:
       - name: Download all the dists
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: python-package-distributions-*-${{ github.run_id }}
+          pattern: wheels-*-${{ github.run_id }}
           path: dist/
           merge-multiple: true
 
@@ -461,9 +506,17 @@ jobs:
           echo "=== Wheel platform tags ==="
           for wheel in dist/*.whl; do
             echo "Wheel: $(basename $wheel)"
-            python -c "import zipfile, sys; z = zipfile.ZipFile(sys.argv[1]); [print(f'  {f}') for f in z.namelist() if f.endswith('WHEEL')]" "$wheel"
+            python -c "
+              import zipfile, sys
+              z = zipfile.ZipFile(sys.argv[1])
+              [print(f'  {f}') for f in z.namelist() if f.endswith('WHEEL')]
+            " "$wheel"
             echo "Contents of WHEEL file:"
-            python -c "import zipfile, sys; z = zipfile.ZipFile(sys.argv[1]); [print(z.read(f).decode()) for f in z.namelist() if f.endswith('WHEEL')]" "$wheel"
+            python -c "
+              import zipfile, sys
+              z = zipfile.ZipFile(sys.argv[1])
+              [print(z.read(f).decode()) for f in z.namelist() if f.endswith('WHEEL')]
+            " "$wheel"
             echo "---"
           done
 
@@ -474,12 +527,13 @@ jobs:
           verbose: true
           print-hash: true
           skip-existing: true
-          attestations: true
+          # Temporarily disable attestations until wheel tag ordering is fixed at source
+          # attestations: true
 
   publish-to-pypi:
     name: >-
       Publish Python 🐍 distribution 📦 to PyPI
-    needs: [build, publish-to-testpypi] # Ensure TestPyPI publish succeeds first
+    needs: [build, build-sdist, publish-to-testpypi] # Ensure TestPyPI publish succeeds first
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -491,7 +545,7 @@ jobs:
       - name: Download all the dists
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: python-package-distributions-*-${{ github.run_id }}
+          pattern: wheels-*-${{ github.run_id }}
           path: dist/
           merge-multiple: true
 
@@ -526,7 +580,8 @@ jobs:
           verbose: true
           print-hash: true
           skip-existing: true
-          attestations: true
+          # Temporarily disable attestations until wheel tag ordering is fixed at source
+          # attestations: true
 
   publish-to-npm:
     name: Publish to npm 📦
@@ -578,3 +633,29 @@ jobs:
         run: |
           VERSION=$(cat version.txt)
           node scripts/publish-npm.js "${VERSION}" ./npm-dist
+
+  # Centralized SLSA attestation job following maturin CI patterns
+  generate-attestations:
+    name: Generate SLSA Build Provenance
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+    needs: [build, build-sdist, generate-npm-packages]
+    permissions:
+      # Use to sign the release artifacts
+      id-token: write
+      # Used to upload release artifacts
+      contents: write
+      # Used to generate artifact attestation
+      attestations: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            wheels-*/*
+            npm-packages-*/*
+            npm-binary-*/*

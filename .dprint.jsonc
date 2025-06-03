@@ -5,8 +5,14 @@
     "newLineKind": "auto",
     "useTabs": false,
     "yaml": {
+        "printWidth": 120,
         "indentWidth": 2,
-        "quotes": "preferSingle"
+        "quotes": "preferSingle",
+        "formatComments": true,
+        "trimTrailingWhitespaces": true,
+        "preferSingleLine": false,
+        "braceSpacing": true,
+        "bracketSpacing": false
     },
     "json": {
         // This would be good to do in known-JSONC files, but VS Code warns on trailing commas.

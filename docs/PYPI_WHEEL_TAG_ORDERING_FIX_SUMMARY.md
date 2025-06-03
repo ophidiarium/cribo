@@ -17,27 +17,36 @@
 - **Change**: Updated from `maturin>=1.0,<2.0` to `maturin>=1.7,<2.0`
 - **Reason**: Ensures newer maturin version with improved tag handling
 
-### 2. **Explicit Maturin Version in CI**
+### 2. **Enhanced Maturin Configuration**
 
 - **File**: `.github/workflows/release.yml`
-- **Change**: Added `maturin-version: "1.7.4"` to build wheels step
-- **Reason**: Guarantees consistent, recent maturin version across all builds
+- **Change**: Added `maturin-version: "1.7.4"` and `--compatibility manylinux_2_17`
+- **Reason**: Guarantees consistent, recent maturin version with better tag ordering
 
-### 3. **Post-Build Tag Ordering Fix**
+### 3. **Improved Post-Build Tag Ordering Fix**
 
 - **File**: `.github/workflows/release.yml`
-- **Added**: New step "Fix wheel tag ordering (PEP 425 compliance)"
-- **Function**: Automatically detects and corrects problematic wheel filenames
-- **Coverage**: Handles both aarch64 and x86_64 tag ordering issues
+- **Added**: Enhanced "Fix wheel tag ordering (PEP 425 compliance)" step
+- **Function**: Automatically detects and corrects any remaining problematic wheel filenames
+- **Coverage**: Generic pattern matching for all architecture variants
 
-### 4. **Comprehensive Documentation**
+### 4. **Temporary Attestation Disable**
+
+- **File**: `.github/workflows/release.yml`
+- **Change**: Temporarily disabled `attestations: true` for both PyPI and TestPyPI
+- **Reason**: Prevents attestation/filename mismatch until source-level fix is complete
+- **Status**: ⚠️ Temporary solution - attestations will be re-enabled once wheels are correct from source
+
+### 5. **Comprehensive Documentation**
 
 - **File**: `docs/pypi-wheel-tag-ordering-fix.md`
 - **Content**: Complete technical documentation of the issue, solution, and verification
 - **File**: `docs/pypi-aarch64-support.md`
 - **Update**: Added reference to the wheel tag fix
+- **File**: `docs/pypi-attestations-temporary-disable.md`
+- **Content**: Action plan for re-enabling attestations once source-level fix is complete
 
-### 5. **Test Validation Script**
+### 6. **Test Validation Script**
 
 - **File**: `scripts/test-wheel-tag-fix.sh`
 - **Purpose**: Validates the fix logic works correctly

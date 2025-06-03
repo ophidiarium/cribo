@@ -32,7 +32,8 @@ jobs:
 
       - name: Run tests and generate JUnit XML
         run: |
-          cargo test --workspace --all-targets --no-fail-fast -- --format=json -Z unstable-options | cargo2junit --input-format=json > junit.xml
+          cargo test --workspace --all-targets --no-fail-fast -- \
+            --format=json -Z unstable-options | cargo2junit --input-format=json > junit.xml
 
       - name: Generate coverage report
         run: |

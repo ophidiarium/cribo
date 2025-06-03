@@ -1,5 +1,18 @@
 # NPM Package Provenance
 
+## Recent Enhancements (2025-06-03)
+
+### Centralized SLSA Build Provenance
+
+In addition to npm-specific provenance, we've implemented centralized SLSA build provenance following maturin CI patterns:
+
+- **Modern Attestations**: Using `actions/attest-build-provenance@v2`
+- **Comprehensive Coverage**: Covers all build artifacts (wheels, npm packages, binaries)
+- **SLSA Level 2**: Meets industry-standard supply chain security requirements
+- **Sigstore Integration**: Keyless signing with transparency log
+
+This provides an additional layer of security and compliance beyond npm's built-in provenance support.
+
 ## Overview
 
 Starting with our GitHub Actions releases, all Serpen NPM packages are published with **provenance attestations** that provide cryptographic proof of the package's origin and build process. This enhances supply chain security by enabling verification of package integrity and authenticity.

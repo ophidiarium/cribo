@@ -49,5 +49,7 @@ jobs:
       - name: E2E bundle test
         run: |
           mkdir bundle-test
-          uv run python -m serpen --entry crates/serpen/tests/fixtures/simple_project/main.py --output bundle-test/out.py
+          uv run python -m serpen \
+            --entry crates/serpen/tests/fixtures/simple_project/main.py \
+            --output bundle-test/out.py
           uv run python bundle-test/out.py

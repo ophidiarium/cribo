@@ -37,6 +37,8 @@ dev = [
     "lefthook>=1.11.13",
     "maturin",
     "vale>=3.11.2.0",
+    "yamlfix>=1.17.0",
+    "yamllint>=1.37.1",
 ]
 
 [tool.maturin]

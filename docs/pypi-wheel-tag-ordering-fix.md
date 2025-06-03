@@ -9,6 +9,8 @@ The Serpen project was experiencing PyPI publishing failures due to wheel filena
 
 This mismatch caused PyPI's attestation verification to fail because the platform tags were not sorted according to PEP 425 specifications.
 
+> **⚠️ Current Status**: PyPI attestations are temporarily disabled while we implement a source-level fix. See [PyPI Attestations Temporary Disable](pypi-attestations-temporary-disable.md) for details.
+
 ## Root Cause
 
 The issue stems from maturin/auditwheel not properly sorting compressed tag sets in wheel filenames. According to PEP 425, when multiple platform tags are present, they must be sorted in lexicographical order.
@@ -65,6 +67,20 @@ for wheel in dist/*.whl; do
   fi
 done
 ```
+
+## Recent Improvements (2025-06-03)
+
+### Maturin CI Pattern Adoption
+
+Following analysis of the official maturin-generated CI workflow, we've adopted several proven patterns:
+
+- **Conditional sccache**: Disabled for release builds to ensure clean compilation
+- **Enhanced manylinux**: Using `manylinux: auto` for optimal compatibility detection
+- **Centralized SLSA attestations**: Modern build provenance with `actions/attest-build-provenance@v2`
+- **Source distribution**: Added dedicated sdist job following maturin patterns
+- **Improved artifact naming**: Cleaner organization with `wheels-*` patterns
+
+See [maturin-ci-pattern-adoption.md](./maturin-ci-pattern-adoption.md) for detailed implementation.
 
 ## PEP 425 Background
 

@@ -399,6 +399,64 @@ jobs:
     retention-days: 5 # Custom retention period
 ```
 
+## YAML Quality and Validation
+
+### yamllint Integration
+
+**MANDATORY**: All GitHub Actions workflow files must pass yamllint validation before commit. This ensures consistent formatting, catches syntax errors early, and maintains code quality standards.
+
+#### Configuration
+
+The project uses a custom `.yamllint` configuration optimized for GitHub Actions workflows:
+
+- **Line length**: 120 characters (accommodating GitHub Actions URLs and expressions)
+- **Document start**: Optional (GitHub Actions don't require `---`)
+- **Truthy values**: Allows common GitHub Actions values like `'on'`, `'off'`
+- **Comments**: Flexible spacing requirements
+
+#### Validation Process
+
+**After making any changes to workflow files**:
+
+1. **Run yamllint validation**:
+   ```bash
+   yamllint .github/workflows/filename.yml
+   ```
+
+2. **Fix any reported issues** before committing
+
+3. **Pre-commit hook**: yamllint runs automatically via Lefthook pre-commit hooks
+
+#### Common yamllint Fixes
+
+**Long lines**: Split using YAML continuation or folding:
+
+```yaml
+# Before (too long)
+description: 'Very long description that exceeds the line length limit and needs to be split'
+
+# After (using folding)
+description: >-
+  Very long description that exceeds the line length limit
+  and needs to be split
+```
+
+**Complex shell commands**: Use multi-line format:
+
+```yaml
+# Before (too long)
+run: cargo test --workspace --all-targets --no-fail-fast -- --format=json -Z unstable-options | cargo2junit
+
+# After (multi-line)
+run: |
+  cargo test --workspace --all-targets --no-fail-fast -- \
+    --format=json -Z unstable-options | cargo2junit
+```
+
+#### VS Code Integration
+
+When using VS Code, yamllint errors are automatically highlighted. The custom configuration ensures realistic validation for GitHub Actions workflows while maintaining code quality.
+
 ## Security Best Practices
 
 - Limit permissions for GitHub tokens
