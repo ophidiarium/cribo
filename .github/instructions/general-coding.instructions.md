@@ -27,6 +27,13 @@ When multiple tools are available for the same task, follow this preference orde
 
 **Rationale**: VS Code tools provide better integration with the development environment, more precise error reporting, and enhanced user experience compared to raw terminal output.
 
+## Specialized Workflow Guidelines
+
+### GitHub Actions Workflows
+
+**MANDATORY** When working on GitHub Actions workflow files (`.github/workflows/*.yml`),
+follow the specific guidelines in `github-actions-workflows.instructions.md`
+
 ## Guidelines
 
 Use the following guidelines:
