@@ -456,17 +456,9 @@ jobs:
           echo "=== Wheel platform tags ==="
           for wheel in dist/*.whl; do
             echo "Wheel: $(basename $wheel)"
-            python -c "
-              import zipfile, sys
-              z = zipfile.ZipFile(sys.argv[1])
-              [print(f'  {f}') for f in z.namelist() if f.endswith('WHEEL')]
-            " "$wheel"
-            echo "Contents of WHEEL file:"
-            python -c "
-              import zipfile, sys
-              z = zipfile.ZipFile(sys.argv[1])
-              [print(z.read(f).decode()) for f in z.namelist() if f.endswith('WHEEL')]
-            " "$wheel"
+            # Display WHEEL metadata content
+            echo "WHEEL metadata content:"
+            unzip -p "$wheel" "*.dist-info/WHEEL"
             echo "---"
           done
 

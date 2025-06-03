@@ -18,7 +18,7 @@ pre-commit:
       run: cargo clippy --all-targets --all-features --fix --allow-dirty -- -D warnings
       stage_fixed: true
     yamllint:
-      glob: '.github/workflows/*.{yml,yaml}'
+      glob: '*.{yml,yaml}'
       run: yamllint {staged_files}
     update-index:
       glob: '**/*.rs'

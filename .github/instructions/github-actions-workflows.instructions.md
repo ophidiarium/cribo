@@ -457,6 +457,139 @@ run: |
 
 When using VS Code, yamllint errors are automatically highlighted. The custom configuration ensures realistic validation for GitHub Actions workflows while maintaining code quality.
 
+### YAML Syntax and Script Integration Best Practices
+
+#### ⚠️ Critical Warning: Python Inline Scripts in YAML
+
+**AVOID using multi-line Python scripts directly in YAML workflow files**. This approach commonly leads to:
+
+- **YAML indentation errors** that break workflow parsing
+- **Syntax errors** from Python code conflicting with YAML structure
+- **Hard-to-debug failures** where YAML parser errors obscure the actual issue
+- **Maintenance complexity** mixing Python and YAML syntax
+
+**❌ Problematic Pattern:**
+
+```yaml
+- name: Complex Python operation
+  shell: python
+  run: |
+    import zipfile
+    import os
+    wheel_file = "${{ env.WHEEL_FILE }}"
+    with zipfile.ZipFile(wheel_file, 'r') as zip_ref:
+        for file_info in zip_ref.infolist():
+            if file_info.filename.endswith('.dist-info/WHEEL'):
+                content = zip_ref.read(file_info).decode('utf-8')
+                print(content)
+```
+
+**✅ Recommended Alternatives:**
+
+1. **Use shell commands with appropriate tools:**
+   ```yaml
+   - name: Inspect wheel contents
+     run: unzip -p "${{ env.WHEEL_FILE }}" "*.dist-info/WHEEL"
+   ```
+
+2. **Extract to separate Python script file:**
+   ```yaml
+   - name: Run Python analysis
+     run: python scripts/analyze_wheel.py "${{ env.WHEEL_FILE }}"
+   ```
+
+3. **Use existing GitHub Actions from marketplace:**
+   ```yaml
+   - name: Analyze Python package
+     uses: some-org/wheel-analyzer-action@v1
+     with:
+       wheel-path: ${{ env.WHEEL_FILE }}
+   ```
+
+#### Shell Script Best Practices
+
+**Keep inline shell scripts simple and focused:**
+
+```yaml
+# ✅ Good: Simple, single-purpose commands
+- name: Extract version
+  run: echo "VERSION=$(grep version pyproject.toml | cut -d '"' -f 2)" >> $GITHUB_ENV
+
+# ✅ Good: Multi-line for readability, but still simple
+- name: Build and test
+  run: |
+    cargo build --release
+    cargo test --workspace
+    echo "Build completed successfully"
+
+# ❌ Avoid: Complex logic mixing multiple languages/tools
+- name: Complex analysis
+  run: |
+    python -c "
+    import sys, json, subprocess
+    result = subprocess.run(['cargo', 'metadata'], capture_output=True, text=True)
+    data = json.loads(result.stdout)
+    # ... 20 more lines of Python ...
+    "
+```
+
+#### YAML Syntax Validation Checklist
+
+Before committing workflow changes:
+
+1. **Run yamllint validation**: `yamllint .github/workflows/`
+2. **Check indentation consistency**: Use 2-space indentation throughout
+3. **Validate multi-line strings**: Use `|` or `>` operators correctly
+4. **Test locally if possible**: Use tools like `act` for local testing
+5. **Review in GitHub UI**: Check that syntax highlighting looks correct
+
+#### Common YAML Pitfalls in Workflows
+
+**Inconsistent indentation:**
+
+```yaml
+# ❌ Wrong
+steps:
+  - name: Step 1
+    run: echo "hello"
+    - name: Step 2  # Wrong indentation
+      run: echo "world"
+
+# ✅ Correct
+steps:
+  - name: Step 1
+    run: echo "hello"
+  - name: Step 2
+    run: echo "world"
+```
+
+**Incorrect multi-line string handling:**
+
+```yaml
+# ❌ Wrong: Will cause parsing errors
+- name: Multi-line command
+  run: echo "This is a very long command that spans multiple lines
+    and will break YAML parsing"
+
+# ✅ Correct: Use proper YAML multi-line syntax
+- name: Multi-line command
+  run: |
+    echo "This is a very long command that spans multiple lines"
+    echo "and is properly formatted"
+```
+
+**Environment variable syntax errors:**
+
+```yaml
+# ❌ Wrong: Missing quotes can cause parsing issues
+- name: Use environment variable
+  run: echo ${{ env.MY_VAR }}
+
+# ✅ Correct: Properly quoted
+- name: Use environment variable
+  run: echo "${{ env.MY_VAR }}"
+```
+
 ## Security Best Practices
 
 - Limit permissions for GitHub tokens
