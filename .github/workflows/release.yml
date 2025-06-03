@@ -486,6 +486,7 @@ jobs:
           verbose: true
           print-hash: true
           skip-existing: true
+          attestations: false
 
   publish-to-npm:
     name: Publish to npm 📦
