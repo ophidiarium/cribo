@@ -35,6 +35,8 @@ pub struct CodeEmitter {
     resolver: ModuleResolver,
     _preserve_comments: bool,
     _preserve_type_hints: bool,
+    /// Track which parent namespaces have already been created to avoid duplicates
+    created_namespaces: HashSet<String>,
 }
 
 impl CodeEmitter {
@@ -47,6 +49,7 @@ impl CodeEmitter {
             resolver,
             _preserve_comments: preserve_comments,
             _preserve_type_hints: preserve_type_hints,
+            created_namespaces: HashSet::new(),
         }
     }
 
@@ -264,7 +267,7 @@ impl CodeEmitter {
                 &module.name,
                 parsed_data,
                 import_strategy,
-                &ast_rewriter,
+                &mut ast_rewriter,
             )?;
 
             // Extend the bundle AST with the module's statements
@@ -295,7 +298,7 @@ impl CodeEmitter {
                 &entry_module_node.name,
                 parsed_data,
                 &ImportStrategy::Dependency,
-                &ast_rewriter,
+                &mut ast_rewriter,
             )?;
 
             // Add alias assignments at the beginning of the entry module
@@ -318,12 +321,13 @@ impl CodeEmitter {
     }
 
     /// Process a single module's AST to produce a transformed AST for bundling
+    #[allow(clippy::too_many_arguments)]
     fn process_module_ast_to_ast(
         &mut self,
         module_name: &str,
         parsed_data: &ParsedModuleData,
         import_strategy: &ImportStrategy,
-        ast_rewriter: &AstRewriter,
+        ast_rewriter: &mut AstRewriter,
     ) -> Result<ast::ModModule> {
         log::info!("Processing module AST '{}'", module_name);
 
@@ -336,6 +340,9 @@ impl CodeEmitter {
 
         // Apply AST rewriting for name conflict resolution
         ast_rewriter.rewrite_module_ast(module_name, &mut transformed_ast)?;
+
+        // Apply import alias transformations using the Transformer trait
+        ast_rewriter.transform_module_ast(&mut transformed_ast)?;
 
         // Apply bundling strategy based on how this module is imported
         match import_strategy {
@@ -358,7 +365,7 @@ impl CodeEmitter {
 
     /// Create a module namespace using AST operations
     fn create_module_namespace_ast(
-        &self,
+        &mut self,
         module_name: &str,
         module_ast: &ast::ModModule,
     ) -> Result<Vec<Stmt>> {
@@ -381,62 +388,113 @@ impl CodeEmitter {
     }
 
     /// Create module namespace structure as AST nodes
-    fn create_module_namespace_structure(&self, module_name: &str) -> Result<Vec<Stmt>> {
+    fn create_module_namespace_structure(&mut self, module_name: &str) -> Result<Vec<Stmt>> {
         let mut statements = Vec::new();
-
-        // 1. import types
-        let import_types = ast::StmtImport {
-            names: vec![ast::Alias {
-                name: "types".into(),
-                asname: None,
-                range: Default::default(),
-            }],
-            range: Default::default(),
-        };
-        statements.push(Stmt::Import(import_types));
+        let mut needs_import_types = false;
 
         // 2. Create parent namespaces first for nested modules (e.g., greetings.greeting)
         if module_name.contains('.') {
-            let parts: Vec<&str> = module_name.split('.').collect();
-
-            // Create each parent namespace level
-            for i in 1..parts.len() {
-                let parent_name = parts[..i].join(".");
-
-                // Create assignment: parent = types.ModuleType('parent')
-                let parent_type_call = ast::ExprCall {
-                    func: Box::new(ast::Expr::Attribute(ast::ExprAttribute {
-                        value: Box::new(ast::Expr::Name(ast::ExprName {
-                            id: "types".into(),
-                            ctx: ast::ExprContext::Load,
-                            range: Default::default(),
-                        })),
-                        attr: "ModuleType".into(),
-                        ctx: ast::ExprContext::Load,
-                        range: Default::default(),
-                    })),
-                    args: vec![ast::Expr::Constant(ast::ExprConstant {
-                        value: ast::Constant::Str(parent_name),
-                        kind: None,
-                        range: Default::default(),
-                    })],
-                    keywords: vec![],
-                    range: Default::default(),
-                };
-
-                // For nested modules, create the proper assignment target
-                let assignment_target = self.create_assignment_target(&parts, i)?;
-
-                let parent_assignment = ast::StmtAssign {
-                    targets: vec![assignment_target],
-                    value: Box::new(ast::Expr::Call(parent_type_call)),
-                    type_comment: None,
-                    range: Default::default(),
-                };
-                statements.push(Stmt::Assign(parent_assignment));
-            }
+            let parent_statements =
+                self.create_parent_namespaces(module_name, &mut needs_import_types)?;
+            statements.extend(parent_statements);
         }
 
+        // Mark the main module namespace as created
+        if !self.created_namespaces.contains(module_name) {
+            self.created_namespaces.insert(module_name.to_string());
+            needs_import_types = true;
+
+            let module_assignment = self.create_main_module_assignment(module_name)?;
+            statements.push(Stmt::Assign(module_assignment));
+        }
+
+        // 1. Add import types only if we created any namespaces
+        if needs_import_types {
+            let import_types = ast::StmtImport {
+                names: vec![ast::Alias {
+                    name: "types".into(),
+                    asname: None,
+                    range: Default::default(),
+                }],
+                range: Default::default(),
+            };
+            statements.insert(0, Stmt::Import(import_types));
+        }
+
+        Ok(statements)
+    }
+
+    /// Create parent namespace statements for nested modules
+    fn create_parent_namespaces(
+        &mut self,
+        module_name: &str,
+        needs_import_types: &mut bool,
+    ) -> Result<Vec<Stmt>> {
+        let mut statements = Vec::new();
+        let parts: Vec<&str> = module_name.split('.').collect();
+
+        // Create each parent namespace level
+        for i in 1..parts.len() {
+            let parent_name = parts[..i].join(".");
+
+            // Skip if this parent namespace was already created
+            if self.created_namespaces.contains(&parent_name) {
+                continue;
+            }
+
+            // Mark this namespace as created and create the assignment
+            self.created_namespaces.insert(parent_name.clone());
+            *needs_import_types = true;
+
+            let parent_assignment =
+                self.create_parent_namespace_assignment(&parts, i, &parent_name)?;
+            statements.push(Stmt::Assign(parent_assignment));
+        }
+
+        Ok(statements)
+    }
+
+    /// Create assignment statement for parent namespace
+    fn create_parent_namespace_assignment(
+        &self,
+        parts: &[&str],
+        i: usize,
+        parent_name: &str,
+    ) -> Result<ast::StmtAssign> {
+        // Create assignment: parent = types.ModuleType('parent')
+        let parent_type_call = ast::ExprCall {
+            func: Box::new(ast::Expr::Attribute(ast::ExprAttribute {
+                value: Box::new(ast::Expr::Name(ast::ExprName {
+                    id: "types".into(),
+                    ctx: ast::ExprContext::Load,
+                    range: Default::default(),
+                })),
+                attr: "ModuleType".into(),
+                ctx: ast::ExprContext::Load,
+                range: Default::default(),
+            })),
+            args: vec![ast::Expr::Constant(ast::ExprConstant {
+                value: ast::Constant::Str(parent_name.into()),
+                kind: None,
+                range: Default::default(),
+            })],
+            keywords: vec![],
+            range: Default::default(),
+        };
+
+        // For nested modules, create the proper assignment target
+        let assignment_target = self.create_assignment_target(parts, i)?;
+
+        Ok(ast::StmtAssign {
+            targets: vec![assignment_target],
+            value: Box::new(ast::Expr::Call(parent_type_call)),
+            type_comment: None,
+            range: Default::default(),
+        })
+    }
+
+    /// Create assignment statement for main module namespace
+    fn create_main_module_assignment(&self, module_name: &str) -> Result<ast::StmtAssign> {
         // 3. Create the main module: module_name = types.ModuleType('module_name')
         let module_type_call = ast::ExprCall {
             func: Box::new(ast::Expr::Attribute(ast::ExprAttribute {
@@ -492,15 +550,12 @@ impl CodeEmitter {
             })
         };
 
-        let module_assignment = ast::StmtAssign {
+        Ok(ast::StmtAssign {
             targets: vec![main_assignment_target],
             value: Box::new(ast::Expr::Call(module_type_call)),
             type_comment: None,
             range: Default::default(),
-        };
-        statements.push(Stmt::Assign(module_assignment));
-
-        Ok(statements)
+        })
     }
 
     /// Create assignment target for module namespace creation

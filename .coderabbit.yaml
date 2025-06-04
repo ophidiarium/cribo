@@ -18,5 +18,12 @@ knowledge_base:
   web_search:
     enabled: true
 path_filters:
-  # Exclude test fixtures from review
-  - '!crates/serpen/tests/fixtures/**'
+  - '!**/tests/fixtures/**'
+review:
+  instructions:
+    - path: '**/tests/fixtures/**'
+      instruction: |
+        These are test fixture files that contain intentional code patterns for testing purposes.
+        Do not provide any review comments, suggestions, or analysis.
+        Do not flag any issues or violations.
+        Simply acknowledge these are test fixtures and skip detailed review.

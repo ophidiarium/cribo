@@ -1,6 +1,8 @@
 use anyhow::Result;
+use cow_utils::CowUtils;
 use rustpython_parser::ast::{self, Expr, ExprContext, Stmt};
 use std::collections::{HashMap, HashSet};
+use unparser::transformer::Transformer;
 
 /// Python built-in names that should not be renamed
 static PYTHON_BUILTINS: &[&str] = &[
@@ -183,53 +185,74 @@ impl AstRewriter {
         }
     }
 
+    /// Public getter for import_aliases (for testing)
+    pub fn import_aliases(&self) -> &HashMap<String, ImportAlias> {
+        &self.import_aliases
+    }
+
     /// Collect import aliases from the entry module before they are removed
     pub fn collect_import_aliases(&mut self, entry_ast: &ast::ModModule, _entry_module_name: &str) {
         for stmt in &entry_ast.body {
             match stmt {
                 Stmt::ImportFrom(import_from) => {
-                    if let Some(module) = &import_from.module {
-                        for alias in &import_from.names {
-                            if let Some(asname) = &alias.asname {
-                                // Import with explicit alias: from module import name as alias
-                                let import_alias = ImportAlias {
-                                    original_name: alias.name.to_string(),
-                                    alias_name: asname.to_string(),
-                                    module_name: module.to_string(),
-                                    is_from_import: true,
-                                    has_explicit_alias: true,
-                                };
-                                self.import_aliases.insert(asname.to_string(), import_alias);
-                            } else {
-                                // Import without alias: from module import name
-                                let import_alias = ImportAlias {
-                                    original_name: alias.name.to_string(),
-                                    alias_name: alias.name.to_string(), // Same as original name
-                                    module_name: module.to_string(),
-                                    is_from_import: true,
-                                    has_explicit_alias: false,
-                                };
-                                self.import_aliases
-                                    .insert(alias.name.to_string(), import_alias);
-                            }
-                        }
-                    }
+                    self.process_import_from_statement(import_from);
                 }
                 Stmt::Import(import) => {
-                    for alias in &import.names {
-                        if let Some(asname) = &alias.asname {
-                            let import_alias = ImportAlias {
-                                original_name: alias.name.to_string(),
-                                alias_name: asname.to_string(),
-                                module_name: alias.name.to_string(),
-                                is_from_import: false,
-                                has_explicit_alias: true,
-                            };
-                            self.import_aliases.insert(asname.to_string(), import_alias);
-                        }
-                    }
+                    self.process_import_statement(import);
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// Process ImportFrom statement to extract aliases
+    fn process_import_from_statement(&mut self, import_from: &ast::StmtImportFrom) {
+        let Some(module) = &import_from.module else {
+            return;
+        };
+
+        for alias in &import_from.names {
+            let import_alias = if let Some(asname) = &alias.asname {
+                // Import with explicit alias: from module import name as alias
+                ImportAlias {
+                    original_name: alias.name.to_string(),
+                    alias_name: asname.to_string(),
+                    module_name: module.to_string(),
+                    is_from_import: true,
+                    has_explicit_alias: true,
+                }
+            } else {
+                // Import without alias: from module import name
+                ImportAlias {
+                    original_name: alias.name.to_string(),
+                    alias_name: alias.name.to_string(), // Same as original name
+                    module_name: module.to_string(),
+                    is_from_import: true,
+                    has_explicit_alias: false,
+                }
+            };
+
+            let key = if alias.asname.is_some() {
+                import_alias.alias_name.clone()
+            } else {
+                alias.name.to_string()
+            };
+            self.import_aliases.insert(key, import_alias);
+        }
+    }
+
+    /// Process Import statement to extract aliases
+    fn process_import_statement(&mut self, import: &ast::StmtImport) {
+        for alias in &import.names {
+            if let Some(asname) = &alias.asname {
+                let import_alias = ImportAlias {
+                    original_name: alias.name.to_string(),
+                    alias_name: asname.to_string(),
+                    module_name: alias.name.to_string(),
+                    is_from_import: false,
+                    has_explicit_alias: true,
+                };
+                self.import_aliases.insert(asname.to_string(), import_alias);
             }
         }
     }
@@ -308,6 +331,7 @@ impl AstRewriter {
     }
 
     /// Collect symbols from an expression
+    #[allow(clippy::too_many_arguments)]
     fn collect_symbols_from_expr(
         &mut self,
         module_name: &str,
@@ -402,9 +426,10 @@ impl AstRewriter {
     fn generate_unique_name(&mut self, original_name: &str, module_name: &str) -> String {
         // Clean up module name for use as prefix
         let module_prefix = module_name
-            .replace(".", "_")
-            .replace("-", "_")
-            .replace("/", "_");
+            .cow_replace(".", "_")
+            .cow_replace("-", "_")
+            .cow_replace("/", "_")
+            .into_owned();
 
         let mut counter = 0;
 
@@ -465,6 +490,22 @@ impl AstRewriter {
         Ok(())
     }
 
+    /// Apply renames to a list of generators (used in comprehensions)
+    fn apply_renames_to_generators(
+        &self,
+        generators: &mut [ast::Comprehension],
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        for generator in generators {
+            self.apply_renames_to_expr(&mut generator.target, renames)?;
+            self.apply_renames_to_expr(&mut generator.iter, renames)?;
+            for if_ in &mut generator.ifs {
+                self.apply_renames_to_expr(if_, renames)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Apply renames to a single statement
     fn apply_renames_to_stmt(
         &self,
@@ -474,7 +515,7 @@ impl AstRewriter {
         match stmt {
             Stmt::FunctionDef(func_def) => {
                 // Rename function definition
-                if let Some(new_name) = renames.get(&func_def.name.to_string()) {
+                if let Some(new_name) = renames.get(func_def.name.as_str()) {
                     func_def.name = new_name.clone().into();
                 }
                 // Rename in return type annotation
@@ -486,7 +527,7 @@ impl AstRewriter {
             }
             Stmt::ClassDef(class_def) => {
                 // Rename class definition
-                if let Some(new_name) = renames.get(&class_def.name.to_string()) {
+                if let Some(new_name) = renames.get(class_def.name.as_str()) {
                     class_def.name = new_name.clone().into();
                 }
                 // Rename within class body
@@ -571,6 +612,7 @@ impl AstRewriter {
     }
 
     /// Apply renames to an expression
+    #[allow(clippy::only_used_in_recursion)]
     fn apply_renames_to_expr(
         &self,
         expr: &mut Expr,
@@ -579,7 +621,7 @@ impl AstRewriter {
         match expr {
             Expr::Name(name) => {
                 // Rename variables in both Load and Store contexts
-                if let Some(new_name) = renames.get(&name.id.to_string()) {
+                if let Some(new_name) = renames.get(name.id.as_str()) {
                     name.id = new_name.clone().into();
                 }
             }
@@ -614,10 +656,8 @@ impl AstRewriter {
                 }
             }
             Expr::Dict(dict) => {
-                for key in &mut dict.keys {
-                    if let Some(key) = key {
-                        self.apply_renames_to_expr(key, renames)?;
-                    }
+                for key in dict.keys.iter_mut().flatten() {
+                    self.apply_renames_to_expr(key, renames)?;
                 }
                 for value in &mut dict.values {
                     self.apply_renames_to_expr(value, renames)?;
@@ -645,44 +685,20 @@ impl AstRewriter {
             }
             Expr::ListComp(list_comp) => {
                 self.apply_renames_to_expr(&mut list_comp.elt, renames)?;
-                for generator in &mut list_comp.generators {
-                    self.apply_renames_to_expr(&mut generator.target, renames)?;
-                    self.apply_renames_to_expr(&mut generator.iter, renames)?;
-                    for if_ in &mut generator.ifs {
-                        self.apply_renames_to_expr(if_, renames)?;
-                    }
-                }
+                self.apply_renames_to_generators(&mut list_comp.generators, renames)?;
             }
             Expr::SetComp(set_comp) => {
                 self.apply_renames_to_expr(&mut set_comp.elt, renames)?;
-                for generator in &mut set_comp.generators {
-                    self.apply_renames_to_expr(&mut generator.target, renames)?;
-                    self.apply_renames_to_expr(&mut generator.iter, renames)?;
-                    for if_ in &mut generator.ifs {
-                        self.apply_renames_to_expr(if_, renames)?;
-                    }
-                }
+                self.apply_renames_to_generators(&mut set_comp.generators, renames)?;
             }
             Expr::DictComp(dict_comp) => {
                 self.apply_renames_to_expr(&mut dict_comp.key, renames)?;
                 self.apply_renames_to_expr(&mut dict_comp.value, renames)?;
-                for generator in &mut dict_comp.generators {
-                    self.apply_renames_to_expr(&mut generator.target, renames)?;
-                    self.apply_renames_to_expr(&mut generator.iter, renames)?;
-                    for if_ in &mut generator.ifs {
-                        self.apply_renames_to_expr(if_, renames)?;
-                    }
-                }
+                self.apply_renames_to_generators(&mut dict_comp.generators, renames)?;
             }
             Expr::GeneratorExp(gen_exp) => {
                 self.apply_renames_to_expr(&mut gen_exp.elt, renames)?;
-                for generator in &mut gen_exp.generators {
-                    self.apply_renames_to_expr(&mut generator.target, renames)?;
-                    self.apply_renames_to_expr(&mut generator.iter, renames)?;
-                    for if_ in &mut generator.ifs {
-                        self.apply_renames_to_expr(if_, renames)?;
-                    }
-                }
+                self.apply_renames_to_generators(&mut gen_exp.generators, renames)?;
             }
             Expr::Subscript(subscript) => {
                 self.apply_renames_to_expr(&mut subscript.value, renames)?;
@@ -758,6 +774,24 @@ impl AstRewriter {
         assignments
     }
 
+    /// Check if a name will have an alias assignment generated for it
+    fn will_have_alias_assignment(&self, name: &str) -> bool {
+        if let Some(import_alias) = self.import_aliases.get(name) {
+            if import_alias.is_from_import {
+                // Check if there's a conflict for this imported name
+                let has_conflict = self
+                    .name_conflicts
+                    .contains_key(&import_alias.original_name);
+
+                // Alias assignment will be generated if:
+                // 1. There was an explicit alias in the original code, OR
+                // 2. There's a name conflict that requires renaming
+                return import_alias.has_explicit_alias || has_conflict;
+            }
+        }
+        false
+    }
+
     /// Get debug information about conflicts and aliases
     pub fn get_debug_info(&self) -> String {
         let mut info = String::new();
@@ -786,10 +820,78 @@ impl AstRewriter {
 
         info
     }
+
+    /// Transform module AST using the Transformer trait to apply import alias transformations
+    pub fn transform_module_ast(&mut self, module_ast: &mut ast::ModModule) -> Result<()> {
+        // Transform the module's body statements using the Transformer trait
+        // Use std::mem::take to move the vector without cloning, avoiding unnecessary memory overhead
+        let body = std::mem::take(&mut module_ast.body);
+        module_ast.body = self.visit_stmt_vec(body);
+        Ok(())
+    }
+
+    /// Transform regular import aliases (import module as alias)
+    fn transform_regular_import_alias(
+        &self,
+        expr: &mut rustpython_parser::ast::ExprName,
+        import_alias: &ImportAlias,
+    ) {
+        let actual_name =
+            if let Some(conflict) = self.name_conflicts.get(&import_alias.original_name) {
+                // Use the renamed version if there was a conflict
+                conflict
+                    .renamed_versions
+                    .get(&import_alias.module_name)
+                    .cloned()
+                    .unwrap_or_else(|| import_alias.original_name.clone())
+            } else {
+                import_alias.original_name.clone()
+            };
+        expr.id = actual_name.into();
+    }
+
+    /// Apply module-specific renames to an expression
+    fn apply_module_renames(&self, expr: &mut rustpython_parser::ast::ExprName) {
+        for renames in self.module_renames.values() {
+            if let Some(new_name) = renames.get(expr.id.as_str()) {
+                expr.id = new_name.clone().into();
+                break;
+            }
+        }
+    }
 }
 
 impl Default for AstRewriter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Transformer for AstRewriter {
+    /// Override visit_expr_name to handle import alias transformations
+    fn visit_expr_name(
+        &mut self,
+        mut expr: rustpython_parser::ast::ExprName,
+    ) -> Option<rustpython_parser::ast::ExprName> {
+        let name = expr.id.as_str();
+
+        // Check if this name will have an alias assignment generated for it
+        // If so, don't apply renames - let the alias assignment handle it
+        if self.will_have_alias_assignment(name) {
+            return Some(expr);
+        }
+
+        // Handle regular import aliases (non-from imports)
+        if let Some(import_alias) = self.import_aliases.get(name) {
+            if !import_alias.is_from_import {
+                self.transform_regular_import_alias(&mut expr, import_alias);
+                return Some(expr);
+            }
+        }
+
+        // Apply module-specific renames
+        self.apply_module_renames(&mut expr);
+
+        Some(expr)
     }
 }
