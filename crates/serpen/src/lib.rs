@@ -1,3 +1,4 @@
+pub mod ast_rewriter;
 pub mod bundler;
 pub mod config;
 pub mod dependency_graph;

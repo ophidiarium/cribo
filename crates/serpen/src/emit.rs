@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
+use crate::ast_rewriter::AstRewriter;
 use crate::dependency_graph::ModuleNode;
 use crate::resolver::{ImportType, ModuleResolver};
 use crate::unused_imports_simple::UnusedImportAnalyzer;
@@ -173,6 +174,31 @@ impl CodeEmitter {
             }
         }
 
+        // Initialize AST rewriter for handling import aliases and name conflicts
+        let mut ast_rewriter = AstRewriter::new();
+
+        // Collect import aliases from the entry module before they are removed
+        if let Some(entry_module_data) = modules
+            .iter()
+            .find(|m| m.name == entry_module)
+            .and_then(|m| parsed_modules_data.get(&m.path))
+        {
+            ast_rewriter.collect_import_aliases(&entry_module_data.ast, entry_module);
+        }
+
+        // Analyze name conflicts across all modules
+        let module_asts: Vec<(String, &ast::ModModule)> = modules
+            .iter()
+            .filter_map(|m| {
+                parsed_modules_data
+                    .get(&m.path)
+                    .map(|data| (m.name.clone(), &data.ast))
+            })
+            .collect();
+        ast_rewriter.analyze_name_conflicts(&module_asts);
+
+        log::info!("AST Rewriter Analysis:\n{}", ast_rewriter.get_debug_info());
+
         // Analyze import strategies for each module based on how they're imported by the entry module
         let import_strategies =
             self.analyze_import_strategies(modules, entry_module, &parsed_modules_data)?;
@@ -234,8 +260,12 @@ impl CodeEmitter {
                 .unwrap_or(&ImportStrategy::Dependency);
 
             // Process the module and get a transformed AST
-            let module_ast =
-                self.process_module_ast_to_ast(&module.name, parsed_data, import_strategy)?;
+            let module_ast = self.process_module_ast_to_ast(
+                &module.name,
+                parsed_data,
+                import_strategy,
+                &ast_rewriter,
+            )?;
 
             // Extend the bundle AST with the module's statements
             bundle_ast.body.extend(module_ast.body);
@@ -261,11 +291,18 @@ impl CodeEmitter {
                 })?;
 
             // Process the entry module and get a transformed AST
-            let entry_ast = self.process_module_ast_to_ast(
+            let mut entry_ast = self.process_module_ast_to_ast(
                 &entry_module_node.name,
                 parsed_data,
                 &ImportStrategy::Dependency,
+                &ast_rewriter,
             )?;
+
+            // Add alias assignments at the beginning of the entry module
+            let alias_assignments = ast_rewriter.generate_alias_assignments();
+            let mut new_body = alias_assignments;
+            new_body.extend(entry_ast.body);
+            entry_ast.body = new_body;
 
             // Extend the bundle AST with the entry module's statements
             bundle_ast.body.extend(entry_ast.body);
@@ -286,6 +323,7 @@ impl CodeEmitter {
         module_name: &str,
         parsed_data: &ParsedModuleData,
         import_strategy: &ImportStrategy,
+        ast_rewriter: &AstRewriter,
     ) -> Result<ast::ModModule> {
         log::info!("Processing module AST '{}'", module_name);
 
@@ -295,6 +333,9 @@ impl CodeEmitter {
         // Remove first-party imports and unused imports using existing methods
         self.remove_first_party_imports(&mut transformed_ast, &parsed_data.first_party_imports)?;
         self.remove_unused_imports(&mut transformed_ast, &parsed_data.unused_imports)?;
+
+        // Apply AST rewriting for name conflict resolution
+        ast_rewriter.rewrite_module_ast(module_name, &mut transformed_ast)?;
 
         // Apply bundling strategy based on how this module is imported
         match import_strategy {

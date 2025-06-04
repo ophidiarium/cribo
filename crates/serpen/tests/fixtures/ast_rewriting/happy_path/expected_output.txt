@@ -1,0 +1,6 @@
+Welcome, Alice!
+User: User(name='Alice', email='alice@example.com', role=admin)
+Role: admin
+Database: sqlite://test.db
+Total: 60
+Result: {'user': 'Alice', 'email': 'alice@example.com', 'role': 'admin', 'total': 60, 'message': 'Welcome, Alice!'}

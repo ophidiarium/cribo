@@ -187,7 +187,7 @@ fn test_can_import_multiple_modules_from_module_using_from_import_syntax() {
     assert_script_output("script_using_from_to_import_multiple_modules", "Hello");
 }
 
-// #[test]
+#[test]
 fn test_imported_modules_are_transformed() {
     assert_script_output("imports_in_imported_modules", "Hello");
 }
@@ -227,7 +227,7 @@ fn test_package_init_can_be_used_even_if_not_imported_explicitly() {
     assert_script_output("implicit_init_import", "Hello");
 }
 
-// #[test]
+#[test]
 fn test_value_import_is_detected_when_import_is_renamed() {
     assert_script_output("import_from_as_value", "Hello");
 }
@@ -237,7 +237,7 @@ fn test_module_import_is_detected_when_import_is_renamed() {
     assert_script_output("import_from_as_module", "Hello");
 }
 
-// #[test]
+#[test]
 fn test_modules_with_triple_quotes_can_be_bundled() {
     assert_script_output("module_with_triple_quotes", "Hello\n'''\n\"\"\"");
 }
@@ -272,7 +272,7 @@ fn test_additional_python_modules_can_be_explicitly_included() {
 }
 
 /// Test that our bundler can handle special shebang preservation
-// #[test]
+#[test]
 fn test_special_shebang_handling() {
     let script_name = "script_with_special_shebang";
     let result = bundle_test_script(script_name);
@@ -298,7 +298,7 @@ fn test_special_shebang_handling() {
 }
 
 /// Integration test to verify our bundler handles all major scenarios
-// #[test]
+#[test]
 fn test_comprehensive_bundling_scenarios() {
     let _ = env_logger::try_init();
 

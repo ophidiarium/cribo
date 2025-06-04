@@ -1,0 +1,5 @@
+Model User: Model User(name='Alice', email='alice@example.com')
+Entity User: Entity User(name='Bob', age=25)
+Model Product: Model Product(name='Widget', price=19.99)
+Entity Product: Entity Product(sku='P001', name='Gadget')
+Result: {'model_user': "Model User(name='Alice', email='alice@example.com')", 'entity_user': "Entity User(name='Bob', age=25)", 'model_product': "Model Product(name='Widget', price=19.99)", 'entity_product': "Entity Product(sku='P001', name='Gadget')"}

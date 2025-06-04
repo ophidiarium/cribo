@@ -1,0 +1,7 @@
+Constants API URL: https://api.constants.com
+Config API URL: https://api.config.com
+Constants Version: 1.0.0
+Config Version: 2.1.0
+Default Timeout: 30
+Max Retries: 3
+Result: {'constants_api_url': 'https://api.constants.com', 'config_api_url': 'https://api.config.com', 'constants_version': '1.0.0', 'config_version': '2.1.0', 'default_timeout': 30, 'max_retries': 3}

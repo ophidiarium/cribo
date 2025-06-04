@@ -1,0 +1,3 @@
+Module A result: Module A processed: INPUT FROM A
+Module B result: Module B processed: input from b
+Result: {'module_a': 'Module A processed: INPUT FROM A', 'module_b': 'Module B processed: input from b'}
