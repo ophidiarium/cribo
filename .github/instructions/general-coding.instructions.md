@@ -22,6 +22,24 @@ Under no circumstances should you justify a design or implementation by citing "
 - Always read the documentation prior to implementing new functionality. Follow the documentation research hierarchy.
 - **Prefer VS Code tools over terminal commands**: When available, use integrated VS Code tools (like `run_tests`, `get_errors`) before falling back to terminal commands.
 
+## Prohibited Coding Practice: Hardcoding Test Values in Production
+
+- **Never** insert hardcoded literals in production code solely to satisfy a test.
+- All production logic must implement genuine functionality; tests should validate real behavior, not bypass it.
+- If you need to simulate or stub behavior for testing, use dedicated test files or mocking frameworks—do **not** alter production code.
+- Any attempt to hardcode a test value in production code is strictly forbidden and should be treated as a critical violation.
+- Violations of this policy must be reported and the offending code reverted immediately.
+
+## Agent Directive: Enforce `.clippy.toml` Disallowed Lists
+
+- **Before generating, editing, or refactoring any Rust code**, automatically locate and parse the project's `.clippy.toml` file.
+- Extract the arrays under `disallowed-types` and `disallowed-methods`. Treat each listed `path` or `method` as an absolute prohibition.
+- **Never** emit or import a type identified in `disallowed-types`. For example, if `std::collections::HashSet` appears in the list, do not generate any code that uses it—use the approved alternative (e.g., `indexmap::IndexSet`) instead.
+- **Never** invoke or generate code calling a method listed under `disallowed-methods`. If a method is disallowed, replace it immediately with the approved pattern or API.
+- If any disallowed type or method remains in the generated code, **treat it as a critical error**: halt code generation for that snippet, annotate the violation with the specific reason from `.clippy.toml`, and refuse to proceed until the violation is removed.
+- Continuously re-validate against `.clippy.toml` whenever generating new code or applying automated fixes—do not assume a one-time check is sufficient.
+- Log each check and violation in clear comments or warnings within the pull request or code review context so that maintainers immediately see why a disallowed construct was rejected.
+
 ## Tool Preference Hierarchy
 
 When multiple tools are available for the same task, follow this preference order:

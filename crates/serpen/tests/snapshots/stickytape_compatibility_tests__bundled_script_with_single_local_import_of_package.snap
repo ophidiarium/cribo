@@ -9,7 +9,7 @@ description: Bundled content for script_with_single_local_import_of_package
 # ─ Module: greeting ─
 import types
 greeting = types.ModuleType('greeting')
-exec('message = "Hello"', greeting.__dict__)
+exec('message = "Hello"', globals(), greeting.__dict__)
 
 # ─ Entry Module: hello ─
 print(greeting.message)

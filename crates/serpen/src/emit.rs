@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::collections::{HashMap, HashSet};
+use indexmap::{IndexMap, IndexSet};
 use std::fs;
 
 use crate::ast_rewriter::AstRewriter;
@@ -15,13 +15,13 @@ use ruff_python_parser;
 use ruff_text_size::TextRange;
 
 /// Type alias for import sets to reduce complexity
-type ImportSets = (HashSet<String>, HashSet<String>);
+type ImportSets = (IndexSet<String>, IndexSet<String>);
 
 /// Pre-parsed module data with AST for efficient processing
 struct ParsedModuleData {
     ast: ModModule,
-    unused_imports: HashSet<String>,
-    first_party_imports: HashSet<String>,
+    unused_imports: IndexSet<String>,
+    first_party_imports: IndexSet<String>,
 }
 
 /// Import strategy for how a module should be bundled
@@ -40,7 +40,11 @@ pub struct CodeEmitter {
     _preserve_comments: bool,
     _preserve_type_hints: bool,
     /// Track which parent namespaces have already been created to avoid duplicates
-    created_namespaces: HashSet<String>,
+    created_namespaces: IndexSet<String>,
+    /// Track which modules are from __init__.py files
+    init_modules: IndexSet<String>,
+    /// Track bundled variable names for each module
+    bundled_variables: IndexMap<String, IndexMap<String, String>>,
 }
 
 impl CodeEmitter {
@@ -53,7 +57,9 @@ impl CodeEmitter {
             resolver,
             _preserve_comments: preserve_comments,
             _preserve_type_hints: preserve_type_hints,
-            created_namespaces: HashSet::new(),
+            created_namespaces: IndexSet::new(),
+            init_modules: IndexSet::new(),
+            bundled_variables: IndexMap::new(),
         }
     }
 
@@ -61,8 +67,8 @@ impl CodeEmitter {
     fn classify_and_add_import(
         &self,
         import: &str,
-        third_party_imports: &mut HashSet<String>,
-        stdlib_imports: &mut HashSet<String>,
+        third_party_imports: &mut IndexSet<String>,
+        stdlib_imports: &mut IndexSet<String>,
     ) {
         match self.resolver.classify_import(import) {
             ImportType::ThirdParty => {
@@ -79,8 +85,8 @@ impl CodeEmitter {
 
     /// Collect imports and categorize them by type
     fn collect_import_sets(&self, modules: &[&ModuleNode]) -> ImportSets {
-        let mut third_party_imports = HashSet::new();
-        let mut stdlib_imports = HashSet::new();
+        let mut third_party_imports = IndexSet::new();
+        let mut stdlib_imports = IndexSet::new();
 
         for module in modules {
             for import in &module.imports {
@@ -95,15 +101,15 @@ impl CodeEmitter {
     /// Returns the aliased imports that need to be added separately
     fn filter_aliased_imports(
         &self,
-        third_party_imports: &mut HashSet<String>,
-        stdlib_imports: &mut HashSet<String>,
+        third_party_imports: &mut IndexSet<String>,
+        stdlib_imports: &mut IndexSet<String>,
         ast_rewriter: &AstRewriter,
     ) -> ImportSets {
         let import_aliases = ast_rewriter.import_aliases();
 
         // Collect aliased modules that need to be imported for alias assignments
-        let mut aliased_third_party = HashSet::new();
-        let mut aliased_stdlib = HashSet::new();
+        let mut aliased_third_party = IndexSet::new();
+        let mut aliased_stdlib = IndexSet::new();
 
         for import_alias in import_aliases.values() {
             if import_alias.has_explicit_alias && !import_alias.is_from_import {
@@ -112,10 +118,10 @@ impl CodeEmitter {
                 // Check if this module was in third_party or stdlib imports
                 if third_party_imports.contains(module_name) {
                     aliased_third_party.insert(module_name.clone());
-                    third_party_imports.remove(module_name);
+                    third_party_imports.shift_remove(module_name);
                 } else if stdlib_imports.contains(module_name) {
                     aliased_stdlib.insert(module_name.clone());
-                    stdlib_imports.remove(module_name);
+                    stdlib_imports.shift_remove(module_name);
                 }
             }
         }
@@ -205,10 +211,15 @@ impl CodeEmitter {
         };
 
         // Parse all modules once and store AST + metadata
-        let mut all_unused_imports = HashSet::new();
-        let mut parsed_modules_data = HashMap::new();
+        let mut all_unused_imports = IndexSet::new();
+        let mut parsed_modules_data = IndexMap::new();
 
         for module in modules {
+            // Check if this module is from an __init__.py file
+            if module.path.file_name() == Some(std::ffi::OsStr::new("__init__.py")) {
+                self.init_modules.insert(module.name.clone());
+            }
+
             let source = fs::read_to_string(&module.path)
                 .with_context(|| format!("Failed to read module file: {:?}", module.path))?;
 
@@ -227,7 +238,7 @@ impl CodeEmitter {
                 Vec::new()
             });
 
-            let module_unused_names: HashSet<String> = unused_imports
+            let module_unused_names: IndexSet<String> = unused_imports
                 .iter()
                 .map(|import| import.name.clone())
                 .collect();
@@ -259,6 +270,9 @@ impl CodeEmitter {
             .context("Failed to parse target Python version")?;
         let mut ast_rewriter = AstRewriter::new(python_version);
 
+        // Set the init_modules set so the AST rewriter can accurately identify package interfaces
+        ast_rewriter.set_init_modules(&self.init_modules);
+
         // Collect import aliases from the entry module before they are removed
         if let Some(entry_module_data) = modules
             .iter()
@@ -270,7 +284,7 @@ impl CodeEmitter {
 
         // Pre-compute module import flags based on resolver information
         let module_flags = {
-            let mut flags = std::collections::HashMap::new();
+            let mut flags = IndexMap::new();
             for import_alias in ast_rewriter.import_aliases().values() {
                 if import_alias.is_from_import {
                     let full_module_name = format!(
@@ -439,9 +453,26 @@ impl CodeEmitter {
         // Apply AST rewriting for name conflict resolution FIRST
         ast_rewriter.rewrite_module_ast(module_name, &mut transformed_ast)?;
 
+        // Track bundled variables from the rewriter
+        self.collect_bundled_variables_from_rewriter(module_name, ast_rewriter);
+
         // Apply import alias transformations BEFORE removing imports
         // This ensures that alias information is available when transforming expressions
         ast_rewriter.transform_module_ast(&mut transformed_ast)?;
+
+        // Transform relative imports in __init__.py files BEFORE removing imports
+        // This ensures relative imports are resolved to bundled variable references
+        let bundled_modules = self.create_bundled_modules_mapping();
+        log::debug!(
+            "Bundled modules mapping for {}: {:?}",
+            module_name,
+            bundled_modules
+        );
+        ast_rewriter.transform_init_py_relative_imports(
+            module_name,
+            &mut transformed_ast,
+            &bundled_modules,
+        )?;
 
         // Remove first-party imports and unused imports AFTER transformations
         self.remove_first_party_imports(&mut transformed_ast, &parsed_data.first_party_imports)?;
@@ -459,7 +490,17 @@ impl CodeEmitter {
             }
             ImportStrategy::FromImport | ImportStrategy::Dependency => {
                 // For modules imported as "from module import" or dependency modules,
-                // return the transformed AST directly
+                // add variable exposure statements and return the transformed AST
+                let exposure_statements = self.create_variable_exposure_statements(module_name)?;
+                let exposure_count = exposure_statements.len();
+                if !exposure_statements.is_empty() {
+                    transformed_ast.body.extend(exposure_statements);
+                    log::debug!(
+                        "Added {} variable exposure statements to module '{}'",
+                        exposure_count,
+                        module_name
+                    );
+                }
                 Ok(transformed_ast)
             }
         }
@@ -492,7 +533,10 @@ impl CodeEmitter {
         };
 
         // Add the exec call that will execute the module code in its namespace
-        let exec_stmt = self.create_module_exec_statement(module_name, &module_code)?;
+        // For __init__.py files, include globals to access bundled variables
+        let needs_globals = self.is_init_py_module(module_name);
+        let exec_stmt =
+            self.create_module_exec_statement(module_name, &module_code, needs_globals)?;
         namespace_stmts.push(exec_stmt);
 
         Ok(namespace_stmts)
@@ -710,9 +754,130 @@ impl CodeEmitter {
         })
     }
 
+    /// Check if a module name represents an __init__.py file
+    fn is_init_py_module(&self, module_name: &str) -> bool {
+        // Check if this module was identified as coming from an __init__.py file
+        // during the parsing phase
+        self.init_modules.contains(module_name)
+    }
+
+    /// Create statements to expose renamed variables with their original names
+    ///
+    /// This creates assignment statements like `__module_name_var = __module_name_var`
+    /// to make renamed variables accessible for import resolution in other modules.
+    fn create_variable_exposure_statements(&self, module_name: &str) -> Result<Vec<Stmt>> {
+        let mut statements = Vec::new();
+
+        // Get renamed variables for this module from bundled_variables
+        if let Some(renames) = self.bundled_variables.get(module_name) {
+            log::debug!(
+                "Creating exposure statements for module '{}' with {} renames",
+                module_name,
+                renames.len()
+            );
+
+            for (original_name, renamed_name) in renames {
+                // Create assignment: original_name = renamed_name
+                // This exposes the renamed variable under its original name for access by other modules
+                let assignment = Stmt::Assign(StmtAssign {
+                    targets: vec![Expr::Name(ExprName {
+                        id: original_name.clone().into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Name(ExprName {
+                        id: renamed_name.clone().into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                });
+                statements.push(assignment);
+            }
+        } else {
+            log::debug!("No renamed variables found for module '{}'", module_name);
+        }
+
+        Ok(statements)
+    }
+
     /// Create an AST for the exec statement that executes module code in its namespace
-    fn create_module_exec_statement(&self, module_name: &str, module_code: &str) -> Result<Stmt> {
-        // Create the exec call: exec(module_code, module_name.__dict__)
+    fn create_module_exec_statement(
+        &self,
+        module_name: &str,
+        module_code: &str,
+        include_globals: bool,
+    ) -> Result<Stmt> {
+        // Create the module code string literal
+        let code_literal = Expr::StringLiteral(ruff_python_ast::ExprStringLiteral {
+            value: ruff_python_ast::StringLiteralValue::single(ruff_python_ast::StringLiteral {
+                range: TextRange::default(),
+                value: module_code.to_string().into_boxed_str(),
+                flags: ruff_python_ast::StringLiteralFlags::empty(),
+            }),
+            range: TextRange::default(),
+        });
+
+        // Create the module __dict__ expression
+        let module_dict = Expr::Attribute(ExprAttribute {
+            value: Box::new(if module_name.contains('.') {
+                // Handle dotted module names
+                let parts: Vec<&str> = module_name.split('.').collect();
+                let mut current_expr = Expr::Name(ExprName {
+                    id: Identifier::new(parts[0], TextRange::default()).into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+
+                for &part in &parts[1..] {
+                    current_expr = Expr::Attribute(ExprAttribute {
+                        value: Box::new(current_expr),
+                        attr: Identifier::new(part, TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+                }
+                current_expr
+            } else {
+                // Simple module name
+                Expr::Name(ExprName {
+                    id: Identifier::new(module_name, TextRange::default()).into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })
+            }),
+            attr: Identifier::new("__dict__", TextRange::default()),
+            ctx: ExprContext::Load,
+            range: TextRange::default(),
+        });
+
+        // Create the arguments based on whether globals are needed
+        let args = if include_globals {
+            // exec(code, globals(), module.__dict__)
+            vec![
+                code_literal,
+                // globals() call
+                Expr::Call(ExprCall {
+                    func: Box::new(Expr::Name(ExprName {
+                        id: Identifier::new("globals", TextRange::default()).into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    arguments: Arguments {
+                        args: vec![].into(),
+                        keywords: vec![].into(),
+                        range: TextRange::default(),
+                    },
+                    range: TextRange::default(),
+                }),
+                module_dict,
+            ]
+        } else {
+            // exec(code, module.__dict__)
+            vec![code_literal, module_dict]
+        };
+
+        // Create the exec call
         let exec_call = Expr::Call(ExprCall {
             func: Box::new(Expr::Name(ExprName {
                 id: Identifier::new("exec", TextRange::default()).into(),
@@ -720,52 +885,7 @@ impl CodeEmitter {
                 range: TextRange::default(),
             })),
             arguments: Arguments {
-                args: vec![
-                    // First argument: the module code as a string literal
-                    Expr::StringLiteral(ruff_python_ast::ExprStringLiteral {
-                        value: ruff_python_ast::StringLiteralValue::single(
-                            ruff_python_ast::StringLiteral {
-                                range: TextRange::default(),
-                                value: module_code.to_string().into_boxed_str(),
-                                flags: ruff_python_ast::StringLiteralFlags::empty(),
-                            },
-                        ),
-                        range: TextRange::default(),
-                    }),
-                    // Second argument: module_name.__dict__
-                    Expr::Attribute(ExprAttribute {
-                        value: Box::new(if module_name.contains('.') {
-                            // Handle dotted module names
-                            let parts: Vec<&str> = module_name.split('.').collect();
-                            let mut current_expr = Expr::Name(ExprName {
-                                id: Identifier::new(parts[0], TextRange::default()).into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            });
-
-                            for &part in &parts[1..] {
-                                current_expr = Expr::Attribute(ExprAttribute {
-                                    value: Box::new(current_expr),
-                                    attr: Identifier::new(part, TextRange::default()),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                });
-                            }
-                            current_expr
-                        } else {
-                            // Simple module name
-                            Expr::Name(ExprName {
-                                id: Identifier::new(module_name, TextRange::default()).into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })
-                        }),
-                        attr: Identifier::new("__dict__", TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    }),
-                ]
-                .into(),
+                args: args.into(),
                 keywords: vec![].into(),
                 range: TextRange::default(),
             },
@@ -783,9 +903,9 @@ impl CodeEmitter {
         &self,
         modules: &[&ModuleNode],
         entry_module: &str,
-        parsed_modules_data: &HashMap<std::path::PathBuf, ParsedModuleData>,
-    ) -> Result<HashMap<String, ImportStrategy>> {
-        let mut strategies = HashMap::new();
+        parsed_modules_data: &IndexMap<std::path::PathBuf, ParsedModuleData>,
+    ) -> Result<IndexMap<String, ImportStrategy>> {
+        let mut strategies = IndexMap::new();
 
         // Find the entry module data
         let entry_module_node = modules
@@ -817,7 +937,7 @@ impl CodeEmitter {
     fn process_import_strategies(
         &self,
         import_stmt: &StmtImport,
-        strategies: &mut HashMap<String, ImportStrategy>,
+        strategies: &mut IndexMap<String, ImportStrategy>,
     ) {
         // `import module` - needs namespace
         for alias in &import_stmt.names {
@@ -832,7 +952,7 @@ impl CodeEmitter {
     fn process_import_from_strategies(
         &self,
         import_from_stmt: &StmtImportFrom,
-        strategies: &mut HashMap<String, ImportStrategy>,
+        strategies: &mut IndexMap<String, ImportStrategy>,
     ) {
         // `from module import ...` - needs direct inlining
         if let Some(module) = &import_from_stmt.module {
@@ -866,7 +986,7 @@ impl CodeEmitter {
     fn remove_first_party_imports(
         &self,
         module: &mut ModModule,
-        first_party_imports: &HashSet<String>,
+        first_party_imports: &IndexSet<String>,
     ) -> Result<()> {
         log::info!("Removing first-party imports: {:?}", first_party_imports);
         module.body = self.filter_import_statements(&module.body, |import_name| {
@@ -893,7 +1013,7 @@ impl CodeEmitter {
     fn remove_unused_imports(
         &self,
         module: &mut ModModule,
-        unused_imports: &HashSet<String>,
+        unused_imports: &IndexSet<String>,
     ) -> Result<()> {
         module.body = self.filter_import_statements(&module.body, |import_name| {
             !unused_imports.contains(import_name)
@@ -1031,8 +1151,8 @@ impl CodeEmitter {
     }
 
     /// Collect first-party imports from AST instead of re-parsing source
-    fn collect_first_party_imports_from_ast(&self, module: &ModModule) -> Result<HashSet<String>> {
-        let mut first_party_imports = HashSet::new();
+    fn collect_first_party_imports_from_ast(&self, module: &ModModule) -> Result<IndexSet<String>> {
+        let mut first_party_imports = IndexSet::new();
 
         for stmt in &module.body {
             self.collect_first_party_from_statement(stmt, &mut first_party_imports);
@@ -1043,7 +1163,7 @@ impl CodeEmitter {
     }
 
     /// Extract first-party imports from an AST statement
-    fn collect_first_party_from_statement(&self, stmt: &Stmt, imports: &mut HashSet<String>) {
+    fn collect_first_party_from_statement(&self, stmt: &Stmt, imports: &mut IndexSet<String>) {
         match stmt {
             Stmt::Import(import_stmt) => {
                 self.collect_first_party_from_import(import_stmt, imports);
@@ -1059,7 +1179,7 @@ impl CodeEmitter {
     fn collect_first_party_from_import_from(
         &self,
         import_from_stmt: &StmtImportFrom,
-        imports: &mut HashSet<String>,
+        imports: &mut IndexSet<String>,
     ) {
         // Handle relative imports (e.g., `from . import x`) as first-party
         if import_from_stmt.module.is_none() {
@@ -1084,7 +1204,7 @@ impl CodeEmitter {
     fn collect_first_party_from_import(
         &self,
         import_stmt: &StmtImport,
-        imports: &mut HashSet<String>,
+        imports: &mut IndexSet<String>,
     ) {
         for alias in &import_stmt.names {
             let import_name = alias.name.as_str();
@@ -1108,7 +1228,7 @@ impl CodeEmitter {
 
     /// Generate requirements.txt content from third-party imports
     pub fn generate_requirements(&mut self, modules: &[&ModuleNode]) -> Result<String> {
-        let mut third_party_imports = HashSet::new();
+        let mut third_party_imports = IndexSet::new();
 
         for module in modules {
             self.collect_third_party_imports_from_module(module, &mut third_party_imports);
@@ -1124,7 +1244,7 @@ impl CodeEmitter {
     fn collect_third_party_imports_from_module(
         &mut self,
         module: &ModuleNode,
-        third_party_imports: &mut HashSet<String>,
+        third_party_imports: &mut IndexSet<String>,
     ) {
         for import in &module.imports {
             if let ImportType::ThirdParty = self.resolver.classify_import(import) {
@@ -1196,8 +1316,8 @@ impl CodeEmitter {
     fn add_preserved_imports_to_bundle(
         &self,
         bundle_ast: &mut ModModule,
-        stdlib_imports: HashSet<String>,
-        third_party_imports: HashSet<String>,
+        stdlib_imports: IndexSet<String>,
+        third_party_imports: IndexSet<String>,
     ) {
         if stdlib_imports.is_empty() && third_party_imports.is_empty() {
             return;
@@ -1235,6 +1355,56 @@ impl CodeEmitter {
 
         // Add an empty line comment after imports
         bundle_ast.body.push(self.create_comment_stmt(""));
+    }
+
+    /// Create a mapping of module names to their bundled variable names
+    /// This is used for transforming relative imports in __init__.py files
+    fn create_bundled_modules_mapping(&self) -> IndexMap<String, String> {
+        let mut mapping = IndexMap::new();
+
+        for (module_name, variables) in &self.bundled_variables {
+            for (original_name, bundled_name) in variables {
+                // Map "module.original_name" -> "bundled_name"
+                let key = format!("{}.{}", module_name, original_name);
+                mapping.insert(key, bundled_name.clone());
+            }
+        }
+
+        mapping
+    }
+
+    /// Track a bundled variable for a module
+    fn track_bundled_variable(
+        &mut self,
+        module_name: &str,
+        original_name: &str,
+        bundled_name: &str,
+    ) {
+        self.bundled_variables
+            .entry(module_name.to_string())
+            .or_default()
+            .insert(original_name.to_string(), bundled_name.to_string());
+    }
+
+    /// Collect bundled variables from the AST rewriter
+    fn collect_bundled_variables_from_rewriter(
+        &mut self,
+        module_name: &str,
+        ast_rewriter: &AstRewriter,
+    ) {
+        if let Some(renames) = ast_rewriter.get_module_renames(module_name) {
+            log::debug!(
+                "Found {} renames for module {}: {:?}",
+                renames.len(),
+                module_name,
+                renames
+            );
+            for (original_name, renamed_name) in renames {
+                self.track_bundled_variable(module_name, original_name, renamed_name);
+            }
+        } else {
+            log::debug!("No renames found for module {}", module_name);
+        }
     }
 
     /// Normalize line endings to LF (\n) for cross-platform consistency
