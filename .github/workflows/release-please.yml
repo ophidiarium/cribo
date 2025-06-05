@@ -11,6 +11,8 @@ jobs:
     permissions:
       contents: write # needed to create tags and releases
       pull-requests: write # needed to create/update the release PR
+      issues: write # needed for release-please to function properly
+      repository-projects: write # needed for release-please to function properly
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -25,6 +27,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          command: manifest
 
       # The release-please action creates the git tag when a release PR is merged
       # This tag will automatically trigger the existing release.yml workflow
