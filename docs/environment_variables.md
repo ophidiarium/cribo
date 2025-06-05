@@ -10,6 +10,45 @@ Serpen.
 | `PYTHONPATH`  | Std  | First-party module discovery     | [PYTHONPATH](./pythonpath_support.md)  |
 | `VIRTUAL_ENV` | Std  | Third-party dependency detection | [VIRTUAL_ENV](./virtualenv_support.md) |
 
+## Configuration
+
+Python version targeting is now configured via CLI arguments and configuration files rather than environment variables.
+
+### Target Python Version
+
+**CLI Argument**: `--target-version` (alias: `--python-version`)\
+**Config File**: `target-version` in `serpen.toml`\
+**Type**: String (e.g., "py38", "py39", "py310", "py311", "py312", "py313")\
+**Default**: "py310" (Python 3.10)
+
+Specifies which Python version to use for:
+
+- Standard library module detection
+- AST rewriting compatibility
+- Language feature availability checks
+
+```bash
+# Set Python 3.11 as target version
+serpen --target-version py311 -e main.py -o bundle.py
+
+# Set Python 3.12 as target version using alias
+serpen --python-version py312 -e main.py -o bundle.py
+
+# Use default Python 3.10 (no argument needed)
+serpen -e main.py -o bundle.py
+```
+
+**TOML Configuration**:
+
+```toml
+# serpen.toml
+target-version = "py311"
+preserve_comments = true
+preserve_type_hints = false
+```
+
+**Note**: The string format follows Ruff's convention (e.g., "py310" = Python 3.10, "py311" = Python 3.11).
+
 ### `PYTHONPATH`
 
 **Purpose**: First-party module discovery and bundling\
@@ -27,7 +66,7 @@ PYTHONPATH="C:\path\to\dir1;C:\path\to\dir2"
 
 # Usage
 export PYTHONPATH="/external/modules"
-serpen bundle main.py
+serpen --entry main.py --output bundle.py
 ```
 
 ### `VIRTUAL_ENV`
@@ -45,32 +84,32 @@ in the current working directory.
 ```bash
 # Automatic when venv is activated
 source venv/bin/activate
-serpen bundle main.py
+serpen --entry main.py --output bundle.py
 
 # Manual override
-VIRTUAL_ENV=/path/to/venv serpen bundle main.py
+VIRTUAL_ENV=/path/to/venv serpen --entry main.py --output bundle.py
 
 # Automatic fallback detection (no VIRTUAL_ENV needed)
 # Serpen automatically detects .venv, venv, env, etc.
-serpen bundle main.py
+serpen --entry main.py --output bundle.py
 ```
 
 ```bash
 # Automatic when venv is activated
 source venv/bin/activate
-serpen bundle main.py
+serpen --entry main.py --output bundle.py
 
 # Manual override
-VIRTUAL_ENV=/path/to/venv serpen bundle main.py
+VIRTUAL_ENV=/path/to/venv serpen --entry main.py --output bundle.py
 ```
 
 ```bash
 # Automatic when venv is activated
 source venv/bin/activate
-serpen bundle main.py
+serpen --entry main.py --output bundle.py
 
 # Manual override
-VIRTUAL_ENV=/path/to/venv serpen bundle main.py
+VIRTUAL_ENV=/path/to/venv serpen --entry main.py --output bundle.py
 ```
 
 ## Module Resolution Priority
@@ -106,7 +145,7 @@ When both `PYTHONPATH` and `VIRTUAL_ENV` are set:
 ```bash
 export PYTHONPATH="/external/modules"
 export VIRTUAL_ENV="/path/to/venv"
-serpen bundle main.py
+serpen --entry main.py --output bundle.py
 ```
 
 **Result**:
@@ -164,7 +203,7 @@ serpen bundle main.py
 Enable verbose logging to see environment variable processing:
 
 ```bash
-serpen --verbose bundle main.py
+serpen --verbose --entry main.py --output bundle.py
 ```
 
 ## Related Documentation

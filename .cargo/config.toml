@@ -1,7 +1,20 @@
 [build]
 rustflags = ["-Ctarget-cpu=native"]
 
+[net]
+git-fetch-with-cli = true
+retry = 10
+
+# statically link the C runtime so the executable does not depend on
+# that shared/dynamic library.
+#
+# See: https://github.com/astral-sh/ruff/issues/11503
+[target.'cfg(all(target_env="msvc", target_os = "windows"))']
+rustflags = ["-C", "target-feature=+crt-static"]
+
 [alias]
+dev = "run --package serpen --bin serpen"
+
 # Coverage commands using cargo-llvm-cov
 coverage = "llvm-cov --html --open"
 coverage-text = "llvm-cov --text"

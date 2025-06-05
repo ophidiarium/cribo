@@ -20,6 +20,6 @@ def main():
     print(sys.version)
     numbers: List[int] = [1, 2, 3]
     dd = defaultdict(int)
-    dd['test'] = 5
+    dd["test"] = 5
     print(f"Numbers: {numbers}")
     print(f"Defaultdict: {dict(dd)}")

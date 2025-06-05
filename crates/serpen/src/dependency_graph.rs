@@ -146,80 +146,140 @@ impl DependencyGraph {
     }
 
     /// Filter to only include modules reachable from the given entry module
-    #[allow(clippy::excessive_nesting)]
     pub fn filter_reachable_from(&self, entry_module: &str) -> Result<DependencyGraph> {
-        let entry_index = self
-            .node_indices
-            .get(entry_module)
-            .ok_or_else(|| anyhow!("Entry module not found: {}", entry_module))?;
+        let entry_index = self.find_entry_module_index(entry_module)?;
 
         debug!("Filtering from entry module: {}", entry_module);
 
         // Use DFS to find all reachable modules
+        let visited = self.find_reachable_modules_dfs(entry_index);
+
+        debug!("Visited {} modules total", visited.len());
+        self.log_visited_modules(&visited);
+
+        // Create new graph with only reachable modules
+        self.create_filtered_graph(visited)
+    }
+
+    /// Find the node index for the entry module
+    fn find_entry_module_index(&self, entry_module: &str) -> Result<NodeIndex> {
+        self.node_indices
+            .get(entry_module)
+            .copied()
+            .ok_or_else(|| anyhow!("Entry module not found: {}", entry_module))
+    }
+
+    /// Find all modules reachable from the entry using DFS
+    fn find_reachable_modules_dfs(&self, entry_index: NodeIndex) -> IndexSet<NodeIndex> {
         let mut visited = IndexSet::new();
-        let mut stack = vec![*entry_index];
+        let mut stack = vec![entry_index];
 
         while let Some(current_index) = stack.pop() {
             if visited.insert(current_index) {
-                let current_module = &self.graph[current_index].name;
-                debug!("Visiting module: {}", current_module);
-
-                // Add all dependencies to the stack
-                // Since edges now point FROM dependencies TO dependents,
-                // we need to look at incoming edges to find dependencies
-                let incoming_count = self
-                    .graph
-                    .neighbors_directed(current_index, petgraph::Direction::Incoming)
-                    .count();
-                println!(
-                    "DEBUG: Module {} has {} incoming edges (dependencies)",
-                    current_module, incoming_count
-                );
-
-                for neighbor_index in self
-                    .graph
-                    .neighbors_directed(current_index, petgraph::Direction::Incoming)
-                {
-                    self.process_neighbor_for_topological_sort(
-                        neighbor_index,
-                        &mut stack,
-                        &visited,
-                    );
-                }
+                self.process_current_module_for_dfs(current_index, &mut stack, &visited);
             }
         }
 
-        debug!("Visited {} modules total", visited.len());
-        for &index in &visited {
+        visited
+    }
+
+    /// Process the current module during DFS traversal
+    fn process_current_module_for_dfs(
+        &self,
+        current_index: NodeIndex,
+        stack: &mut Vec<NodeIndex>,
+        visited: &IndexSet<NodeIndex>,
+    ) {
+        let current_module = &self.graph[current_index].name;
+        debug!("Visiting module: {}", current_module);
+
+        // Add all dependencies to the stack
+        let incoming_count = self
+            .graph
+            .neighbors_directed(current_index, petgraph::Direction::Incoming)
+            .count();
+        println!(
+            "DEBUG: Module {} has {} incoming edges (dependencies)",
+            current_module, incoming_count
+        );
+
+        for neighbor_index in self
+            .graph
+            .neighbors_directed(current_index, petgraph::Direction::Incoming)
+        {
+            self.process_neighbor_for_topological_sort(neighbor_index, stack, visited);
+        }
+    }
+
+    /// Log all visited modules for debugging
+    fn log_visited_modules(&self, visited: &IndexSet<NodeIndex>) {
+        for &index in visited {
             debug!("Visited module: {}", self.graph[index].name);
         }
+    }
 
-        // Create new graph with only reachable modules
+    /// Create a new filtered graph containing only the visited modules
+    fn create_filtered_graph(&self, visited: IndexSet<NodeIndex>) -> Result<DependencyGraph> {
         let mut filtered_graph = DependencyGraph::new();
         let mut _index_mapping = HashMap::new();
 
         // Add all reachable nodes
-        for &old_index in &visited {
+        self.add_reachable_nodes_to_filtered_graph(
+            &visited,
+            &mut filtered_graph,
+            &mut _index_mapping,
+        );
+
+        // Add all edges between reachable nodes
+        self.add_edges_to_filtered_graph(&visited, &mut filtered_graph)?;
+
+        Ok(filtered_graph)
+    }
+
+    /// Add all reachable nodes to the filtered graph
+    fn add_reachable_nodes_to_filtered_graph(
+        &self,
+        visited: &IndexSet<NodeIndex>,
+        filtered_graph: &mut DependencyGraph,
+        _index_mapping: &mut HashMap<NodeIndex, NodeIndex>,
+    ) {
+        for &old_index in visited {
             let module = self.graph[old_index].clone();
             let new_index = filtered_graph.add_module(module);
             _index_mapping.insert(old_index, new_index);
         }
+    }
 
-        // Add all edges between reachable nodes
-        for &from_index in &visited {
-            for to_index in self
-                .graph
-                .neighbors_directed(from_index, petgraph::Direction::Incoming)
-            {
-                if visited.contains(&to_index) {
-                    let from_module = &self.graph[to_index].name; // dependency
-                    let to_module = &self.graph[from_index].name; // dependent
-                    filtered_graph.add_dependency(from_module, to_module)?;
-                }
+    /// Add all edges between reachable nodes to the filtered graph
+    fn add_edges_to_filtered_graph(
+        &self,
+        visited: &IndexSet<NodeIndex>,
+        filtered_graph: &mut DependencyGraph,
+    ) -> Result<()> {
+        for &from_index in visited {
+            self.add_edges_for_module(from_index, visited, filtered_graph)?;
+        }
+        Ok(())
+    }
+
+    /// Add edges for a specific module to the filtered graph
+    fn add_edges_for_module(
+        &self,
+        from_index: NodeIndex,
+        visited: &IndexSet<NodeIndex>,
+        filtered_graph: &mut DependencyGraph,
+    ) -> Result<()> {
+        for to_index in self
+            .graph
+            .neighbors_directed(from_index, petgraph::Direction::Incoming)
+        {
+            if visited.contains(&to_index) {
+                let from_module = &self.graph[to_index].name; // dependency
+                let to_module = &self.graph[from_index].name; // dependent
+                filtered_graph.add_dependency(from_module, to_module)?;
             }
         }
-
-        Ok(filtered_graph)
+        Ok(())
     }
 
     /// Process a neighbor node during topological sort

@@ -13,6 +13,20 @@
     },
     "packageRules": [
         {
+            "matchManagers": [
+                "cargo"
+            ],
+            "matchDatasources": [
+                "github-tags"
+            ],
+            "matchPackageNames": [
+                "/^ruff_.*/"
+            ],
+            "versioning": "regex:^(?<version>\\d+.\\d+.\\d+)$",
+            "automerge": true,
+            "groupName": "⬆️ Update all ruff git dependencies"
+        },
+        {
             "matchCategories": [
                 "python"
             ],

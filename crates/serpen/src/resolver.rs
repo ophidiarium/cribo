@@ -6,7 +6,22 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use crate::config::Config;
-use crate::python_stdlib::is_stdlib_module;
+use ruff_python_stdlib::sys;
+
+/// Check if a module is part of the Python standard library using ruff_python_stdlib
+fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
+    // Check direct match using ruff_python_stdlib
+    if sys::is_known_standard_library(python_version, module_name) {
+        return true;
+    }
+
+    // Check if it's a submodule of a stdlib module
+    if let Some(top_level) = module_name.split('.').next() {
+        sys::is_known_standard_library(python_version, top_level)
+    } else {
+        false
+    }
+}
 
 /// A scoped guard for safely setting and cleaning up the PYTHONPATH environment variable.
 ///
@@ -283,73 +298,124 @@ impl ModuleResolver {
     /// Detect common virtual environment directory names in the current working directory
     /// Returns a list of paths that appear to be virtual environments
     fn detect_fallback_virtualenv_paths(&self) -> Vec<PathBuf> {
+        let current_dir = match std::env::current_dir() {
+            Ok(dir) => dir,
+            Err(_) => return Vec::new(),
+        };
+
+        self.scan_common_venv_names(current_dir.as_path())
+    }
+
+    /// Scan common virtual environment directory names in the given directory
+    fn scan_common_venv_names(&self, current_dir: &Path) -> Vec<PathBuf> {
+        let common_venv_names = [".venv", "venv", "env", ".virtualenv", "virtualenv"];
         let mut venv_paths = Vec::new();
 
-        // Common virtual environment directory names, in order of preference
-        let common_venv_names = [".venv", "venv", "env", ".virtualenv", "virtualenv"];
-
-        // Get current working directory
-        if let Ok(current_dir) = std::env::current_dir() {
-            for venv_name in &common_venv_names {
-                let potential_venv = current_dir.join(venv_name);
-
-                // Check if directory exists
-                if potential_venv.exists() && potential_venv.is_dir() {
-                    // Verify it's actually a virtual environment by checking for site-packages
-                    let site_packages_dirs = self.get_virtualenv_site_packages_directories(
-                        &potential_venv.to_string_lossy(),
-                    );
-
-                    // If we found site-packages directories, this is likely a virtual environment
-                    if !site_packages_dirs.is_empty() {
-                        venv_paths.push(potential_venv);
-                    }
-                }
+        for venv_name in &common_venv_names {
+            if let Some(venv_path) = self.validate_potential_venv(current_dir, venv_name) {
+                venv_paths.push(venv_path);
             }
         }
 
         venv_paths
     }
 
+    /// Validate if a potential virtual environment directory is actually a venv
+    fn validate_potential_venv(&self, current_dir: &Path, venv_name: &str) -> Option<PathBuf> {
+        let potential_venv = current_dir.join(venv_name);
+
+        if !self.is_valid_directory(&potential_venv) {
+            return None;
+        }
+
+        let site_packages_dirs =
+            self.get_virtualenv_site_packages_directories(&potential_venv.to_string_lossy());
+
+        if site_packages_dirs.is_empty() {
+            None
+        } else {
+            Some(potential_venv)
+        }
+    }
+
+    /// Check if a path is a valid existing directory
+    fn is_valid_directory(&self, path: &Path) -> bool {
+        path.exists() && path.is_dir()
+    }
+
     /// Get site-packages directories from a virtual environment path
     /// This is used for third-party dependency detection, not first-party module discovery
     fn get_virtualenv_site_packages_directories(&self, virtualenv_path: &str) -> Vec<PathBuf> {
-        let mut site_packages_dirs = Vec::new();
         let venv_root = PathBuf::from(virtualenv_path);
 
         if !venv_root.exists() || !venv_root.is_dir() {
-            return site_packages_dirs;
+            return Vec::new();
         }
 
-        // Windows: %VIRTUAL_ENV%\Lib\site-packages
         if cfg!(windows) {
-            let site_packages = venv_root.join("Lib").join("site-packages");
-            if site_packages.exists() && site_packages.is_dir() {
-                site_packages_dirs.push(site_packages);
-            }
+            self.get_windows_site_packages(&venv_root)
         } else {
-            // Unix-like: $VIRTUAL_ENV/lib/python*/site-packages
-            let lib_dir = venv_root.join("lib");
-            if lib_dir.exists() && lib_dir.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(&lib_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.is_dir() {
-                            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                                if name.starts_with("python") {
-                                    let site_packages = path.join("site-packages");
-                                    if site_packages.exists() && site_packages.is_dir() {
-                                        site_packages_dirs.push(site_packages);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            self.get_unix_site_packages(&venv_root)
+        }
+    }
+
+    /// Get site-packages directories for Windows virtual environments
+    fn get_windows_site_packages(&self, venv_root: &Path) -> Vec<PathBuf> {
+        let site_packages = venv_root.join("Lib").join("site-packages");
+
+        if site_packages.exists() && site_packages.is_dir() {
+            vec![site_packages]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Get site-packages directories for Unix-like virtual environments
+    fn get_unix_site_packages(&self, venv_root: &Path) -> Vec<PathBuf> {
+        let lib_dir = venv_root.join("lib");
+
+        if !lib_dir.exists() || !lib_dir.is_dir() {
+            return Vec::new();
+        }
+
+        self.scan_lib_directory_for_python_versions(&lib_dir)
+    }
+
+    /// Scan lib directory for Python version directories containing site-packages
+    fn scan_lib_directory_for_python_versions(&self, lib_dir: &Path) -> Vec<PathBuf> {
+        let mut site_packages_dirs = Vec::new();
+
+        let Ok(entries) = std::fs::read_dir(lib_dir) else {
+            return site_packages_dirs;
+        };
+
+        for entry in entries.flatten() {
+            if let Some(site_packages) = self.check_python_version_directory(&entry.path()) {
+                site_packages_dirs.push(site_packages);
             }
         }
 
         site_packages_dirs
+    }
+
+    /// Check if a directory is a Python version directory with site-packages
+    fn check_python_version_directory(&self, path: &Path) -> Option<PathBuf> {
+        if !path.is_dir() {
+            return None;
+        }
+
+        let name = path.file_name().and_then(|n| n.to_str())?;
+
+        if !name.starts_with("python") {
+            return None;
+        }
+
+        let site_packages = path.join("site-packages");
+        if site_packages.exists() && site_packages.is_dir() {
+            Some(site_packages)
+        } else {
+            None
+        }
     }
 
     /// Get the set of third-party packages installed in the virtual environment
@@ -560,8 +626,10 @@ impl ModuleResolver {
         }
 
         // Check if it's a standard library module
-        if is_stdlib_module(module_name) {
-            return ImportType::StandardLibrary;
+        if let Ok(python_version) = self.config.python_version() {
+            if is_stdlib_module(module_name, python_version) {
+                return ImportType::StandardLibrary;
+            }
         }
 
         // Check if it's explicitly configured as third-party
@@ -638,20 +706,19 @@ impl ModuleResolver {
     }
 
     /// Find the file for a given module name in a source directory
-    #[allow(clippy::excessive_nesting)]
     fn find_module_file(&self, src_dir: &Path, module_name: &str) -> Result<Option<PathBuf>> {
         let parts: Vec<&str> = module_name.split('.').collect();
-
-        // Try as a regular module file
         let mut file_path = src_dir.to_path_buf();
-        for (i, part) in parts.iter().enumerate() {
-            if i == parts.len() - 1 {
-                // Last part - try both module file and package
-                if let Some(found_path) = self.try_resolve_final_part(&mut file_path, part) {
-                    return Ok(Some(found_path));
-                }
-            } else {
-                file_path.push(part);
+
+        // Build the directory path up to the final part
+        for part in parts.iter().take(parts.len().saturating_sub(1)) {
+            file_path.push(part);
+        }
+
+        // Try to resolve the final part as either a file or package
+        if let Some(final_part) = parts.last() {
+            if let Some(found_path) = self.try_resolve_final_part(&mut file_path, final_part) {
+                return Ok(Some(found_path));
             }
         }
 
@@ -680,6 +747,11 @@ impl ModuleResolver {
     /// Get all discovered first-party modules
     pub fn get_first_party_modules(&self) -> &HashSet<String> {
         &self.first_party_modules
+    }
+
+    /// Get a reference to the configuration
+    pub fn config(&self) -> &Config {
+        &self.config
     }
 }
 

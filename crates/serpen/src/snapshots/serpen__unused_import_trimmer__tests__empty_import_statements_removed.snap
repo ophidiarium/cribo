@@ -13,4 +13,4 @@ Removed imports:
 Transformed code:
 from typing import Optional
 def process(data: Optional[str]) -> str:
-    return data or 'default'
+    return data or "default"

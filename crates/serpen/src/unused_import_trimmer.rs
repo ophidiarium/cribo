@@ -1,14 +1,14 @@
-//! Enhanced unused import analysis and trimming using rustpython-unparser
+//! Enhanced unused import analysis and trimming using ruff_python_codegen
 //!
 //! This module builds upon the existing unused import detection to provide
 //! actual code transformation capabilities, removing unused imports and
 //! generating clean Python code using AST rewriting techniques.
 
 use anyhow::{Context, Result};
-use rustpython_parser::ast::{self, Mod, Stmt};
-use rustpython_parser::{Mode, parse};
+use ruff_python_ast::{self as ast, Stmt};
+use ruff_python_codegen::{Generator, Stylist};
+use ruff_python_parser;
 use std::collections::HashSet;
-use unparser::Unparser;
 
 use crate::unused_imports_simple::{UnusedImport, UnusedImportAnalyzer};
 
@@ -66,7 +66,7 @@ impl UnusedImportTrimmer {
     /// 1. Parses the Python source into an AST
     /// 2. Identifies unused imports using the existing analyzer
     /// 3. Removes unused import statements from the AST
-    /// 4. Generates clean Python code using rustpython-unparser
+    /// 4. Generates clean Python code using ruff_python_codegen
     ///
     /// # Arguments
     /// * `source` - The Python source code to analyze and trim
@@ -77,54 +77,75 @@ impl UnusedImportTrimmer {
     /// * `Err` - If parsing or unparsing fails
     pub fn trim_unused_imports(&mut self, source: &str, config: &TrimConfig) -> Result<TrimResult> {
         // Step 1: Analyze for unused imports
-        let unused_imports = self
-            .analyzer
-            .analyze_file(source)
-            .context("Failed to analyze unused imports")?;
+        let unused_imports = self.analyze_unused_imports(source)?;
 
         if unused_imports.is_empty() {
-            return Ok(TrimResult {
-                code: source.to_string(),
-                removed_imports: vec![],
-                has_changes: false,
-            });
+            return self.create_no_changes_result(source);
         }
 
         // Step 2: Parse source into AST
-        let parsed =
-            parse(source, Mode::Module, "module").context("Failed to parse Python source code")?;
-
-        let Mod::Module(mut module) = parsed else {
-            return Err(anyhow::anyhow!("Expected module, got other AST node type"));
-        };
+        let module = self.parse_source_to_ast(source)?;
 
         // Step 3: Filter unused imports based on config
         let imports_to_remove = self.filter_imports_to_remove(&unused_imports, config);
 
         if imports_to_remove.is_empty() {
-            return Ok(TrimResult {
-                code: source.to_string(),
-                removed_imports: vec![],
-                has_changes: false,
-            });
+            return self.create_no_changes_result(source);
         }
 
-        // Step 4: Build set of import names to remove for efficient lookup
+        // Step 4-6: Transform AST and generate code
+        self.transform_ast_and_generate_code(&module, imports_to_remove)
+    }
+
+    /// Analyze source for unused imports
+    fn analyze_unused_imports(&mut self, source: &str) -> Result<Vec<UnusedImport>> {
+        self.analyzer
+            .analyze_file(source)
+            .context("Failed to analyze unused imports")
+    }
+
+    /// Create a result indicating no changes were made
+    fn create_no_changes_result(&self, source: &str) -> Result<TrimResult> {
+        Ok(TrimResult {
+            code: source.to_string(),
+            removed_imports: vec![],
+            has_changes: false,
+        })
+    }
+
+    /// Parse source code into AST
+    fn parse_source_to_ast(
+        &self,
+        source: &str,
+    ) -> Result<ruff_python_parser::Parsed<ast::ModModule>> {
+        ruff_python_parser::parse_module(source).context("Failed to parse Python source code")
+    }
+
+    /// Transform AST by removing unused imports and generate clean code
+    fn transform_ast_and_generate_code(
+        &self,
+        module: &ruff_python_parser::Parsed<ast::ModModule>,
+        imports_to_remove: Vec<UnusedImport>,
+    ) -> Result<TrimResult> {
+        // Build set of import names to remove for efficient lookup
         let remove_set: HashSet<String> = imports_to_remove
             .iter()
             .map(|import| import.name.clone())
             .collect();
 
-        // Step 5: Transform AST by removing unused import statements
-        let original_count = module.body.len();
-        module.body = self.filter_statements(&module.body, &remove_set)?;
-        let has_changes = module.body.len() < original_count;
+        // Transform AST by removing unused import statements
+        let original_count = module.syntax().body.len();
+        let filtered_body = self.filter_statements(&module.syntax().body, &remove_set)?;
+        let has_changes = filtered_body.len() < original_count;
 
-        // Step 6: Generate clean Python code using rustpython-unparser
-        let mut unparser = Unparser::new();
-        let code = self
-            .unparse_module(&mut unparser, &module)
-            .context("Failed to generate Python code from AST")?;
+        // Create a new ModModule with the filtered statements
+        let filtered_module = ast::ModModule {
+            body: filtered_body,
+            range: module.syntax().range,
+        };
+
+        // Generate clean Python code using ruff_python_codegen
+        let code = self.generate_code(&filtered_module)?;
 
         Ok(TrimResult {
             code,
@@ -188,50 +209,18 @@ impl UnusedImportTrimmer {
         for stmt in statements {
             match stmt {
                 Stmt::Import(import_stmt) => {
-                    // Filter individual aliases within import statement
-                    let filtered_aliases: Vec<_> = import_stmt
-                        .names
-                        .iter()
-                        .filter(|alias| {
-                            let local_name = alias
-                                .asname
-                                .as_ref()
-                                .map(|n| n.as_str())
-                                .unwrap_or_else(|| alias.name.as_str());
-                            !remove_set.contains(local_name)
-                        })
-                        .cloned()
-                        .collect();
-
-                    // Only keep the import statement if it has remaining aliases
-                    if !filtered_aliases.is_empty() {
-                        let mut new_import = import_stmt.clone();
-                        new_import.names = filtered_aliases;
-                        filtered_statements.push(Stmt::Import(new_import));
-                    }
+                    self.process_import_statement(
+                        import_stmt,
+                        remove_set,
+                        &mut filtered_statements,
+                    );
                 }
                 Stmt::ImportFrom(import_from_stmt) => {
-                    // Filter individual aliases within from import statement
-                    let filtered_aliases: Vec<_> = import_from_stmt
-                        .names
-                        .iter()
-                        .filter(|alias| {
-                            let local_name = alias
-                                .asname
-                                .as_ref()
-                                .map(|n| n.as_str())
-                                .unwrap_or_else(|| alias.name.as_str());
-                            !remove_set.contains(local_name)
-                        })
-                        .cloned()
-                        .collect();
-
-                    // Only keep the import statement if it has remaining aliases
-                    if !filtered_aliases.is_empty() {
-                        let mut new_import = import_from_stmt.clone();
-                        new_import.names = filtered_aliases;
-                        filtered_statements.push(Stmt::ImportFrom(new_import));
-                    }
+                    self.process_import_from_statement(
+                        import_from_stmt,
+                        remove_set,
+                        &mut filtered_statements,
+                    );
                 }
                 _ => {
                     // Keep all non-import statements as-is
@@ -243,14 +232,75 @@ impl UnusedImportTrimmer {
         Ok(filtered_statements)
     }
 
-    /// Generate Python code from AST using rustpython-unparser
-    fn unparse_module(&self, unparser: &mut Unparser, module: &ast::ModModule) -> Result<String> {
-        // Use rustpython-unparser to convert AST back to Python code
+    /// Process a regular import statement, filtering out unused aliases
+    fn process_import_statement(
+        &self,
+        import_stmt: &ast::StmtImport,
+        remove_set: &HashSet<String>,
+        filtered_statements: &mut Vec<Stmt>,
+    ) {
+        let filtered_aliases = self.filter_import_aliases(&import_stmt.names, remove_set);
+
+        // Only keep the import statement if it has remaining aliases
+        if !filtered_aliases.is_empty() {
+            let mut new_import = import_stmt.clone();
+            new_import.names = filtered_aliases;
+            filtered_statements.push(Stmt::Import(new_import));
+        }
+    }
+
+    /// Process an import-from statement, filtering out unused aliases
+    fn process_import_from_statement(
+        &self,
+        import_from_stmt: &ast::StmtImportFrom,
+        remove_set: &HashSet<String>,
+        filtered_statements: &mut Vec<Stmt>,
+    ) {
+        let filtered_aliases = self.filter_import_aliases(&import_from_stmt.names, remove_set);
+
+        // Only keep the import statement if it has remaining aliases
+        if !filtered_aliases.is_empty() {
+            let mut new_import = import_from_stmt.clone();
+            new_import.names = filtered_aliases;
+            filtered_statements.push(Stmt::ImportFrom(new_import));
+        }
+    }
+
+    /// Filter aliases based on whether they should be removed
+    fn filter_import_aliases(
+        &self,
+        aliases: &[ast::Alias],
+        remove_set: &HashSet<String>,
+    ) -> Vec<ast::Alias> {
+        aliases
+            .iter()
+            .filter(|alias| {
+                let local_name = alias
+                    .asname
+                    .as_ref()
+                    .map(|n| n.as_str())
+                    .unwrap_or_else(|| alias.name.as_str());
+                !remove_set.contains(local_name)
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Generate Python code from AST using ruff_python_codegen
+    fn generate_code(&self, module: &ast::ModModule) -> Result<String> {
+        // Use default styling for the generated code
+        let empty_parsed = ruff_python_parser::parse_module("")?;
+        let stylist = Stylist::from_tokens(empty_parsed.tokens(), "");
+
+        // Generate code for each statement and combine them
+        let mut code_parts = Vec::new();
         for stmt in &module.body {
-            unparser.unparse_stmt(stmt);
+            let generator = Generator::from(&stylist);
+            let stmt_code = generator.stmt(stmt);
+            code_parts.push(stmt_code);
         }
 
-        Ok(unparser.source.clone())
+        Ok(code_parts.join("\n"))
     }
 }
 

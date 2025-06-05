@@ -4,6 +4,18 @@ applyTo: "**"
 
 # General coding standards for the project
 
+## Technical Decision-Making Requirements
+
+**MANDATORY**: As a software-engineer AI agent, you must never factor in human limitations—such as limited time or bandwidth, business priorities, implementation complexity, research requirements, or any other "human" constraint—when making technical decisions or writing recommendations. Instead, always select and articulate the technically optimal solution, judged solely on criteria like:
+
+- **Performance** (e.g., latency, throughput)
+- **Physical resource constraints** (e.g., memory footprint, disk usage, I/O)
+- **Maintainability and future-proofing** (e.g., scalability, extensibility, ease of refactoring)
+
+Under no circumstances should you justify a design or implementation by citing "lack of time," "limited resources," "tight deadlines," or similar human factors.
+
+## Core Standards
+
 - Take the opportunity to refactor the code to improve readability and maintainability.
 - Embrace the idea of "Don't Repeat Yourself" (DRY) and ensure that the code is as clean and efficient as possible.
 - Ensure that functionality is not duplicated across multiple functions
@@ -58,34 +70,42 @@ Use the following guidelines:
    - Refrain from introducing or relying on obsolete or deprecated methods and libraries.
    - If the current code relies on potentially deprecated approaches, ask for clarification or provide viable, modern alternatives that align with best practices.
 
-5. Testing and Validation
+5. Immediate Code Removal Over Deprecation
+
+   - **MANDATORY**: Since Serpen only exposes a binary CLI interface (not a library API), unused methods and functions MUST be removed immediately rather than annotated with `#[deprecated]` or similar markers.
+   - **No deprecation annotations**: Do not use `#[deprecated]`, `#[allow(dead_code)]`, or similar annotations to preserve unused code.
+   - **Binary-only interface**: This project does not maintain API compatibility for external consumers - all code must serve the current CLI functionality.
+   - **Dead code elimination**: Aggressively remove any unused functions, methods, structs, or modules during refactoring.
+
+6. Testing and Validation
 
    - **Prefer VS Code tools**: Use `run_tests` tool for running tests when available, fall back to terminal commands only if needed
    - Suggest running unit tests or simulations on the modified segments to confirm that the changes fix the issue without impacting overall functionality.
    - Ensure that any proposed improvements, including doc comment upgrades, integrate seamlessly with the existing codebase.
 
-6. Rationale and Explanation
+7. Rationale and Explanation
 
    - For every change (including comment conversions), provide a concise explanation detailing how the modification resolves the identified issue while preserving the original design and context.
    - Clearly highlight only the modifications made, ensuring that no previously validated progress is altered.
 
-7. Contextual Analysis
+8. Contextual Analysis
 
    - Use all available context—such as code history, inline documentation, style guidelines—to understand the intended functionality.
    - If the role or intent behind a code segment is ambiguous, ask for clarification rather than making assumptions.
 
-8. Targeted, Incremental Changes
+9. Targeted, Incremental Changes
 
    - Identify and isolate only the problematic code segments (including places where IntelliSense doc comments can replace simple comments).
    - Provide minimal code snippets that address the issue without rewriting larger sections.
    - For each suggested code change, explicitly indicate the exact location in the code (e.g., by specifying the function name, class name, line number, or section heading) where the modification should be implemented.
 
-9. Preservation of Context
-   - Maintain all developer comments, annotations, and workarounds exactly as they appear, transforming them to doc comment format only when it improves IntelliSense support.
-   - Do not modify or remove any non-code context unless explicitly instructed.
-   - Avoid introducing new, irrelevant comments in the code.
+10. Preservation of Context
 
-10. Environment Variable Documentation
+- Maintain all developer comments, annotations, and workarounds exactly as they appear, transforming them to doc comment format only when it improves IntelliSense support.
+- Do not modify or remove any non-code context unless explicitly instructed.
+- Avoid introducing new, irrelevant comments in the code.
+
+11. Environment Variable Documentation
 
 - **MANDATORY**: When adding support for any new environment variable, you MUST update the environment variables reference document at `docs/environment_variables.md`
 - **Required Documentation Elements**:

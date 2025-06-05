@@ -8,7 +8,7 @@
 
 ## Features
 
-- 🦀 **Rust-based CLI** using the RustPython parser (same as Ruff and Pyrefly)
+- 🦀 **Rust-based CLI** using Ruff's Python AST parser
 - 🐍 **Python 3.10+** support
 - 🌲 **Tree-shaking logic** to inline only the modules that are actually used
 - 🧹 **Unused import trimming** to clean up Python files standalone
@@ -300,8 +300,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- **Ruff**: Import resolution logic inspiration
-- **RustPython**: Python AST parsing
+- **Ruff**: Python AST parsing and import resolution logic inspiration
 - **Maturin**: Python-Rust integration
 
 ## Roadmap

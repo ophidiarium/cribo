@@ -1,16 +1,16 @@
 use anyhow::Result;
-use rustpython_parser::ast::{self, Mod, Stmt};
-use rustpython_parser::{Mode, parse};
-use std::collections::{HashMap, HashSet};
+use indexmap::{IndexMap, IndexSet};
+use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_parser;
 
 /// Simple unused import analyzer focused on core functionality
 pub struct UnusedImportAnalyzer {
     /// All imported names in the module
-    imported_names: HashMap<String, ImportInfo>,
+    imported_names: IndexMap<String, ImportInfo>,
     /// Names that have been used
-    used_names: HashSet<String>,
+    used_names: IndexSet<String>,
     /// Names exported via __all__
-    exported_names: HashSet<String>,
+    exported_names: IndexSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,9 +31,9 @@ pub struct UnusedImport {
 impl UnusedImportAnalyzer {
     pub fn new() -> Self {
         Self {
-            imported_names: HashMap::new(),
-            used_names: HashSet::new(),
-            exported_names: HashSet::new(),
+            imported_names: IndexMap::new(),
+            used_names: IndexSet::new(),
+            exported_names: IndexSet::new(),
         }
     }
 
@@ -44,16 +44,17 @@ impl UnusedImportAnalyzer {
         self.used_names.clear();
         self.exported_names.clear();
 
-        let parsed = parse(source, Mode::Module, "module")?;
+        let parsed = ruff_python_parser::parse_module(source)?;
 
-        if let Mod::Module(module) = parsed {
+        let module = parsed; // ruff_python_parser::parse_module returns ModModule directly
+        {
             // First pass: collect all bindings recursively
-            for stmt in &module.body {
+            for stmt in &module.syntax().body {
                 self.collect_imports_recursive(stmt);
             }
 
             // Second pass: track usage recursively
-            for stmt in &module.body {
+            for stmt in &module.syntax().body {
                 self.track_usage_recursive(stmt);
             }
         }
@@ -182,14 +183,14 @@ impl UnusedImportAnalyzer {
 
     /// Check if this assignment targets __all__
     fn is_all_assignment(&self, assign: &ast::StmtAssign) -> bool {
-        assign.targets.iter().any(|target| {
-            matches!(target, ast::Expr::Name(name_expr) if name_expr.id.as_str() == "__all__")
-        })
+        assign.targets.iter().any(
+            |target| matches!(target, Expr::Name(name_expr) if name_expr.id.as_str() == "__all__"),
+        )
     }
 
     /// Extract names from __all__ assignment value
     fn extract_names_from_all_assignment(&mut self, assign: &ast::StmtAssign) {
-        if let ast::Expr::List(list_expr) = assign.value.as_ref() {
+        if let Expr::List(list_expr) = assign.value.as_ref() {
             for element in &list_expr.elts {
                 self.process_all_list_element(element);
             }
@@ -198,10 +199,9 @@ impl UnusedImportAnalyzer {
 
     /// Process a single element in __all__ list
     fn process_all_list_element(&mut self, element: &ast::Expr) {
-        if let ast::Expr::Constant(const_expr) = element {
-            if let ast::Constant::Str(s) = &const_expr.value {
-                self.exported_names.insert(s.to_string());
-            }
+        if let Expr::StringLiteral(const_expr) = element {
+            let s = &const_expr.value;
+            self.exported_names.insert(s.to_string());
         }
     }
 
@@ -209,8 +209,8 @@ impl UnusedImportAnalyzer {
     /// For example, xml.etree.ElementTree.__name__ -> "xml.etree.ElementTree"
     fn extract_full_dotted_name(expr: &ast::Expr) -> Option<String> {
         match expr {
-            ast::Expr::Name(name_expr) => Some(name_expr.id.as_str().to_string()),
-            ast::Expr::Attribute(attr_expr) => Self::extract_full_dotted_name(&attr_expr.value)
+            Expr::Name(name_expr) => Some(name_expr.id.as_str().to_string()),
+            Expr::Attribute(attr_expr) => Self::extract_full_dotted_name(&attr_expr.value)
                 .map(|base_name| format!("{}.{}", base_name, attr_expr.attr.as_str())),
             _ => None,
         }
@@ -234,94 +234,35 @@ impl UnusedImportAnalyzer {
             Stmt::FunctionDef(func_def) => {
                 self.process_function_def(func_def);
             }
-            Stmt::AsyncFunctionDef(async_func_def) => {
-                self.process_async_function_def(async_func_def);
-            }
             Stmt::ClassDef(class_def) => {
-                // Track usage in class body
-                for stmt in &class_def.body {
-                    self.track_usage_in_statement(stmt);
-                }
-                // Track usage in decorators
-                for decorator in &class_def.decorator_list {
-                    self.track_usage_in_expression(decorator);
-                }
-                // Track usage in base classes
-                for base in &class_def.bases {
-                    self.track_usage_in_expression(base);
-                }
+                self.track_usage_in_class_def(class_def);
             }
             Stmt::Return(return_stmt) => {
-                if let Some(value) = &return_stmt.value {
-                    self.track_usage_in_expression(value);
-                }
+                self.track_usage_in_return(return_stmt);
             }
             Stmt::Assign(assign) => {
-                // Track usage in the value being assigned
                 self.track_usage_in_expression(&assign.value);
             }
             Stmt::AnnAssign(ann_assign) => {
-                // Track usage in the type annotation
-                self.track_usage_in_expression(&ann_assign.annotation);
-                // Track usage in the value being assigned
-                if let Some(value) = &ann_assign.value {
-                    self.track_usage_in_expression(value);
-                }
+                self.track_usage_in_ann_assign(ann_assign);
             }
             Stmt::AugAssign(aug_assign) => {
-                // Track usage in the value being assigned
                 self.track_usage_in_expression(&aug_assign.value);
             }
             Stmt::For(for_stmt) => {
-                // Track usage in iterator
-                self.track_usage_in_expression(&for_stmt.iter);
-                // Track usage in body
-                for stmt in &for_stmt.body {
-                    self.track_usage_in_statement(stmt);
-                }
-                // Track usage in orelse
-                for stmt in &for_stmt.orelse {
-                    self.track_usage_in_statement(stmt);
-                }
-            }
-            Stmt::AsyncFor(async_for_stmt) => {
-                // Track usage in iterator
-                self.track_usage_in_expression(&async_for_stmt.iter);
-                // Track usage in body
-                for stmt in &async_for_stmt.body {
-                    self.track_usage_in_statement(stmt);
-                }
-                // Track usage in orelse
-                for stmt in &async_for_stmt.orelse {
-                    self.track_usage_in_statement(stmt);
-                }
+                self.track_usage_in_for_loop(for_stmt);
             }
             Stmt::While(while_stmt) => {
-                // Track usage in test condition
-                self.track_usage_in_expression(&while_stmt.test);
-                // Track usage in body
-                for stmt in &while_stmt.body {
-                    self.track_usage_in_statement(stmt);
-                }
-                // Track usage in orelse
-                for stmt in &while_stmt.orelse {
-                    self.track_usage_in_statement(stmt);
-                }
+                self.track_usage_in_while_loop(while_stmt);
             }
             Stmt::If(if_stmt) => {
-                // Track usage in test condition
-                self.track_usage_in_expression(&if_stmt.test);
-                // Track usage in body
-                for stmt in &if_stmt.body {
-                    self.track_usage_in_statement(stmt);
-                }
-                // Track usage in orelse
-                for stmt in &if_stmt.orelse {
-                    self.track_usage_in_statement(stmt);
-                }
+                self.track_usage_in_if_statement(if_stmt);
             }
             Stmt::Expr(expr_stmt) => {
                 self.track_usage_in_expression(&expr_stmt.value);
+            }
+            Stmt::With(with_stmt) => {
+                self.track_usage_in_with_statement(with_stmt);
             }
             _ => {
                 // For other statement types, we can add more specific handling later
@@ -329,92 +270,258 @@ impl UnusedImportAnalyzer {
         }
     }
 
+    /// Track usage in class definition statement
+    fn track_usage_in_class_def(&mut self, class_def: &ast::StmtClassDef) {
+        // Track usage in class body
+        for stmt in &class_def.body {
+            self.track_usage_in_statement(stmt);
+        }
+        // Track usage in decorators
+        for decorator in &class_def.decorator_list {
+            self.track_usage_in_expression(&decorator.expression);
+        }
+        // Track usage in base classes
+        for base in class_def.bases() {
+            self.track_usage_in_expression(base);
+        }
+    }
+
+    /// Track usage in return statement
+    fn track_usage_in_return(&mut self, return_stmt: &ast::StmtReturn) {
+        if let Some(value) = &return_stmt.value {
+            self.track_usage_in_expression(value);
+        }
+    }
+
+    /// Track usage in annotated assignment
+    fn track_usage_in_ann_assign(&mut self, ann_assign: &ast::StmtAnnAssign) {
+        // Track usage in the type annotation
+        self.track_usage_in_expression(&ann_assign.annotation);
+        // Track usage in the value being assigned
+        if let Some(value) = &ann_assign.value {
+            self.track_usage_in_expression(value);
+        }
+    }
+
+    /// Track usage in for loop statement
+    fn track_usage_in_for_loop(&mut self, for_stmt: &ast::StmtFor) {
+        // Track usage in iterator
+        self.track_usage_in_expression(&for_stmt.iter);
+        // Track usage in body
+        for stmt in &for_stmt.body {
+            self.track_usage_in_statement(stmt);
+        }
+        // Track usage in orelse
+        for stmt in &for_stmt.orelse {
+            self.track_usage_in_statement(stmt);
+        }
+    }
+
+    /// Track usage in while loop statement
+    fn track_usage_in_while_loop(&mut self, while_stmt: &ast::StmtWhile) {
+        // Track usage in test condition
+        self.track_usage_in_expression(&while_stmt.test);
+        // Track usage in body
+        for stmt in &while_stmt.body {
+            self.track_usage_in_statement(stmt);
+        }
+        // Track usage in orelse
+        for stmt in &while_stmt.orelse {
+            self.track_usage_in_statement(stmt);
+        }
+    }
+
+    /// Track usage in if statement
+    fn track_usage_in_if_statement(&mut self, if_stmt: &ast::StmtIf) {
+        // Track usage in test condition
+        self.track_usage_in_expression(&if_stmt.test);
+        // Track usage in body
+        for stmt in &if_stmt.body {
+            self.track_usage_in_statement(stmt);
+        }
+        // Track usage in elif/else clauses
+        for clause in &if_stmt.elif_else_clauses {
+            if let Some(test) = &clause.test {
+                self.track_usage_in_expression(test);
+            }
+            for stmt in &clause.body {
+                self.track_usage_in_statement(stmt);
+            }
+        }
+    }
+
+    /// Track usage in with statement
+    fn track_usage_in_with_statement(&mut self, with_stmt: &ast::StmtWith) {
+        // Track usage in context expressions and optional variables
+        for item in &with_stmt.items {
+            self.track_usage_in_expression(&item.context_expr);
+            if let Some(optional_vars) = &item.optional_vars {
+                self.track_usage_in_expression(optional_vars);
+            }
+        }
+        // Track usage in body
+        for stmt in &with_stmt.body {
+            self.track_usage_in_statement(stmt);
+        }
+    }
+
     /// Track usage of names in an expression
     fn track_usage_in_expression(&mut self, expr: &ast::Expr) {
         match expr {
-            ast::Expr::Name(name_expr) => {
-                let name = name_expr.id.as_str();
-                self.used_names.insert(name.to_string());
+            Expr::Name(name_expr) => {
+                self.track_name_usage(name_expr);
             }
-            ast::Expr::Attribute(attr_expr) => {
-                self.process_attribute_usage(expr);
-                // Continue with recursive processing
-                self.track_usage_in_expression(&attr_expr.value);
+            Expr::Attribute(attr_expr) => {
+                self.track_attribute_usage(expr, attr_expr);
             }
-            ast::Expr::Call(call_expr) => {
-                self.track_usage_in_expression(&call_expr.func);
-                for arg in &call_expr.args {
-                    self.track_usage_in_expression(arg);
-                }
-                for keyword in &call_expr.keywords {
-                    self.track_usage_in_expression(&keyword.value);
-                }
+            Expr::Call(call_expr) => {
+                self.track_call_usage(call_expr);
             }
-            ast::Expr::BinOp(binop_expr) => {
+            Expr::BinOp(binop_expr) => {
                 self.track_usage_in_expression(&binop_expr.left);
                 self.track_usage_in_expression(&binop_expr.right);
             }
-            ast::Expr::UnaryOp(unaryop_expr) => {
+            Expr::UnaryOp(unaryop_expr) => {
                 self.track_usage_in_expression(&unaryop_expr.operand);
             }
-            ast::Expr::BoolOp(boolop_expr) => {
-                for value in &boolop_expr.values {
-                    self.track_usage_in_expression(value);
-                }
+            Expr::BoolOp(boolop_expr) => {
+                self.track_bool_op_usage(boolop_expr);
             }
-            ast::Expr::Compare(compare_expr) => {
-                self.track_usage_in_expression(&compare_expr.left);
-                for comparator in &compare_expr.comparators {
-                    self.track_usage_in_expression(comparator);
-                }
+            Expr::Compare(compare_expr) => {
+                self.track_compare_usage(compare_expr);
             }
-            ast::Expr::List(list_expr) => {
-                for element in &list_expr.elts {
-                    self.track_usage_in_expression(element);
-                }
+            Expr::List(list_expr) => {
+                self.track_list_usage(list_expr);
             }
-            ast::Expr::Tuple(tuple_expr) => {
-                for element in &tuple_expr.elts {
-                    self.track_usage_in_expression(element);
-                }
+            Expr::Tuple(tuple_expr) => {
+                self.track_tuple_usage(tuple_expr);
             }
-            ast::Expr::Dict(dict_expr) => {
-                // Handle dictionary keys (some might be None for dict unpacking)
-                dict_expr
-                    .keys
-                    .iter()
-                    .filter_map(|key| key.as_ref())
-                    .for_each(|key| self.track_usage_in_expression(key));
-
-                // Handle dictionary values
-                for value in &dict_expr.values {
-                    self.track_usage_in_expression(value);
-                }
+            Expr::Dict(dict_expr) => {
+                self.track_dict_usage(dict_expr);
             }
-            ast::Expr::Set(set_expr) => {
-                for element in &set_expr.elts {
-                    self.track_usage_in_expression(element);
-                }
+            Expr::Set(set_expr) => {
+                self.track_set_usage(set_expr);
             }
-            ast::Expr::Subscript(subscript_expr) => {
-                self.track_usage_in_expression(&subscript_expr.value);
-                self.track_usage_in_expression(&subscript_expr.slice);
+            Expr::Subscript(subscript_expr) => {
+                self.track_subscript_usage(subscript_expr);
             }
-            ast::Expr::JoinedStr(joined_str) => {
-                // Handle f-strings by tracking usage in the values
-                for value in &joined_str.values {
-                    self.track_usage_in_expression(value);
-                }
-            }
-            ast::Expr::FormattedValue(formatted_value) => {
-                // Handle formatted values inside f-strings
-                self.track_usage_in_expression(&formatted_value.value);
-                if let Some(format_spec) = &formatted_value.format_spec {
-                    self.track_usage_in_expression(format_spec);
-                }
+            Expr::FString(f_string) => {
+                self.track_fstring_usage(f_string);
             }
             _ => {
                 // For other expression types, we can add more specific handling later
+            }
+        }
+    }
+
+    /// Track usage of a name expression
+    fn track_name_usage(&mut self, name_expr: &ast::ExprName) {
+        let name = name_expr.id.as_str();
+        self.used_names.insert(name.to_string());
+    }
+
+    /// Track usage of an attribute expression
+    fn track_attribute_usage(&mut self, expr: &ast::Expr, attr_expr: &ast::ExprAttribute) {
+        self.process_attribute_usage(expr);
+        // Continue with recursive processing
+        self.track_usage_in_expression(&attr_expr.value);
+    }
+
+    /// Track usage in call expression
+    fn track_call_usage(&mut self, call_expr: &ast::ExprCall) {
+        self.track_usage_in_expression(&call_expr.func);
+        for arg in &call_expr.arguments.args {
+            self.track_usage_in_expression(arg);
+        }
+        for keyword in &call_expr.arguments.keywords {
+            self.track_usage_in_expression(&keyword.value);
+        }
+    }
+
+    /// Track usage in boolean operation
+    fn track_bool_op_usage(&mut self, boolop_expr: &ast::ExprBoolOp) {
+        for value in &boolop_expr.values {
+            self.track_usage_in_expression(value);
+        }
+    }
+
+    /// Track usage in comparison expression
+    fn track_compare_usage(&mut self, compare_expr: &ast::ExprCompare) {
+        self.track_usage_in_expression(&compare_expr.left);
+        for comparator in &compare_expr.comparators {
+            self.track_usage_in_expression(comparator);
+        }
+    }
+
+    /// Track usage in list expression
+    fn track_list_usage(&mut self, list_expr: &ast::ExprList) {
+        for element in &list_expr.elts {
+            self.track_usage_in_expression(element);
+        }
+    }
+
+    /// Track usage in tuple expression
+    fn track_tuple_usage(&mut self, tuple_expr: &ast::ExprTuple) {
+        for element in &tuple_expr.elts {
+            self.track_usage_in_expression(element);
+        }
+    }
+
+    /// Track usage in dictionary expression
+    fn track_dict_usage(&mut self, dict_expr: &ast::ExprDict) {
+        for item in &dict_expr.items {
+            // Handle dictionary key (might be None for dict unpacking)
+            if let Some(key) = &item.key {
+                self.track_usage_in_expression(key);
+            }
+            // Handle dictionary value
+            self.track_usage_in_expression(&item.value);
+        }
+    }
+
+    /// Track usage in set expression
+    fn track_set_usage(&mut self, set_expr: &ast::ExprSet) {
+        for element in &set_expr.elts {
+            self.track_usage_in_expression(element);
+        }
+    }
+
+    /// Track usage in subscript expression
+    fn track_subscript_usage(&mut self, subscript_expr: &ast::ExprSubscript) {
+        self.track_usage_in_expression(&subscript_expr.value);
+        self.track_usage_in_expression(&subscript_expr.slice);
+    }
+
+    /// Track usage in f-string expression
+    fn track_fstring_usage(&mut self, f_string: &ast::ExprFString) {
+        for element in f_string.value.elements() {
+            match element {
+                ast::FStringElement::Expression(expr_element) => {
+                    self.track_fstring_expression_element(expr_element);
+                }
+                ast::FStringElement::Literal(_) => {
+                    // Literal elements don't contain expressions to track
+                }
+            }
+        }
+    }
+
+    /// Track usage in a single f-string expression element
+    fn track_fstring_expression_element(&mut self, expr_element: &ast::FStringExpressionElement) {
+        // Track usage in the expression part of interpolated elements
+        self.track_usage_in_expression(&expr_element.expression);
+
+        // Track usage in format spec if present
+        if let Some(format_spec) = &expr_element.format_spec {
+            self.track_fstring_format_spec(format_spec);
+        }
+    }
+
+    /// Track usage in f-string format specification
+    fn track_fstring_format_spec(&mut self, format_spec: &ast::FStringFormatSpec) {
+        for format_element in &format_spec.elements {
+            if let ast::FStringElement::Expression(format_expr) = format_element {
+                self.track_usage_in_expression(&format_expr.expression);
             }
         }
     }
@@ -427,14 +534,22 @@ impl UnusedImportAnalyzer {
         }
         // Track usage in decorators
         for decorator in &func_def.decorator_list {
-            self.track_usage_in_expression(decorator);
+            self.track_usage_in_expression(&decorator.expression);
         }
         // Track usage in arguments default values
-        for default in func_def.args.defaults() {
-            self.track_usage_in_expression(default);
+        for param_with_default in func_def
+            .parameters
+            .posonlyargs
+            .iter()
+            .chain(func_def.parameters.args.iter())
+            .chain(func_def.parameters.kwonlyargs.iter())
+        {
+            if let Some(default) = &param_with_default.default {
+                self.track_usage_in_expression(default);
+            }
         }
         // Track usage in argument type annotations
-        self.process_function_arg_annotations(&func_def.args);
+        self.process_function_arg_annotations(&func_def.parameters);
         // Track usage in return type annotation
         if let Some(returns) = &func_def.returns {
             self.track_usage_in_expression(returns);
@@ -442,27 +557,29 @@ impl UnusedImportAnalyzer {
     }
 
     /// Process function argument annotations
-    fn process_function_arg_annotations(&mut self, args: &ast::Arguments) {
-        for arg in &args.args {
-            if let Some(annotation) = &arg.def.annotation {
+    fn process_function_arg_annotations(&mut self, params: &ast::Parameters) {
+        // Process all non-variadic parameters
+        for param_with_default in params
+            .posonlyargs
+            .iter()
+            .chain(params.args.iter())
+            .chain(params.kwonlyargs.iter())
+        {
+            if let Some(annotation) = &param_with_default.parameter.annotation {
                 self.track_usage_in_expression(annotation);
             }
         }
-    }
 
-    /// Process async function definition statement to track usage
-    fn process_async_function_def(&mut self, async_func_def: &ast::StmtAsyncFunctionDef) {
-        // Track usage in function body
-        for stmt in &async_func_def.body {
-            self.track_usage_in_statement(stmt);
+        // Process variadic parameters
+        if let Some(vararg) = &params.vararg {
+            if let Some(annotation) = &vararg.annotation {
+                self.track_usage_in_expression(annotation);
+            }
         }
-        // Track usage in decorators
-        for decorator in &async_func_def.decorator_list {
-            self.track_usage_in_expression(decorator);
-        }
-        // Track usage in arguments default values
-        for default in async_func_def.args.defaults() {
-            self.track_usage_in_expression(default);
+        if let Some(kwarg) = &params.kwarg {
+            if let Some(annotation) = &kwarg.annotation {
+                self.track_usage_in_expression(annotation);
+            }
         }
     }
 
@@ -490,125 +607,137 @@ impl UnusedImportAnalyzer {
     fn collect_imports_recursive(&mut self, stmt: &Stmt) {
         self.collect_imports(stmt);
         self.collect_exports(stmt);
+
         match stmt {
             Stmt::FunctionDef(func_def) => {
-                for nested in &func_def.body {
-                    self.collect_imports_recursive(nested);
-                }
-            }
-            Stmt::AsyncFunctionDef(async_def) => {
-                for nested in &async_def.body {
-                    self.collect_imports_recursive(nested);
-                }
+                self.collect_from_function_body(&func_def.body);
             }
             Stmt::ClassDef(class_def) => {
-                for nested in &class_def.body {
-                    self.collect_imports_recursive(nested);
-                }
+                self.collect_from_statement_list(&class_def.body);
             }
             Stmt::For(for_stmt) => {
-                for nested in &for_stmt.body {
-                    self.collect_imports_recursive(nested);
-                }
-                for nested in &for_stmt.orelse {
-                    self.collect_imports_recursive(nested);
-                }
-            }
-            Stmt::AsyncFor(async_for_stmt) => {
-                for nested in &async_for_stmt.body {
-                    self.collect_imports_recursive(nested);
-                }
-                for nested in &async_for_stmt.orelse {
-                    self.collect_imports_recursive(nested);
-                }
+                self.collect_from_for_statement(for_stmt);
             }
             Stmt::If(if_stmt) => {
-                for nested in &if_stmt.body {
-                    self.collect_imports_recursive(nested);
-                }
-                for nested in &if_stmt.orelse {
-                    self.collect_imports_recursive(nested);
-                }
+                self.collect_from_if_statement(if_stmt);
             }
             Stmt::While(while_stmt) => {
-                for nested in &while_stmt.body {
-                    self.collect_imports_recursive(nested);
-                }
-                for nested in &while_stmt.orelse {
-                    self.collect_imports_recursive(nested);
-                }
+                self.collect_from_while_statement(while_stmt);
+            }
+            Stmt::With(with_stmt) => {
+                self.collect_from_statement_list(&with_stmt.body);
             }
             _ => {}
         }
+    }
+
+    /// Collect imports from function body
+    fn collect_from_function_body(&mut self, body: &[Stmt]) {
+        for nested in body {
+            self.collect_imports_recursive(nested);
+        }
+    }
+
+    /// Collect imports from a list of statements
+    fn collect_from_statement_list(&mut self, statements: &[Stmt]) {
+        for nested in statements {
+            self.collect_imports_recursive(nested);
+        }
+    }
+
+    /// Collect imports from for statement
+    fn collect_from_for_statement(&mut self, for_stmt: &ast::StmtFor) {
+        self.collect_from_statement_list(&for_stmt.body);
+        self.collect_from_statement_list(&for_stmt.orelse);
+    }
+
+    /// Collect imports from if statement
+    fn collect_from_if_statement(&mut self, if_stmt: &ast::StmtIf) {
+        self.collect_from_statement_list(&if_stmt.body);
+        for clause in &if_stmt.elif_else_clauses {
+            self.collect_from_statement_list(&clause.body);
+        }
+    }
+
+    /// Collect imports from while statement
+    fn collect_from_while_statement(&mut self, while_stmt: &ast::StmtWhile) {
+        self.collect_from_statement_list(&while_stmt.body);
+        self.collect_from_statement_list(&while_stmt.orelse);
     }
 
     /// Recursively track usage in nested statements
     fn track_usage_recursive(&mut self, stmt: &Stmt) {
         self.track_usage_in_statement(stmt);
+
         match stmt {
             Stmt::FunctionDef(func_def) => {
-                for nested in &func_def.body {
-                    self.track_usage_recursive(nested);
-                }
-            }
-            Stmt::AsyncFunctionDef(async_def) => {
-                for nested in &async_def.body {
-                    self.track_usage_recursive(nested);
-                }
+                self.track_usage_in_function_body(&func_def.body);
             }
             Stmt::ClassDef(class_def) => {
-                for nested in &class_def.body {
-                    self.track_usage_recursive(nested);
-                }
+                self.track_usage_in_statement_list(&class_def.body);
             }
             Stmt::For(for_stmt) => {
-                for nested in &for_stmt.body {
-                    self.track_usage_recursive(nested);
-                }
-                for nested in &for_stmt.orelse {
-                    self.track_usage_recursive(nested);
-                }
-            }
-            Stmt::AsyncFor(async_for_stmt) => {
-                for nested in &async_for_stmt.body {
-                    self.track_usage_recursive(nested);
-                }
-                for nested in &async_for_stmt.orelse {
-                    self.track_usage_recursive(nested);
-                }
+                self.track_usage_in_for_statement_recursive(for_stmt);
             }
             Stmt::If(if_stmt) => {
-                for nested in &if_stmt.body {
-                    self.track_usage_recursive(nested);
-                }
-                for nested in &if_stmt.orelse {
-                    self.track_usage_recursive(nested);
-                }
+                self.track_usage_in_if_statement_recursive(if_stmt);
             }
             Stmt::While(while_stmt) => {
-                for nested in &while_stmt.body {
-                    self.track_usage_recursive(nested);
-                }
-                for nested in &while_stmt.orelse {
-                    self.track_usage_recursive(nested);
-                }
+                self.track_usage_in_while_statement_recursive(while_stmt);
+            }
+            Stmt::With(with_stmt) => {
+                self.track_usage_in_statement_list(&with_stmt.body);
             }
             _ => {}
         }
     }
 
+    /// Track usage recursively in function body
+    fn track_usage_in_function_body(&mut self, body: &[Stmt]) {
+        for nested in body {
+            self.track_usage_recursive(nested);
+        }
+    }
+
+    /// Track usage recursively in a list of statements
+    fn track_usage_in_statement_list(&mut self, statements: &[Stmt]) {
+        for nested in statements {
+            self.track_usage_recursive(nested);
+        }
+    }
+
+    /// Track usage recursively in for statement
+    fn track_usage_in_for_statement_recursive(&mut self, for_stmt: &ast::StmtFor) {
+        self.track_usage_in_statement_list(&for_stmt.body);
+        self.track_usage_in_statement_list(&for_stmt.orelse);
+    }
+
+    /// Track usage recursively in if statement
+    fn track_usage_in_if_statement_recursive(&mut self, if_stmt: &ast::StmtIf) {
+        self.track_usage_in_statement_list(&if_stmt.body);
+        for clause in &if_stmt.elif_else_clauses {
+            self.track_usage_in_statement_list(&clause.body);
+        }
+    }
+
+    /// Track usage recursively in while statement
+    fn track_usage_in_while_statement_recursive(&mut self, while_stmt: &ast::StmtWhile) {
+        self.track_usage_in_statement_list(&while_stmt.body);
+        self.track_usage_in_statement_list(&while_stmt.orelse);
+    }
+
     /// Debug method to access imported names
-    pub fn get_imported_names(&self) -> &HashMap<String, ImportInfo> {
+    pub fn get_imported_names(&self) -> &IndexMap<String, ImportInfo> {
         &self.imported_names
     }
 
     /// Debug method to access used names
-    pub fn get_used_names(&self) -> &HashSet<String> {
+    pub fn get_used_names(&self) -> &IndexSet<String> {
         &self.used_names
     }
 
     /// Debug method to access exported names
-    pub fn get_exported_names(&self) -> &HashSet<String> {
+    pub fn get_exported_names(&self) -> &IndexSet<String> {
         &self.exported_names
     }
 }

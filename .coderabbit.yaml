@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 language: 'en-US'
 early_access: true
 reviews:
@@ -10,6 +11,37 @@ reviews:
   auto_review:
     enabled: true
     drafts: false
+  tools:
+    shellcheck:
+      enabled: true
+    ruff:
+      enabled: false
+    markdownlint:
+      enabled: true
+    github-checks:
+      enabled: true
+      timeout_ms: 90000
+    languagetool:
+      enabled: true
+    biome:
+      enabled: false
+    yamllint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    eslint:
+      enabled: false
+    actionlint:
+      enabled: true
+  path_instructions:
+    - path: '**/tests/fixtures/**'
+      instructions: |
+        These are test fixture files that contain intentional code patterns for testing purposes.
+        Do not provide any review comments, suggestions, or analysis.
+        Do not flag any issues or violations.
+        Simply acknowledge these are test fixtures and skip detailed review.
+  path_filters:
+    - '!**/tests/fixtures/**'
 chat:
   auto_reply: true
 knowledge_base:
@@ -17,13 +49,3 @@ knowledge_base:
     scope: local
   web_search:
     enabled: true
-path_filters:
-  - '!**/tests/fixtures/**'
-review:
-  instructions:
-    - path: '**/tests/fixtures/**'
-      instruction: |
-        These are test fixture files that contain intentional code patterns for testing purposes.
-        Do not provide any review comments, suggestions, or analysis.
-        Do not flag any issues or violations.
-        Simply acknowledge these are test fixtures and skip detailed review.

@@ -1,4 +1,3 @@
-use rustpython_parser::{Mode, parse};
 use serpen::ast_rewriter::AstRewriter;
 
 /// Test regular import statements with aliases (non-"from" imports)
@@ -26,17 +25,13 @@ def main():
 "#;
 
     // Parse the Python code
-    let ast = parse(python_code, Mode::Module, "test.py").expect("Failed to parse Python code");
-
-    // Check if the AST is a Module and extract it
-    let module_ast = match ast {
-        rustpython_parser::ast::Mod::Module(m) => m,
-        _ => panic!("Expected Module, got something else"),
-    };
+    let parsed =
+        ruff_python_parser::parse_module(python_code).expect("Failed to parse Python code");
+    let module_ast = parsed.syntax();
 
     // Create AST rewriter and collect import aliases
-    let mut rewriter = AstRewriter::new();
-    rewriter.collect_import_aliases(&module_ast, "test_module");
+    let mut rewriter = AstRewriter::new(10); // Python 3.10
+    rewriter.collect_import_aliases(module_ast, "test_module");
 
     // Verify that regular import aliases were collected correctly
     let import_aliases = rewriter.import_aliases();
@@ -146,17 +141,13 @@ def main():
 "#;
 
     // Parse the Python code
-    let ast = parse(python_code, Mode::Module, "test.py").expect("Failed to parse Python code");
-
-    // Check if the AST is a Module and extract it
-    let module_ast = match ast {
-        rustpython_parser::ast::Mod::Module(m) => m,
-        _ => panic!("Expected Module, got something else"),
-    };
+    let parsed =
+        ruff_python_parser::parse_module(python_code).expect("Failed to parse Python code");
+    let module_ast = parsed.syntax();
 
     // Create AST rewriter and collect import aliases
-    let mut rewriter = AstRewriter::new();
-    rewriter.collect_import_aliases(&module_ast, "test_module");
+    let mut rewriter = AstRewriter::new(10); // Python 3.10
+    rewriter.collect_import_aliases(module_ast, "test_module");
 
     let import_aliases = rewriter.import_aliases();
 
@@ -203,17 +194,13 @@ def main():
 "#;
 
     // Parse the Python code
-    let ast = parse(python_code, Mode::Module, "test.py").expect("Failed to parse Python code");
-
-    // Check if the AST is a Module and extract it
-    let module_ast = match ast {
-        rustpython_parser::ast::Mod::Module(m) => m,
-        _ => panic!("Expected Module, got something else"),
-    };
+    let parsed =
+        ruff_python_parser::parse_module(python_code).expect("Failed to parse Python code");
+    let module_ast = parsed.syntax();
 
     // Create AST rewriter and collect import aliases
-    let mut rewriter = AstRewriter::new();
-    rewriter.collect_import_aliases(&module_ast, "test_module");
+    let mut rewriter = AstRewriter::new(10); // Python 3.10
+    rewriter.collect_import_aliases(module_ast, "test_module");
 
     let import_aliases = rewriter.import_aliases();
 
@@ -262,17 +249,13 @@ def main():
 "#;
 
     // Parse the Python code
-    let ast = parse(python_code, Mode::Module, "test.py").expect("Failed to parse Python code");
-
-    // Check if the AST is a Module and extract it
-    let module_ast = match ast {
-        rustpython_parser::ast::Mod::Module(m) => m,
-        _ => panic!("Expected Module, got something else"),
-    };
+    let parsed =
+        ruff_python_parser::parse_module(python_code).expect("Failed to parse Python code");
+    let module_ast = parsed.syntax();
 
     // Create AST rewriter and collect import aliases
-    let mut rewriter = AstRewriter::new();
-    rewriter.collect_import_aliases(&module_ast, "test_module");
+    let mut rewriter = AstRewriter::new(10); // Python 3.10
+    rewriter.collect_import_aliases(module_ast, "test_module");
 
     let import_aliases = rewriter.import_aliases();
 

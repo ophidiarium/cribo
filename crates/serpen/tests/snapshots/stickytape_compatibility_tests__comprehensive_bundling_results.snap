@@ -5,23 +5,23 @@ expression: summary
 ---
 Bundling Test Results Summary:
 ✓ single_file (Single file without dependencies)
-  Lines: 7, Size: 155 bytes
+  Lines: 6, Size: 154 bytes
   Execution: Success: Hello
 
 ✓ script_with_single_local_import (Script with local module import)
-  Lines: 12, Size: 290 bytes
+  Lines: 11, Size: 289 bytes
   Execution: Success: Hello
 
 ✓ script_using_module_in_package (Script importing from package)
-  Lines: 13, Size: 382 bytes
+  Lines: 12, Size: 381 bytes
   Execution: Success: Hello
 
 ✓ script_with_single_local_from_import (Script with from-import syntax)
-  Lines: 10, Size: 201 bytes
+  Lines: 9, Size: 200 bytes
   Execution: Success: Hello
 
 ✓ imports_in_imported_modules (Nested module imports)
-  Lines: 12, Size: 239 bytes
+  Lines: 11, Size: 238 bytes
   Execution: Success: Hello
 
 Successful: 5, Failed: 0, Total scenarios: 5

@@ -28,6 +28,10 @@ struct Cli {
     /// Emit requirements.txt with third-party dependencies
     #[arg(long)]
     emit_requirements: bool,
+
+    /// Target Python version (e.g., py38, py39, py310, py311, py312, py313)
+    #[arg(long, alias = "python-version")]
+    target_version: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -43,8 +47,21 @@ fn main() -> anyhow::Result<()> {
     debug!("Output: {:?}", cli.output);
 
     // Load configuration
-    let config = Config::load(cli.config.as_deref())?;
+    let mut config = Config::load(cli.config.as_deref())?;
+
+    // Override target-version from CLI if provided
+    if let Some(target_version) = cli.target_version {
+        config.set_target_version(target_version)?;
+    }
+
     debug!("Configuration: {:?}", config);
+
+    // Display target version for troubleshooting
+    info!(
+        "Target Python version: {} (resolved to Python 3.{})",
+        config.target_version,
+        config.python_version().unwrap_or(10)
+    );
 
     // Create bundler and run
     let mut bundler = Bundler::new(config);

@@ -1,111 +1,9 @@
 use anyhow::Result;
 use cow_utils::CowUtils;
-use rustpython_parser::ast::{self, Expr, ExprContext, Stmt};
+use ruff_python_ast::{self as ast, Alias, Expr, ExprContext, Identifier, Stmt};
+use ruff_python_stdlib::{builtins, keyword};
+use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet};
-use unparser::transformer::Transformer;
-
-/// Python built-in names that should not be renamed
-static PYTHON_BUILTINS: &[&str] = &[
-    "abs",
-    "aiter",
-    "all",
-    "any",
-    "anext",
-    "ascii",
-    "bin",
-    "bool",
-    "breakpoint",
-    "bytearray",
-    "bytes",
-    "callable",
-    "chr",
-    "classmethod",
-    "compile",
-    "complex",
-    "delattr",
-    "dict",
-    "dir",
-    "divmod",
-    "enumerate",
-    "eval",
-    "exec",
-    "filter",
-    "float",
-    "format",
-    "frozenset",
-    "getattr",
-    "globals",
-    "hasattr",
-    "hash",
-    "help",
-    "hex",
-    "id",
-    "input",
-    "int",
-    "isinstance",
-    "issubclass",
-    "iter",
-    "len",
-    "list",
-    "locals",
-    "map",
-    "max",
-    "memoryview",
-    "min",
-    "next",
-    "object",
-    "oct",
-    "open",
-    "ord",
-    "pow",
-    "print",
-    "property",
-    "range",
-    "repr",
-    "reversed",
-    "round",
-    "set",
-    "setattr",
-    "slice",
-    "sorted",
-    "staticmethod",
-    "str",
-    "sum",
-    "super",
-    "tuple",
-    "type",
-    "vars",
-    "zip",
-    "__import__",
-    "__name__",
-    "__doc__",
-    "__package__",
-    "__loader__",
-    "__spec__",
-    "__file__",
-    "__cached__",
-    "__builtins__",
-    "True",
-    "False",
-    "None",
-    "NotImplemented",
-    "Ellipsis",
-    "__debug__",
-    "copyright",
-    "credits",
-    "license",
-    "quit",
-    "exit",
-    "__all__",
-];
-
-/// Python keywords that should not be used as identifiers
-static PYTHON_KEYWORDS: &[&str] = &[
-    "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue",
-    "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import",
-    "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while",
-    "with", "yield",
-];
 
 /// Scope type for tracking different kinds of scopes in Python
 #[derive(Debug, Clone, PartialEq)]
@@ -167,14 +65,22 @@ pub struct AstRewriter {
     reserved_names: HashSet<String>,
     /// Symbol table for comprehensive scope analysis
     symbols: HashMap<String, Symbol>,
+    /// Python version for builtin checks
+    python_version: u8,
 }
 
 impl AstRewriter {
-    pub fn new() -> Self {
-        // Initialize reserved names with Python builtins and keywords
+    pub fn new(python_version: u8) -> Self {
+        // Initialize reserved names with Python builtins and keywords using ruff_python_stdlib
         let mut reserved_names = HashSet::new();
-        reserved_names.extend(PYTHON_BUILTINS.iter().map(|&s| s.to_string()));
-        reserved_names.extend(PYTHON_KEYWORDS.iter().map(|&s| s.to_string()));
+
+        // Add all Python built-ins for the specified version
+        for builtin in builtins::python_builtins(python_version, false) {
+            reserved_names.insert(builtin.to_string());
+        }
+
+        // Note: Python keywords are checked dynamically using ruff_python_stdlib::keyword::is_keyword
+        // rather than pre-populating the set, for better maintainability
 
         Self {
             import_aliases: HashMap::new(),
@@ -182,6 +88,7 @@ impl AstRewriter {
             module_renames: HashMap::new(),
             reserved_names,
             symbols: HashMap::new(),
+            python_version,
         }
     }
 
@@ -341,8 +248,8 @@ impl AstRewriter {
     ) {
         match expr {
             Expr::Name(name) => {
-                // Skip built-ins
-                if PYTHON_BUILTINS.contains(&name.id.as_str()) {
+                // Skip built-ins using ruff_python_stdlib
+                if builtins::is_python_builtin(&name.id, self.python_version, false) {
                     return;
                 }
 
@@ -364,7 +271,7 @@ impl AstRewriter {
             }
             Expr::Call(call) => {
                 self.collect_symbols_from_expr(module_name, &call.func, scope_type, false);
-                for arg in &call.args {
+                for arg in &call.arguments.args {
                     self.collect_symbols_from_expr(module_name, arg, scope_type, false);
                 }
             }
@@ -380,46 +287,77 @@ impl AstRewriter {
         // First collect all symbols
         self.collect_symbols(modules);
 
+        let name_to_modules = self.collect_module_level_identifiers(modules);
+        self.generate_conflict_resolutions(name_to_modules);
+    }
+
+    /// Collect all module-level identifiers that could potentially conflict
+    fn collect_module_level_identifiers(
+        &self,
+        modules: &[(String, &ast::ModModule)],
+    ) -> HashMap<String, Vec<String>> {
         let mut name_to_modules: HashMap<String, Vec<String>> = HashMap::new();
 
-        // Collect all module-level identifiers (only those that could conflict)
         for (module_name, _) in modules {
-            for (symbol_key, symbol) in &self.symbols {
-                if symbol_key.starts_with(&format!("{}::", module_name))
-                    && symbol.is_global
-                    && !symbol.is_imported
-                {
-                    name_to_modules
-                        .entry(symbol.name.clone())
-                        .or_default()
-                        .push(module_name.clone());
-                }
-            }
+            self.collect_symbols_for_module(module_name, &mut name_to_modules);
         }
 
-        // Find conflicts and generate unique names
+        name_to_modules
+    }
+
+    /// Collect symbols for a specific module
+    fn collect_symbols_for_module(
+        &self,
+        module_name: &str,
+        name_to_modules: &mut HashMap<String, Vec<String>>,
+    ) {
+        for (symbol_key, symbol) in &self.symbols {
+            if self.is_conflictable_symbol(symbol_key, symbol, module_name) {
+                name_to_modules
+                    .entry(symbol.name.clone())
+                    .or_default()
+                    .push(module_name.to_string());
+            }
+        }
+    }
+
+    /// Check if a symbol can potentially conflict
+    fn is_conflictable_symbol(&self, symbol_key: &str, symbol: &Symbol, module_name: &str) -> bool {
+        symbol_key.starts_with(&format!("{}::", module_name))
+            && symbol.is_global
+            && !symbol.is_imported
+    }
+
+    /// Generate conflict resolutions for conflicting names
+    fn generate_conflict_resolutions(&mut self, name_to_modules: HashMap<String, Vec<String>>) {
         for (name, modules) in name_to_modules {
             if modules.len() > 1 {
-                let mut renamed_versions = HashMap::new();
-                for module in &modules {
-                    let renamed = self.generate_unique_name(&name, module);
-                    renamed_versions.insert(module.clone(), renamed.clone());
-
-                    // Track renames for this module
-                    self.module_renames
-                        .entry(module.clone())
-                        .or_default()
-                        .insert(name.clone(), renamed);
-                }
-
-                let conflict = NameConflict {
-                    name: name.clone(),
-                    modules: modules.clone(),
-                    renamed_versions,
-                };
-                self.name_conflicts.insert(name, conflict);
+                self.resolve_name_conflict(&name, &modules);
             }
         }
+    }
+
+    /// Resolve a specific name conflict
+    fn resolve_name_conflict(&mut self, name: &str, modules: &[String]) {
+        let mut renamed_versions = HashMap::new();
+
+        for module in modules {
+            let renamed = self.generate_unique_name(name, module);
+            renamed_versions.insert(module.clone(), renamed.clone());
+
+            // Track renames for this module
+            self.module_renames
+                .entry(module.clone())
+                .or_default()
+                .insert(name.to_string(), renamed);
+        }
+
+        let conflict = NameConflict {
+            name: name.to_string(),
+            modules: modules.to_vec(),
+            renamed_versions,
+        };
+        self.name_conflicts.insert(name.to_string(), conflict);
     }
 
     /// Generate a unique name for a conflicting identifier
@@ -441,9 +379,7 @@ impl AstRewriter {
             };
 
             // Check if the name is available
-            if !self.reserved_names.contains(&candidate)
-                && !self.is_name_used_in_any_module(&candidate)
-            {
+            if !self.is_reserved_name(&candidate) && !self.is_name_used_in_any_module(&candidate) {
                 // Reserve the name
                 self.reserved_names.insert(candidate.clone());
                 return candidate;
@@ -451,6 +387,17 @@ impl AstRewriter {
 
             counter += 1;
         }
+    }
+
+    /// Check if a name is reserved (builtin, keyword, or manually reserved)
+    fn is_reserved_name(&self, name: &str) -> bool {
+        // Check if it's a Python keyword using ruff_python_stdlib
+        if keyword::is_keyword(name) {
+            return true;
+        }
+
+        // Check if it's in our manually maintained reserved names (builtins + user-reserved)
+        self.reserved_names.contains(name)
     }
 
     /// Check if a name is used in any module
@@ -513,200 +460,243 @@ impl AstRewriter {
         renames: &HashMap<String, String>,
     ) -> Result<()> {
         match stmt {
-            Stmt::FunctionDef(func_def) => {
-                // Rename function definition
-                if let Some(new_name) = renames.get(func_def.name.as_str()) {
-                    func_def.name = new_name.clone().into();
-                }
-                // Rename in return type annotation
-                if let Some(returns) = &mut func_def.returns {
-                    self.apply_renames_to_expr(returns, renames)?;
-                }
-                // Rename within function body
-                self.apply_renames_to_ast(&mut func_def.body, renames)?;
+            Stmt::FunctionDef(func_def) => self.apply_renames_to_function_def(func_def, renames),
+            Stmt::ClassDef(class_def) => self.apply_renames_to_class_def(class_def, renames),
+            Stmt::Assign(assign) => self.apply_renames_to_assign(assign, renames),
+            Stmt::Expr(expr_stmt) => self.apply_renames_to_expr(&mut expr_stmt.value, renames),
+            Stmt::Return(return_stmt) => self.apply_renames_to_return(return_stmt, renames),
+            Stmt::If(if_stmt) => self.apply_renames_to_if(if_stmt, renames),
+            Stmt::While(while_stmt) => self.apply_renames_to_while(while_stmt, renames),
+            Stmt::For(for_stmt) => self.apply_renames_to_for(for_stmt, renames),
+            Stmt::With(with_stmt) => self.apply_renames_to_with(with_stmt, renames),
+            Stmt::Try(try_stmt) => self.apply_renames_to_try(try_stmt, renames),
+            Stmt::AugAssign(aug_assign) => self.apply_renames_to_aug_assign(aug_assign, renames),
+            Stmt::AnnAssign(ann_assign) => self.apply_renames_to_ann_assign(ann_assign, renames),
+            _ => Ok(()),
+        }
+    }
+
+    /// Apply renames to function definition statement
+    fn apply_renames_to_function_def(
+        &self,
+        func_def: &mut ast::StmtFunctionDef,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        if let Some(new_name) = renames.get(func_def.name.as_str()) {
+            func_def.name = Identifier::new(new_name.clone(), TextRange::default());
+        }
+        if let Some(returns) = &mut func_def.returns {
+            self.apply_renames_to_expr(returns, renames)?;
+        }
+        self.apply_renames_to_ast(&mut func_def.body, renames)
+    }
+
+    /// Apply renames to class definition statement
+    fn apply_renames_to_class_def(
+        &self,
+        class_def: &mut ast::StmtClassDef,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        if let Some(new_name) = renames.get(class_def.name.as_str()) {
+            class_def.name = Identifier::new(new_name.clone(), TextRange::default());
+        }
+        self.apply_renames_to_ast(&mut class_def.body, renames)
+    }
+
+    /// Apply renames to assignment statement
+    fn apply_renames_to_assign(
+        &self,
+        assign: &mut ast::StmtAssign,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        for target in &mut assign.targets {
+            self.apply_renames_to_expr(target, renames)?;
+        }
+        self.apply_renames_to_expr(&mut assign.value, renames)
+    }
+
+    /// Apply renames to return statement
+    fn apply_renames_to_return(
+        &self,
+        return_stmt: &mut ast::StmtReturn,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        if let Some(value) = &mut return_stmt.value {
+            self.apply_renames_to_expr(value, renames)?;
+        }
+        Ok(())
+    }
+
+    /// Apply renames to if statement
+    fn apply_renames_to_if(
+        &self,
+        if_stmt: &mut ast::StmtIf,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.apply_renames_to_expr(&mut if_stmt.test, renames)?;
+        self.apply_renames_to_ast(&mut if_stmt.body, renames)?;
+
+        for clause in &mut if_stmt.elif_else_clauses {
+            if let Some(test) = &mut clause.test {
+                self.apply_renames_to_expr(test, renames)?;
             }
-            Stmt::ClassDef(class_def) => {
-                // Rename class definition
-                if let Some(new_name) = renames.get(class_def.name.as_str()) {
-                    class_def.name = new_name.clone().into();
-                }
-                // Rename within class body
-                self.apply_renames_to_ast(&mut class_def.body, renames)?;
+            self.apply_renames_to_ast(&mut clause.body, renames)?;
+        }
+        Ok(())
+    }
+
+    /// Apply renames to while statement
+    fn apply_renames_to_while(
+        &self,
+        while_stmt: &mut ast::StmtWhile,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.apply_renames_to_expr(&mut while_stmt.test, renames)?;
+        self.apply_renames_to_ast(&mut while_stmt.body, renames)?;
+        self.apply_renames_to_ast(&mut while_stmt.orelse, renames)
+    }
+
+    /// Apply renames to for statement
+    fn apply_renames_to_for(
+        &self,
+        for_stmt: &mut ast::StmtFor,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.apply_renames_to_expr(&mut for_stmt.target, renames)?;
+        self.apply_renames_to_expr(&mut for_stmt.iter, renames)?;
+        self.apply_renames_to_ast(&mut for_stmt.body, renames)?;
+        self.apply_renames_to_ast(&mut for_stmt.orelse, renames)
+    }
+
+    /// Apply renames to with statement
+    fn apply_renames_to_with(
+        &self,
+        with_stmt: &mut ast::StmtWith,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        for item in &mut with_stmt.items {
+            self.apply_renames_to_expr(&mut item.context_expr, renames)?;
+            if let Some(optional_vars) = &mut item.optional_vars {
+                self.apply_renames_to_expr(optional_vars, renames)?;
             }
-            Stmt::Assign(assign) => {
-                // Rename assignment targets
-                for target in &mut assign.targets {
-                    self.apply_renames_to_expr(target, renames)?;
-                }
-                // Rename in assignment value
-                self.apply_renames_to_expr(&mut assign.value, renames)?;
+        }
+        self.apply_renames_to_ast(&mut with_stmt.body, renames)
+    }
+
+    /// Apply renames to try statement
+    fn apply_renames_to_try(
+        &self,
+        try_stmt: &mut ast::StmtTry,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.apply_renames_to_ast(&mut try_stmt.body, renames)?;
+
+        for handler in &mut try_stmt.handlers {
+            self.apply_renames_to_exception_handler(handler, renames)?;
+        }
+
+        self.apply_renames_to_ast(&mut try_stmt.orelse, renames)?;
+        self.apply_renames_to_ast(&mut try_stmt.finalbody, renames)
+    }
+
+    /// Apply renames to an exception handler
+    fn apply_renames_to_exception_handler(
+        &self,
+        handler: &mut ast::ExceptHandler,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        let ast::ExceptHandler::ExceptHandler(except_data) = handler;
+
+        if let Some(type_) = &mut except_data.type_ {
+            self.apply_renames_to_expr(type_, renames)?;
+        }
+
+        self.apply_renames_to_exception_name(&mut except_data.name, renames);
+        self.apply_renames_to_ast(&mut except_data.body, renames)
+    }
+
+    /// Apply renames to exception handler name
+    fn apply_renames_to_exception_name(
+        &self,
+        name: &mut Option<Identifier>,
+        renames: &HashMap<String, String>,
+    ) {
+        if let Some(name_ident) = name {
+            if let Some(new_name) = renames.get(name_ident.as_str()) {
+                *name_ident = Identifier::new(new_name.clone(), TextRange::default());
             }
-            Stmt::Expr(expr_stmt) => {
-                self.apply_renames_to_expr(&mut expr_stmt.value, renames)?;
-            }
-            Stmt::Return(return_stmt) => {
-                if let Some(value) = &mut return_stmt.value {
-                    self.apply_renames_to_expr(value, renames)?;
-                }
-            }
-            Stmt::If(if_stmt) => {
-                self.apply_renames_to_expr(&mut if_stmt.test, renames)?;
-                self.apply_renames_to_ast(&mut if_stmt.body, renames)?;
-                self.apply_renames_to_ast(&mut if_stmt.orelse, renames)?;
-            }
-            Stmt::While(while_stmt) => {
-                self.apply_renames_to_expr(&mut while_stmt.test, renames)?;
-                self.apply_renames_to_ast(&mut while_stmt.body, renames)?;
-                self.apply_renames_to_ast(&mut while_stmt.orelse, renames)?;
-            }
-            Stmt::For(for_stmt) => {
-                self.apply_renames_to_expr(&mut for_stmt.target, renames)?;
-                self.apply_renames_to_expr(&mut for_stmt.iter, renames)?;
-                self.apply_renames_to_ast(&mut for_stmt.body, renames)?;
-                self.apply_renames_to_ast(&mut for_stmt.orelse, renames)?;
-            }
-            Stmt::With(with_stmt) => {
-                for item in &mut with_stmt.items {
-                    self.apply_renames_to_expr(&mut item.context_expr, renames)?;
-                    if let Some(optional_vars) = &mut item.optional_vars {
-                        self.apply_renames_to_expr(optional_vars, renames)?;
-                    }
-                }
-                self.apply_renames_to_ast(&mut with_stmt.body, renames)?;
-            }
-            Stmt::Try(try_stmt) => {
-                self.apply_renames_to_ast(&mut try_stmt.body, renames)?;
-                for handler in &mut try_stmt.handlers {
-                    match handler {
-                        ast::ExceptHandler::ExceptHandler(except_data) => {
-                            if let Some(type_) = &mut except_data.type_ {
-                                self.apply_renames_to_expr(type_, renames)?;
-                            }
-                            if let Some(name) = &mut except_data.name {
-                                if let Some(new_name) = renames.get(name.as_str()) {
-                                    *name = new_name.clone().into();
-                                }
-                            }
-                            self.apply_renames_to_ast(&mut except_data.body, renames)?;
-                        }
-                    }
-                }
-                self.apply_renames_to_ast(&mut try_stmt.orelse, renames)?;
-                self.apply_renames_to_ast(&mut try_stmt.finalbody, renames)?;
-            }
-            Stmt::AugAssign(aug_assign) => {
-                self.apply_renames_to_expr(&mut aug_assign.target, renames)?;
-                self.apply_renames_to_expr(&mut aug_assign.value, renames)?;
-            }
-            Stmt::AnnAssign(ann_assign) => {
-                self.apply_renames_to_expr(&mut ann_assign.target, renames)?;
-                self.apply_renames_to_expr(&mut ann_assign.annotation, renames)?;
-                if let Some(value) = &mut ann_assign.value {
-                    self.apply_renames_to_expr(value, renames)?;
-                }
-            }
-            // Add more statement types as needed
-            _ => {}
+        }
+    }
+
+    /// Apply renames to augmented assignment statement
+    fn apply_renames_to_aug_assign(
+        &self,
+        aug_assign: &mut ast::StmtAugAssign,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.apply_renames_to_expr(&mut aug_assign.target, renames)?;
+        self.apply_renames_to_expr(&mut aug_assign.value, renames)
+    }
+
+    /// Apply renames to annotated assignment statement
+    fn apply_renames_to_ann_assign(
+        &self,
+        ann_assign: &mut ast::StmtAnnAssign,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.apply_renames_to_expr(&mut ann_assign.target, renames)?;
+        self.apply_renames_to_expr(&mut ann_assign.annotation, renames)?;
+        if let Some(value) = &mut ann_assign.value {
+            self.apply_renames_to_expr(value, renames)?;
         }
         Ok(())
     }
 
     /// Apply renames to an expression
-    #[allow(clippy::only_used_in_recursion)]
     fn apply_renames_to_expr(
         &self,
         expr: &mut Expr,
         renames: &HashMap<String, String>,
     ) -> Result<()> {
         match expr {
-            Expr::Name(name) => {
-                // Rename variables in both Load and Store contexts
-                if let Some(new_name) = renames.get(name.id.as_str()) {
-                    name.id = new_name.clone().into();
-                }
-            }
-            Expr::Call(call) => {
-                self.apply_renames_to_expr(&mut call.func, renames)?;
-                for arg in &mut call.args {
-                    self.apply_renames_to_expr(arg, renames)?;
-                }
-                for keyword in &mut call.keywords {
-                    self.apply_renames_to_expr(&mut keyword.value, renames)?;
-                }
-            }
-            Expr::Attribute(attr) => {
-                self.apply_renames_to_expr(&mut attr.value, renames)?;
-            }
-            Expr::BinOp(binop) => {
-                self.apply_renames_to_expr(&mut binop.left, renames)?;
-                self.apply_renames_to_expr(&mut binop.right, renames)?;
-            }
-            Expr::UnaryOp(unary) => {
-                self.apply_renames_to_expr(&mut unary.operand, renames)?;
-            }
-            Expr::Compare(compare) => {
-                self.apply_renames_to_expr(&mut compare.left, renames)?;
-                for comparator in &mut compare.comparators {
-                    self.apply_renames_to_expr(comparator, renames)?;
-                }
-            }
-            Expr::List(list) => {
-                for elt in &mut list.elts {
-                    self.apply_renames_to_expr(elt, renames)?;
-                }
-            }
-            Expr::Dict(dict) => {
-                for key in dict.keys.iter_mut().flatten() {
-                    self.apply_renames_to_expr(key, renames)?;
-                }
-                for value in &mut dict.values {
-                    self.apply_renames_to_expr(value, renames)?;
-                }
-            }
-            Expr::Set(set) => {
-                for elt in &mut set.elts {
-                    self.apply_renames_to_expr(elt, renames)?;
-                }
-            }
-            Expr::Tuple(tuple) => {
-                for elt in &mut tuple.elts {
-                    self.apply_renames_to_expr(elt, renames)?;
-                }
-            }
-            Expr::BoolOp(bool_op) => {
-                for value in &mut bool_op.values {
-                    self.apply_renames_to_expr(value, renames)?;
-                }
-            }
-            Expr::IfExp(if_exp) => {
+            Expr::Name(name) => self.apply_renames_to_name(name, renames),
+            Expr::Call(call) => self.apply_renames_to_call(call, renames),
+            Expr::Attribute(attr) => self.apply_renames_to_expr(&mut attr.value, renames),
+            Expr::BinOp(binop) => self.apply_renames_to_binop(binop, renames),
+            Expr::UnaryOp(unary) => self.apply_renames_to_expr(&mut unary.operand, renames),
+            Expr::Compare(compare) => self.apply_renames_to_compare(compare, renames),
+            Expr::List(list) => self.apply_renames_to_list(list, renames),
+            Expr::Dict(dict) => self.apply_renames_to_dict(dict, renames),
+            Expr::Set(set) => self.apply_renames_to_collection(&mut set.elts, renames),
+            Expr::Tuple(tuple) => self.apply_renames_to_collection(&mut tuple.elts, renames),
+            Expr::BoolOp(bool_op) => self.apply_renames_to_collection(&mut bool_op.values, renames),
+            Expr::If(if_exp) => {
                 self.apply_renames_to_expr(&mut if_exp.test, renames)?;
                 self.apply_renames_to_expr(&mut if_exp.body, renames)?;
-                self.apply_renames_to_expr(&mut if_exp.orelse, renames)?;
+                self.apply_renames_to_expr(&mut if_exp.orelse, renames)
             }
             Expr::ListComp(list_comp) => {
                 self.apply_renames_to_expr(&mut list_comp.elt, renames)?;
-                self.apply_renames_to_generators(&mut list_comp.generators, renames)?;
+                self.apply_renames_to_generators(&mut list_comp.generators, renames)
             }
             Expr::SetComp(set_comp) => {
                 self.apply_renames_to_expr(&mut set_comp.elt, renames)?;
-                self.apply_renames_to_generators(&mut set_comp.generators, renames)?;
+                self.apply_renames_to_generators(&mut set_comp.generators, renames)
             }
             Expr::DictComp(dict_comp) => {
                 self.apply_renames_to_expr(&mut dict_comp.key, renames)?;
                 self.apply_renames_to_expr(&mut dict_comp.value, renames)?;
-                self.apply_renames_to_generators(&mut dict_comp.generators, renames)?;
+                self.apply_renames_to_generators(&mut dict_comp.generators, renames)
             }
-            Expr::GeneratorExp(gen_exp) => {
+            Expr::Generator(gen_exp) => {
                 self.apply_renames_to_expr(&mut gen_exp.elt, renames)?;
-                self.apply_renames_to_generators(&mut gen_exp.generators, renames)?;
+                self.apply_renames_to_generators(&mut gen_exp.generators, renames)
             }
             Expr::Subscript(subscript) => {
                 self.apply_renames_to_expr(&mut subscript.value, renames)?;
-                self.apply_renames_to_expr(&mut subscript.slice, renames)?;
+                self.apply_renames_to_expr(&mut subscript.slice, renames)
             }
-            Expr::Starred(starred) => {
-                self.apply_renames_to_expr(&mut starred.value, renames)?;
-            }
+            Expr::Starred(starred) => self.apply_renames_to_expr(&mut starred.value, renames),
             Expr::Slice(slice) => {
                 if let Some(lower) = &mut slice.lower {
                     self.apply_renames_to_expr(lower, renames)?;
@@ -717,9 +707,97 @@ impl AstRewriter {
                 if let Some(step) = &mut slice.step {
                     self.apply_renames_to_expr(step, renames)?;
                 }
+                Ok(())
             }
             // Add more expression types as needed
-            _ => {}
+            _ => Ok(()),
+        }
+    }
+
+    /// Apply renames to a name expression
+    fn apply_renames_to_name(
+        &self,
+        name: &mut ast::ExprName,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        if let Some(new_name) = renames.get(name.id.as_str()) {
+            log::debug!("Renaming '{}' to '{}'", name.id.as_str(), new_name);
+            name.id = new_name.clone().into();
+        }
+        Ok(())
+    }
+
+    /// Apply renames to a call expression
+    fn apply_renames_to_call(
+        &self,
+        call: &mut ast::ExprCall,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.apply_renames_to_expr(&mut call.func, renames)?;
+        for arg in &mut call.arguments.args {
+            self.apply_renames_to_expr(arg, renames)?;
+        }
+        for keyword in &mut call.arguments.keywords {
+            self.apply_renames_to_expr(&mut keyword.value, renames)?;
+        }
+        Ok(())
+    }
+
+    /// Apply renames to a binary operation expression
+    fn apply_renames_to_binop(
+        &self,
+        binop: &mut ast::ExprBinOp,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.apply_renames_to_expr(&mut binop.left, renames)?;
+        self.apply_renames_to_expr(&mut binop.right, renames)
+    }
+
+    /// Apply renames to a comparison expression
+    fn apply_renames_to_compare(
+        &self,
+        compare: &mut ast::ExprCompare,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.apply_renames_to_expr(&mut compare.left, renames)?;
+        for comparator in &mut compare.comparators {
+            self.apply_renames_to_expr(comparator, renames)?;
+        }
+        Ok(())
+    }
+
+    /// Apply renames to a list expression
+    fn apply_renames_to_list(
+        &self,
+        list: &mut ast::ExprList,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.apply_renames_to_collection(&mut list.elts, renames)
+    }
+
+    /// Apply renames to a dictionary expression
+    fn apply_renames_to_dict(
+        &self,
+        dict: &mut ast::ExprDict,
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        for item in &mut dict.items {
+            if let Some(key) = &mut item.key {
+                self.apply_renames_to_expr(key, renames)?;
+            }
+            self.apply_renames_to_expr(&mut item.value, renames)?;
+        }
+        Ok(())
+    }
+
+    /// Apply renames to a collection of expressions
+    fn apply_renames_to_collection(
+        &self,
+        elts: &mut [Expr],
+        renames: &HashMap<String, String>,
+    ) -> Result<()> {
+        for elt in elts {
+            self.apply_renames_to_expr(elt, renames)?;
         }
         Ok(())
     }
@@ -730,66 +808,100 @@ impl AstRewriter {
 
         for (alias_name, import_alias) in &self.import_aliases {
             if import_alias.is_from_import {
-                // Check if there's a conflict for this imported name
-                let has_conflict = self
-                    .name_conflicts
-                    .contains_key(&import_alias.original_name);
-
-                // Only generate assignment if:
-                // 1. There was an explicit alias in the original code, OR
-                // 2. There's a name conflict that requires renaming
-                if import_alias.has_explicit_alias || has_conflict {
-                    let actual_name = if let Some(conflict) =
-                        self.name_conflicts.get(&import_alias.original_name)
-                    {
-                        // Use the renamed version for this module
-                        conflict
-                            .renamed_versions
-                            .get(&import_alias.module_name)
-                            .cloned()
-                            .unwrap_or_else(|| import_alias.original_name.clone())
-                    } else {
-                        import_alias.original_name.clone()
-                    };
-
-                    let assignment = ast::StmtAssign {
-                        targets: vec![Expr::Name(ast::ExprName {
-                            id: alias_name.clone().into(),
-                            ctx: ExprContext::Store,
-                            range: Default::default(),
-                        })],
-                        value: Box::new(Expr::Name(ast::ExprName {
-                            id: actual_name.into(),
-                            ctx: ExprContext::Load,
-                            range: Default::default(),
-                        })),
-                        type_comment: None,
-                        range: Default::default(),
-                    };
-                    assignments.push(Stmt::Assign(assignment));
-                }
+                self.process_from_import_alias(alias_name, import_alias, &mut assignments);
+            } else {
+                self.process_regular_import_alias(alias_name, import_alias, &mut assignments);
             }
         }
 
         assignments
     }
 
-    /// Check if a name will have an alias assignment generated for it
-    fn will_have_alias_assignment(&self, name: &str) -> bool {
-        if let Some(import_alias) = self.import_aliases.get(name) {
-            if import_alias.is_from_import {
-                // Check if there's a conflict for this imported name
-                let has_conflict = self
-                    .name_conflicts
-                    .contains_key(&import_alias.original_name);
+    /// Process from import alias (e.g., from module import item as alias)
+    fn process_from_import_alias(
+        &self,
+        alias_name: &str,
+        import_alias: &ImportAlias,
+        assignments: &mut Vec<Stmt>,
+    ) {
+        let has_conflict = self
+            .name_conflicts
+            .contains_key(&import_alias.original_name);
 
-                // Alias assignment will be generated if:
-                // 1. There was an explicit alias in the original code, OR
-                // 2. There's a name conflict that requires renaming
-                return import_alias.has_explicit_alias || has_conflict;
-            }
+        // Only generate assignment if there's an explicit alias or a name conflict
+        if import_alias.has_explicit_alias || has_conflict {
+            let actual_name = self.resolve_actual_name_for_conflict(import_alias);
+            let assignment = self.create_from_import_assignment(alias_name, &actual_name);
+            assignments.push(Stmt::Assign(assignment));
         }
-        false
+    }
+
+    /// Process regular import alias (e.g., import module as alias)
+    fn process_regular_import_alias(
+        &self,
+        alias_name: &str,
+        import_alias: &ImportAlias,
+        assignments: &mut Vec<Stmt>,
+    ) {
+        if import_alias.has_explicit_alias {
+            let assignment = self.create_regular_import_assignment(alias_name, import_alias);
+            assignments.push(Stmt::Assign(assignment));
+        }
+    }
+
+    /// Resolve the actual name for an import considering name conflicts
+    fn resolve_actual_name_for_conflict(&self, import_alias: &ImportAlias) -> String {
+        if let Some(conflict) = self.name_conflicts.get(&import_alias.original_name) {
+            conflict
+                .renamed_versions
+                .get(&import_alias.module_name)
+                .cloned()
+                .unwrap_or_else(|| import_alias.original_name.clone())
+        } else {
+            import_alias.original_name.clone()
+        }
+    }
+
+    /// Create an assignment statement for a from import
+    fn create_from_import_assignment(
+        &self,
+        alias_name: &str,
+        actual_name: &str,
+    ) -> ast::StmtAssign {
+        ast::StmtAssign {
+            targets: vec![Expr::Name(ast::ExprName {
+                id: alias_name.to_string().into(),
+                ctx: ExprContext::Store,
+                range: Default::default(),
+            })],
+            value: Box::new(Expr::Name(ast::ExprName {
+                id: actual_name.to_string().into(),
+                ctx: ExprContext::Load,
+                range: Default::default(),
+            })),
+            range: Default::default(),
+        }
+    }
+
+    /// Create an assignment statement for a regular import
+    fn create_regular_import_assignment(
+        &self,
+        alias_name: &str,
+        import_alias: &ImportAlias,
+    ) -> ast::StmtAssign {
+        ast::StmtAssign {
+            targets: vec![Expr::Name(ast::ExprName {
+                id: alias_name.to_string().into(),
+                ctx: ExprContext::Store,
+                range: Default::default(),
+            })],
+            value: Box::new(Expr::Name(ast::ExprName {
+                id: import_alias.module_name.clone().into(),
+                ctx: ExprContext::Load,
+                range: Default::default(),
+            })),
+            range: Default::default(),
+        }
     }
 
     /// Get debug information about conflicts and aliases
@@ -821,41 +933,135 @@ impl AstRewriter {
         info
     }
 
-    /// Transform module AST using the Transformer trait to apply import alias transformations
+    /// Transform module AST to remove import statements that have alias assignments
     pub fn transform_module_ast(&mut self, module_ast: &mut ast::ModModule) -> Result<()> {
-        // Transform the module's body statements using the Transformer trait
-        // Use std::mem::take to move the vector without cloning, avoiding unnecessary memory overhead
-        let body = std::mem::take(&mut module_ast.body);
-        module_ast.body = self.visit_stmt_vec(body);
+        // If we have import aliases, we need to remove the original import statements
+        // that have been replaced by alias assignments
+        if self.import_aliases.is_empty() {
+            log::debug!("No import aliases to transform");
+            return Ok(());
+        }
+
+        log::debug!(
+            "Transforming {} import statements with alias assignments",
+            self.import_aliases.len()
+        );
+
+        // Collect the modules and aliases that have alias assignments
+        let mut aliased_imports = HashSet::new();
+        let mut aliased_from_imports = HashMap::new();
+
+        for (alias_name, import_alias) in &self.import_aliases {
+            if import_alias.has_explicit_alias {
+                if import_alias.is_from_import {
+                    // For from imports, track module -> alias mappings
+                    aliased_from_imports
+                        .entry(import_alias.module_name.clone())
+                        .or_insert_with(HashSet::new)
+                        .insert(alias_name.clone());
+                } else {
+                    // For regular imports, track the module being aliased
+                    aliased_imports.insert(import_alias.module_name.clone());
+                }
+            }
+        }
+
+        // Filter out import statements that have alias assignments
+        let original_body = std::mem::take(&mut module_ast.body);
+        module_ast.body = original_body
+            .into_iter()
+            .filter_map(|stmt| {
+                self.filter_import_statement(stmt, &aliased_imports, &aliased_from_imports)
+            })
+            .collect();
+
+        log::debug!("Import transformation complete");
         Ok(())
     }
 
-    /// Transform regular import aliases (import module as alias)
-    fn transform_regular_import_alias(
+    /// Filter individual import statements based on alias assignments
+    fn filter_import_statement(
         &self,
-        expr: &mut rustpython_parser::ast::ExprName,
-        import_alias: &ImportAlias,
-    ) {
-        let actual_name =
-            if let Some(conflict) = self.name_conflicts.get(&import_alias.original_name) {
-                // Use the renamed version if there was a conflict
-                conflict
-                    .renamed_versions
-                    .get(&import_alias.module_name)
+        stmt: Stmt,
+        aliased_imports: &HashSet<String>,
+        aliased_from_imports: &HashMap<String, HashSet<String>>,
+    ) -> Option<Stmt> {
+        match &stmt {
+            Stmt::Import(import_stmt) => {
+                // Filter out aliased imports from regular import statements
+                let filtered_names: Vec<Alias> = import_stmt
+                    .names
+                    .iter()
+                    .filter(|alias| {
+                        let module_name = alias.name.as_str();
+                        // Keep the import if it's not aliased OR if it doesn't have an explicit alias
+                        !aliased_imports.contains(module_name) || alias.asname.is_none()
+                    })
                     .cloned()
-                    .unwrap_or_else(|| import_alias.original_name.clone())
-            } else {
-                import_alias.original_name.clone()
-            };
-        expr.id = actual_name.into();
-    }
+                    .collect();
 
-    /// Apply module-specific renames to an expression
-    fn apply_module_renames(&self, expr: &mut rustpython_parser::ast::ExprName) {
-        for renames in self.module_renames.values() {
-            if let Some(new_name) = renames.get(expr.id.as_str()) {
-                expr.id = new_name.clone().into();
-                break;
+                if filtered_names.is_empty() {
+                    // Remove the entire import statement if all imports are aliased
+                    None
+                } else if filtered_names.len() < import_stmt.names.len() {
+                    // Create a new import statement with only non-aliased imports
+                    Some(Stmt::Import(ast::StmtImport {
+                        names: filtered_names,
+                        range: import_stmt.range,
+                    }))
+                } else {
+                    // Keep the original statement
+                    Some(stmt)
+                }
+            }
+            Stmt::ImportFrom(import_from_stmt) => {
+                if let Some(module) = &import_from_stmt.module {
+                    let module_name = module.as_str();
+
+                    if let Some(aliased_names) = aliased_from_imports.get(module_name) {
+                        // Filter out aliased names from from import statements
+                        let filtered_names: Vec<Alias> = import_from_stmt
+                            .names
+                            .iter()
+                            .filter(|alias| {
+                                let import_name = if let Some(asname) = &alias.asname {
+                                    asname.as_str()
+                                } else {
+                                    alias.name.as_str()
+                                };
+                                // Keep the import if it's not in our aliased names
+                                !aliased_names.contains(import_name)
+                            })
+                            .cloned()
+                            .collect();
+
+                        if filtered_names.is_empty() {
+                            // Remove the entire from import statement if all imports are aliased
+                            None
+                        } else if filtered_names.len() < import_from_stmt.names.len() {
+                            // Create a new from import statement with only non-aliased imports
+                            Some(Stmt::ImportFrom(ast::StmtImportFrom {
+                                module: import_from_stmt.module.clone(),
+                                names: filtered_names,
+                                level: import_from_stmt.level,
+                                range: import_from_stmt.range,
+                            }))
+                        } else {
+                            // Keep the original statement
+                            Some(stmt)
+                        }
+                    } else {
+                        // Module not in aliased from imports, keep the statement
+                        Some(stmt)
+                    }
+                } else {
+                    // No module specified, keep the statement
+                    Some(stmt)
+                }
+            }
+            _ => {
+                // Not an import statement, keep it
+                Some(stmt)
             }
         }
     }
@@ -863,35 +1069,72 @@ impl AstRewriter {
 
 impl Default for AstRewriter {
     fn default() -> Self {
-        Self::new()
+        Self::new(10) // Default to Python 3.10
     }
 }
 
-impl Transformer for AstRewriter {
-    /// Override visit_expr_name to handle import alias transformations
-    fn visit_expr_name(
-        &mut self,
-        mut expr: rustpython_parser::ast::ExprName,
-    ) -> Option<rustpython_parser::ast::ExprName> {
-        let name = expr.id.as_str();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        // Check if this name will have an alias assignment generated for it
-        // If so, don't apply renames - let the alias assignment handle it
-        if self.will_have_alias_assignment(name) {
-            return Some(expr);
+    #[test]
+    fn test_keyword_detection_with_ruff() {
+        // Test that ruff_python_stdlib::keyword::is_keyword works as expected
+        let known_keywords = [
+            "def", "class", "if", "else", "for", "while", "import", "from", "False", "None",
+            "True", "and", "as", "assert", "async", "await",
+        ];
+        for &keyword_str in &known_keywords {
+            assert!(
+                keyword::is_keyword(keyword_str),
+                "Known keyword '{}' is not recognized by ruff_python_stdlib::keyword::is_keyword",
+                keyword_str
+            );
         }
 
-        // Handle regular import aliases (non-from imports)
-        if let Some(import_alias) = self.import_aliases.get(name) {
-            if !import_alias.is_from_import {
-                self.transform_regular_import_alias(&mut expr, import_alias);
-                return Some(expr);
-            }
+        // Test a few known non-keywords to ensure the function works correctly
+        let non_keywords = ["hello", "world", "foo", "bar", "variable"];
+        for &non_keyword in &non_keywords {
+            assert!(
+                !keyword::is_keyword(non_keyword),
+                "Non-keyword '{}' was incorrectly identified as a keyword by ruff_python_stdlib::keyword::is_keyword",
+                non_keyword
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_reserved_name_functionality() {
+        let ast_rewriter = AstRewriter::new(10); // Python 3.10
+
+        // Test that keywords are detected as reserved
+        let keywords = ["def", "class", "if", "for", "import"];
+        for &keyword_str in &keywords {
+            assert!(
+                ast_rewriter.is_reserved_name(keyword_str),
+                "Keyword '{}' should be detected as reserved",
+                keyword_str
+            );
         }
 
-        // Apply module-specific renames
-        self.apply_module_renames(&mut expr);
+        // Test that builtins are detected as reserved
+        let builtins_sample = ["len", "str", "int", "list"];
+        for &builtin in &builtins_sample {
+            assert!(
+                ast_rewriter.is_reserved_name(builtin),
+                "Builtin '{}' should be detected as reserved",
+                builtin
+            );
+        }
 
-        Some(expr)
+        // Test that regular names are not reserved
+        let regular_names = ["my_variable", "foo", "bar"];
+        for &name in &regular_names {
+            assert!(
+                !ast_rewriter.is_reserved_name(name),
+                "Regular name '{}' should not be detected as reserved",
+                name
+            );
+        }
     }
 }

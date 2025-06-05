@@ -17,10 +17,14 @@ log = { workspace = true }
 once_cell = { workspace = true }
 petgraph = { workspace = true }
 regex = { workspace = true }
-rustpython-parser = { workspace = true }
+ruff_python_ast = { workspace = true }
+ruff_python_codegen = { workspace = true }
+ruff_python_parser = { workspace = true }
+ruff_python_stdlib = { workspace = true }
+ruff_python_trivia = { workspace = true }
+ruff_text_size = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
-unparser = { workspace = true }
 walkdir = { workspace = true }
 
 # Binary target only - no library for Python bindings following Ruff's pattern

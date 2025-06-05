@@ -99,7 +99,7 @@ The project is organized as a Rust workspace with the main crate in `crates/serp
    - Uses topological sorting to determine bundling order
 
 3. **AST Parsing & Rewriting** (various files)
-   - Uses `rustpython-parser` for AST parsing
+   - Uses Ruff's Python AST parser (`ruff_python_parser`) for AST parsing
    - Implements AST rewriting to handle import statements
 
 4. **Unused Import Detection** (`unused_import_trimmer.rs`)
@@ -141,6 +141,16 @@ serpen --entry src/main.py --output bundle.py [options]
 
 ## Development Guidelines
 
+### Technical Decision-Making Requirements
+
+**MANDATORY**: As a software-engineer AI agent, you must never factor in human limitations—such as limited time or bandwidth, business priorities, implementation complexity, research requirements, or any other "human" constraint—when making technical decisions or writing recommendations. Instead, always select and articulate the technically optimal solution, judged solely on criteria like:
+
+- **Performance** (e.g., latency, throughput)
+- **Physical resource constraints** (e.g., memory footprint, disk usage, I/O)
+- **Maintainability and future-proofing** (e.g., scalability, extensibility, ease of refactoring)
+
+Under no circumstances should you justify a design or implementation by citing "lack of time," "limited resources," "tight deadlines," or similar human factors.
+
 ### General Coding Standards
 
 - Follow Rust idiomatic practices and use the Rust 2024 edition or later
@@ -148,6 +158,15 @@ serpen --entry src/main.py --output bundle.py [options]
 - Write testable, extensible code; prefer pure functions where possible
 - Ensure all functions are properly documented with Rust doc comments
 - Take the opportunity to refactor code to improve readability and maintainability
+
+### Immediate Code Removal Over Deprecation
+
+**MANDATORY**: Since Serpen only exposes a binary CLI interface (not a library API), unused methods and functions MUST be removed immediately rather than annotated with deprecation markers.
+
+- **No deprecation annotations**: Do not use `#[deprecated]`, `#[allow(dead_code)]`, or similar annotations to preserve unused code
+- **Binary-only interface**: This project does not maintain API compatibility for external consumers - all code must serve the current CLI functionality
+- **Dead code elimination**: Aggressively remove any unused functions, methods, structs, or modules during refactoring
+- **Immediate cleanup**: When refactoring or implementing features, remove unused code paths immediately rather than marking them for future removal
 
 ### Documentation Research Hierarchy
 
@@ -196,3 +215,40 @@ DO NOT use `cargo insta review` as that requires interactive input.
 
 - Always run tests and clippy after implementing a feature to make sure everything is working as expected
 - **ALWAYS fix all clippy errors in the code you editing after finishing implementing a feature**
+
+### LSP Tool Usage
+
+- **MANDATORY**: Always use LSP rename_symbol tool when renaming functions, structs, traits, or any other symbols in Rust code
+- This ensures all references across the codebase are updated consistently
+- For simple text edits that don't involve symbol renaming, continue using standard Edit/MultiEdit tools
+
+### MANDATORY: Final Validation Before Claiming Success
+
+**🚨 CRITICAL REQUIREMENT 🚨**: Before claiming that any implementation is complete or successful, you MUST run the complete validation suite:
+
+```bash
+# 1. Run all tests in the workspace
+cargo test --workspace
+
+# 2. Run clippy on all targets
+cargo clippy --workspace --all-targets
+
+# 3. Fix any clippy errors or warnings
+# NEVER use #[allow] annotations as a "fix" - do actual refactoring
+```
+
+**NO EXCEPTIONS**: Do not declare success, claim completion, or say "implementation is working" without running both commands above and ensuring they pass without errors. This applies to:
+
+- Feature implementations
+- Bug fixes
+- Refactoring
+- Any code changes
+
+If tests fail or clippy reports issues, the implementation is NOT complete until these are resolved.
+
+## Memories
+
+- Don't add timing complexity estimation to any documents - you don't know the team velocity
+- When running on macOS, you should try `gsed` instead of `sed` for GNU sed compatibility on macOS
+- MANDATORY: When addressing a clippy issue, never treat `#[allow]` annotations as a solution—perform actual refactoring to resolve the issue
+- Remember you have full ruff repository cloned locally at references/type-strip/ruff so you may search in files easier

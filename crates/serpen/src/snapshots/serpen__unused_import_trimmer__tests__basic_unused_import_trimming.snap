@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 def main():
     print(sys.version)
-    p = Path('.')
+    p = Path(".")
     print(p)
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

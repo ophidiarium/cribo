@@ -65,7 +65,7 @@ source venv/bin/activate  # Unix
 # or
 venv\Scripts\activate     # Windows
 
-serpen bundle my_script.py
+serpen --entry my_script.py --output bundle.py
 ```
 
 ### Automatic Detection (Fallback)
@@ -77,7 +77,7 @@ When VIRTUAL_ENV is not set, Serpen automatically detects common virtual environ
 ls -la
 # drwxr-xr-x  .venv/
 
-serpen bundle my_script.py  # Automatically detects .venv
+serpen --entry my_script.py --output bundle.py  # Automatically detects .venv
 ```
 
 ### Manual Override
@@ -85,7 +85,7 @@ serpen bundle my_script.py  # Automatically detects .venv
 You can manually specify the virtual environment path:
 
 ```bash
-VIRTUAL_ENV=/path/to/my/venv serpen bundle my_script.py
+VIRTUAL_ENV=/path/to/my/venv serpen --entry my_script.py --output bundle.py
 ```
 
 ## Virtual Environment Detection Priority
@@ -115,7 +115,7 @@ If multiple virtual environment directories exist, Serpen will scan **all** of t
 # ├── venv/           (contains numpy)
 # └── env/            (contains flask)
 
-serpen bundle app.py
+serpen --entry app.py --output bundle.py
 # All packages from .venv, venv, and env are detected as third-party
 ```
 
@@ -903,7 +903,7 @@ source myproject_venv/bin/activate
 pip install requests numpy
 
 # Analysis
-serpen bundle app.py
+serpen --entry app.py --output bundle.py
 ```
 
 In this case:
@@ -920,7 +920,7 @@ In this case:
 ls venv/lib/
 # python3.10/ python3.11/
 
-serpen bundle app.py
+serpen --entry app.py --output bundle.py
 ```
 
 Serpen will scan both `python3.10/site-packages` and `python3.11/site-packages`.
