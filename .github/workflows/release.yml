@@ -170,9 +170,16 @@ jobs:
         if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
         shell: bash
         run: |
-          UPDATED_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
-          echo "${UPDATED_VERSION}" > version.txt
-          echo "Saved version to file: ${UPDATED_VERSION}"
+          # Check if version.txt already exists (from release-please)
+          if [[ -f "version.txt" ]]; then
+            UPDATED_VERSION=$(cat version.txt)
+            echo "Using existing version.txt from release-please: ${UPDATED_VERSION}"
+          else
+            # Fallback: extract from Cargo.toml (for manual releases)
+            UPDATED_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+            echo "${UPDATED_VERSION}" > version.txt
+            echo "Created version.txt from Cargo.toml: ${UPDATED_VERSION}"
+          fi
 
           # Create a JSON file with metadata for easier parsing if needed
           cat > version-metadata.json << EOF
