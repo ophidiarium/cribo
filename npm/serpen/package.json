@@ -1,6 +1,6 @@
 {
     "name": "serpen",
-    "version": "0.4.1",
+    "version": "0.4.2",
     "description": "Python source bundler that produces a single .py file from multi-module projects",
     "keywords": [
         "bundler",
@@ -37,15 +37,15 @@
         "node": ">=18.0.0"
     },
     "optionalDependencies": {
-        "@serpen/linux-x64-gnu": "0.4.1",
-        "@serpen/linux-x64-musl": "0.4.1",
-        "@serpen/linux-arm64-gnu": "0.4.1",
-        "@serpen/linux-arm64-musl": "0.4.1",
-        "@serpen/darwin-x64": "0.4.1",
-        "@serpen/darwin-arm64": "0.4.1",
-        "@serpen/win32-x64": "0.4.1",
-        "@serpen/win32-ia32": "0.4.1",
-        "@serpen/win32-arm64": "0.4.1"
+        "@serpen/linux-x64-gnu": "0.4.2",
+        "@serpen/linux-x64-musl": "0.4.2",
+        "@serpen/linux-arm64-gnu": "0.4.2",
+        "@serpen/linux-arm64-musl": "0.4.2",
+        "@serpen/darwin-x64": "0.4.2",
+        "@serpen/darwin-arm64": "0.4.2",
+        "@serpen/win32-x64": "0.4.2",
+        "@serpen/win32-ia32": "0.4.2",
+        "@serpen/win32-arm64": "0.4.2"
     },
     "publishConfig": {
         "access": "public"
