@@ -27,7 +27,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-          command: manifest
 
       # The release-please action creates the git tag when a release PR is merged
       # This tag will automatically trigger the existing release.yml workflow
