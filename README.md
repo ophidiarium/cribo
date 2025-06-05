@@ -37,6 +37,54 @@ npx serpen --help
 
 > **🔐 Supply Chain Security**: All npm packages include [provenance attestations](docs/NPM_PROVENANCE.md) for enhanced security and verification.
 
+### Binary Downloads
+
+Download pre-built binaries for your platform from the [latest release](https://github.com/tinovyatkin/serpen/releases/latest):
+
+- **Linux x86_64**: `serpen_*_linux_x86_64.tar.gz`
+- **Linux ARM64**: `serpen_*_linux_arm64.tar.gz`
+- **macOS x86_64**: `serpen_*_darwin_x86_64.tar.gz`
+- **macOS ARM64**: `serpen_*_darwin_arm64.tar.gz`
+- **Windows x86_64**: `serpen_*_windows_x86_64.zip`
+- **Windows ARM64**: `serpen_*_windows_arm64.zip`
+
+Each binary includes a SHA256 checksum file for verification.
+
+### Package Manager Installation
+
+#### Aqua
+
+If you use [Aqua](https://aquaproj.github.io/), add to your `aqua.yaml`:
+
+```yaml
+registries:
+  - type: standard
+    ref: latest
+packages:
+  - name: tinovyatkin/serpen@latest
+```
+
+Then run:
+
+```bash
+aqua install
+```
+
+#### UBI (Universal Binary Installer)
+
+Using [UBI](https://github.com/houseabsolute/ubi):
+
+```bash
+# Install latest version
+ubi --project tinovyatkin/serpen
+
+# Install specific version
+ubi --project tinovyatkin/serpen --tag v0.4.1
+
+# Install to specific directory
+ubi --project tinovyatkin/serpen --in /usr/local/bin
+```
+
 ### From Source
 
 ```bash

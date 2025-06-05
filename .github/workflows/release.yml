@@ -279,6 +279,160 @@ jobs:
           path: dist/
           retention-days: 7 # Clean up after 7 days to prevent confusion
 
+      - name: Create CLI binary archive
+        shell: bash
+        run: |
+          # Get binary name and version
+          RUST_TARGET="${{ matrix.platform.rust_target }}"
+          VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+          BINARY_NAME="serpen"
+
+          if [[ "$RUST_TARGET" == *"windows"* ]]; then
+            BINARY_NAME="serpen.exe"
+          fi
+
+          # Map Rust targets to Aqua/UBI compatible naming
+          case "$RUST_TARGET" in
+            "x86_64-unknown-linux-gnu")
+              OS="linux"
+              ARCH="x86_64"
+              EXT="tar.gz"
+              ;;
+            "x86_64-unknown-linux-musl")
+              OS="linux"
+              ARCH="x86_64"
+              EXT="tar.gz"
+              SUFFIX="-musl"
+              ;;
+            "aarch64-unknown-linux-gnu")
+              OS="linux"
+              ARCH="arm64"
+              EXT="tar.gz"
+              ;;
+            "aarch64-unknown-linux-musl")
+              OS="linux"
+              ARCH="arm64"
+              EXT="tar.gz"
+              SUFFIX="-musl"
+              ;;
+            "x86_64-apple-darwin")
+              OS="darwin"
+              ARCH="x86_64"
+              EXT="tar.gz"
+              ;;
+            "aarch64-apple-darwin")
+              OS="darwin"
+              ARCH="arm64"
+              EXT="tar.gz"
+              ;;
+            "x86_64-pc-windows-msvc")
+              OS="windows"
+              ARCH="x86_64"
+              EXT="zip"
+              ;;
+            "aarch64-pc-windows-msvc")
+              OS="windows"
+              ARCH="arm64"
+              EXT="zip"
+              ;;
+            *)
+              echo "Unknown target: $RUST_TARGET"
+              exit 1
+              ;;
+          esac
+
+          # Create archive name with version
+          ARCHIVE_NAME="serpen_${VERSION}_${OS}_${ARCH}${SUFFIX:-}.${EXT}"
+          echo "Creating archive: $ARCHIVE_NAME"
+
+          # Create archive directory
+          mkdir -p cli-archives
+
+          # Create archive based on platform
+          cd "target/npm-binaries/$RUST_TARGET"
+          if [[ "$EXT" == "zip" ]]; then
+            # Windows: use zip
+            if command -v powershell &> /dev/null; then
+              powershell -Command "Compress-Archive -Path '$BINARY_NAME' -DestinationPath '../../../cli-archives/$ARCHIVE_NAME'"
+            else
+              zip "../../../cli-archives/$ARCHIVE_NAME" "$BINARY_NAME"
+            fi
+          else
+            # Unix: use tar.gz
+            tar -czf "../../../cli-archives/$ARCHIVE_NAME" "$BINARY_NAME"
+          fi
+
+          cd - > /dev/null
+          echo "Archive created: cli-archives/$ARCHIVE_NAME"
+          ls -la "cli-archives/$ARCHIVE_NAME"
+
+      - name: Generate SHA256 checksum
+        shell: bash
+        run: |
+          # Get archive info
+          RUST_TARGET="${{ matrix.platform.rust_target }}"
+          VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+
+          # Map target to archive naming (same logic as above)
+          case "$RUST_TARGET" in
+            "x86_64-unknown-linux-gnu")
+              ARCHIVE_NAME="serpen_${VERSION}_linux_x86_64.tar.gz"
+              ;;
+            "x86_64-unknown-linux-musl")
+              ARCHIVE_NAME="serpen_${VERSION}_linux_x86_64-musl.tar.gz"
+              ;;
+            "aarch64-unknown-linux-gnu")
+              ARCHIVE_NAME="serpen_${VERSION}_linux_arm64.tar.gz"
+              ;;
+            "aarch64-unknown-linux-musl")
+              ARCHIVE_NAME="serpen_${VERSION}_linux_arm64-musl.tar.gz"
+              ;;
+            "x86_64-apple-darwin")
+              ARCHIVE_NAME="serpen_${VERSION}_darwin_x86_64.tar.gz"
+              ;;
+            "aarch64-apple-darwin")
+              ARCHIVE_NAME="serpen_${VERSION}_darwin_arm64.tar.gz"
+              ;;
+            "x86_64-pc-windows-msvc")
+              ARCHIVE_NAME="serpen_${VERSION}_windows_x86_64.zip"
+              ;;
+            "aarch64-pc-windows-msvc")
+              ARCHIVE_NAME="serpen_${VERSION}_windows_arm64.zip"
+              ;;
+          esac
+
+          # Generate checksum
+          cd cli-archives
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # Windows: use certutil
+            certutil -hashfile "$ARCHIVE_NAME" SHA256 > checksum.txt
+            # Extract just the hash
+            grep -v "hash\|CertUtil" checksum.txt | tr -d '\r\n ' > "${ARCHIVE_NAME}.sha256"
+            # Add filename to match standard format
+            echo "  $ARCHIVE_NAME" >> "${ARCHIVE_NAME}.sha256"
+          else
+            # Unix: use sha256sum or shasum
+            if command -v sha256sum &> /dev/null; then
+              sha256sum "$ARCHIVE_NAME" > "${ARCHIVE_NAME}.sha256"
+            elif command -v shasum &> /dev/null; then
+              shasum -a 256 "$ARCHIVE_NAME" > "${ARCHIVE_NAME}.sha256"
+            else
+              echo "No SHA256 utility found"
+              exit 1
+            fi
+          fi
+
+          cd - > /dev/null
+          echo "Checksum created for: $ARCHIVE_NAME"
+          cat "cli-archives/${ARCHIVE_NAME}.sha256"
+
+      - name: Store CLI archive and checksum
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cli-archive-${{ matrix.platform.target }}-${{ github.run_id }}
+          path: cli-archives/
+          retention-days: 7
+
       - name: Store npm binary
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

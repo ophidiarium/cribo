@@ -35,3 +35,106 @@ jobs:
       # The release-please action creates the git tag when a release PR is merged
       # This tag will automatically trigger the existing release.yml workflow
       # No additional workflow dispatch needed since release.yml triggers on tags matching 'v*.*.*'
+
+  upload-cli-binaries:
+    name: Upload CLI binaries to release 📦
+    # Only run when release-please creates a release
+    if: ${{ needs.release-please.outputs.release_created }}
+    needs: [release-please]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to upload release assets
+      actions: read # Required to download artifacts from other workflows
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Wait for release workflow to complete
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ needs.release-please.outputs.tag_name }}"
+          echo "Waiting for release workflow to complete for tag: $TAG_NAME"
+
+          # Wait for the release workflow to finish
+          # The release workflow is triggered by the tag creation
+          max_attempts=60  # Wait up to 30 minutes (60 * 30s)
+          attempt=0
+
+          while [ $attempt -lt $max_attempts ]; do
+            echo "Checking for release workflow run... (attempt $((attempt + 1))/$max_attempts)"
+
+            # Find workflow runs for the tag
+            WORKFLOW_ID=$(gh api repos/${{ github.repository }}/actions/workflows --jq '.workflows[] | select(.name == "Release") | .id')
+
+            if [ -n "$WORKFLOW_ID" ]; then
+              # Check for completed runs
+              COMPLETED_RUNS=$(gh api "repos/${{ github.repository }}/actions/workflows/$WORKFLOW_ID/runs" \
+                --jq "[.workflow_runs[] | select(.head_sha == \"$(git rev-parse $TAG_NAME)\") | select(.status == \"completed\")] | length")
+
+              if [ "$COMPLETED_RUNS" -gt 0 ]; then
+                echo "✅ Release workflow completed!"
+                break
+              fi
+            fi
+
+            echo "Release workflow still running, waiting 30 seconds..."
+            sleep 30
+            attempt=$((attempt + 1))
+          done
+
+          if [ $attempt -eq $max_attempts ]; then
+            echo "❌ Timeout waiting for release workflow to complete"
+            exit 1
+          fi
+
+      - name: Download CLI archives from release workflow
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ needs.release-please.outputs.tag_name }}"
+
+          # Find the workflow run for this tag
+          WORKFLOW_ID=$(gh api repos/${{ github.repository }}/actions/workflows --jq '.workflows[] | select(.name == "Release") | .id')
+          RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/$WORKFLOW_ID/runs" \
+            --jq ".workflow_runs[] | select(.head_sha == \"$(git rev-parse $TAG_NAME)\") | select(.status == \"completed\") | .id" | head -1)
+
+          echo "Found release workflow run ID: $RUN_ID"
+
+          # Create directory for archives
+          mkdir -p cli-archives
+
+          # Download all CLI archive artifacts
+          gh run download "$RUN_ID" --pattern "cli-archive-*" --dir cli-archives-temp/
+
+          # Organize the downloaded archives
+          find cli-archives-temp -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" | while read file; do
+            cp "$file" cli-archives/
+          done
+
+          echo "Downloaded CLI archives:"
+          ls -la cli-archives/
+
+      - name: Upload CLI archives to GitHub Release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ needs.release-please.outputs.tag_name }}"
+
+          # Upload each archive and checksum to the release
+          for file in cli-archives/*; do
+            if [[ -f "$file" ]]; then
+              filename=$(basename "$file")
+              echo "Uploading: $filename"
+              gh release upload "$TAG_NAME" "$file" --clobber
+              echo "✅ Uploaded: $filename"
+            fi
+          done
+
+          echo "All CLI binaries uploaded to release: $TAG_NAME"
