@@ -15,6 +15,56 @@
                     "type": "toml",
                     "path": "Cargo.toml",
                     "jsonpath": "$.workspace.package.version"
+                },
+                {
+                    "type": "json",
+                    "path": "npm/serpen/package.json",
+                    "jsonpath": "$.version"
+                },
+                {
+                    "type": "json",
+                    "path": "npm/serpen/package.json",
+                    "jsonpath": "$.optionalDependencies.@serpen/linux-x64-gnu"
+                },
+                {
+                    "type": "json",
+                    "path": "npm/serpen/package.json",
+                    "jsonpath": "$.optionalDependencies.@serpen/linux-x64-musl"
+                },
+                {
+                    "type": "json",
+                    "path": "npm/serpen/package.json",
+                    "jsonpath": "$.optionalDependencies.@serpen/linux-arm64-gnu"
+                },
+                {
+                    "type": "json",
+                    "path": "npm/serpen/package.json",
+                    "jsonpath": "$.optionalDependencies.@serpen/linux-arm64-musl"
+                },
+                {
+                    "type": "json",
+                    "path": "npm/serpen/package.json",
+                    "jsonpath": "$.optionalDependencies.@serpen/darwin-x64"
+                },
+                {
+                    "type": "json",
+                    "path": "npm/serpen/package.json",
+                    "jsonpath": "$.optionalDependencies.@serpen/darwin-arm64"
+                },
+                {
+                    "type": "json",
+                    "path": "npm/serpen/package.json",
+                    "jsonpath": "$.optionalDependencies.@serpen/win32-x64"
+                },
+                {
+                    "type": "json",
+                    "path": "npm/serpen/package.json",
+                    "jsonpath": "$.optionalDependencies.@serpen/win32-ia32"
+                },
+                {
+                    "type": "json",
+                    "path": "npm/serpen/package.json",
+                    "jsonpath": "$.optionalDependencies.@serpen/win32-arm64"
                 }
             ]
         }
