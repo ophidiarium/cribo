@@ -296,13 +296,23 @@ If tests fail or clippy reports issues, the implementation is NOT complete until
 
 **MANDATORY**: Follow this standardized git workflow when implementing new features:
 
-#### 1. **Create Feature Branch**
+#### 1. **Prepare and Create Feature Branch**
+
+**CRITICAL**: Always ensure main branch is up-to-date before starting new work:
 
 ```bash
-# Use MCP Git tools to create and switch to feature branch
+# 1. Switch to main branch
+mcp__git__checkout --target "main"
+
+# 2. Pull latest changes from origin/main
+mcp__git__pull --branch "main"
+
+# 3. Create and switch to new feature branch from updated main
 mcp__git__branch_create --name "feat/<feature-name>"
 # Or for other types: fix/<issue>, chore/<task>, docs/<topic>
 ```
+
+This prevents merge conflicts by ensuring your feature branch starts from the latest main branch state.
 
 #### 2. **Implement Feature**
 
@@ -395,11 +405,28 @@ mcp__github__create_pull_request \
   ```
 - Push any additional fixes
 
-#### 8. **Merge PR**
+#### 8. **Merge PR and Cleanup**
 
 - Once all checks pass and comments are addressed
 - The PR will be merged automatically or by maintainers
-- Delete the feature branch after merge
+
+**MANDATORY Post-Merge Cleanup** (prevents future merge conflicts):
+
+```bash
+# 1. Switch back to main branch
+mcp__git__checkout --target "main"
+
+# 2. Pull latest changes including the merged PR
+mcp__git__pull --branch "main"
+
+# 3. Delete the local feature branch (no longer needed)
+mcp__git__branch_delete --name "feat/<feature-name>"
+
+# 4. Optional: Run garbage collection to clean up
+git gc --aggressive --prune=now
+```
+
+This ensures your local main branch stays synchronized and prevents merge conflicts in future PRs.
 
 #### Important Notes:
 
