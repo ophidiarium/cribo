@@ -42,6 +42,7 @@ reviews:
         Simply acknowledge these are test fixtures and skip detailed review.
   path_filters:
     - '!**/tests/fixtures/**'
+    - '!CHANGELOG.md'
 chat:
   auto_reply: true
 knowledge_base:
