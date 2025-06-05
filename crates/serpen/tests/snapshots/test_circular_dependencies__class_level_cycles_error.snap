@@ -1,0 +1,11 @@
+---
+source: crates/serpen/tests/test_circular_dependencies.rs
+expression: error_msg
+---
+Circular dependencies detected in the module graph:
+
+Cycle 1: admin_class → user_class
+  Type: ClassLevel
+  Suggestions:
+    # Move 'from admin_class import ...' inside functions
+    # Move 'from user_class import ...' inside functions

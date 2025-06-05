@@ -437,6 +437,195 @@ This ensures your local main branch stays synchronized and prevents merge confli
 - **Document changes** - update relevant documentation
 - **Use conventional commits** - for automated versioning and changelog generation
 
+### MANDATORY: PR Status and CI Checks Verification
+
+**🚨 CRITICAL REQUIREMENT 🚨**: When checking PR status, you MUST verify both high-level status AND detailed CI check results. The high-level GitHub status can be misleading.
+
+#### Complete PR Status Check Process
+
+**ALWAYS follow this complete verification sequence:**
+
+```bash
+# 1. Get overall PR status (may not show all details)
+mcp__github__get_pull_request_status --owner <owner> --repo <repo> --pullNumber <pr_number>
+
+# 2. Check detailed workflow runs for the specific commit
+gh run list --repo <owner>/<repo> --commit <commit_sha>
+
+# 3. If any runs show 'failure', get detailed failure information
+gh run view <failed_run_id> --repo <owner>/<repo>
+
+# 4. For failed runs, get the actual failure logs
+gh run view <failed_run_id> --log-failed --repo <owner>/<repo>
+```
+
+#### Critical Verification Points
+
+1. **Check ALL Workflow Runs**: Don't rely solely on `mcp__github__get_pull_request_status` as it may only show limited status checks (like CodeRabbit reviews)
+
+2. **Look for Platform-Specific Failures**:
+   - Windows builds may fail due to line endings, path separators, or platform-specific behavior
+   - macOS builds may have different behavior than Linux
+   - Different Python versions (3.10, 3.11, 3.12) may exhibit different failures
+
+3. **Common CI Failure Patterns**:
+   - **Snapshot test failures**: Often due to line ending differences (CRLF vs LF)
+   - **Clippy warnings/errors**: Must be fixed with actual code changes, not `#[allow]` annotations
+   - **Test failures**: Check for platform-specific test issues
+   - **Build failures**: Dependency conflicts, compilation errors, missing dependencies
+
+#### Status Check Interpretation
+
+**❌ These indicate failures requiring attention:**
+
+- `status: "completed", conclusion: "failure"` - Actual test/build failure
+- `status: "completed", conclusion: "action_required"` - Manual intervention needed
+- Any workflow run showing `X` or `failure` status
+
+**✅ These indicate successful runs:**
+
+- `status: "completed", conclusion: "success"` - All checks passed
+- `status: "completed", conclusion: "skipped"` - Intentionally skipped (often due to path filters)
+
+#### Failure Response Protocol
+
+When CI failures are detected:
+
+1. **Identify Root Cause**: Use failure logs to understand the specific issue
+2. **Fix Locally**: Implement the necessary fix in your local branch
+3. **Test Thoroughly**: Ensure the fix works locally before pushing
+4. **Push Fix**: Commit and push the fix to trigger new CI runs
+5. **Verify Fix**: Wait for new CI runs and verify all checks pass
+
+#### Example Failure Scenarios
+
+**Snapshot Test Failure (Windows line endings):**
+
+```bash
+# Failure log will show something like:
+# -expected content with \n
+# +actual content with \r\n
+```
+
+**Fix**: Normalize line endings in output generation code
+
+**Clippy Warnings:**
+
+```bash
+# Failure log shows clippy warnings/errors
+```
+
+**Fix**: Refactor code to address warnings, never use `#[allow]` annotations
+
+**Platform-Specific Test Failure:**
+
+```bash
+# Tests pass on Linux/macOS but fail on Windows
+```
+
+**Fix**: Investigate platform-specific behavior and implement cross-platform solution
+
+#### Never Make These Mistakes
+
+- ❌ **Don't rely only on high-level PR status** - always check detailed workflow runs
+- ❌ **Don't ignore "skipped" workflows** - verify they were skipped for valid reasons
+- ❌ **Don't assume "action_required" means manual approval** - often indicates test failures
+- ❌ **Don't merge with any failing checks** - all platforms must pass
+
+This comprehensive approach ensures robust CI verification and prevents broken code from being merged.
+
+### MANDATORY: Review Comment Response Protocol
+
+**🚨 CRITICAL REQUIREMENT 🚨**: When addressing review comments on PRs, you MUST follow the individual comment reply protocol. Never post a single summary comment.
+
+#### Required Comment Response Flow
+
+**For EVERY individual review comment you address:**
+
+1. **Reply to the specific comment thread** - Use GitHub's inline comment reply feature
+2. **Document your fix clearly** - Explain exactly what you changed
+3. **Reference specific commits/files** - Provide commit SHA and file paths when relevant
+4. **Resolve the conversation** - Mark the conversation as resolved after providing your response
+
+#### Correct Protocol Example
+
+```
+For each individual CodeRabbit/Copilot comment:
+
+1. Reply directly to that comment with specific fix details
+2. Example reply: "✅ Fixed: Added comprehensive documentation to CircularDependencyAnalysis struct in dependency_graph.rs:16-31. Commit: c666055"
+3. Mark the conversation as resolved
+```
+
+#### NEVER Do This
+
+❌ **Don't post a single large summary comment** - This doesn't follow GitHub's conversation resolution workflow
+
+❌ **Don't group multiple fixes into one response** - Each comment thread needs individual attention
+
+❌ **Don't leave conversations unresolved** - Every addressed comment must be marked as resolved
+
+#### Proper Individual Response Template
+
+For each review comment:
+
+```markdown
+✅ **Addressed in [commit-sha]**
+
+[Specific description of the fix made]
+
+Changes made in `path/to/file.rs:line-numbers`:
+
+- [Detailed change 1]
+- [Detailed change 2]
+
+[Any additional context about the fix]
+```
+
+#### Comment Resolution Workflow
+
+1. **Find the specific review comment** that needs addressing
+2. **Make the code changes** to fix the issue
+3. **Commit the changes** with a clear commit message
+4. **Reply to the individual comment thread** with fix details
+5. **Mark the conversation as resolved** using GitHub's resolve feature
+6. **Repeat for each comment** until all are addressed
+
+#### MANDATORY: Correct API Usage for Comment Replies
+
+**🚨 CRITICAL REQUIREMENT 🚨**: Always use the correct GitHub API method for replying to comments.
+
+**CORRECT API for Pull Request Review Comments:**
+
+- Use `mcp__github__add_pull_request_review_comment_to_pending_review` for new review comments
+- Use the correct GitHub CLI command for replies:
+
+```bash
+# For replying to existing review comments (line-level comments)
+gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies \
+  --method POST \
+  --field body="Your reply message here"
+
+# For replying to general PR comments  
+gh api repos/OWNER/REPO/issues/PR_NUMBER/comments \
+  --method POST \
+  --field body="Your reply message here"
+```
+
+**NEVER use these incorrect approaches:**
+❌ **Don't edit existing comments** - This overwrites the original reviewer's comment
+❌ **Don't use the wrong API endpoint** - Each comment type requires specific endpoints
+❌ **Don't create new top-level comments** - These don't thread properly with the original comment
+
+**Debugging Comment API Issues:**
+
+1. **Identify comment type first**: Review comment (line-level) vs. general PR comment
+2. **Get the correct comment ID**: Use `gh pr view PR_NUMBER --comments` to find comment IDs
+3. **Use the appropriate API endpoint**: Review comments vs. issue comments have different APIs
+4. **Test the reply**: Verify the reply appears threaded under the original comment
+
+This ensures proper traceability and follows GitHub's intended review workflow for collaborative development.
+
 ## Memories
 
 - Don't add timing complexity estimation to any documents - you don't know the team velocity

@@ -370,6 +370,30 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn test_env_config_parsing() {
+        // Struct to ensure environment cleanup on panic
+        struct EnvGuard {
+            vars: Vec<&'static str>,
+        }
+
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                for var in &self.vars {
+                    unsafe {
+                        env::remove_var(var);
+                    }
+                }
+            }
+        }
+
+        let _guard = EnvGuard {
+            vars: vec![
+                "SERPEN_SRC",
+                "SERPEN_KNOWN_FIRST_PARTY",
+                "SERPEN_PRESERVE_COMMENTS",
+                "SERPEN_TARGET_VERSION",
+            ],
+        };
+
         // Test with environment variables set
         unsafe {
             env::set_var("SERPEN_SRC", "src1,src2,src3");
@@ -395,13 +419,7 @@ mod tests {
         assert_eq!(env_config.preserve_comments, Some(false));
         assert_eq!(env_config.target_version, Some("py312".to_string()));
 
-        // Clean up
-        unsafe {
-            env::remove_var("SERPEN_SRC");
-            env::remove_var("SERPEN_KNOWN_FIRST_PARTY");
-            env::remove_var("SERPEN_PRESERVE_COMMENTS");
-            env::remove_var("SERPEN_TARGET_VERSION");
-        }
+        // Environment variables are cleaned up automatically by the guard
     }
 
     #[test]
@@ -429,6 +447,7 @@ target-version = "py311"
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_hierarchical_config_loading() -> anyhow::Result<()> {
         let temp_dir = TempDir::new()?;
 
@@ -454,6 +473,17 @@ target-version = "py310"
         let _dir_guard = DirGuard(original_dir);
         env::set_current_dir(&temp_dir)?;
 
+        // Environment variable guard to ensure cleanup
+        struct EnvGuard;
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                unsafe {
+                    env::remove_var("SERPEN_TARGET_VERSION");
+                }
+            }
+        }
+        let _env_guard = EnvGuard;
+
         // Set environment variable
         unsafe {
             env::set_var("SERPEN_TARGET_VERSION", "py312");
@@ -467,11 +497,7 @@ target-version = "py310"
         assert_eq!(config.src, vec![PathBuf::from("project_src")]);
         assert!(config.preserve_comments);
 
-        // Clean up environment variable
-        unsafe {
-            env::remove_var("SERPEN_TARGET_VERSION");
-        }
-
+        // Environment variable is cleaned up automatically by the guard
         Ok(())
     }
 }

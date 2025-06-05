@@ -1,0 +1,9 @@
+---
+source: crates/serpen/tests/test_circular_dependencies.rs
+expression: error_msg
+---
+Unresolvable circular dependencies detected:
+
+Cycle 1: config_constants → constants_module
+  Type: ModuleConstants
+  Reason: Module-level constant dependencies create temporal paradox - cannot be resolved through bundling

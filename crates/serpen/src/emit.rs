@@ -392,7 +392,9 @@ impl CodeEmitter {
             code_parts.push(converted_code);
         }
 
-        Ok(code_parts.join("\n"))
+        // Normalize line endings for cross-platform consistency
+        let bundled_code = code_parts.join("\n");
+        Ok(self.normalize_line_endings(bundled_code))
     }
 
     /// Process a single module's AST to produce a transformed AST for bundling
@@ -461,7 +463,7 @@ impl CodeEmitter {
                 code_parts.push(stmt_code);
             }
 
-            code_parts.join("\n")
+            self.normalize_line_endings(code_parts.join("\n"))
         };
 
         // Add the exec call that will execute the module code in its namespace
@@ -1197,6 +1199,13 @@ impl CodeEmitter {
 
         // Add an empty line comment after imports
         bundle_ast.body.push(self.create_comment_stmt(""));
+    }
+
+    /// Normalize line endings to LF (\n) for cross-platform consistency
+    /// This ensures reproducible builds regardless of the platform where bundling occurs
+    fn normalize_line_endings(&self, content: String) -> String {
+        // Replace Windows CRLF (\r\n) and Mac CR (\r) with Unix LF (\n)
+        content.replace("\r\n", "\n").replace('\r', "\n")
     }
 }
 

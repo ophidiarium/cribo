@@ -11,6 +11,7 @@
 - 🦀 **Rust-based CLI** using Ruff's Python AST parser
 - 🐍 **Python 3.10+** support
 - 🌲 **Tree-shaking logic** to inline only the modules that are actually used
+- 🔄 **Smart circular dependency resolution** with detailed diagnostics
 - 🧹 **Unused import trimming** to clean up Python files standalone
 - 📦 **Requirements generation** with optional `requirements.txt` output
 - 🔧 **Configurable** import classification and source directories
@@ -186,9 +187,10 @@ export SERPEN_TARGET_VERSION="py312"
 1. **Module Discovery**: Scans configured source directories to discover first-party Python modules
 2. **Import Classification**: Classifies imports as first-party, third-party, or standard library
 3. **Dependency Graph**: Builds a dependency graph and performs topological sorting
-4. **Tree Shaking**: Only includes modules that are actually imported (directly or transitively)
-5. **Code Generation**: Generates a single Python file with proper module separation
-6. **Requirements**: Optionally generates `requirements.txt` with third-party dependencies
+4. **Circular Dependency Resolution**: Detects and intelligently resolves function-level circular imports
+5. **Tree Shaking**: Only includes modules that are actually imported (directly or transitively)
+6. **Code Generation**: Generates a single Python file with proper module separation
+7. **Requirements**: Optionally generates `requirements.txt` with third-party dependencies
 
 ## Output Structure
 
@@ -273,20 +275,56 @@ def validate_dataframe(df: DataFrame[UserSchema]) -> DataFrame[UserSchema]:
 
 ### Circular Dependencies
 
-Serpen detects circular imports and reports them as errors:
+Serpen intelligently handles circular dependencies with advanced detection and resolution:
+
+#### Resolvable Cycles (Function-Level)
+
+Function-level circular imports are automatically resolved and bundled successfully:
+
+```python
+# module_a.py
+from module_b import process_b
+def process_a(): return process_b() + "->A"
+
+# module_b.py  
+from module_a import get_value_a
+def process_b(): return f"B(using_{get_value_a()})"
+```
+
+**Result**: ✅ Bundles successfully with warning log
+
+#### Unresolvable Cycles (Module Constants)
+
+Temporal paradox patterns are detected and reported with detailed diagnostics:
+
+```python
+# constants_a.py
+from constants_b import B_VALUE
+A_VALUE = B_VALUE + 1  # ❌ Unresolvable
+
+# constants_b.py
+from constants_a import A_VALUE  
+B_VALUE = A_VALUE * 2  # ❌ Temporal paradox
+```
+
+**Result**: ❌ Fails with detailed error message and resolution suggestions:
 
 ```bash
-Error: Circular dependency detected involving module: utils.helpers
+Unresolvable circular dependencies detected:
+
+Cycle 1: constants_b → constants_a
+  Type: ModuleConstants
+  Reason: Module-level constant dependencies create temporal paradox - cannot be resolved through bundling
 ```
 
 ## Comparison with Other Tools
 
-| Tool        | Language | Tree Shaking | Import Cleanup | PySpark Ready | Type Hints |
-| ----------- | -------- | ------------ | -------------- | ------------- | ---------- |
-| Serpen      | Rust     | ✅           | ✅             | ✅            | ✅         |
-| PyInstaller | Python   | ❌           | ❌             | ❌            | ✅         |
-| Nuitka      | Python   | ❌           | ❌             | ❌            | ✅         |
-| Pex         | Python   | ❌           | ❌             | ❌            | ✅         |
+| Tool        | Language | Tree Shaking | Import Cleanup | Circular Deps       | PySpark Ready | Type Hints |
+| ----------- | -------- | ------------ | -------------- | ------------------- | ------------- | ---------- |
+| Serpen      | Rust     | ✅           | ✅             | ✅ Smart Resolution | ✅            | ✅         |
+| PyInstaller | Python   | ❌           | ❌             | ❌ Fails            | ❌            | ✅         |
+| Nuitka      | Python   | ❌           | ❌             | ❌ Fails            | ❌            | ✅         |
+| Pex         | Python   | ❌           | ❌             | ❌ Fails            | ❌            | ✅         |
 
 ## Development
 
@@ -406,6 +444,7 @@ See the [LICENSE](LICENSE) file for the MIT license text and [docs/LICENSE](docs
 
 ## Roadmap
 
+- [x] **Smart circular dependency resolution** - ✅ Completed in v0.4.4+
 - [ ] Source maps for debugging
 - [ ] Parallel processing
 - [ ] Package flattening mode

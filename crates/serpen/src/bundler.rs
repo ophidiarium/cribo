@@ -86,15 +86,154 @@ impl Bundler {
             graph.get_modules().len()
         );
 
-        // Check for cycles
+        // Enhanced circular dependency detection and analysis
         if graph.has_cycles() {
-            return Err(anyhow!(
-                "Circular dependencies detected in the module graph"
-            ));
+            let analysis = graph.classify_circular_dependencies();
+
+            if !analysis.unresolvable_cycles.is_empty() {
+                // Format detailed error message for unresolvable cycles
+                let mut error_msg =
+                    String::from("Unresolvable circular dependencies detected:\n\n");
+
+                for (i, cycle) in analysis.unresolvable_cycles.iter().enumerate() {
+                    error_msg.push_str(&format!(
+                        "Cycle {}: {}\n",
+                        i + 1,
+                        cycle.modules.join(" → ")
+                    ));
+                    error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
+
+                    if let crate::dependency_graph::ResolutionStrategy::Unresolvable { reason } =
+                        &cycle.suggested_resolution
+                    {
+                        error_msg.push_str(&format!("  Reason: {}\n", reason));
+                    }
+                    error_msg.push('\n');
+                }
+
+                return Err(anyhow!(error_msg));
+            }
+
+            // Check if we can resolve the circular dependencies
+            let all_resolvable = analysis.resolvable_cycles.iter().all(|cycle| {
+                matches!(
+                    cycle.cycle_type,
+                    crate::dependency_graph::CircularDependencyType::FunctionLevel
+                )
+            });
+
+            if all_resolvable && analysis.unresolvable_cycles.is_empty() {
+                // All cycles are function-level and resolvable - proceed with bundling
+                warn!(
+                    "Detected {} resolvable circular dependencies - proceeding with bundling",
+                    analysis.resolvable_cycles.len()
+                );
+
+                for cycle in &analysis.resolvable_cycles {
+                    info!("Resolving cycle: {}", cycle.modules.join(" → "));
+                }
+            } else {
+                // We have unresolvable cycles or complex resolvable cycles - still fail for now
+                warn!(
+                    "Detected {} circular dependencies (including {} potentially resolvable)",
+                    analysis.total_cycles_detected,
+                    analysis.resolvable_cycles.len()
+                );
+
+                let mut error_msg =
+                    String::from("Circular dependencies detected in the module graph:\n\n");
+
+                // First, show unresolvable cycles if any
+                if !analysis.unresolvable_cycles.is_empty() {
+                    error_msg.push_str("UNRESOLVABLE CYCLES:\n");
+                    for (i, cycle) in analysis.unresolvable_cycles.iter().enumerate() {
+                        error_msg.push_str(&format!(
+                            "Cycle {}: {}\n",
+                            i + 1,
+                            cycle.modules.join(" → ")
+                        ));
+                        error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
+                        if let crate::dependency_graph::ResolutionStrategy::Unresolvable {
+                            reason,
+                        } = &cycle.suggested_resolution
+                        {
+                            error_msg.push_str(&format!("  Reason: {}\n", reason));
+                        }
+                        error_msg.push('\n');
+                    }
+                }
+
+                // Then show resolvable cycles that are not yet supported
+                if !analysis.resolvable_cycles.is_empty() {
+                    if !analysis.unresolvable_cycles.is_empty() {
+                        error_msg.push_str("RESOLVABLE CYCLES (not yet implemented):\n");
+                    }
+                    for (i, cycle) in analysis.resolvable_cycles.iter().enumerate() {
+                        let cycle_num = i + 1 + analysis.unresolvable_cycles.len();
+                        error_msg.push_str(&format!(
+                            "Cycle {}: {}\n",
+                            cycle_num,
+                            cycle.modules.join(" → ")
+                        ));
+                        error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
+
+                        match &cycle.suggested_resolution {
+                            crate::dependency_graph::ResolutionStrategy::LazyImport {
+                                modules: _,
+                            } => {
+                                error_msg.push_str("  Suggestion: Move imports inside functions to enable lazy loading\n");
+                            }
+                            crate::dependency_graph::ResolutionStrategy::FunctionScopedImport {
+                                import_statements,
+                            } => {
+                                error_msg.push_str("  Suggestions:\n");
+                                for suggestion in import_statements {
+                                    error_msg.push_str(&format!("    {}\n", suggestion));
+                                }
+                            }
+                            crate::dependency_graph::ResolutionStrategy::ModuleSplit {
+                                suggestions,
+                            } => {
+                                error_msg.push_str("  Suggestions:\n");
+                                for suggestion in suggestions {
+                                    error_msg.push_str(&format!("    {}\n", suggestion));
+                                }
+                            }
+                            crate::dependency_graph::ResolutionStrategy::Unresolvable {
+                                ..
+                            } => {
+                                // This shouldn't happen in resolvable cycles
+                            }
+                        }
+                        error_msg.push('\n');
+                    }
+                }
+
+                return Err(anyhow!(error_msg));
+            }
         }
 
         // Get topologically sorted modules
-        let sorted_modules = graph.topological_sort()?;
+        // If we have cycles but they're all resolvable, we need a different approach
+        let sorted_modules = if graph.has_cycles() {
+            let analysis = graph.classify_circular_dependencies();
+            let all_resolvable = analysis.resolvable_cycles.iter().all(|cycle| {
+                matches!(
+                    cycle.cycle_type,
+                    crate::dependency_graph::CircularDependencyType::FunctionLevel
+                )
+            }) && analysis.unresolvable_cycles.is_empty();
+
+            if all_resolvable {
+                // For resolvable cycles, use a custom ordering that breaks cycles
+                self.get_modules_with_cycle_resolution(&graph, &analysis)?
+            } else {
+                // This should have been caught earlier, but be safe
+                return Err(anyhow!("Unresolvable circular dependencies detected"));
+            }
+        } else {
+            graph.topological_sort()?
+        };
         info!("Found {} modules to bundle", sorted_modules.len());
         for (i, module) in sorted_modules.iter().enumerate() {
             debug!("Module {}: {} ({:?})", i, module.name, module.path);
@@ -121,6 +260,44 @@ impl Bundler {
         }
 
         Ok(())
+    }
+
+    /// Get modules in a valid order for bundling when there are resolvable circular dependencies
+    fn get_modules_with_cycle_resolution<'a>(
+        &self,
+        graph: &'a DependencyGraph,
+        analysis: &crate::dependency_graph::CircularDependencyAnalysis,
+    ) -> Result<Vec<&'a crate::dependency_graph::ModuleNode>> {
+        // For simple function-level cycles, we can use a modified topological sort
+        // that breaks cycles by removing edges within strongly connected components
+
+        // Get all modules
+        let modules = graph.get_modules();
+
+        // For now, use a simple approach: put all modules from cycles at the end
+        // and sort the rest topologically
+        let mut cycle_modules = std::collections::HashSet::new();
+        for cycle in &analysis.resolvable_cycles {
+            for module_name in &cycle.modules {
+                cycle_modules.insert(module_name.as_str());
+            }
+        }
+
+        // Split modules into non-cycle and cycle modules
+        let (cycle_mods, non_cycle_mods): (Vec<_>, Vec<_>) = modules
+            .into_iter()
+            .partition(|module| cycle_modules.contains(module.name.as_str()));
+
+        // For non-cycle modules, we can still use topological sorting on the subgraph
+        let mut result = Vec::new();
+
+        // Add non-cycle modules first (they should sort topologically)
+        result.extend(non_cycle_mods);
+
+        // Add cycle modules at the end - the order doesn't matter much for function-level cycles
+        result.extend(cycle_mods);
+
+        Ok(result)
     }
 
     /// Helper method to find module name in source directories

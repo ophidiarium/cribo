@@ -1,0 +1,9 @@
+---
+source: crates/serpen/tests/test_circular_dependencies.rs
+expression: error_msg
+---
+Circular dependencies detected in the module graph:
+
+Cycle 1: pkg2 → pkg1
+  Type: FunctionLevel
+  Suggestion: Move imports inside functions to enable lazy loading
