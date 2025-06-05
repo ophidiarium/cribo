@@ -167,6 +167,44 @@ Under no circumstances should you justify a design or implementation by citing "
 - **Better integration**: MCP Git tools provide better integration with the development environment and error handling
 - **Consistent workflow**: This ensures consistent git operations across all development workflows
 
+### Conventional Commits Requirements
+
+**MANDATORY**: This repository uses automated release management with release-please. ALL commit messages MUST follow the Conventional Commits specification.
+
+- **Format**: `<type>(<optional scope>): <description>`
+- **Common types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `ci`
+- **Breaking changes**: Use `!` after type (e.g., `feat!:`) or include `BREAKING CHANGE:` in footer
+- **Version bumping**:
+  - `fix:` → patch version (0.4.1 → 0.4.2)
+  - `feat:` → minor version (0.4.1 → 0.5.0)
+  - `feat!:` or `BREAKING CHANGE:` → major version (0.4.1 → 1.0.0)
+- **Examples**:
+  - `feat(parser): add support for new syntax`
+  - `fix: handle null pointer exception in module resolver`
+  - `chore: update dependencies`
+  - `docs: improve CLI usage examples`
+  - `feat(ai): enhance Claude Code integration`
+  - `docs(ai): update CLAUDE.md configuration`
+
+- **Available scopes**:
+  - **Core components**: `parser`, `bundler`, `resolver`, `ast`, `emit`, `deps`, `config`, `cli`
+  - **Testing & CI**: `test`, `ci`
+  - **Documentation & AI**: `docs`, `ai`
+  - **Build & packaging**: `build`, `npm`, `pypi`, `release`
+
+**Enforcement**:
+
+- Local validation via lefthook + commitlint prevents invalid commits
+- CI checks all PR commits for compliance
+- Release-please generates changelogs and releases automatically from commit history
+
+**Never manually**:
+
+- Edit `Cargo.toml` version numbers
+- Edit `CHANGELOG.md`
+- Create release tags
+- The automated system handles all versioning and releases
+
 ### Immediate Code Removal Over Deprecation
 
 **MANDATORY**: Since Serpen only exposes a binary CLI interface (not a library API), unused methods and functions MUST be removed immediately rather than annotated with deprecation markers.
@@ -260,3 +298,5 @@ If tests fail or clippy reports issues, the implementation is NOT complete until
 - When running on macOS, you should try `gsed` instead of `sed` for GNU sed compatibility on macOS
 - MANDATORY: When addressing a clippy issue, never treat `#[allow]` annotations as a solution—perform actual refactoring to resolve the issue
 - Remember you have full ruff repository cloned locally at references/type-strip/ruff so you may search in files easier
+- lefhook config is at .lefthook.yaml
+- use bun to manage Node.js dependencies

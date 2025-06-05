@@ -51,3 +51,6 @@ npm-dist-test/
 **/.claude/settings.local.json
 
 references/
+
+# Node.js dependencies
+node_modules/

@@ -1,0 +1,14 @@
+name: Conventional Commits Check
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: webiny/action-conventional-commits@v1.3.0
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optionally, restrict allowed types:
+          # allowed-commit-types: "feat,fix,docs,style,refactor,test,chore,ci"

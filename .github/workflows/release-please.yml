@@ -1,0 +1,31 @@
+name: Release Please
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * *' # runs daily at midnight UTC
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # needed to create tags and releases
+      pull-requests: write # needed to create/update the release PR
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # The release-please action creates the git tag when a release PR is merged
+      # This tag will automatically trigger the existing release.yml workflow
+      # No additional workflow dispatch needed since release.yml triggers on tags matching 'v*.*.*'

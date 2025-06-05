@@ -24,6 +24,11 @@ pre-commit:
       glob: '**/*.rs'
       run: git update-index --again
 
+commit-msg:
+  commands:
+    'lint commit message':
+      run: bunx commitlint --edit {1}
+
 post-checkout:
   commands:
     dependencies:
