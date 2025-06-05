@@ -1,9 +1,76 @@
-extends:
-  - '@commitlint/config-conventional'
+# Inlined @commitlint/config-conventional rules with increased limits for AI-generated messages
+# Removed parserPreset to use default parser (eliminates external dependency)
 
 rules:
+  # Body rules
+  body-leading-blank:
+    - 1 # warning
+    - always
+  body-max-line-length:
+    - 2 # error
+    - always
+    - 120 # increased from 100 for comprehensive AI messages
+
+  # Footer rules
+  footer-leading-blank:
+    - 1 # warning
+    - always
+  footer-max-line-length:
+    - 2 # error
+    - always
+    - 120 # increased from 100
+
+  # Header rules
+  header-max-length:
+    - 2 # error
+    - always
+    - 150 # increased from 100 for AI-generated comprehensive commit titles
+  header-trim:
+    - 2 # error
+    - always
+
+  # Subject rules
+  subject-case:
+    - 2 # error
+    - never
+    - - sentence-case
+      - start-case
+      - pascal-case
+      - upper-case
+  subject-empty:
+    - 2 # error
+    - never
+  subject-full-stop:
+    - 2 # error
+    - never
+    - '.'
+
+  # Type rules
+  type-case:
+    - 2 # error
+    - always
+    - lower-case
+  type-empty:
+    - 2 # error
+    - never
+  type-enum:
+    - 2 # error
+    - always
+    - - build
+      - chore
+      - ci
+      - docs
+      - feat
+      - fix
+      - perf
+      - refactor
+      - revert
+      - style
+      - test
+
+  # Custom scope enum for this project
   scope-enum:
-    - 2
+    - 2 # error
     - always
     - # Core components
       - parser
