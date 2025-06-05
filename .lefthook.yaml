@@ -11,15 +11,18 @@ pre-commit:
       stage_fixed: true
     dprint:
       glob: '*.{json,jsonc,yaml,yml,md,toml,py}'
-      run: dprint fmt {staged_files}
+      run: bunx dprint fmt {staged_files}
       stage_fixed: true
     lint:
       glob: '**/*.rs'
       run: cargo clippy --all-targets --all-features --fix --allow-dirty -- -D warnings
       stage_fixed: true
+    taplo:
+      glob: '**/*.toml'
+      run: bunx taplo lint {staged_files}
     yamllint:
       glob: '*.{yml,yaml}'
-      run: yamllint {staged_files}
+      run: uvx yamllint {staged_files}
     update-index:
       glob: '**/*.rs'
       run: git update-index --again

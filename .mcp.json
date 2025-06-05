@@ -7,15 +7,6 @@
                 "@upstash/context7-mcp"
             ]
         },
-        "git": {
-            "command": "bunx",
-            "args": [
-                "git-mcp-server"
-            ],
-            "env": {
-                "GIT_SIGN_COMMITS": "true"
-            }
-        },
         "docs-manager": {
             "command": "bunx",
             "args": [

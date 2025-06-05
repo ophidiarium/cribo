@@ -2,7 +2,11 @@
     "permissions": {
         "allow": [
             "mcp__*",
-            "Bash(gsed:*)"
+            "Bash(gsed:*)",
+            "Bash(git:*)",
+            "Bash(gh:*)",
+            "Bash(grep:*)",
+            "Bash(cargo:*)"
         ],
         "deny": []
     }

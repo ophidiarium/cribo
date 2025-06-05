@@ -489,14 +489,6 @@ Under no circumstances should you justify a design or implementation by citing "
 - Continuously re-validate against `.clippy.toml` whenever generating new code or applying automated fixes—do not assume a one-time check is sufficient.
 - Log each check and violation in clear comments or warnings within the pull request or code review context so that maintainers immediately see why a disallowed construct was rejected.
 
-#### Git Operations
-
-**MANDATORY**: Always use MCP Git tools instead of direct bash git commands for all git operations.
-
-- **Use MCP Git tools**: Prefer `mcp__git__*` tools (e.g., `mcp__git__status`, `mcp__git__add`, `mcp__git__commit`) over bash `git` commands
-- **Better integration**: MCP Git tools provide better integration with the development environment and error handling
-- **Consistent workflow**: This ensures consistent git operations across all development workflows
-
 #### Conventional Commits Requirements
 
 **MANDATORY**: This repository uses automated release management with release-please. ALL commit messages MUST follow the Conventional Commits specification.

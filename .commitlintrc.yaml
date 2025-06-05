@@ -9,7 +9,7 @@ rules:
   body-max-line-length:
     - 2 # error
     - always
-    - 120 # increased from 100 for comprehensive AI messages
+    - 200 # increased from 100 for comprehensive AI messages
 
   # Footer rules
   footer-leading-blank:
@@ -18,7 +18,7 @@ rules:
   footer-max-line-length:
     - 2 # error
     - always
-    - 120 # increased from 100
+    - 150 # increased from 100
 
   # Header rules
   header-max-length:
@@ -59,6 +59,7 @@ rules:
     - - build
       - chore
       - ci
+      - ai
       - docs
       - feat
       - fix

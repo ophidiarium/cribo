@@ -17,6 +17,11 @@
                     "jsonpath": "$.workspace.package.version"
                 },
                 {
+                    "type": "toml",
+                    "path": "core_lib/Cargo.lock",
+                    "jsonpath": "$.package[?(@.name.value == 'serpen')].version"
+                },
+                {
                     "type": "json",
                     "path": "npm/serpen/package.json",
                     "jsonpath": "$.version"
