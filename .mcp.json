@@ -8,12 +8,13 @@
             ]
         },
         "git": {
-            "command": "uvx",
+            "command": "bunx",
             "args": [
-                "mcp-server-git",
-                "--repository",
-                "."
-            ]
+                "git-mcp-server"
+            ],
+            "env": {
+                "GIT_SIGN_COMMITS": "true"
+            }
         },
         "docs-manager": {
             "command": "bunx",

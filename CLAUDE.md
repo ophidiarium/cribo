@@ -159,6 +159,14 @@ Under no circumstances should you justify a design or implementation by citing "
 - Ensure all functions are properly documented with Rust doc comments
 - Take the opportunity to refactor code to improve readability and maintainability
 
+### Git Operations
+
+**MANDATORY**: Always use MCP Git tools instead of direct bash git commands for all git operations.
+
+- **Use MCP Git tools**: Prefer `mcp__git__*` tools (e.g., `mcp__git__git_status`, `mcp__git__git_add`, `mcp__git__git_commit`) over bash `git` commands
+- **Better integration**: MCP Git tools provide better integration with the development environment and error handling
+- **Consistent workflow**: This ensures consistent git operations across all development workflows
+
 ### Immediate Code Removal Over Deprecation
 
 **MANDATORY**: Since Serpen only exposes a binary CLI interface (not a library API), unused methods and functions MUST be removed immediately rather than annotated with deprecation markers.
