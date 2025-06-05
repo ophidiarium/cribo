@@ -268,6 +268,31 @@ impl CodeEmitter {
             ast_rewriter.collect_import_aliases(&entry_module_data.ast, entry_module);
         }
 
+        // Pre-compute module import flags based on resolver information
+        let module_flags = {
+            let mut flags = std::collections::HashMap::new();
+            for import_alias in ast_rewriter.import_aliases().values() {
+                if import_alias.is_from_import {
+                    let full_module_name = format!(
+                        "{}.{}",
+                        import_alias.module_name, import_alias.original_name
+                    );
+                    let is_module = self
+                        .resolver
+                        .resolve_module_path(&full_module_name)
+                        .unwrap_or(None)
+                        .is_some();
+                    flags.insert(full_module_name, is_module);
+                }
+            }
+            flags
+        };
+
+        // Update module import flags
+        ast_rewriter.update_module_import_flags(|module_name| {
+            module_flags.get(module_name).copied().unwrap_or(false)
+        });
+
         // Analyze name conflicts across all modules
         let module_asts: Vec<(String, &ModModule)> = modules
             .iter()
@@ -814,6 +839,17 @@ impl CodeEmitter {
             let module_name = module.as_str();
             if self.is_first_party_module(module_name) {
                 strategies.insert(module_name.to_string(), ImportStrategy::FromImport);
+
+                // Check if any of the imported names are actually modules
+                for alias in &import_from_stmt.names {
+                    let imported_name = alias.name.as_str();
+                    let full_module_name = format!("{}.{}", module_name, imported_name);
+
+                    // If the imported name resolves to a module, it needs module import strategy
+                    if self.is_first_party_module(&full_module_name) {
+                        strategies.insert(full_module_name, ImportStrategy::ModuleImport);
+                    }
+                }
             }
         }
     }

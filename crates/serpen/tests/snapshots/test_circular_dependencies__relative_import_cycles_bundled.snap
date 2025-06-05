@@ -8,6 +8,22 @@ expression: bundled_content
 
 # ─ Module: services ─
 
+# ─ Module: services.auth ─
+import types
+services = types.ModuleType('services')
+services.auth = types.ModuleType('services.auth')
+exec('from .database import get_connection\ndef authenticate_user(username):\n    """Authenticate user using database connection"""\n    conn = get_connection()\n    return f"auth({username}, conn={conn})"\ndef get_user_context():\n    """Get user context - used by database module"""\n    return "user_context_from_auth"', services.auth.__dict__)
+
+# ─ Module: services.database ─
+from .auth import get_user_context
+def get_connection():
+    """Get database connection with user context"""
+    context = get_user_context()
+    return f"db_connection(context={context})"
+def execute_query(query):
+    """Execute a database query"""
+    return f"query_result({query})"
+
 # ─ Entry Module: main ─
 def main():
     result = auth.authenticate_user("test_user")

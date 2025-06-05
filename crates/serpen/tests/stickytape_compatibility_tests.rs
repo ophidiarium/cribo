@@ -232,7 +232,7 @@ fn test_value_import_is_detected_when_import_is_renamed() {
     assert_script_output("import_from_as_value", "Hello");
 }
 
-// #[test]
+#[test]
 fn test_module_import_is_detected_when_import_is_renamed() {
     assert_script_output("import_from_as_module", "Hello");
 }

@@ -55,7 +55,7 @@ def sub_function():
     // Test the main.py file
     let file_path = package_dir.join("main.py");
     let imports = bundler
-        .extract_imports(&file_path)
+        .extract_imports(&file_path, None)
         .expect("Failed to extract imports from main.py");
 
     println!("Imports from main.py: {:?}", imports);
@@ -81,7 +81,7 @@ def sub_function():
     // Test the subpackage module
     let file_path = subpackage_dir.join("module.py");
     let imports = bundler
-        .extract_imports(&file_path)
+        .extract_imports(&file_path, None)
         .expect("Failed to extract imports from subpackage/module.py");
 
     println!("Imports from subpackage/module.py: {:?}", imports);

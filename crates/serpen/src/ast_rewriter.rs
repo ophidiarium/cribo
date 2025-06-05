@@ -40,6 +40,8 @@ pub struct ImportAlias {
     pub is_from_import: bool,
     /// Whether this was an explicit alias in the original code (e.g., `as alias_name`)
     pub has_explicit_alias: bool,
+    /// Whether the imported name is actually a module (for module imports)
+    pub is_module_import: bool,
 }
 
 /// Information about name conflicts that need to be resolved
@@ -112,6 +114,22 @@ impl AstRewriter {
         }
     }
 
+    /// Update module import flags based on resolver information
+    pub fn update_module_import_flags<F>(&mut self, is_module_checker: F)
+    where
+        F: Fn(&str) -> bool,
+    {
+        for import_alias in self.import_aliases.values_mut() {
+            if import_alias.is_from_import {
+                let full_module_name = format!(
+                    "{}.{}",
+                    import_alias.module_name, import_alias.original_name
+                );
+                import_alias.is_module_import = is_module_checker(&full_module_name);
+            }
+        }
+    }
+
     /// Process ImportFrom statement to extract aliases
     fn process_import_from_statement(&mut self, import_from: &ast::StmtImportFrom) {
         let Some(module) = &import_from.module else {
@@ -127,6 +145,7 @@ impl AstRewriter {
                     module_name: module.to_string(),
                     is_from_import: true,
                     has_explicit_alias: true,
+                    is_module_import: false, // Will be set later based on resolver
                 }
             } else {
                 // Import without alias: from module import name
@@ -136,6 +155,7 @@ impl AstRewriter {
                     module_name: module.to_string(),
                     is_from_import: true,
                     has_explicit_alias: false,
+                    is_module_import: false, // Will be set later based on resolver
                 }
             };
 
@@ -158,6 +178,7 @@ impl AstRewriter {
                     module_name: alias.name.to_string(),
                     is_from_import: false,
                     has_explicit_alias: true,
+                    is_module_import: true, // Regular imports are always module imports
                 };
                 self.import_aliases.insert(asname.to_string(), import_alias);
             }
@@ -858,7 +879,19 @@ impl AstRewriter {
                 .cloned()
                 .unwrap_or_else(|| import_alias.original_name.clone())
         } else {
-            import_alias.original_name.clone()
+            // For from imports, check if this is a module import
+            if import_alias.is_from_import && import_alias.is_module_import {
+                // This is a module import (e.g., from greetings import greeting)
+                // Use the full module path (e.g., greetings.greeting)
+                format!(
+                    "{}.{}",
+                    import_alias.module_name, import_alias.original_name
+                )
+            } else {
+                // This is a value import or regular import
+                // Use the original name directly
+                import_alias.original_name.clone()
+            }
         }
     }
 

@@ -277,7 +277,7 @@ fn test_extract_edge_case_imports() {
     );
 
     let imports = bundler
-        .extract_imports(&file_path)
+        .extract_imports(&file_path, None)
         .expect("Failed to extract imports");
 
     let output = format!(
