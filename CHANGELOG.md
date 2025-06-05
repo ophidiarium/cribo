@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.5](https://github.com/tinovyatkin/serpen/compare/v0.4.4...v0.4.5) (2025-06-05)
+
+
+### Bug Fixes
+
+* resolve module import detection for aliased imports ([#57](https://github.com/tinovyatkin/serpen/issues/57)) ([95bc652](https://github.com/tinovyatkin/serpen/commit/95bc652c0a0e979abbed06a82654dfd7b7eddb52))
+
 ## [0.4.4](https://github.com/tinovyatkin/serpen/compare/v0.4.3...v0.4.4) (2025-06-05)
 
 
