@@ -2,7 +2,319 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## 🚨 CRITICAL: MANDATORY WORKFLOWS (NEVER SKIP)
+
+### Workflow Discipline Requirements
+
+**ABSOLUTE RULE**: For any complex task (3+ steps), immediately create comprehensive todo list using TodoWrite tool before starting work.
+
+**ABSOLUTE RULE**: For any git operation, use the complete Git Flow Todo Template below.
+
+**ABSOLUTE RULE**: Never declare task complete without running full validation suite.
+
+### MANDATORY GITHUB INTERACTION RULES
+
+**ABSOLUTE RULE**: NEVER use web API calls or direct GitHub API without authentication
+
+**REQUIRED TOOLS** (in order of preference):
+
+1. **GitHub MCP tools**: `mcp__github__*` functions (authenticated, no rate limits)
+2. **GitHub CLI**: `gh` commands (authenticated via CLI)
+3. **NEVER**: Direct API calls, web scraping, or unauthenticated requests
+
+**EXAMPLES**:
+✅ **Correct**: `mcp__github__get_pull_request` or `gh pr view`
+❌ **Wrong**: Direct API calls to `api.github.com`
+
+**PR Creation**: Always use `mcp__github__create_pull_request` or `gh pr create`
+**PR Status**: Always use `mcp__github__get_pull_request` or `gh pr view`
+**Comments**: Always use `mcp__github__add_issue_comment` or `gh pr comment`
+
+### MANDATORY GIT FLOW TODO TEMPLATE
+
+**CRITICAL**: Use this exact template for ANY git operation
+
+#### Phase 0: Pre-Work Baseline (MANDATORY)
+
+- [ ] **GitHub Tools Check**: Verify `gh` CLI authenticated and MCP tools available
+- [ ] **Coverage Baseline**: Run `cargo coverage-text` and record current numbers
+- [ ] **Record baseline**: Overall %, affected files %, note 80% patch requirement
+- [ ] **Current state**: `git status` and `git branch` - verify clean main
+- [ ] **Dependencies**: Run `cargo test --workspace` for clean starting state
+
+#### Phase 1: Feature Branch Creation & Implementation
+
+- [ ] Create feature branch: `git checkout -b fix/descriptive-name`
+- [ ] Implement changes (with coverage in mind)
+- [ ] **Coverage check**: `cargo coverage-text` after major changes
+- [ ] **Test validation**: `cargo test --workspace` (must pass)
+- [ ] **Clippy validation**: `cargo clippy --workspace --all-targets` (must be clean)
+- [ ] **Coverage verification**: Ensure no >2% drops, patch >80%
+- [ ] Commit with conventional message
+- [ ] Push with upstream: `git push -u origin <branch-name>`
+
+#### Phase 2: PR Creation
+
+- [ ] **Use MCP/gh CLI**: `mcp__github__create_pull_request` or `gh pr create`
+- [ ] Include comprehensive description (Summary, Changes, Test Results)
+- [ ] Add coverage impact note if significant
+- [ ] **IMMEDIATE status check**: `mcp__github__get_pull_request_status`
+- [ ] **Verify ALL CI GREEN**: No failed GitHub Actions allowed
+
+#### Phase 3: CI Monitoring (CRITICAL)
+
+- [ ] **Monitor initial CI**: `mcp__github__get_pull_request_status` every few minutes
+- [ ] **Verify specific checks**: Build ✅, Tests ✅, Coverage ✅, Clippy ✅
+- [ ] **If ANY red check**: STOP, investigate, fix before proceeding
+- [ ] **Coverage CI**: Must show patch coverage >80%
+- [ ] **Wait for all GREEN**: Do not proceed until ALL checks pass
+
+#### Phase 4: Code Review Response Cycle
+
+- [ ] **Check for comments**: `mcp__github__get_pull_request` for review comments
+- [ ] **For EACH comment**:
+  - [ ] Read and understand fully
+  - [ ] Implement requested change
+  - [ ] Test the change locally
+  - [ ] Commit with descriptive message
+- [ ] **After fixes**: Push and verify CI still GREEN
+- [ ] **Re-check status**: `mcp__github__get_pull_request_status`
+- [ ] **Ensure coverage**: Still meets 80% patch requirement
+
+#### Phase 5: Pre-Merge Verification (ENHANCED)
+
+- [ ] **Final status check**: `mcp__github__get_pull_request_status`
+- [ ] **Verify ALL criteria**:
+  - [ ] `"mergeable": true`
+  - [ ] `"statusCheckRollup": {"state": "SUCCESS"}`
+  - [ ] `"reviewDecision": "APPROVED"`
+  - [ ] Coverage CI showing GREEN
+  - [ ] No pending or failed checks
+- [ ] **NEVER merge with failed/pending checks**
+
+#### Phase 6: Merge and Cleanup (CRITICAL FINAL STEPS)
+
+- [ ] **Merge via MCP/gh**: `mcp__github__merge_pull_request` or `gh pr merge`
+- [ ] **IMMEDIATELY switch**: `git checkout main`
+- [ ] **Pull latest**: `git pull origin main`
+- [ ] **Verify state**: `git status` shows "up to date with origin/main"
+- [ ] **Delete branch**: `git branch -d <branch-name>`
+- [ ] **Final verification**: `git status` shows clean working tree
+
+#### Phase 7: Post-Merge Validation
+
+- [ ] **Coverage check**: `cargo coverage-text` on main
+- [ ] **Test validation**: `cargo test --workspace` on main
+- [ ] **Clippy check**: `cargo clippy --workspace --all-targets` on main
+- [ ] **Verify no regressions**: Compare with baseline measurements
+- [ ] **Mark todos complete**: All git flow items ✅
+
+**ABSOLUTE RULES**:
+
+- NEVER use unauthenticated GitHub API calls
+- NEVER merge with failed CI checks
+- NEVER skip coverage verification
+- NEVER declare success without full validation suite
+
+### CODE COVERAGE DISCIPLINE
+
+#### Coverage Baseline Protocol
+
+**MANDATORY FIRST STEP** for any code changes:
+
+```bash
+# 1. Get baseline coverage (BEFORE any changes)
+cargo coverage-text
+
+# 2. Record these numbers (example format):
+# Baseline Coverage: 
+# - Overall: 73.2%
+# - bundler.rs: 89.4% 
+# - ast_rewriter.rs: 91.2%
+# - emit.rs: 76.8%
+```
+
+#### Coverage Targets and CI Requirements
+
+**CI FAILURE TRIGGERS**:
+
+- 🚨 **Patch coverage <80%**: CI will fail, PR cannot merge
+- 🚨 **File coverage drops >2%**: Indicates insufficient testing
+- 🚨 **Overall coverage drops >1%**: Major regression
+
+**DEVELOPMENT RULES**:
+
+- **New files**: Must achieve >90% line coverage
+- **Modified files**: Coverage must not decrease
+- **Critical paths**: Must have 100% coverage for error handling
+
+#### Coverage Verification Commands
+
+```bash
+# During development (frequent checks)
+cargo coverage-text
+
+# Detailed coverage analysis
+cargo coverage
+
+# For CI-style validation
+cargo coverage-lcov
+```
+
+#### Coverage Recovery Procedures
+
+**If coverage drops**:
+
+1. Identify uncovered lines: `cargo coverage`
+2. Add targeted tests for missed paths
+3. Focus on error conditions and edge cases
+4. Re-run coverage until targets met
+5. NEVER proceed with failing coverage
+
+**If CI coverage check fails**:
+
+1. Check CI logs for specific coverage failure
+2. Run local coverage to reproduce
+3. Add tests for uncovered code paths
+4. Verify fix with `cargo coverage-text`
+5. Push fix and re-check CI status
+
+### PR STATUS MONITORING (CRITICAL FAILURE PREVENTION)
+
+#### My Historical Failures to Avoid:
+
+- ❌ Assuming PR is ready based on "mergeable" status alone
+- ❌ Missing failed GitHub Actions in CI pipeline
+- ❌ Not checking coverage CI specifically
+- ❌ Merging with yellow/pending checks
+
+#### MANDATORY PR Status Commands
+
+```bash
+# PRIMARY: Use MCP for comprehensive status
+mcp__github__get_pull_request_status --owner=tinovyatkin --repo=serpen --pullNumber=<NUM>
+
+# SECONDARY: Use gh CLI for detailed breakdown
+gh pr checks <PR-number>
+gh pr view <PR-number> --json state,mergeable,statusCheckRollup,reviewDecision
+
+# VERIFICATION: Get individual check details
+gh run list --repo=tinovyatkin/serpen --branch=<branch-name>
+```
+
+#### Status Interpretation Guide
+
+**GREEN LIGHT** (safe to merge):
+
+```json
+{
+    "mergeable": true,
+    "statusCheckRollup": {
+        "state": "SUCCESS" // ALL checks must be SUCCESS
+    },
+    "reviewDecision": "APPROVED"
+}
+```
+
+**RED LIGHT** (DO NOT MERGE):
+
+```json
+{
+    "statusCheckRollup": {
+        "state": "FAILURE" // ANY failure means STOP
+    }
+}
+```
+
+**YELLOW LIGHT** (WAIT):
+
+```json
+{
+    "statusCheckRollup": {
+        "state": "PENDING" // Wait for completion
+    }
+}
+```
+
+#### Specific CI Checks to Monitor
+
+**MUST BE GREEN**:
+
+- ✅ **Build**: All platforms compile successfully
+- ✅ **Test**: All test suites pass
+- ✅ **Coverage**: Patch coverage >80%
+- ✅ **Clippy**: No warnings or errors
+- ✅ **Format**: Code formatting correct
+- ✅ **Dependencies**: No security issues
+
+#### CI Failure Response Protocol
+
+**When ANY check fails**:
+
+1. **STOP** - Do not proceed with merge
+2. **Investigate**: Check CI logs for specific failure
+3. **Fix**: Address the root cause locally
+4. **Test**: Verify fix with local commands
+5. **Push**: Commit fix and push to PR branch
+6. **Monitor**: Wait for CI to re-run and verify GREEN
+7. **Only then**: Proceed with merge consideration
+
+#### Emergency CI Commands
+
+```bash
+# Check latest CI run status
+gh run list --repo=tinovyatkin/serpen --limit=5
+
+# Get details of failed run
+gh run view <run-id>
+
+# Re-run failed checks (if appropriate)
+gh run rerun <run-id>
+```
+
+### CHECKPOINT INSTRUCTIONS
+
+#### Major Workflow Transitions
+
+Before moving between phases, MUST verify:
+
+**Implementation → Git Flow**:
+
+- [ ] All tests passing: `cargo test --workspace` ✅
+- [ ] All clippy issues resolved: `cargo clippy --workspace --all-targets` ✅
+- [ ] Working directory clean: `git status` ✅
+
+**Git Flow → Code Review**:
+
+- [ ] PR created with comprehensive description ✅
+- [ ] All files correctly included in PR ✅
+- [ ] CI checks passing ✅
+
+**Code Review → Merge**:
+
+- [ ] ALL reviewer comments addressed ✅
+- [ ] Final approval received ✅
+- [ ] No outstanding review requests ✅
+
+**Merge → Cleanup**:
+
+- [ ] On main branch: `git branch` shows `* main` ✅
+- [ ] Up to date: `git status` shows "up to date with origin/main" ✅
+- [ ] Feature branch deleted ✅
+- [ ] Working tree clean ✅
+
+### Context Preservation Rules
+
+**MANDATORY PRACTICES**:
+
+- Always check `TodoRead` before starting new work
+- Update todos immediately when scope changes
+- When resuming work, first verify current state with `git status`
+- Mark todos completed IMMEDIATELY when finished, not in batches
+
+## 🛠️ PROJECT TECHNICAL DETAILS
+
+### Project Overview
 
 Serpen is a Python source bundler written in Rust that produces a single .py file from a multi-module Python project by inlining first-party source files. It's available as both a CLI tool and a Python library via PyPI and npm.
 
@@ -14,9 +326,9 @@ Key features:
 - Configurable import classification
 - PYTHONPATH and VIRTUAL_ENV support
 
-## Build Commands
+### Build Commands
 
-### Rust Binary
+#### Rust Binary
 
 ```bash
 # Development build
@@ -29,7 +341,7 @@ cargo build --release
 cargo run -- --entry path/to/main.py --output bundle.py
 ```
 
-### Python Package
+#### Python Package
 
 ```bash
 # Build for development (creates a local installable package)
@@ -39,7 +351,7 @@ uvx maturin develop
 uvx maturin build --release
 ```
 
-### npm Package
+#### npm Package
 
 ```bash
 # Generate npm packages
@@ -49,7 +361,7 @@ node scripts/generate-npm-packages.js
 ./scripts/build-npm-binaries.sh
 ```
 
-## Testing Commands
+### Testing Commands
 
 ```bash
 # Run all tests
@@ -65,7 +377,7 @@ cargo test --package serpen unused_imports
 cargo test --package serpen test_simple_project_bundling
 ```
 
-## Coverage Commands
+### Coverage Commands
 
 ```bash
 # Text coverage report
@@ -84,11 +396,11 @@ cargo coverage-lcov
 ./scripts/coverage.sh coverage-lcov
 ```
 
-## Architecture Overview
+### Architecture Overview
 
 The project is organized as a Rust workspace with the main crate in `crates/serpen`.
 
-### Key Components
+#### Key Components
 
 1. **Module Resolution & Import Classification** (`resolver.rs`)
    - Classifies imports as standard library, first-party, or third-party
@@ -110,12 +422,12 @@ The project is organized as a Rust workspace with the main crate in `crates/serp
    - Generates the final bundled Python file
    - Maintains code structure with proper formatting
 
-### Important Environment Variables
+#### Important Environment Variables
 
 - `RUST_LOG` - Controls logging level (e.g., `RUST_LOG=debug`)
 - `VIRTUAL_ENV` - Used for virtual environment support
 
-## Configuration
+### Configuration
 
 Serpen can be configured via a `serpen.toml` file:
 
@@ -128,7 +440,7 @@ preserve_comments = true
 preserve_type_hints = true
 ```
 
-## CLI Usage
+### CLI Usage
 
 ```bash
 serpen --entry src/main.py --output bundle.py [options]
@@ -139,9 +451,9 @@ serpen --entry src/main.py --output bundle.py [options]
 --config               # Specify custom config file path
 ```
 
-## Development Guidelines
+### Development Guidelines
 
-### Technical Decision-Making Requirements
+#### Technical Decision-Making Requirements
 
 **MANDATORY**: As a software-engineer AI agent, you must never factor in human limitations—such as limited time or bandwidth, business priorities, implementation complexity, research requirements, or any other "human" constraint—when making technical decisions or writing recommendations. Instead, always select and articulate the technically optimal solution, judged solely on criteria like:
 
@@ -151,7 +463,7 @@ serpen --entry src/main.py --output bundle.py [options]
 
 Under no circumstances should you justify a design or implementation by citing "lack of time," "limited resources," "tight deadlines," or similar human factors.
 
-### General Coding Standards
+#### General Coding Standards
 
 - Follow Rust idiomatic practices and use the Rust 2024 edition or later
 - Use strong typing and leverage Rust's safety principles
@@ -159,15 +471,15 @@ Under no circumstances should you justify a design or implementation by citing "
 - Ensure all functions are properly documented with Rust doc comments
 - Take the opportunity to refactor code to improve readability and maintainability
 
-### Git Operations
+#### Git Operations
 
 **MANDATORY**: Always use MCP Git tools instead of direct bash git commands for all git operations.
 
-- **Use MCP Git tools**: Prefer `mcp__git__*` tools (e.g., `mcp__git__git_status`, `mcp__git__git_add`, `mcp__git__git_commit`) over bash `git` commands
+- **Use MCP Git tools**: Prefer `mcp__git__*` tools (e.g., `mcp__git__status`, `mcp__git__add`, `mcp__git__commit`) over bash `git` commands
 - **Better integration**: MCP Git tools provide better integration with the development environment and error handling
 - **Consistent workflow**: This ensures consistent git operations across all development workflows
 
-### Conventional Commits Requirements
+#### Conventional Commits Requirements
 
 **MANDATORY**: This repository uses automated release management with release-please. ALL commit messages MUST follow the Conventional Commits specification.
 
@@ -205,7 +517,7 @@ Under no circumstances should you justify a design or implementation by citing "
 - Create release tags
 - The automated system handles all versioning and releases
 
-### Immediate Code Removal Over Deprecation
+#### Immediate Code Removal Over Deprecation
 
 **MANDATORY**: Since Serpen only exposes a binary CLI interface (not a library API), unused methods and functions MUST be removed immediately rather than annotated with deprecation markers.
 
@@ -214,7 +526,7 @@ Under no circumstances should you justify a design or implementation by citing "
 - **Dead code elimination**: Aggressively remove any unused functions, methods, structs, or modules during refactoring
 - **Immediate cleanup**: When refactoring or implementing features, remove unused code paths immediately rather than marking them for future removal
 
-### Documentation Research Hierarchy
+#### Documentation Research Hierarchy
 
 When implementing or researching functionality, follow this order:
 
@@ -229,7 +541,7 @@ When implementing or researching functionality, follow this order:
    - ALWAYS prefer GitHub search tools (like `mcp__github__search_code`) over other methods when accessing GitHub repositories
    - When searching large repos, use specific path and filename filters to avoid token limit errors
 
-### Reference Patterns from Established Repositories
+#### Reference Patterns from Established Repositories
 
 When implementing functionality, consult these high-quality repositories:
 
@@ -237,7 +549,7 @@ When implementing functionality, consult these high-quality repositories:
 - **[astral-sh/uv](https://github.com/astral-sh/uv)** - For package resolution, dependency management, Python ecosystem integration
 - **[web-infra-dev/rspack](https://github.com/web-infra-dev/rspack)** - For module graph construction, dependency resolution
 
-### Snapshot Testing with Insta
+#### Snapshot Testing with Insta
 
 Accept new or updated snapshots using:
 
@@ -247,7 +559,7 @@ cargo insta accept
 
 DO NOT use `cargo insta review` as that requires interactive input.
 
-### Coverage Requirements
+#### Coverage Requirements
 
 - Run baseline coverage check before implementing features:
   ```bash
@@ -257,18 +569,18 @@ DO NOT use `cargo insta review` as that requires interactive input.
 - New files should aim for >90% line coverage
 - Critical paths should have 100% coverage for error handling and edge cases
 
-### Workflow Best Practices
+#### Workflow Best Practices
 
 - Always run tests and clippy after implementing a feature to make sure everything is working as expected
 - **ALWAYS fix all clippy errors in the code you editing after finishing implementing a feature**
 
-### LSP Tool Usage
+#### LSP Tool Usage
 
 - **MANDATORY**: Always use LSP rename_symbol tool when renaming functions, structs, traits, or any other symbols in Rust code
 - This ensures all references across the codebase are updated consistently
 - For simple text edits that don't involve symbol renaming, continue using standard Edit/MultiEdit tools
 
-### MANDATORY: Final Validation Before Claiming Success
+#### MANDATORY: Final Validation Before Claiming Success
 
 **🚨 CRITICAL REQUIREMENT 🚨**: Before claiming that any implementation is complete or successful, you MUST run the complete validation suite:
 
@@ -292,339 +604,38 @@ cargo clippy --workspace --all-targets
 
 If tests fail or clippy reports issues, the implementation is NOT complete until these are resolved.
 
-### Git Workflow for Feature Development
+## 🧠 WORKFLOW MEMORY AIDS
 
-**MANDATORY**: Follow this standardized git workflow when implementing new features:
-
-#### 1. **Prepare and Create Feature Branch**
-
-**CRITICAL**: Always ensure main branch is up-to-date before starting new work:
+### Git Flow State Verification Commands
 
 ```bash
-# 1. Switch to main branch
-mcp__git__checkout --target "main"
+# Check current branch and status
+git status
+git branch
 
-# 2. Pull latest changes from origin/main
-mcp__git__pull --branch "main"
+# Verify remote sync
+git fetch
+git status
 
-# 3. Create and switch to new feature branch from updated main
-mcp__git__branch_create --name "feat/<feature-name>"
-# Or for other types: fix/<issue>, chore/<task>, docs/<topic>
+# Check for uncommitted changes
+git diff
+git diff --staged
 ```
 
-This prevents merge conflicts by ensuring your feature branch starts from the latest main branch state.
+### Recovery Procedures
 
-#### 2. **Implement Feature**
+**If lost in git flow**:
 
-- Write code following all guidelines above
-- Add comprehensive tests for new functionality
-- Update documentation as needed
-- Run tests and clippy frequently during development
+1. Run `git status` to understand current state
+2. Check `TodoRead` to see where you left off
+3. Verify which phase you're in based on branch and remote state
+4. Continue from appropriate checklist item
 
-#### 3. **Commit Changes**
+**If review comments missed**:
 
-```bash
-# Stage files using MCP Git tools
-mcp__git__add --files ["path/to/file1", "path/to/file2"]
-
-# Commit with conventional commit message
-mcp__git__commit --message "feat(scope): add new feature
-
-- Detailed description of what was added
-- Why it was needed
-- Any technical details
-
-🤖 Generated with [Claude Code](https://claude.ai/code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
-```
-
-#### 4. **Push and Create PR**
-
-```bash
-# Push branch to remote
-mcp__git__push --branch "feat/<feature-name>"
-
-# Create pull request
-mcp__github__create_pull_request \
-  --title "feat(scope): add new feature" \
-  --body "## Summary
-- Brief description of changes
-
-## Test plan
-- [ ] All tests pass
-- [ ] Clippy warnings resolved
-- [ ] Documentation updated
-
-🤖 Generated with [Claude Code](https://claude.ai/code)" \
-  --head "feat/<feature-name>" \
-  --base "main"
-```
-
-#### 5. **Wait for CI Checks**
-
-- Monitor PR for all checks to pass (tests, clippy, commit validation)
-- The repository has automated AI-powered review (CodeRabbit)
-- Wait for all checks to complete before proceeding
-
-#### 6. **Address Review Comments**
-
-- Review all automated CodeRabbit comments
-- Address each comment with code changes
-- **IMPORTANT**: When resolving comments after making changes:
-  - **DO NOT** create a new review with `mcp__github__create_pending_pull_request_review`
-  - **DO** reply directly to the original comment thread
-  - **DO** resolve/close the thread after responding
-
-  **Correct approach for resolving attended comments:**
-  ```bash
-  # Reply to the specific comment thread (not yet available in MCP tools)
-  # For now, use GitHub web interface to:
-  # 1. Reply to each comment explaining what was done
-  # 2. Click "Resolve conversation" on each addressed comment
-  ```
-
-  **Incorrect approach (creates new review comments):**
-  ```bash
-  # DON'T DO THIS when resolving existing comments:
-  mcp__github__create_pending_pull_request_review
-  mcp__github__add_pull_request_review_comment_to_pending_review
-  mcp__github__submit_pending_pull_request_review --event "COMMENT"
-  ```
-
-- The pending review approach is only for adding NEW review comments, not for responding to existing ones
-- Provide detailed explanations of what was changed and why when replying
-
-#### 7. **Final Validation**
-
-- Ensure all CI checks still pass after addressing comments
-- Run final validation locally:
-  ```bash
-  cargo test --workspace
-  cargo clippy --workspace --all-targets
-  ```
-- Push any additional fixes
-
-#### 8. **Merge PR and Cleanup**
-
-- Once all checks pass and comments are addressed
-- The PR will be merged automatically or by maintainers
-
-**MANDATORY Post-Merge Cleanup** (prevents future merge conflicts):
-
-```bash
-# 1. Switch back to main branch
-mcp__git__checkout --target "main"
-
-# 2. Pull latest changes including the merged PR
-mcp__git__pull --branch "main"
-
-# 3. Delete the local feature branch (no longer needed)
-mcp__git__branch_delete --name "feat/<feature-name>"
-
-# 4. Optional: Run garbage collection to clean up
-git gc --aggressive --prune=now
-```
-
-This ensures your local main branch stays synchronized and prevents merge conflicts in future PRs.
-
-#### Important Notes:
-
-- **Never skip CI checks** - always wait for them to complete
-- **Address ALL review comments** - including nitpicks and suggestions
-- **Keep commits atomic** - each commit should represent a complete, working change
-- **Update tests** - new features must include tests
-- **Document changes** - update relevant documentation
-- **Use conventional commits** - for automated versioning and changelog generation
-
-### MANDATORY: PR Status and CI Checks Verification
-
-**🚨 CRITICAL REQUIREMENT 🚨**: When checking PR status, you MUST verify both high-level status AND detailed CI check results. The high-level GitHub status can be misleading.
-
-#### Complete PR Status Check Process
-
-**ALWAYS follow this complete verification sequence:**
-
-```bash
-# 1. Get overall PR status (may not show all details)
-mcp__github__get_pull_request_status --owner <owner> --repo <repo> --pullNumber <pr_number>
-
-# 2. Check detailed workflow runs for the specific commit
-gh run list --repo <owner>/<repo> --commit <commit_sha>
-
-# 3. If any runs show 'failure', get detailed failure information
-gh run view <failed_run_id> --repo <owner>/<repo>
-
-# 4. For failed runs, get the actual failure logs
-gh run view <failed_run_id> --log-failed --repo <owner>/<repo>
-```
-
-#### Critical Verification Points
-
-1. **Check ALL Workflow Runs**: Don't rely solely on `mcp__github__get_pull_request_status` as it may only show limited status checks (like CodeRabbit reviews)
-
-2. **Look for Platform-Specific Failures**:
-   - Windows builds may fail due to line endings, path separators, or platform-specific behavior
-   - macOS builds may have different behavior than Linux
-   - Different Python versions (3.10, 3.11, 3.12) may exhibit different failures
-
-3. **Common CI Failure Patterns**:
-   - **Snapshot test failures**: Often due to line ending differences (CRLF vs LF)
-   - **Clippy warnings/errors**: Must be fixed with actual code changes, not `#[allow]` annotations
-   - **Test failures**: Check for platform-specific test issues
-   - **Build failures**: Dependency conflicts, compilation errors, missing dependencies
-
-#### Status Check Interpretation
-
-**❌ These indicate failures requiring attention:**
-
-- `status: "completed", conclusion: "failure"` - Actual test/build failure
-- `status: "completed", conclusion: "action_required"` - Manual intervention needed
-- Any workflow run showing `X` or `failure` status
-
-**✅ These indicate successful runs:**
-
-- `status: "completed", conclusion: "success"` - All checks passed
-- `status: "completed", conclusion: "skipped"` - Intentionally skipped (often due to path filters)
-
-#### Failure Response Protocol
-
-When CI failures are detected:
-
-1. **Identify Root Cause**: Use failure logs to understand the specific issue
-2. **Fix Locally**: Implement the necessary fix in your local branch
-3. **Test Thoroughly**: Ensure the fix works locally before pushing
-4. **Push Fix**: Commit and push the fix to trigger new CI runs
-5. **Verify Fix**: Wait for new CI runs and verify all checks pass
-
-#### Example Failure Scenarios
-
-**Snapshot Test Failure (Windows line endings):**
-
-```bash
-# Failure log will show something like:
-# -expected content with \n
-# +actual content with \r\n
-```
-
-**Fix**: Normalize line endings in output generation code
-
-**Clippy Warnings:**
-
-```bash
-# Failure log shows clippy warnings/errors
-```
-
-**Fix**: Refactor code to address warnings, never use `#[allow]` annotations
-
-**Platform-Specific Test Failure:**
-
-```bash
-# Tests pass on Linux/macOS but fail on Windows
-```
-
-**Fix**: Investigate platform-specific behavior and implement cross-platform solution
-
-#### Never Make These Mistakes
-
-- ❌ **Don't rely only on high-level PR status** - always check detailed workflow runs
-- ❌ **Don't ignore "skipped" workflows** - verify they were skipped for valid reasons
-- ❌ **Don't assume "action_required" means manual approval** - often indicates test failures
-- ❌ **Don't merge with any failing checks** - all platforms must pass
-
-This comprehensive approach ensures robust CI verification and prevents broken code from being merged.
-
-### MANDATORY: Review Comment Response Protocol
-
-**🚨 CRITICAL REQUIREMENT 🚨**: When addressing review comments on PRs, you MUST follow the individual comment reply protocol. Never post a single summary comment.
-
-#### Required Comment Response Flow
-
-**For EVERY individual review comment you address:**
-
-1. **Reply to the specific comment thread** - Use GitHub's inline comment reply feature
-2. **Document your fix clearly** - Explain exactly what you changed
-3. **Reference specific commits/files** - Provide commit SHA and file paths when relevant
-4. **Resolve the conversation** - Mark the conversation as resolved after providing your response
-
-#### Correct Protocol Example
-
-```
-For each individual CodeRabbit/Copilot comment:
-
-1. Reply directly to that comment with specific fix details
-2. Example reply: "✅ Fixed: Added comprehensive documentation to CircularDependencyAnalysis struct in dependency_graph.rs:16-31. Commit: c666055"
-3. Mark the conversation as resolved
-```
-
-#### NEVER Do This
-
-❌ **Don't post a single large summary comment** - This doesn't follow GitHub's conversation resolution workflow
-
-❌ **Don't group multiple fixes into one response** - Each comment thread needs individual attention
-
-❌ **Don't leave conversations unresolved** - Every addressed comment must be marked as resolved
-
-#### Proper Individual Response Template
-
-For each review comment:
-
-```markdown
-✅ **Addressed in [commit-sha]**
-
-[Specific description of the fix made]
-
-Changes made in `path/to/file.rs:line-numbers`:
-
-- [Detailed change 1]
-- [Detailed change 2]
-
-[Any additional context about the fix]
-```
-
-#### Comment Resolution Workflow
-
-1. **Find the specific review comment** that needs addressing
-2. **Make the code changes** to fix the issue
-3. **Commit the changes** with a clear commit message
-4. **Reply to the individual comment thread** with fix details
-5. **Mark the conversation as resolved** using GitHub's resolve feature
-6. **Repeat for each comment** until all are addressed
-
-#### MANDATORY: Correct API Usage for Comment Replies
-
-**🚨 CRITICAL REQUIREMENT 🚨**: Always use the correct GitHub API method for replying to comments.
-
-**CORRECT API for Pull Request Review Comments:**
-
-- Use `mcp__github__add_pull_request_review_comment_to_pending_review` for new review comments
-- Use the correct GitHub CLI command for replies:
-
-```bash
-# For replying to existing review comments (line-level comments)
-gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies \
-  --method POST \
-  --field body="Your reply message here"
-
-# For replying to general PR comments  
-gh api repos/OWNER/REPO/issues/PR_NUMBER/comments \
-  --method POST \
-  --field body="Your reply message here"
-```
-
-**NEVER use these incorrect approaches:**
-❌ **Don't edit existing comments** - This overwrites the original reviewer's comment
-❌ **Don't use the wrong API endpoint** - Each comment type requires specific endpoints
-❌ **Don't create new top-level comments** - These don't thread properly with the original comment
-
-**Debugging Comment API Issues:**
-
-1. **Identify comment type first**: Review comment (line-level) vs. general PR comment
-2. **Get the correct comment ID**: Use `gh pr view PR_NUMBER --comments` to find comment IDs
-3. **Use the appropriate API endpoint**: Review comments vs. issue comments have different APIs
-4. **Test the reply**: Verify the reply appears threaded under the original comment
-
-This ensures proper traceability and follows GitHub's intended review workflow for collaborative development.
+1. Check PR comments immediately
+2. Create todo item for each comment
+3. Address systematically before any other work
 
 ## Memories
 
@@ -635,3 +646,10 @@ This ensures proper traceability and follows GitHub's intended review workflow f
 - lefhook config is at .lefthook.yaml
 - use bun to manage Node.js dependencies
 - CRITICAL: When asked to "resolve PR comments that you attended" - DO NOT create a new review. Instead, reply directly to the original comment threads and mark them as resolved. Creating a new review adds duplicate comments instead of resolving the existing ones.
+
+# important-instruction-reminders
+
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
