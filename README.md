@@ -113,7 +113,18 @@ serpen --entry src/main.py --output bundle.py --config my-serpen.toml
 
 ## Configuration
 
-Create a `serpen.toml` file in your project root:
+Serpen supports hierarchical configuration with the following precedence (highest to lowest):
+
+1. **CLI-provided config** (`--config` flag)
+2. **Environment variables** (with `SERPEN_` prefix)
+3. **Project config** (`serpen.toml` in current directory)
+4. **User config** (`~/.config/serpen/serpen.toml`)
+5. **System config** (`/etc/serpen/serpen.toml` on Unix, `%SYSTEMDRIVE%\ProgramData\serpen\serpen.toml` on Windows)
+6. **Default values**
+
+### Configuration File Format
+
+Create a `serpen.toml` file:
 
 ```toml
 # Source directories to scan for first-party modules
@@ -136,7 +147,39 @@ preserve_comments = true
 
 # Whether to preserve type hints in the bundled output
 preserve_type_hints = true
+
+# Target Python version for standard library checks
+# Supported: "py38", "py39", "py310", "py311", "py312", "py313"
+target-version = "py310"
 ```
+
+### Environment Variables
+
+All configuration options can be overridden using environment variables with the `SERPEN_` prefix:
+
+```bash
+# Comma-separated lists
+export SERPEN_SRC="src,lib,custom_dir"
+export SERPEN_KNOWN_FIRST_PARTY="mypackage,myotherpackage"
+export SERPEN_KNOWN_THIRD_PARTY="requests,numpy"
+
+# Boolean values (true/false, 1/0, yes/no, on/off)
+export SERPEN_PRESERVE_COMMENTS="false"
+export SERPEN_PRESERVE_TYPE_HINTS="true"
+
+# String values
+export SERPEN_TARGET_VERSION="py312"
+```
+
+### Configuration Locations
+
+- **Project**: `./serpen.toml`
+- **User**:
+  - Linux/macOS: `~/.config/serpen/serpen.toml`
+  - Windows: `%APPDATA%\serpen\serpen.toml`
+- **System**:
+  - Linux/macOS: `/etc/serpen/serpen.toml` or `/etc/xdg/serpen/serpen.toml`
+  - Windows: `%SYSTEMDRIVE%\ProgramData\serpen\serpen.toml`
 
 ## How It Works
 

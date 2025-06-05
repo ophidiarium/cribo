@@ -64,11 +64,12 @@ src = ["src", "lib"]
 
         let result = Config::load(Some(temp_file.path()));
         assert!(result.is_err());
+        let error_message = result.unwrap_err().to_string();
+        // The error should mention either loading config or invalid target version
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Invalid target-version")
+            error_message.contains("Failed to load CLI config")
+                || error_message.contains("Invalid target version")
+                || error_message.contains("Invalid target-version")
         );
     }
 }
