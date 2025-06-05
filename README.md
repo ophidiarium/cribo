@@ -387,7 +387,17 @@ Coverage reports are automatically generated in CI and uploaded to Codecov. See 
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project uses a dual licensing approach:
+
+- **Source Code**: Licensed under the [MIT License](LICENSE)
+- **Documentation**: Licensed under the [Creative Commons Attribution 4.0 International License (CC BY 4.0)](docs/LICENSE)
+
+### What this means:
+
+- **For the source code**: You can freely use, modify, and distribute the code for any purpose with minimal restrictions under the MIT license.
+- **For the documentation**: You can share, adapt, and use the documentation for any purpose (including commercially) as long as you provide appropriate attribution under CC BY 4.0.
+
+See the [LICENSE](LICENSE) file for the MIT license text and [docs/LICENSE](docs/LICENSE) for the CC BY 4.0 license text.
 
 ## Acknowledgments
 

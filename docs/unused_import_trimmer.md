@@ -1,3 +1,9 @@
+---
+license: CC BY 4.0
+author: Konstantin Vyatkin
+source: https://github.com/tinovyatkin/serpen/docs
+---
+
 # Unused Import Trimmer (Internal Module)
 
 **Note: This document describes internal functionality that is not currently exposed via the CLI. The `trim` subcommand mentioned in this document does not exist in the current version of Serpen.**
