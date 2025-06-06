@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use std::fs;
 
@@ -46,6 +45,8 @@ pub struct CodeEmitter {
     init_modules: IndexSet<String>,
     /// Track bundled variable names for each module
     bundled_variables: IndexMap<String, IndexMap<String, String>>,
+    /// Track future imports that need to be hoisted to the top
+    future_imports: IndexSet<String>,
 }
 
 impl CodeEmitter {
@@ -61,6 +62,7 @@ impl CodeEmitter {
             created_namespaces: IndexSet::new(),
             init_modules: IndexSet::new(),
             bundled_variables: IndexMap::new(),
+            future_imports: IndexSet::new(),
         }
     }
 
@@ -71,6 +73,11 @@ impl CodeEmitter {
         third_party_imports: &mut IndexSet<String>,
         stdlib_imports: &mut IndexSet<String>,
     ) {
+        // Skip __future__ imports as they are handled separately
+        if import == "__future__" {
+            return;
+        }
+
         match self.resolver.classify_import(import) {
             ImportType::ThirdParty => {
                 third_party_imports.insert(import.to_string());
@@ -112,7 +119,11 @@ impl CodeEmitter {
         let mut aliased_third_party = IndexSet::new();
         let mut aliased_stdlib = IndexSet::new();
 
-        for import_alias in import_aliases.values() {
+        // Sort import aliases by key for deterministic processing order
+        let mut sorted_aliases: Vec<_> = import_aliases.iter().collect();
+        sorted_aliases.sort_by_key(|(key, _)| *key);
+
+        for (_, import_alias) in sorted_aliases {
             if !import_alias.has_explicit_alias || import_alias.is_from_import {
                 continue;
             }
@@ -136,6 +147,35 @@ impl CodeEmitter {
         }
 
         (aliased_third_party, aliased_stdlib)
+    }
+
+    /// Add future imports to the bundle at the very top
+    fn add_future_imports_to_bundle(&self, bundle_ast: &mut ModModule) {
+        if self.future_imports.is_empty() {
+            return;
+        }
+
+        // Sort future imports for deterministic output
+        let mut sorted_features: Vec<_> = self.future_imports.iter().collect();
+        sorted_features.sort();
+
+        // Create a single from __future__ import statement with all features
+        let future_import = Stmt::ImportFrom(StmtImportFrom {
+            module: Some(Identifier::new("__future__", TextRange::default())),
+            names: sorted_features
+                .into_iter()
+                .map(|feature| Alias {
+                    name: Identifier::new(feature.clone(), TextRange::default()),
+                    asname: None,
+                    range: TextRange::default(),
+                })
+                .collect(),
+            level: 0,
+            range: TextRange::default(),
+        });
+
+        bundle_ast.body.push(future_import);
+        bundle_ast.body.push(self.create_comment_stmt("")); // Add blank line after future imports
     }
 
     /// Add aliased imports to the bundle separately (for alias assignments)
@@ -223,6 +263,7 @@ impl CodeEmitter {
 
             let source = fs::read_to_string(&module.path)
                 .with_context(|| format!("Failed to read module file: {:?}", module.path))?;
+            let source = crate::util::normalize_line_endings(source);
 
             // Parse into AST
             let ast = ruff_python_parser::parse_module(&source)
@@ -246,6 +287,9 @@ impl CodeEmitter {
 
             // Collect first-party imports from AST
             let first_party_imports = self.collect_first_party_imports_from_ast(ast.syntax())?;
+
+            // Collect future imports
+            self.collect_future_imports_from_ast(ast.syntax());
 
             // Store parsed data
             parsed_modules_data.insert(
@@ -286,11 +330,16 @@ impl CodeEmitter {
         // Pre-compute module import flags based on resolver information
         let module_flags = {
             let mut flags = IndexMap::new();
-            for import_alias in ast_rewriter
+
+            // Sort import aliases by key for deterministic processing order
+            let mut sorted_from_aliases: Vec<_> = ast_rewriter
                 .import_aliases()
-                .values()
-                .filter(|a| a.is_from_import)
-            {
+                .iter()
+                .filter(|(_, a)| a.is_from_import)
+                .collect();
+            sorted_from_aliases.sort_by_key(|(key, _)| *key);
+
+            for (_, import_alias) in sorted_from_aliases {
                 let full_module_name = format!(
                     "{}.{}",
                     import_alias.module_name, import_alias.original_name
@@ -338,6 +387,9 @@ impl CodeEmitter {
             &mut stdlib_imports,
             &ast_rewriter,
         );
+
+        // Add future imports at the very top (after shebang/comments)
+        self.add_future_imports_to_bundle(&mut bundle_ast);
 
         // Add preserved imports at the top
         self.add_preserved_imports_to_bundle(&mut bundle_ast, stdlib_imports, third_party_imports);
@@ -436,7 +488,7 @@ impl CodeEmitter {
 
         // Normalize line endings for cross-platform consistency
         let bundled_code = code_parts.join("\n");
-        Ok(self.normalize_line_endings(bundled_code))
+        Ok(crate::util::normalize_line_endings(bundled_code))
     }
 
     /// Process a single module's AST to produce a transformed AST for bundling
@@ -532,7 +584,7 @@ impl CodeEmitter {
                 code_parts.push(stmt_code);
             }
 
-            self.normalize_line_endings(code_parts.join("\n"))
+            crate::util::normalize_line_endings(code_parts.join("\n"))
         };
 
         // Add the exec call that will execute the module code in its namespace
@@ -1131,7 +1183,12 @@ impl CodeEmitter {
         F: Fn(&str) -> bool,
     {
         if let Some(module) = &import_from_stmt.module {
-            keep_predicate(module.as_str())
+            let module_name = module.as_str();
+            // Always remove __future__ imports as they are hoisted to the top
+            if module_name == "__future__" {
+                return false;
+            }
+            keep_predicate(module_name)
         } else {
             // Relative import - keep for now (could be refined later)
             true
@@ -1188,6 +1245,29 @@ impl CodeEmitter {
             ImportType::FirstParty
         ) {
             imports.insert(module_name.to_string());
+        }
+    }
+
+    /// Collect future imports from AST
+    fn collect_future_imports_from_ast(&mut self, module: &ModModule) {
+        for stmt in &module.body {
+            let Stmt::ImportFrom(import_from_stmt) = stmt else {
+                continue;
+            };
+
+            let Some(module) = &import_from_stmt.module else {
+                continue;
+            };
+
+            if module.as_str() != "__future__" {
+                continue;
+            }
+
+            // Collect all features imported from __future__
+            for alias in &import_from_stmt.names {
+                let feature_name = alias.name.as_str();
+                self.future_imports.insert(feature_name.to_string());
+            }
         }
     }
 
@@ -1353,8 +1433,16 @@ impl CodeEmitter {
     fn create_bundled_modules_mapping(&self) -> IndexMap<String, String> {
         let mut mapping = IndexMap::new();
 
-        for (module_name, variables) in &self.bundled_variables {
-            for (original_name, bundled_name) in variables {
+        // Sort module names for deterministic processing order
+        let mut sorted_modules: Vec<_> = self.bundled_variables.iter().collect();
+        sorted_modules.sort_by_key(|(module_name, _)| *module_name);
+
+        for (module_name, variables) in sorted_modules {
+            // Sort variable names within each module for deterministic order
+            let mut sorted_variables: Vec<_> = variables.iter().collect();
+            sorted_variables.sort_by_key(|(original_name, _)| *original_name);
+
+            for (original_name, bundled_name) in sorted_variables {
                 // Map "module.original_name" -> "bundled_name"
                 let key = format!("{}.{}", module_name, original_name);
                 mapping.insert(key, bundled_name.clone());
@@ -1396,16 +1484,6 @@ impl CodeEmitter {
         } else {
             log::debug!("No renames found for module {}", module_name);
         }
-    }
-
-    /// Normalize line endings to LF (\n) for cross-platform consistency
-    /// This ensures reproducible builds regardless of the platform where bundling occurs
-    fn normalize_line_endings(&self, content: String) -> String {
-        // Replace Windows CRLF (\r\n) and Mac CR (\r) with Unix LF (\n)
-        content
-            .cow_replace("\r\n", "\n")
-            .cow_replace('\r', "\n")
-            .into_owned()
     }
 
     /// Helper to build a nested dotted name expression for assignment target

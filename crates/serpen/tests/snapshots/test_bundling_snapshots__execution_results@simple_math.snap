@@ -1,0 +1,9 @@
+---
+source: crates/serpen/tests/test_bundling_snapshots.rs
+expression: execution_results
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Addition: 8\nMultiplication: 28",
+    stderr: "",
+}

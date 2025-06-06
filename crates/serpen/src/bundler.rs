@@ -9,7 +9,7 @@ use crate::config::Config;
 use crate::dependency_graph::{CircularDependencyGroup, DependencyGraph, ModuleNode};
 use crate::emit::CodeEmitter;
 use crate::resolver::{ImportType, ModuleResolver};
-use crate::util::module_name_from_relative;
+use crate::util::{module_name_from_relative, normalize_line_endings};
 
 /// Type alias for module processing queue
 type ModuleQueue = Vec<(String, PathBuf)>;
@@ -378,6 +378,7 @@ impl Bundler {
     ) -> Result<Vec<String>> {
         let source = fs::read_to_string(file_path)
             .with_context(|| format!("Failed to read file: {:?}", file_path))?;
+        let source = normalize_line_endings(source);
 
         let parsed = ruff_python_parser::parse_module(&source)
             .with_context(|| format!("Failed to parse Python file: {:?}", file_path))?;
