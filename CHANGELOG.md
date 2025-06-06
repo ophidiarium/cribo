@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.6](https://github.com/tinovyatkin/serpen/compare/v0.4.5...v0.4.6) (2025-06-06)
+
+
+### Features
+
+* add comprehensive `from __future__` imports support with generic snapshot testing framework ([#63](https://github.com/tinovyatkin/serpen/issues/63)) ([e74c6e1](https://github.com/tinovyatkin/serpen/commit/e74c6e1275f6de9950cb8cc62a5771c743acb722))
+
 ## [0.4.5](https://github.com/tinovyatkin/serpen/compare/v0.4.4...v0.4.5) (2025-06-05)
 
 
