@@ -1036,6 +1036,12 @@ impl AstRewriter {
         module_ast: &mut ast::ModModule,
         bundled_modules: &IndexMap<String, String>,
     ) -> Result<()> {
+        log::debug!(
+            "transform_init_py_relative_imports called for module: {}, is_init: {}",
+            module_name,
+            self.init_modules.contains(module_name)
+        );
+
         // Only transform if this is an __init__.py file
         if !self.init_modules.contains(module_name) {
             return Ok(());
@@ -1056,23 +1062,54 @@ impl AstRewriter {
                 continue;
             };
 
-            if import_from.level == 0 || import_from.module.is_some() {
+            // Skip non-relative imports
+            if import_from.level == 0 {
                 continue;
             }
 
-            // This is a relative import like "from . import module"
-            for alias in &import_from.names {
-                let imported_name = alias.name.as_str();
-                let bundled_name =
-                    Self::get_bundled_name(module_name, imported_name, bundled_modules);
-                imported_modules.insert(imported_name.to_string(), bundled_name);
+            if let Some(relative_module) = &import_from.module {
+                // This is a relative import like "from .greeting import message"
+                self.process_relative_module_import(
+                    &import_from.names,
+                    (relative_module.as_str(), module_name),
+                    &mut imported_modules,
+                );
+            } else {
+                // This is a relative import like "from . import module"
+                self.process_relative_dot_import(
+                    &import_from.names,
+                    (module_name, bundled_modules),
+                    &mut imported_modules,
+                );
             }
             statements_to_remove.push(i);
         }
 
-        // Remove relative import statements
+        // Replace relative import statements with direct assignments
         for &index in statements_to_remove.iter().rev() {
             module_ast.body.remove(index);
+        }
+
+        // Add assignment statements for imported variables
+        let mut assignments_to_add = Vec::new();
+        for (imported_name, bundled_name) in &imported_modules {
+            let assignment = self.create_variable_assignment(imported_name, bundled_name);
+            assignments_to_add.push(assignment);
+            log::debug!(
+                "Added {} assignment for relative import: {} = {}",
+                if imported_name != bundled_name {
+                    "standard"
+                } else {
+                    "identity"
+                },
+                imported_name,
+                bundled_name
+            );
+        }
+
+        // Insert assignments at the beginning of the module
+        for (i, assignment) in assignments_to_add.into_iter().enumerate() {
+            module_ast.body.insert(i, assignment);
         }
 
         // Transform attribute access expressions (e.g., greeting.message -> __greetings_greeting_message)
@@ -1093,6 +1130,23 @@ impl AstRewriter {
             self.transform_attribute_access_in_stmt(stmt, imported_modules)?;
         }
         Ok(())
+    }
+
+    /// Create a variable assignment statement: name = value
+    fn create_variable_assignment(&self, name: &str, value: &str) -> Stmt {
+        Stmt::Assign(ast::StmtAssign {
+            targets: vec![Expr::Name(ast::ExprName {
+                id: name.to_string().into(),
+                ctx: ExprContext::Store,
+                range: Default::default(),
+            })],
+            value: Box::new(Expr::Name(ast::ExprName {
+                id: value.to_string().into(),
+                ctx: ExprContext::Load,
+                range: Default::default(),
+            })),
+            range: Default::default(),
+        })
     }
 
     /// Transform attribute access expressions in a single statement
@@ -1400,6 +1454,43 @@ impl AstRewriter {
             .cloned()
             .unwrap_or_else(|| Self::generate_fallback_bundled_name(module_name, imported_name))
     }
+
+    /// Process relative import with module name (e.g., "from .greeting import message")
+    fn process_relative_module_import(
+        &self,
+        names: &[Alias],
+        context: (&str, &str), // (relative_module_name, module_name)
+        imported_modules: &mut IndexMap<String, String>,
+    ) {
+        let (relative_module_name, module_name) = context;
+        for alias in names {
+            let imported_name = alias.name.as_str();
+            // For "from .greeting import message", assume the variable exists directly in global scope
+            // since bundled modules emit their variables to global scope
+            log::debug!(
+                "Transforming relative import '{}' from module '{}.{}' to global reference",
+                imported_name,
+                module_name,
+                relative_module_name
+            );
+            imported_modules.insert(imported_name.to_string(), imported_name.to_string());
+        }
+    }
+
+    /// Process relative dot import (e.g., "from . import module")
+    fn process_relative_dot_import(
+        &self,
+        names: &[Alias],
+        context: (&str, &IndexMap<String, String>), // (module_name, bundled_modules)
+        imported_modules: &mut IndexMap<String, String>,
+    ) {
+        let (module_name, bundled_modules) = context;
+        for alias in names {
+            let imported_name = alias.name.as_str();
+            let bundled_name = Self::get_bundled_name(module_name, imported_name, bundled_modules);
+            imported_modules.insert(imported_name.to_string(), bundled_name);
+        }
+    }
 }
 
 impl Default for AstRewriter {
@@ -1471,5 +1562,57 @@ mod tests {
                 name
             );
         }
+    }
+
+    #[test]
+    fn test_process_relative_dot_import() {
+        use ruff_text_size::TextRange;
+
+        let ast_rewriter = AstRewriter::new(10);
+
+        // Create test aliases for "from . import greeting, helpers"
+        let aliases = vec![
+            Alias {
+                name: Identifier::new("greeting", TextRange::default()),
+                asname: None,
+                range: TextRange::default(),
+            },
+            Alias {
+                name: Identifier::new("helpers", TextRange::default()),
+                asname: None,
+                range: TextRange::default(),
+            },
+        ];
+
+        // Create bundled modules mapping
+        let mut bundled_modules = IndexMap::new();
+        bundled_modules.insert(
+            "greetings.greeting".to_string(),
+            "greetings_greeting".to_string(),
+        );
+        bundled_modules.insert(
+            "greetings.helpers".to_string(),
+            "greetings_helpers".to_string(),
+        );
+
+        let mut imported_modules = IndexMap::new();
+
+        // Test the process_relative_dot_import method
+        ast_rewriter.process_relative_dot_import(
+            &aliases,
+            ("greetings", &bundled_modules),
+            &mut imported_modules,
+        );
+
+        // Verify the imported modules were processed correctly
+        assert_eq!(imported_modules.len(), 2);
+        assert_eq!(
+            imported_modules.get("greeting"),
+            Some(&"greetings_greeting".to_string())
+        );
+        assert_eq!(
+            imported_modules.get("helpers"),
+            Some(&"greetings_helpers".to_string())
+        );
     }
 }
