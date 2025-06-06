@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.7](https://github.com/tinovyatkin/serpen/compare/v0.4.6...v0.4.7) (2025-06-06)
+
+
+### Features
+
+* integrate ruff linting for bundle output for cross-validation ([#66](https://github.com/tinovyatkin/serpen/issues/66)) ([170deda](https://github.com/tinovyatkin/serpen/commit/170deda60850f425d57647fb9ca88904f7f72a26))
+
+
+### Bug Fixes
+
+* **ci:** avoid double run of lint on PRs ([281289c](https://github.com/tinovyatkin/serpen/commit/281289ce97d508fe9541ae211f2c77c260d9e3ec))
+
 ## [0.4.6](https://github.com/tinovyatkin/serpen/compare/v0.4.5...v0.4.6) (2025-06-06)
 
 
