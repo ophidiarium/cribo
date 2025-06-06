@@ -10,9 +10,6 @@ expression: output
 
 # Preserved imports
 import re
-import typing
-
-import pydantic
 
 # ─ Module: utils.validation ─
 """Validation utilities."""

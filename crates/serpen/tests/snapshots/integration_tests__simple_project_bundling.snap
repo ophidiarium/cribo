@@ -8,10 +8,8 @@ expression: content
 # https://github.com/tinovyatkin/serpen
 
 # Preserved imports
-import dataclasses
 import os
 import sys
-import typing
 
 # ─ Module: models.user ─
 """User model for the test project."""

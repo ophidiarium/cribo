@@ -381,6 +381,12 @@ impl CodeEmitter {
         third_party_imports.retain(|import| !all_unused_imports.contains(import));
         stdlib_imports.retain(|import| !all_unused_imports.contains(import));
 
+        // Filter out redundant general imports (e.g., "import typing" when "from typing import Dict" exists)
+        third_party_imports =
+            self.filter_redundant_imports_from_modules(third_party_imports, &parsed_modules_data);
+        stdlib_imports =
+            self.filter_redundant_imports_from_modules(stdlib_imports, &parsed_modules_data);
+
         // Filter out imports that have alias assignments to avoid redundancy
         let aliased_imports = self.filter_aliased_imports(
             &mut third_party_imports,
@@ -1508,6 +1514,66 @@ impl CodeEmitter {
             });
         }
         current_expr
+    }
+
+    /// Filter out redundant general imports based on specific imports found in module data
+    /// This version analyzes the original parsed modules before bundling
+    fn filter_redundant_imports_from_modules(
+        &self,
+        imports: IndexSet<String>,
+        parsed_modules_data: &IndexMap<std::path::PathBuf, ParsedModuleData>,
+    ) -> IndexSet<String> {
+        let mut filtered_imports = IndexSet::new();
+
+        // Collect all specific imports from all module ASTs
+        let mut specific_imports = IndexSet::new();
+        for parsed_data in parsed_modules_data.values() {
+            for stmt in &parsed_data.ast.body {
+                self.collect_specific_imports_from_statement(stmt, &mut specific_imports);
+            }
+        }
+
+        log::debug!("Found specific imports: {:?}", specific_imports);
+
+        // Filter out general imports that have specific imports
+        for import in imports {
+            let has_specific_imports = specific_imports.iter().any(|specific_import| {
+                // Check if this general import has corresponding specific imports
+                // Use exact module name matching to avoid substring false positives
+                specific_import.split('.').next() == Some(&import)
+            });
+
+            if !has_specific_imports {
+                filtered_imports.insert(import);
+            } else {
+                log::debug!(
+                    "Filtering out redundant general import '{}' due to specific imports",
+                    import
+                );
+            }
+        }
+
+        filtered_imports
+    }
+
+    /// Collect specific imports from a statement (e.g., "from typing import Dict, Any")
+    fn collect_specific_imports_from_statement(
+        &self,
+        stmt: &Stmt,
+        specific_imports: &mut IndexSet<String>,
+    ) {
+        let Stmt::ImportFrom(import_from_stmt) = stmt else {
+            return;
+        };
+        let Some(module) = &import_from_stmt.module else {
+            return;
+        };
+        let module_name = module.as_str();
+        for alias in &import_from_stmt.names {
+            let imported_name = alias.name.as_str();
+            let full_name = format!("{}.{}", module_name, imported_name);
+            specific_imports.insert(full_name);
+        }
     }
 }
 

@@ -31,7 +31,10 @@ pre-commit:
       run: curl --fail --data-binary @.codecov.yml https://codecov.io/validate
     renovate:
       glob: 'renovate.json'
-      run: npx -y --package renovate -c 'renovate-config-validator' renovate.json
+      run: npx -y --package renovate renovate-config-validator renovate.json
+    release-please:
+      glob: release-please-config.json
+      run: uvx check-jsonschema --schemafile https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json release-please-config.json
 
 commit-msg:
   commands:
