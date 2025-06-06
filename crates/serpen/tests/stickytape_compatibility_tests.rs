@@ -208,7 +208,6 @@ fn test_explicit_relative_imports_with_single_dot_in_package_init_are_resolved_c
 }
 
 #[test]
-#[ignore = "Not passing yet"]
 fn test_explicit_relative_imports_from_parent_package_are_resolved_correctly() {
     assert_script_output("explicit_relative_import_from_parent_package", "Hello");
 }

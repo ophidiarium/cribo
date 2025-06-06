@@ -1068,10 +1068,21 @@ impl AstRewriter {
             }
 
             if let Some(relative_module) = &import_from.module {
-                // This is a relative import like "from .greeting import message"
+                // This is a relative import like "from .greeting import message" or "from ..messages import message"
+                log::debug!(
+                    "Found relative import: from {}{} import [...] (level={})",
+                    ".".repeat(import_from.level as usize),
+                    relative_module,
+                    import_from.level
+                );
                 self.process_relative_module_import(
                     &import_from.names,
-                    (relative_module.as_str(), module_name),
+                    (
+                        relative_module.as_str(),
+                        module_name,
+                        import_from.level,
+                        bundled_modules,
+                    ),
                     &mut imported_modules,
                 );
             } else {
@@ -1096,16 +1107,13 @@ impl AstRewriter {
             let assignment = self.create_variable_assignment(imported_name, bundled_name);
             assignments_to_add.push(assignment);
             log::debug!(
-                "Added {} assignment for relative import: {} = {}",
-                if imported_name != bundled_name {
-                    "standard"
-                } else {
-                    "identity"
-                },
+                "Added assignment for relative import: {} = {}",
                 imported_name,
                 bundled_name
             );
         }
+
+        log::debug!("Total imported_modules: {:?}", imported_modules);
 
         // Insert assignments at the beginning of the module
         for (i, assignment) in assignments_to_add.into_iter().enumerate() {
@@ -1455,26 +1463,102 @@ impl AstRewriter {
             .unwrap_or_else(|| Self::generate_fallback_bundled_name(module_name, imported_name))
     }
 
-    /// Process relative import with module name (e.g., "from .greeting import message")
+    /// Process relative import with module name (e.g., "from .greeting import message" or "from ..messages import message")
     fn process_relative_module_import(
         &self,
         names: &[Alias],
-        context: (&str, &str), // (relative_module_name, module_name)
+        context: (&str, &str, u32, &IndexMap<String, String>), // (relative_module_name, current_module_name, level, bundled_modules)
         imported_modules: &mut IndexMap<String, String>,
     ) {
-        let (relative_module_name, module_name) = context;
+        let (relative_module_name, current_module_name, level, bundled_modules) = context;
+
+        // Resolve the target module path based on the relative import level
+        let target_module_path =
+            self.resolve_relative_module_path(current_module_name, relative_module_name, level);
+
+        log::debug!(
+            "Resolving relative import: from {}{} import [...] (level={}) in module '{}' -> target module: '{}'",
+            ".".repeat(level as usize),
+            relative_module_name,
+            level,
+            current_module_name,
+            target_module_path
+        );
+
         for alias in names {
             let imported_name = alias.name.as_str();
-            // For "from .greeting import message", assume the variable exists directly in global scope
-            // since bundled modules emit their variables to global scope
+
+            // Look for the bundled variable name for this import
+            let lookup_key = format!("{}.{}", target_module_path, imported_name);
+            let bundled_name = bundled_modules
+                .get(&lookup_key)
+                .cloned()
+                .unwrap_or_else(|| {
+                    // For variables without explicit mapping, assume they become global variables
+                    // with their original name (this is the case for non-conflicted variables)
+                    log::debug!(
+                        "No bundled mapping found for '{}', assuming global variable '{}'",
+                        lookup_key,
+                        imported_name
+                    );
+                    imported_name.to_string()
+                });
+
             log::debug!(
-                "Transforming relative import '{}' from module '{}.{}' to global reference",
+                "Transforming relative import '{}' from '{}' -> bundled variable '{}'",
                 imported_name,
-                module_name,
-                relative_module_name
+                lookup_key,
+                bundled_name
             );
-            imported_modules.insert(imported_name.to_string(), imported_name.to_string());
+
+            imported_modules.insert(imported_name.to_string(), bundled_name);
         }
+    }
+
+    /// Resolve relative module path based on current module and import level
+    /// The level represents the number of dots in the import:
+    /// - level=1: "from . import" (current package)
+    /// - level=2: "from .. import" (parent package)
+    /// - level=3: "from ... import" (grandparent package)
+    ///
+    /// Examples:
+    /// - current_module="greetings.greeting", relative_module="messages", level=2 ("from ..messages")
+    ///   -> resolves to "greetings.messages"
+    /// - current_module="greetings.greeting", relative_module="submodule", level=1 ("from .submodule")
+    ///   -> resolves to "greetings.greeting.submodule"
+    fn resolve_relative_module_path(
+        &self,
+        current_module: &str,
+        relative_module: &str,
+        level: u32,
+    ) -> String {
+        let current_parts: Vec<&str> = current_module.split('.').collect();
+
+        // Calculate target package depth based on level
+        // level=1 means current package, level=2 means parent package, etc.
+        // So we need to go up (level-1) package levels
+        let levels_up = (level as usize).saturating_sub(1);
+        let target_depth = current_parts.len().saturating_sub(levels_up);
+
+        // Build the target module path
+        let mut target_parts = current_parts[..target_depth].to_vec();
+        if !relative_module.is_empty() {
+            target_parts.push(relative_module);
+        }
+
+        let result = target_parts.join(".");
+
+        log::debug!(
+            "resolve_relative_module_path: current='{}', relative='{}', level={} -> levels_up={}, target_depth={}, result='{}'",
+            current_module,
+            relative_module,
+            level,
+            levels_up,
+            target_depth,
+            result
+        );
+
+        result
     }
 
     /// Process relative dot import (e.g., "from . import module")
