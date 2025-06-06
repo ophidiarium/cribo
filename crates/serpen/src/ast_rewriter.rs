@@ -80,7 +80,7 @@ impl AstRewriter {
 
         // Add all Python built-ins for the specified version
         for builtin in builtins::python_builtins(python_version, false) {
-            reserved_names.insert(builtin.to_string());
+            reserved_names.insert(builtin.to_owned());
         }
 
         // Note: Python keywords are checked dynamically using ruff_python_stdlib::keyword::is_keyword
@@ -153,8 +153,11 @@ impl AstRewriter {
             let import_alias = if let Some(asname) = &alias.asname {
                 // Import with explicit alias: from module import name as alias
                 ImportAlias {
+                    #[allow(clippy::disallowed_methods)]
                     original_name: alias.name.to_string(),
+                    #[allow(clippy::disallowed_methods)]
                     alias_name: asname.to_string(),
+                    #[allow(clippy::disallowed_methods)]
                     module_name: module.to_string(),
                     is_from_import: true,
                     has_explicit_alias: true,
@@ -163,8 +166,11 @@ impl AstRewriter {
             } else {
                 // Import without alias: from module import name
                 ImportAlias {
+                    #[allow(clippy::disallowed_methods)]
                     original_name: alias.name.to_string(),
+                    #[allow(clippy::disallowed_methods)]
                     alias_name: alias.name.to_string(), // Same as original name
+                    #[allow(clippy::disallowed_methods)]
                     module_name: module.to_string(),
                     is_from_import: true,
                     has_explicit_alias: false,
@@ -175,6 +181,7 @@ impl AstRewriter {
             let key = if alias.asname.is_some() {
                 import_alias.alias_name.clone()
             } else {
+                #[allow(clippy::disallowed_methods)]
                 alias.name.to_string()
             };
             self.import_aliases.insert(key, import_alias);
@@ -186,13 +193,17 @@ impl AstRewriter {
         for alias in &import.names {
             if let Some(asname) = &alias.asname {
                 let import_alias = ImportAlias {
+                    #[allow(clippy::disallowed_methods)]
                     original_name: alias.name.to_string(),
+                    #[allow(clippy::disallowed_methods)]
                     alias_name: asname.to_string(),
+                    #[allow(clippy::disallowed_methods)]
                     module_name: alias.name.to_string(),
                     is_from_import: false,
                     has_explicit_alias: true,
                     is_module_import: true, // Regular imports are always module imports
                 };
+                #[allow(clippy::disallowed_methods)]
                 self.import_aliases.insert(asname.to_string(), import_alias);
             }
         }
@@ -223,13 +234,14 @@ impl AstRewriter {
             Stmt::FunctionDef(func_def) => {
                 let symbol_key = format!("{}::{}", module_name, func_def.name);
                 let symbol = Symbol {
+                    #[allow(clippy::disallowed_methods)]
                     name: func_def.name.to_string(),
                     scope_type: scope_type.clone(),
                     is_parameter: false,
                     is_global: matches!(scope_type, ScopeType::Module),
                     is_nonlocal: false,
                     is_imported: false,
-                    definitions: vec![module_name.to_string()],
+                    definitions: vec![module_name.to_owned()],
                     usages: vec![],
                 };
                 self.symbols.insert(symbol_key, symbol);
@@ -242,13 +254,14 @@ impl AstRewriter {
             Stmt::ClassDef(class_def) => {
                 let symbol_key = format!("{}::{}", module_name, class_def.name);
                 let symbol = Symbol {
+                    #[allow(clippy::disallowed_methods)]
                     name: class_def.name.to_string(),
                     scope_type: scope_type.clone(),
                     is_parameter: false,
                     is_global: matches!(scope_type, ScopeType::Module),
                     is_nonlocal: false,
                     is_imported: false,
-                    definitions: vec![module_name.to_string()],
+                    definitions: vec![module_name.to_owned()],
                     usages: vec![],
                 };
                 self.symbols.insert(symbol_key, symbol);
@@ -291,13 +304,14 @@ impl AstRewriter {
                 if is_assignment && matches!(scope_type, ScopeType::Module) {
                     // This is a module-level assignment
                     let symbol = Symbol {
+                        #[allow(clippy::disallowed_methods)]
                         name: name.id.to_string(),
                         scope_type: scope_type.clone(),
                         is_parameter: false,
                         is_global: true,
                         is_nonlocal: false,
                         is_imported: false,
-                        definitions: vec![module_name.to_string()],
+                        definitions: vec![module_name.to_owned()],
                         usages: vec![],
                     };
                     self.symbols.insert(symbol_key, symbol);
@@ -350,7 +364,7 @@ impl AstRewriter {
                 name_to_modules
                     .entry(symbol.name.clone())
                     .or_default()
-                    .push(module_name.to_string());
+                    .push(module_name.to_owned());
             }
         }
     }
@@ -365,29 +379,19 @@ impl AstRewriter {
     /// Generate conflict resolutions for conflicting names
     fn generate_conflict_resolutions(&mut self, name_to_modules: IndexMap<String, Vec<String>>) {
         for (name, modules) in name_to_modules {
-            if modules.len() > 1 {
-                // Special handling for __init__.py package interfaces
-                // If one of the modules is a package (init.py) and the others are its submodules,
-                // don't rename the package interface variable
-                if let Some(package_module) = self.find_package_interface_module(&modules) {
-                    // Only rename the submodule variables, not the package interface
-                    let submodules: Vec<String> = modules
-                        .iter()
-                        .filter(|m| {
-                            *m != &package_module && m.starts_with(&format!("{}.", package_module))
-                        })
-                        .cloned()
-                        .collect();
-
-                    if !submodules.is_empty() {
-                        self.resolve_submodule_conflicts(&name, &submodules);
-                        continue;
-                    }
-                }
-
-                // Default conflict resolution for all other cases
-                self.resolve_name_conflict(&name, &modules);
+            if modules.len() <= 1 {
+                continue;
             }
+            // Special handling for __init__.py package interfaces
+            let mut handled = false;
+            if let Some(package_module) = self.find_package_interface_module(&modules) {
+                handled = self.handle_submodule_conflicts(&name, &modules, package_module.as_str());
+            }
+            if handled {
+                continue;
+            }
+            // Default conflict resolution for all other cases
+            self.resolve_name_conflict(&name, &modules);
         }
     }
 
@@ -395,15 +399,16 @@ impl AstRewriter {
     fn find_package_interface_module(&self, modules: &[String]) -> Option<String> {
         for module in modules {
             // Use the actual init_modules set instead of heuristic check
-            if self.init_modules.contains(module) {
-                // Check if other modules are submodules of this package
-                let package_prefix = format!("{}.", module);
-                if modules
-                    .iter()
-                    .any(|m| m != module && m.starts_with(&package_prefix))
-                {
-                    return Some(module.clone());
-                }
+            if !self.init_modules.contains(module) {
+                continue;
+            }
+            // Check if other modules are submodules of this package
+            let package_prefix = format!("{}.", module);
+            if modules
+                .iter()
+                .any(|m| m.as_str() != module && m.starts_with(&package_prefix))
+            {
+                return Some(module.clone());
             }
         }
         None
@@ -421,15 +426,15 @@ impl AstRewriter {
             self.module_renames
                 .entry(module.clone())
                 .or_default()
-                .insert(name.to_string(), renamed);
+                .insert(name.to_owned(), renamed);
         }
 
         let conflict = NameConflict {
-            name: name.to_string(),
+            name: name.to_owned(),
             modules: submodules.to_vec(),
             renamed_versions,
         };
-        self.name_conflicts.insert(name.to_string(), conflict);
+        self.name_conflicts.insert(name.to_owned(), conflict);
     }
 
     /// Resolve a specific name conflict
@@ -452,7 +457,7 @@ impl AstRewriter {
             modules: modules.to_vec(),
             renamed_versions,
         };
-        self.name_conflicts.insert(name.to_string(), conflict);
+        self.name_conflicts.insert(name.to_owned(), conflict);
     }
 
     /// Generate a unique name for a conflicting identifier
@@ -632,8 +637,8 @@ impl AstRewriter {
         self.apply_renames_to_ast(&mut if_stmt.body, renames)?;
 
         for clause in &mut if_stmt.elif_else_clauses {
-            if let Some(test) = &mut clause.test {
-                self.apply_renames_to_expr(test, renames)?;
+            if let Some(condition) = &mut clause.test {
+                self.apply_renames_to_expr(condition, renames)?;
             }
             self.apply_renames_to_ast(&mut clause.body, renames)?;
         }
@@ -761,7 +766,6 @@ impl AstRewriter {
             Expr::UnaryOp(unary) => self.apply_renames_to_expr(&mut unary.operand, renames),
             Expr::Compare(compare) => self.apply_renames_to_compare(compare, renames),
             Expr::List(list) => self.apply_renames_to_list(list, renames),
-            Expr::Dict(dict) => self.apply_renames_to_dict(dict, renames),
             Expr::Set(set) => self.apply_renames_to_collection(&mut set.elts, renames),
             Expr::Tuple(tuple) => self.apply_renames_to_collection(&mut tuple.elts, renames),
             Expr::BoolOp(bool_op) => self.apply_renames_to_collection(&mut bool_op.values, renames),
@@ -868,21 +872,6 @@ impl AstRewriter {
         renames: &IndexMap<String, String>,
     ) -> Result<()> {
         self.apply_renames_to_collection(&mut list.elts, renames)
-    }
-
-    /// Apply renames to a dictionary expression
-    fn apply_renames_to_dict(
-        &self,
-        dict: &mut ast::ExprDict,
-        renames: &IndexMap<String, String>,
-    ) -> Result<()> {
-        for item in &mut dict.items {
-            if let Some(key) = &mut item.key {
-                self.apply_renames_to_expr(key, renames)?;
-            }
-            self.apply_renames_to_expr(&mut item.value, renames)?;
-        }
-        Ok(())
     }
 
     /// Apply renames to a collection of expressions
@@ -1063,29 +1052,22 @@ impl AstRewriter {
 
         // Find relative import statements and map them to bundled variables
         for (i, stmt) in module_ast.body.iter().enumerate() {
-            if let Stmt::ImportFrom(import_from) = stmt {
-                if import_from.level > 0 && import_from.module.is_none() {
-                    // This is a relative import like "from . import module"
-                    for alias in &import_from.names {
-                        let imported_name = alias.name.as_str();
-                        // Look up the bundled variable name from the provided mapping
-                        let module_key = format!("{}.{}", module_name, imported_name);
-                        if let Some(bundled_name) = bundled_modules.get(&module_key) {
-                            imported_modules
-                                .insert(imported_name.to_string(), bundled_name.clone());
-                        } else {
-                            // Fallback to constructed prefix if not found in mapping
-                            let module_prefix = format!(
-                                "{}_{}",
-                                module_name.cow_replace('.', "_"),
-                                imported_name.cow_replace('.', "_")
-                            );
-                            imported_modules.insert(imported_name.to_string(), module_prefix);
-                        }
-                    }
-                    statements_to_remove.push(i);
-                }
+            let Stmt::ImportFrom(import_from) = stmt else {
+                continue;
+            };
+
+            if import_from.level == 0 || import_from.module.is_some() {
+                continue;
             }
+
+            // This is a relative import like "from . import module"
+            for alias in &import_from.names {
+                let imported_name = alias.name.as_str();
+                let bundled_name =
+                    Self::get_bundled_name(module_name, imported_name, bundled_modules);
+                imported_modules.insert(imported_name.to_string(), bundled_name);
+            }
+            statements_to_remove.push(i);
         }
 
         // Remove relative import statements
@@ -1144,25 +1126,28 @@ impl AstRewriter {
         match expr {
             Expr::Attribute(attr) => {
                 // Check if this is an attribute access on an imported module
-                if let Expr::Name(name) = attr.value.as_ref() {
-                    if let Some(module_prefix) = imported_modules.get(name.id.as_str()) {
-                        // Transform greeting.message -> __greetings_greeting_message
-                        let bundled_var_name = format!("__{}_{}", module_prefix, attr.attr);
-                        log::debug!(
-                            "Transforming {}.{} -> {}",
-                            name.id,
-                            attr.attr,
-                            bundled_var_name
-                        );
+                let Expr::Name(name) = attr.value.as_ref() else {
+                    return Ok(());
+                };
+                let Some(module_prefix) = imported_modules.get(name.id.as_str()) else {
+                    return Ok(());
+                };
 
-                        // Replace the entire attribute expression with a simple name
-                        *expr = Expr::Name(ast::ExprName {
-                            id: bundled_var_name.into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        });
-                    }
-                }
+                // Transform greeting.message -> __greetings_greeting_message
+                let bundled_var_name = format!("__{}_{}", module_prefix, attr.attr);
+                log::debug!(
+                    "Transforming {}.{} -> {}",
+                    name.id,
+                    attr.attr,
+                    bundled_var_name
+                );
+
+                // Replace the entire attribute expression with a simple name
+                *expr = Expr::Name(ast::ExprName {
+                    id: bundled_var_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
             }
             Expr::Call(call) => {
                 self.transform_attribute_access_in_expr(&mut call.func, imported_modules)?;
@@ -1194,12 +1179,10 @@ impl AstRewriter {
                 }
             }
             Expr::Dict(dict) => {
-                for item in &mut dict.items {
-                    if let Some(key) = &mut item.key {
-                        self.transform_attribute_access_in_expr(key, imported_modules)?;
-                    }
-                    self.transform_attribute_access_in_expr(&mut item.value, imported_modules)?;
-                }
+                dict.items
+                    .iter_mut()
+                    .try_for_each(|item| self.transform_dict_item(item, imported_modules))?;
+                return Ok(());
             }
             Expr::If(if_expr) => {
                 self.transform_attribute_access_in_expr(&mut if_expr.test, imported_modules)?;
@@ -1216,6 +1199,19 @@ impl AstRewriter {
             // Add more expression types as needed
             _ => {}
         }
+        Ok(())
+    }
+
+    /// Transform dict item expressions
+    fn transform_dict_item(
+        &self,
+        item: &mut ast::DictItem,
+        imported_modules: &IndexMap<String, String>,
+    ) -> Result<()> {
+        if let Some(key) = &mut item.key {
+            self.transform_attribute_access_in_expr(key, imported_modules)?;
+        }
+        self.transform_attribute_access_in_expr(&mut item.value, imported_modules)?;
         Ok(())
     }
 
@@ -1238,18 +1234,18 @@ impl AstRewriter {
         let mut aliased_from_imports = IndexMap::new();
 
         for (alias_name, import_alias) in &self.import_aliases {
-            if import_alias.has_explicit_alias {
-                if import_alias.is_from_import {
-                    // For from imports, track module -> alias mappings
-                    aliased_from_imports
-                        .entry(import_alias.module_name.clone())
-                        .or_insert_with(IndexSet::new)
-                        .insert(alias_name.clone());
-                } else {
-                    // For regular imports, track the module being aliased
-                    aliased_imports.insert(import_alias.module_name.clone());
-                }
+            if !import_alias.has_explicit_alias {
+                continue;
             }
+            if import_alias.is_from_import {
+                aliased_from_imports
+                    .entry(import_alias.module_name.clone())
+                    .or_insert_with(IndexSet::new)
+                    .insert(alias_name.clone());
+                continue;
+            }
+            // For regular imports, track the module being aliased
+            aliased_imports.insert(import_alias.module_name.clone());
         }
 
         // Filter out import statements that have alias assignments
@@ -1288,68 +1284,121 @@ impl AstRewriter {
 
                 if filtered_names.is_empty() {
                     // Remove the entire import statement if all imports are aliased
-                    None
-                } else if filtered_names.len() < import_stmt.names.len() {
+                    return None;
+                }
+                if filtered_names.len() < import_stmt.names.len() {
                     // Create a new import statement with only non-aliased imports
-                    Some(Stmt::Import(ast::StmtImport {
+                    return Some(Stmt::Import(ast::StmtImport {
                         names: filtered_names,
                         range: import_stmt.range,
-                    }))
-                } else {
-                    // Keep the original statement
-                    Some(stmt)
+                    }));
                 }
+                // Keep the original statement
+                Some(stmt)
             }
             Stmt::ImportFrom(import_from_stmt) => {
-                if let Some(module) = &import_from_stmt.module {
-                    let module_name = module.as_str();
-
-                    if let Some(aliased_names) = aliased_from_imports.get(module_name) {
-                        // Filter out aliased names from from import statements
-                        let filtered_names: Vec<Alias> = import_from_stmt
-                            .names
-                            .iter()
-                            .filter(|alias| {
-                                let import_name = if let Some(asname) = &alias.asname {
-                                    asname.as_str()
-                                } else {
-                                    alias.name.as_str()
-                                };
-                                // Keep the import if it's not in our aliased names
-                                !aliased_names.contains(import_name)
-                            })
-                            .cloned()
-                            .collect();
-
-                        if filtered_names.is_empty() {
-                            // Remove the entire from import statement if all imports are aliased
-                            None
-                        } else if filtered_names.len() < import_from_stmt.names.len() {
-                            // Create a new from import statement with only non-aliased imports
-                            Some(Stmt::ImportFrom(ast::StmtImportFrom {
-                                module: import_from_stmt.module.clone(),
-                                names: filtered_names,
-                                level: import_from_stmt.level,
-                                range: import_from_stmt.range,
-                            }))
-                        } else {
-                            // Keep the original statement
-                            Some(stmt)
-                        }
-                    } else {
-                        // Module not in aliased from imports, keep the statement
-                        Some(stmt)
-                    }
-                } else {
+                let Some(module) = &import_from_stmt.module else {
                     // No module specified, keep the statement
-                    Some(stmt)
+                    return Some(stmt);
+                };
+                let module_name = module.as_str();
+
+                let Some(aliased_names) = aliased_from_imports.get(module_name) else {
+                    // Module not in aliased from imports, keep the statement
+                    return Some(stmt);
+                };
+
+                // Filter out aliased names from from import statements
+                let filtered_names =
+                    Self::filter_import_names(aliased_names, &import_from_stmt.names);
+
+                if filtered_names.is_empty() {
+                    // Remove the entire from import statement if all imports are aliased
+                    return None;
                 }
+                if filtered_names.len() < import_from_stmt.names.len() {
+                    // Create a new from import statement with only non-aliased imports
+                    return Some(Stmt::ImportFrom(ast::StmtImportFrom {
+                        module: import_from_stmt.module.clone(),
+                        names: filtered_names,
+                        level: import_from_stmt.level,
+                        range: import_from_stmt.range,
+                    }));
+                }
+                // Keep the original statement
+                Some(stmt)
             }
             _ => {
                 // Not an import statement, keep it
                 Some(stmt)
             }
         }
+    }
+
+    /// Filters import names by removing those that are aliased
+    fn filter_import_names(
+        aliased_names: &IndexSet<String>,
+        names: &[ast::Alias],
+    ) -> Vec<ast::Alias> {
+        names
+            .iter()
+            .filter_map(|alias| {
+                let import_name = alias
+                    .asname
+                    .as_ref()
+                    .map(|name| name.as_str())
+                    .unwrap_or_else(|| alias.name.as_str());
+
+                // Keep the import if it's not in our aliased names
+                if aliased_names.contains(import_name) {
+                    None
+                } else {
+                    Some(alias.clone())
+                }
+            })
+            .collect()
+    }
+
+    fn handle_submodule_conflicts(
+        &mut self,
+        name: &str,
+        modules: &[String],
+        package_module: &str,
+    ) -> bool {
+        let submodules: Vec<String> = modules
+            .iter()
+            .filter(|m| {
+                m.as_str() != package_module && m.starts_with(&format!("{}.", package_module))
+            })
+            .cloned()
+            .collect();
+        if !submodules.is_empty() {
+            self.resolve_submodule_conflicts(name, &submodules);
+            return true;
+        }
+        false
+    }
+
+    /// Generate fallback bundled name when not found in mapping
+    fn generate_fallback_bundled_name(module_name: &str, imported_name: &str) -> String {
+        format!(
+            "{}_{}",
+            module_name.cow_replace('.', "_"),
+            imported_name.cow_replace('.', "_")
+        )
+    }
+
+    /// Get the bundled name for a module, falling back to a generated name if not found
+    fn get_bundled_name(
+        module_name: &str,
+        imported_name: &str,
+        bundled_modules: &IndexMap<String, String>,
+    ) -> String {
+        let module_key = format!("{}.{}", module_name, imported_name);
+        bundled_modules
+            .get(&module_key)
+            .cloned()
+            .unwrap_or_else(|| Self::generate_fallback_bundled_name(module_name, imported_name))
     }
 }
 

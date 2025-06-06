@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use serpen::unused_imports_simple::UnusedImportAnalyzer;
 
 /// Test that __future__ imports are skipped and not reported as unused

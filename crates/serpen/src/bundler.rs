@@ -1,12 +1,12 @@
 use anyhow::{Context, Result, anyhow};
+use indexmap::IndexSet;
 use log::{debug, info, warn};
 use ruff_python_ast::{Stmt, StmtImportFrom};
-use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::config::Config;
-use crate::dependency_graph::{DependencyGraph, ModuleNode};
+use crate::dependency_graph::{CircularDependencyGroup, DependencyGraph, ModuleNode};
 use crate::emit::CodeEmitter;
 use crate::resolver::{ImportType, ModuleResolver};
 use crate::util::module_name_from_relative;
@@ -14,14 +14,28 @@ use crate::util::module_name_from_relative;
 /// Type alias for module processing queue
 type ModuleQueue = Vec<(String, PathBuf)>;
 /// Type alias for processed modules set
-type ProcessedModules = HashSet<String>;
+type ProcessedModules = IndexSet<String>;
+
+/// Context for import extraction operations
+struct ImportExtractionContext<'a> {
+    imports: &'a mut Vec<String>,
+    file_path: &'a Path,
+    resolver: Option<&'a mut ModuleResolver>,
+}
+
+/// Context for module import checking operations
+struct ModuleImportContext<'a> {
+    imports: &'a mut Vec<String>,
+    base_module: &'a str,
+    resolver: &'a mut ModuleResolver,
+}
 
 /// Parameters for discovery phase operations
 struct DiscoveryParams<'a> {
     resolver: &'a mut ModuleResolver,
     modules_to_process: &'a mut ModuleQueue,
     processed_modules: &'a ProcessedModules,
-    queued_modules: &'a mut HashSet<String>,
+    queued_modules: &'a mut IndexSet<String>,
 }
 
 pub struct Bundler {
@@ -31,6 +45,25 @@ pub struct Bundler {
 impl Bundler {
     pub fn new(config: Config) -> Self {
         Self { config }
+    }
+
+    /// Format error message for unresolvable cycles
+    fn format_unresolvable_cycles_error(cycles: &[CircularDependencyGroup]) -> String {
+        let mut error_msg = String::from("Unresolvable circular dependencies detected:\n\n");
+
+        for (i, cycle) in cycles.iter().enumerate() {
+            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, cycle.modules.join(" → ")));
+            error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
+
+            if let crate::dependency_graph::ResolutionStrategy::Unresolvable { reason } =
+                &cycle.suggested_resolution
+            {
+                error_msg.push_str(&format!("  Reason: {}\n", reason));
+            }
+            error_msg.push('\n');
+        }
+
+        error_msg
     }
 
     /// Main bundling function
@@ -91,26 +124,8 @@ impl Bundler {
             let analysis = graph.classify_circular_dependencies();
 
             if !analysis.unresolvable_cycles.is_empty() {
-                // Format detailed error message for unresolvable cycles
-                let mut error_msg =
-                    String::from("Unresolvable circular dependencies detected:\n\n");
-
-                for (i, cycle) in analysis.unresolvable_cycles.iter().enumerate() {
-                    error_msg.push_str(&format!(
-                        "Cycle {}: {}\n",
-                        i + 1,
-                        cycle.modules.join(" → ")
-                    ));
-                    error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
-
-                    if let crate::dependency_graph::ResolutionStrategy::Unresolvable { reason } =
-                        &cycle.suggested_resolution
-                    {
-                        error_msg.push_str(&format!("  Reason: {}\n", reason));
-                    }
-                    error_msg.push('\n');
-                }
-
+                let error_msg =
+                    Self::format_unresolvable_cycles_error(&analysis.unresolvable_cycles);
                 return Err(anyhow!(error_msg));
             }
 
@@ -129,9 +144,7 @@ impl Bundler {
                     analysis.resolvable_cycles.len()
                 );
 
-                for cycle in &analysis.resolvable_cycles {
-                    info!("Resolving cycle: {}", cycle.modules.join(" → "));
-                }
+                Self::log_resolvable_cycles(&analysis.resolvable_cycles);
             } else {
                 // We have unresolvable cycles or complex resolvable cycles - still fail for now
                 warn!(
@@ -140,75 +153,7 @@ impl Bundler {
                     analysis.resolvable_cycles.len()
                 );
 
-                let mut error_msg =
-                    String::from("Circular dependencies detected in the module graph:\n\n");
-
-                // First, show unresolvable cycles if any
-                if !analysis.unresolvable_cycles.is_empty() {
-                    error_msg.push_str("UNRESOLVABLE CYCLES:\n");
-                    for (i, cycle) in analysis.unresolvable_cycles.iter().enumerate() {
-                        error_msg.push_str(&format!(
-                            "Cycle {}: {}\n",
-                            i + 1,
-                            cycle.modules.join(" → ")
-                        ));
-                        error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
-                        if let crate::dependency_graph::ResolutionStrategy::Unresolvable {
-                            reason,
-                        } = &cycle.suggested_resolution
-                        {
-                            error_msg.push_str(&format!("  Reason: {}\n", reason));
-                        }
-                        error_msg.push('\n');
-                    }
-                }
-
-                // Then show resolvable cycles that are not yet supported
-                if !analysis.resolvable_cycles.is_empty() {
-                    if !analysis.unresolvable_cycles.is_empty() {
-                        error_msg.push_str("RESOLVABLE CYCLES (not yet implemented):\n");
-                    }
-                    for (i, cycle) in analysis.resolvable_cycles.iter().enumerate() {
-                        let cycle_num = i + 1 + analysis.unresolvable_cycles.len();
-                        error_msg.push_str(&format!(
-                            "Cycle {}: {}\n",
-                            cycle_num,
-                            cycle.modules.join(" → ")
-                        ));
-                        error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
-
-                        match &cycle.suggested_resolution {
-                            crate::dependency_graph::ResolutionStrategy::LazyImport {
-                                modules: _,
-                            } => {
-                                error_msg.push_str("  Suggestion: Move imports inside functions to enable lazy loading\n");
-                            }
-                            crate::dependency_graph::ResolutionStrategy::FunctionScopedImport {
-                                import_statements,
-                            } => {
-                                error_msg.push_str("  Suggestions:\n");
-                                for suggestion in import_statements {
-                                    error_msg.push_str(&format!("    {}\n", suggestion));
-                                }
-                            }
-                            crate::dependency_graph::ResolutionStrategy::ModuleSplit {
-                                suggestions,
-                            } => {
-                                error_msg.push_str("  Suggestions:\n");
-                                for suggestion in suggestions {
-                                    error_msg.push_str(&format!("    {}\n", suggestion));
-                                }
-                            }
-                            crate::dependency_graph::ResolutionStrategy::Unresolvable {
-                                ..
-                            } => {
-                                // This shouldn't happen in resolvable cycles
-                            }
-                        }
-                        error_msg.push('\n');
-                    }
-                }
-
+                let error_msg = Self::build_cycle_error_message(&analysis);
                 return Err(anyhow!(error_msg));
             }
         }
@@ -276,7 +221,7 @@ impl Bundler {
 
         // For now, use a simple approach: put all modules from cycles at the end
         // and sort the rest topologically
-        let mut cycle_modules = std::collections::HashSet::new();
+        let mut cycle_modules = IndexSet::new();
         for cycle in &analysis.resolvable_cycles {
             for module_name in &cycle.modules {
                 cycle_modules.insert(module_name.as_str());
@@ -303,7 +248,10 @@ impl Bundler {
     /// Helper method to find module name in source directories
     fn find_module_in_src_dirs(&self, entry_path: &Path) -> Option<String> {
         for src_dir in &self.config.src {
-            let relative_path = entry_path.strip_prefix(src_dir).ok()?;
+            let relative_path = match entry_path.strip_prefix(src_dir) {
+                Ok(path) => path,
+                Err(_) => continue,
+            };
             if let Some(module_name) = self.path_to_module_name(relative_path) {
                 return Some(module_name);
             }
@@ -333,7 +281,7 @@ impl Bundler {
                 )
             })?;
 
-        Ok(module_name.to_string())
+        Ok(module_name.to_owned())
     }
 
     /// Convert a relative path to a module name
@@ -350,10 +298,10 @@ impl Bundler {
     ) -> Result<DependencyGraph> {
         let mut graph = DependencyGraph::new();
         let mut processed_modules = ProcessedModules::new();
-        let mut queued_modules = HashSet::new();
+        let mut queued_modules = IndexSet::new();
         let mut modules_to_process = ModuleQueue::new();
-        modules_to_process.push((entry_module_name.to_string(), entry_path.to_path_buf()));
-        queued_modules.insert(entry_module_name.to_string());
+        modules_to_process.push((entry_module_name.to_owned(), entry_path.to_path_buf()));
+        queued_modules.insert(entry_module_name.to_owned());
 
         // Store module data for phase 2
         type ModuleData = (String, PathBuf, Vec<String>);
@@ -426,7 +374,7 @@ impl Bundler {
     pub fn extract_imports(
         &self,
         file_path: &Path,
-        mut resolver: Option<&mut ModuleResolver>,
+        resolver: Option<&mut ModuleResolver>,
     ) -> Result<Vec<String>> {
         let source = fs::read_to_string(file_path)
             .with_context(|| format!("Failed to read file: {:?}", file_path))?;
@@ -436,13 +384,14 @@ impl Bundler {
 
         let mut imports = Vec::new();
 
+        let mut context = ImportExtractionContext {
+            imports: &mut imports,
+            file_path,
+            resolver,
+        };
+
         for stmt in parsed.syntax().body.iter() {
-            self.extract_imports_from_statement(
-                stmt,
-                &mut imports,
-                file_path,
-                resolver.as_deref_mut(),
-            );
+            self.extract_imports_from_statement(stmt, &mut context);
         }
 
         Ok(imports)
@@ -452,20 +401,19 @@ impl Bundler {
     fn extract_imports_from_statement(
         &self,
         stmt: &Stmt,
-        imports: &mut Vec<String>,
-        file_path: &Path,
-        resolver: Option<&mut ModuleResolver>,
+        context: &mut ImportExtractionContext<'_>,
     ) {
         if let Stmt::Import(import_stmt) = stmt {
             for alias in &import_stmt.names {
                 // For dotted imports like "xml.etree.ElementTree", we need to extract
                 // the root module name "xml" for classification purposes, but we should
                 // preserve the full import path for the output
+                #[allow(clippy::disallowed_methods)]
                 let module_name = alias.name.id.to_string();
-                imports.push(module_name);
+                context.imports.push(module_name);
             }
         } else if let Stmt::ImportFrom(import_from_stmt) = stmt {
-            self.process_import_from_statement(import_from_stmt, imports, file_path, resolver);
+            self.process_import_from_statement(import_from_stmt, context);
         }
     }
 
@@ -473,27 +421,29 @@ impl Bundler {
     fn process_import_from_statement(
         &self,
         import_from_stmt: &StmtImportFrom,
-        imports: &mut Vec<String>,
-        file_path: &Path,
-        mut resolver: Option<&mut ModuleResolver>,
+        context: &mut ImportExtractionContext<'_>,
     ) {
         let level = import_from_stmt.level;
 
         if level == 0 {
-            if let Some(ref mut resolver) = resolver {
-                self.process_absolute_import_with_resolver(import_from_stmt, imports, resolver);
+            if let Some(ref mut resolver) = context.resolver {
+                self.process_absolute_import_with_resolver(
+                    import_from_stmt,
+                    context.imports,
+                    resolver,
+                );
             } else {
-                self.process_absolute_import(import_from_stmt, imports);
+                self.process_absolute_import(import_from_stmt, context.imports);
             }
             return;
         }
 
         // Handle relative imports
         // TODO: Consider extending resolver support to relative imports as well
-        if let Some(base_module) = self.resolve_relative_import(file_path, level) {
-            self.process_resolved_relative_import(import_from_stmt, imports, &base_module);
+        if let Some(base_module) = self.resolve_relative_import(context.file_path, level) {
+            self.process_resolved_relative_import(import_from_stmt, context.imports, &base_module);
         } else {
-            self.process_fallback_relative_import(import_from_stmt, imports, level);
+            self.process_fallback_relative_import(import_from_stmt, context.imports, level);
         }
     }
 
@@ -504,6 +454,7 @@ impl Bundler {
         imports: &mut Vec<String>,
     ) {
         if let Some(ref module) = import_from_stmt.module {
+            #[allow(clippy::disallowed_methods)]
             let m = module.id.to_string();
             // Avoid duplicate absolute imports (e.g., import importlib + from importlib import)
             if !imports.contains(&m) {
@@ -520,6 +471,7 @@ impl Bundler {
         resolver: &mut ModuleResolver,
     ) {
         if let Some(ref module) = import_from_stmt.module {
+            #[allow(clippy::disallowed_methods)]
             let m = module.id.to_string();
             // Add the package/module being imported from
             if !imports.contains(&m) {
@@ -527,19 +479,12 @@ impl Bundler {
             }
 
             // Check if any of the imported names are actually modules
-            for alias in &import_from_stmt.names {
-                let imported_name = alias.name.id.to_string();
-                let full_module_name = format!("{}.{}", m, imported_name);
-
-                // Try to resolve the full module name to see if it's a module
-                if let Ok(Some(_)) = resolver.resolve_module_path(&full_module_name) {
-                    // This is a module import (e.g., from greetings import greeting)
-                    if !imports.contains(&full_module_name) {
-                        imports.push(full_module_name);
-                        debug!("Detected module import: {} from {}", imported_name, m);
-                    }
-                }
-            }
+            let mut module_context = ModuleImportContext {
+                imports,
+                base_module: &m,
+                resolver,
+            };
+            self.check_and_add_module_imports(import_from_stmt, &mut module_context);
         }
     }
 
@@ -567,7 +512,7 @@ impl Bundler {
     /// Build a full module name by combining base module and target module
     fn build_full_module_name(&self, base_module: &str, target_module: &str) -> String {
         if base_module.is_empty() {
-            target_module.to_string()
+            target_module.to_owned()
         } else {
             format!("{}.{}", base_module, target_module)
         }
@@ -596,12 +541,13 @@ impl Bundler {
             let dots = ".".repeat(level as usize);
             format!("{}{}", dots, module)
         } else {
-            module.to_string()
+            module.to_owned()
         }
     }
 
     /// Resolve a relative import to its absolute module name
     /// Returns None if the relative import goes beyond the module hierarchy
+    #[allow(clippy::manual_ok_err)]
     fn resolve_relative_import(&self, file_path: &Path, level: u32) -> Option<String> {
         // Get the directory containing the current file
         let current_dir = file_path.parent()?;
@@ -610,19 +556,32 @@ impl Bundler {
         let absolute_current_dir = if current_dir.is_absolute() {
             current_dir.to_path_buf()
         } else {
-            std::env::current_dir().ok()?.join(current_dir)
+            let current_working_dir = match std::env::current_dir() {
+                Ok(dir) => dir,
+                Err(_) => return None,
+            };
+            current_working_dir.join(current_dir)
         };
 
         // Find which source directory contains this file
         let relative_dir = self.config.src.iter().find_map(|src_dir| {
             // Handle case where paths might be relative vs absolute
             if src_dir.is_absolute() {
-                absolute_current_dir.strip_prefix(src_dir).ok()
+                match absolute_current_dir.strip_prefix(src_dir) {
+                    Ok(path) => Some(path),
+                    Err(_) => None,
+                }
             } else {
                 // For relative source directories, we need to resolve them relative to the current working directory
-                let current_working_dir = std::env::current_dir().ok()?;
+                let current_working_dir = match std::env::current_dir() {
+                    Ok(dir) => dir,
+                    Err(_) => return None,
+                };
                 let absolute_src_dir = current_working_dir.join(src_dir);
-                absolute_current_dir.strip_prefix(&absolute_src_dir).ok()
+                match absolute_current_dir.strip_prefix(&absolute_src_dir) {
+                    Ok(path) => Some(path),
+                    Err(_) => None,
+                }
             }
         })?;
 
@@ -633,7 +592,7 @@ impl Bundler {
         } else {
             relative_dir
                 .components()
-                .map(|c| c.as_os_str().to_string_lossy().to_string())
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
                 .collect()
         };
 
@@ -675,8 +634,8 @@ impl Bundler {
             debug!("Adding '{}' to discovery queue", import);
             discovery_params
                 .modules_to_process
-                .push((import.to_string(), import_path));
-            discovery_params.queued_modules.insert(import.to_string());
+                .push((import.to_owned(), import_path));
+            discovery_params.queued_modules.insert(import.to_owned());
         } else {
             debug!("Module '{}' already processed or queued, skipping", import);
         }
@@ -752,5 +711,138 @@ impl Bundler {
             info!("No third-party dependencies found, skipping requirements.txt");
         }
         Ok(())
+    }
+
+    /// Helper method to build detailed error message for cycles with resolvable cycles handling
+    fn build_cycle_error_message(
+        analysis: &crate::dependency_graph::CircularDependencyAnalysis,
+    ) -> String {
+        let mut error_msg = String::from("Circular dependencies detected in the module graph:\n\n");
+
+        // First, show unresolvable cycles if any
+        if !analysis.unresolvable_cycles.is_empty() {
+            error_msg.push_str("UNRESOLVABLE CYCLES:\n");
+            Self::append_unresolvable_cycles_to_error(
+                &mut error_msg,
+                &analysis.unresolvable_cycles,
+            );
+        }
+
+        // Then show resolvable cycles that are not yet supported
+        if !analysis.resolvable_cycles.is_empty() {
+            Self::append_resolvable_cycles_to_error(
+                &mut error_msg,
+                &analysis.resolvable_cycles,
+                &analysis.unresolvable_cycles,
+            );
+        }
+
+        error_msg
+    }
+
+    /// Helper method to append unresolvable cycles to error message
+    fn append_unresolvable_cycles_to_error(
+        error_msg: &mut String,
+        unresolvable_cycles: &[crate::dependency_graph::CircularDependencyGroup],
+    ) {
+        for (i, cycle) in unresolvable_cycles.iter().enumerate() {
+            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, cycle.modules.join(" → ")));
+            error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
+            if let crate::dependency_graph::ResolutionStrategy::Unresolvable { reason } =
+                &cycle.suggested_resolution
+            {
+                error_msg.push_str(&format!("  Reason: {}\n", reason));
+            }
+            error_msg.push('\n');
+        }
+    }
+
+    /// Helper method to append resolvable cycles to error message
+    fn append_resolvable_cycles_to_error(
+        error_msg: &mut String,
+        resolvable_cycles: &[crate::dependency_graph::CircularDependencyGroup],
+        unresolvable_cycles: &[crate::dependency_graph::CircularDependencyGroup],
+    ) {
+        if !unresolvable_cycles.is_empty() {
+            error_msg.push_str("RESOLVABLE CYCLES (not yet implemented):\n");
+        }
+        for (i, cycle) in resolvable_cycles.iter().enumerate() {
+            let cycle_num = i + 1 + unresolvable_cycles.len();
+            error_msg.push_str(&format!(
+                "Cycle {}: {}\n",
+                cycle_num,
+                cycle.modules.join(" → ")
+            ));
+            error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
+
+            Self::append_cycle_resolution_suggestions(error_msg, &cycle.suggested_resolution);
+            error_msg.push('\n');
+        }
+    }
+
+    /// Helper method to append cycle resolution suggestions to error message
+    fn append_cycle_resolution_suggestions(
+        error_msg: &mut String,
+        suggested_resolution: &crate::dependency_graph::ResolutionStrategy,
+    ) {
+        match suggested_resolution {
+            crate::dependency_graph::ResolutionStrategy::LazyImport { modules: _ } => {
+                error_msg.push_str(
+                    "  Suggestion: Move imports inside functions to enable lazy loading\n",
+                );
+            }
+            crate::dependency_graph::ResolutionStrategy::FunctionScopedImport {
+                import_statements,
+            } => {
+                error_msg.push_str("  Suggestions:\n");
+                for suggestion in import_statements {
+                    error_msg.push_str(&format!("    {}\n", suggestion));
+                }
+            }
+            crate::dependency_graph::ResolutionStrategy::ModuleSplit { suggestions } => {
+                error_msg.push_str("  Suggestions:\n");
+                for suggestion in suggestions {
+                    error_msg.push_str(&format!("    {}\n", suggestion));
+                }
+            }
+            crate::dependency_graph::ResolutionStrategy::Unresolvable { .. } => {
+                // This shouldn't happen in resolvable cycles
+            }
+        }
+    }
+
+    /// Helper method to log resolvable cycles
+    fn log_resolvable_cycles(cycles: &[crate::dependency_graph::CircularDependencyGroup]) {
+        for cycle in cycles {
+            info!("Resolving cycle: {}", cycle.modules.join(" → "));
+        }
+    }
+
+    /// Helper method to check and add module imports to reduce nesting
+    fn check_and_add_module_imports(
+        &self,
+        import_from_stmt: &StmtImportFrom,
+        context: &mut ModuleImportContext<'_>,
+    ) {
+        for alias in &import_from_stmt.names {
+            #[allow(clippy::disallowed_methods)]
+            let imported_name = alias.name.id.to_string();
+            let full_module_name = format!("{}.{}", context.base_module, imported_name);
+
+            // Try to resolve the full module name to see if it's a module
+            let Ok(Some(_)) = context.resolver.resolve_module_path(&full_module_name) else {
+                continue;
+            };
+
+            // This is a module import (e.g., from greetings import greeting)
+            if context.imports.contains(&full_module_name) {
+                continue;
+            }
+            context.imports.push(full_module_name);
+            debug!(
+                "Detected module import: {} from {}",
+                imported_name, context.base_module
+            );
+        }
     }
 }

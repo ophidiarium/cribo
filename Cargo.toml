@@ -35,7 +35,7 @@ env_logger = "0.11"
 log = "0.4"
 
 # Graph and data structures
-indexmap = "2.9.0"
+indexmap = { version = "2", features = ["serde"] }
 petgraph = "0.8"
 
 # Utilities
@@ -58,16 +58,34 @@ tempfile = "3.20.0"
 unsafe_code = "warn"
 unreachable_pub = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)", "cfg(codspeed)"] }
+# Add these for better AI-generated code catching:
+missing_debug_implementations = "warn"
+missing_docs = "warn" # Or "allow" if too noisy
+rust_2018_idioms = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unused_extern_crates = "warn"
+unused_import_braces = "warn"
+unused_qualifications = "warn"
+variant_size_differences = "warn"
 
 [workspace.lints.clippy]
+# Categories
 perf = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -2 }
-# Allowed pedantic lints
+nursery = { level = "warn", priority = -3 }
+cargo = { level = "warn", priority = -4 }
+
+# CHANGE THIS - it might be causing the issue
+map_unwrap_or = "warn" # Changed from "allow" to "warn"
+manual_ok_or = "warn" # Keep this
+
+# Your existing pedantic allows
 char_lit_as_u8 = "allow"
 collapsible_else_if = "allow"
 collapsible_if = "allow"
 implicit_hasher = "allow"
-map_unwrap_or = "allow"
+# map_unwrap_or = "allow"  # REMOVED - this might be causing issues
 match_same_arms = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
@@ -76,11 +94,18 @@ must_use_candidate = "allow"
 similar_names = "allow"
 single_match_else = "allow"
 too_many_lines = "allow"
-needless_continue = "allow" # An explicit continue can be more readable, especially if the alternative is an empty block.
-unnecessary_debug_formatting = "allow" # too many instances, the display also doesn't quote the path which is often desired in logs where we use them the most often.
-# Without the hashes we run into a `rustfmt` bug in some snapshot tests, see #13250
+needless_continue = "allow"
+unnecessary_debug_formatting = "allow"
 needless_raw_string_hashes = "allow"
-# Disallowed restriction lints
+
+# Additional allows for practical development
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+items_after_statements = "allow"
+uninlined_format_args = "allow"
+struct_excessive_bools = "allow"
+
+# Your existing restriction warnings
 print_stdout = "warn"
 print_stderr = "warn"
 dbg_macro = "warn"
@@ -91,10 +116,56 @@ get_unwrap = "warn"
 rc_buffer = "warn"
 rc_mutex = "warn"
 rest_pat_in_fully_bound_structs = "warn"
-# nursery rules
+
+# Your nursery warnings
 redundant_clone = "warn"
 debug_assert_with_mut_call = "warn"
 unused_peekable = "warn"
+
+# Additional warnings for AI-generated code patterns
+create_dir = "warn"
+default_trait_access = "warn"
+expl_impl_clone_on_copy = "warn"
+if_not_else = "warn"
+inconsistent_struct_constructor = "warn"
+inefficient_to_string = "warn"
+manual_assert = "warn"
+manual_instant_elapsed = "warn"
+manual_let_else = "warn"
+mutex_integer = "warn"
+naive_bytecount = "warn"
+needless_bitwise_bool = "warn"
+needless_collect = "warn"
+needless_for_each = "warn"
+negative_feature_names = "warn"
+path_buf_push_overwrite = "warn"
+ptr_as_ptr = "warn"
+redundant_pub_crate = "warn"
+ref_binding_to_reference = "warn"
+ref_option_ref = "warn"
+semicolon_if_nothing_returned = "warn"
+str_to_string = "warn"
+string_add = "warn"
+string_add_assign = "warn"
+string_lit_as_bytes = "warn"
+string_to_string = "warn"
+type_repetition_in_bounds = "warn"
+unnecessary_self_imports = "warn"
+unnecessary_wraps = "warn"
+unneeded_field_pattern = "warn"
+unnested_or_patterns = "warn"
+unseparated_literal_suffix = "warn"
+unused_async = "warn"
+use_self = "warn"
+useless_let_if_seq = "warn"
+verbose_bit_mask = "warn"
+wildcard_imports = "warn"
+
+# Add these specific lints to catch .ok() misuse
+question_mark = "warn" # Encourages using ? operator
+if_let_some_result = "warn" # Catches if let Some(x) = result.ok()
+result_map_unit_fn = "warn" # Catches .map(|_| ())
+option_map_unit_fn = "warn" # Catches .map(|_| ())
 
 # https://github.com/rustwasm/wasm-bindgen/issues/3451#issuecomment-1562982835
 [profile.dev]

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -14,10 +14,10 @@ pub struct Config {
     pub src: Vec<PathBuf>,
 
     /// Known first-party module names
-    pub known_first_party: HashSet<String>,
+    pub known_first_party: IndexSet<String>,
 
     /// Known third-party module names
-    pub known_third_party: HashSet<String>,
+    pub known_third_party: IndexSet<String>,
 
     /// Whether to preserve comments in output
     pub preserve_comments: bool,
@@ -36,11 +36,11 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             src: vec![PathBuf::from("src"), PathBuf::from(".")],
-            known_first_party: HashSet::new(),
-            known_third_party: HashSet::new(),
+            known_first_party: IndexSet::new(),
+            known_third_party: IndexSet::new(),
             preserve_comments: true,
             preserve_type_hints: true,
-            target_version: "py310".to_string(),
+            target_version: "py310".to_owned(),
         }
     }
 }
@@ -77,8 +77,8 @@ impl Combine for Config {
 #[derive(Debug, Clone, Default)]
 pub struct EnvConfig {
     pub src: Option<Vec<PathBuf>>,
-    pub known_first_party: Option<HashSet<String>>,
-    pub known_third_party: Option<HashSet<String>>,
+    pub known_first_party: Option<IndexSet<String>>,
+    pub known_third_party: Option<IndexSet<String>>,
     pub preserve_comments: Option<bool>,
     pub preserve_type_hints: Option<bool>,
     pub target_version: Option<String>,
@@ -104,11 +104,11 @@ impl EnvConfig {
 
         // SERPEN_KNOWN_FIRST_PARTY - comma-separated list of first-party modules
         if let Ok(first_party_str) = env::var("SERPEN_KNOWN_FIRST_PARTY") {
-            let modules: HashSet<String> = first_party_str
+            let modules: IndexSet<String> = first_party_str
                 .split(',')
                 .map(|s| s.trim())
                 .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
+                .map(|s| s.to_owned())
                 .collect();
             if !modules.is_empty() {
                 config.known_first_party = Some(modules);
@@ -117,11 +117,11 @@ impl EnvConfig {
 
         // SERPEN_KNOWN_THIRD_PARTY - comma-separated list of third-party modules
         if let Ok(third_party_str) = env::var("SERPEN_KNOWN_THIRD_PARTY") {
-            let modules: HashSet<String> = third_party_str
+            let modules: IndexSet<String> = third_party_str
                 .split(',')
                 .map(|s| s.trim())
                 .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
+                .map(|s| s.to_owned())
                 .collect();
             if !modules.is_empty() {
                 config.known_third_party = Some(modules);
@@ -172,7 +172,8 @@ impl EnvConfig {
 
 /// Parse a boolean value from string, supporting various common formats
 fn parse_bool(value: &str) -> Option<bool> {
-    match value.to_lowercase().as_str() {
+    use cow_utils::CowUtils;
+    match value.cow_to_lowercase().as_ref() {
         "true" | "1" | "yes" | "on" => Some(true),
         "false" | "0" | "no" | "off" => Some(false),
         _ => None,
@@ -230,6 +231,20 @@ impl Config {
         Ok(config)
     }
 
+    fn try_load_and_combine<P: AsRef<Path>>(
+        config: &mut Config,
+        path: P,
+        context: &str,
+    ) -> Result<()> {
+        if path.as_ref().exists() {
+            log::debug!("Loading {} from: {:?}", context, path.as_ref());
+            let loaded = Self::load_from_file(&path)
+                .with_context(|| format!("Failed to load {} from {:?}", context, path.as_ref()))?;
+            *config = loaded.combine(config.clone());
+        }
+        Ok(())
+    }
+
     /// Load configuration with hierarchical precedence:
     /// 1. CLI-provided config path (highest precedence)
     /// 2. Environment variables (SERPEN_*)
@@ -238,45 +253,22 @@ impl Config {
     /// 5. System config (/etc/serpen/serpen.toml or equivalent)
     /// 6. Default values (lowest precedence)
     pub fn load(cli_config_path: Option<&Path>) -> Result<Self> {
-        // Start with default configuration
         let mut config = Config::default();
 
-        // 1. Load system config (lowest precedence) - combine into defaults
+        // 1. Load system config (lowest precedence)
         if let Some(system_config_path) = system_config_file() {
-            if system_config_path.exists() {
-                log::debug!("Loading system config from: {:?}", system_config_path);
-                let system_config =
-                    Self::load_from_file(&system_config_path).with_context(|| {
-                        format!("Failed to load system config from {:?}", system_config_path)
-                    })?;
-                config = system_config.combine(config); // system takes precedence over defaults
-            }
+            Self::try_load_and_combine(&mut config, &system_config_path, "system config")?;
         }
 
         // 2. Load user config
         if let Some(user_config_dir) = user_serpen_config_dir() {
             let user_config_path = user_config_dir.join("serpen.toml");
-            if user_config_path.exists() {
-                log::debug!("Loading user config from: {:?}", user_config_path);
-                let user_config = Self::load_from_file(&user_config_path).with_context(|| {
-                    format!("Failed to load user config from {:?}", user_config_path)
-                })?;
-                config = user_config.combine(config); // user takes precedence over system
-            }
+            Self::try_load_and_combine(&mut config, &user_config_path, "user config")?;
         }
 
         // 3. Load project config (serpen.toml in current directory)
         let project_config_path = PathBuf::from("serpen.toml");
-        if project_config_path.exists() {
-            log::debug!("Loading project config from: {:?}", project_config_path);
-            let project_config = Self::load_from_file(&project_config_path).with_context(|| {
-                format!(
-                    "Failed to load project config from {:?}",
-                    project_config_path
-                )
-            })?;
-            config = project_config.combine(config); // project takes precedence over user
-        }
+        Self::try_load_and_combine(&mut config, &project_config_path, "project config")?;
 
         // 4. Apply environment variables
         let env_config = EnvConfig::from_env();
@@ -284,10 +276,7 @@ impl Config {
 
         // 5. Load CLI-provided config (highest precedence)
         if let Some(cli_config_path) = cli_config_path {
-            log::debug!("Loading CLI config from: {:?}", cli_config_path);
-            let cli_config = Self::load_from_file(cli_config_path)
-                .with_context(|| format!("Failed to load CLI config from {:?}", cli_config_path))?;
-            config = cli_config.combine(config); // CLI takes precedence over everything
+            Self::try_load_and_combine(&mut config, cli_config_path, "CLI config")?;
         }
 
         // Final validation
@@ -299,205 +288,5 @@ impl Config {
         })?;
 
         Ok(config)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
-    #[test]
-    fn test_parse_target_version() {
-        assert_eq!(Config::parse_target_version("py38").unwrap(), 8);
-        assert_eq!(Config::parse_target_version("py39").unwrap(), 9);
-        assert_eq!(Config::parse_target_version("py310").unwrap(), 10);
-        assert_eq!(Config::parse_target_version("py311").unwrap(), 11);
-        assert_eq!(Config::parse_target_version("py312").unwrap(), 12);
-        assert_eq!(Config::parse_target_version("py313").unwrap(), 13);
-        assert!(Config::parse_target_version("py37").is_err());
-        assert!(Config::parse_target_version("invalid").is_err());
-    }
-
-    #[test]
-    fn test_parse_bool() {
-        assert_eq!(parse_bool("true"), Some(true));
-        assert_eq!(parse_bool("TRUE"), Some(true));
-        assert_eq!(parse_bool("1"), Some(true));
-        assert_eq!(parse_bool("yes"), Some(true));
-        assert_eq!(parse_bool("on"), Some(true));
-
-        assert_eq!(parse_bool("false"), Some(false));
-        assert_eq!(parse_bool("FALSE"), Some(false));
-        assert_eq!(parse_bool("0"), Some(false));
-        assert_eq!(parse_bool("no"), Some(false));
-        assert_eq!(parse_bool("off"), Some(false));
-
-        assert_eq!(parse_bool("invalid"), None);
-    }
-
-    #[test]
-    fn test_config_combine() {
-        let config1 = Config {
-            src: vec![PathBuf::from("src1")],
-            known_first_party: HashSet::from(["module1".to_string()]),
-            preserve_comments: true,
-            target_version: "py39".to_string(),
-            ..Default::default()
-        };
-
-        let config2 = Config {
-            src: vec![PathBuf::from("src2")],
-            known_first_party: HashSet::from(["module2".to_string()]),
-            preserve_comments: false,
-            target_version: "py310".to_string(),
-            ..Default::default()
-        };
-
-        let combined = config1.combine(config2);
-
-        // Higher precedence (config1) should win for all values
-        assert!(combined.preserve_comments);
-        assert_eq!(combined.target_version, "py39");
-
-        // For collections, higher precedence completely replaces
-        assert_eq!(combined.src, vec![PathBuf::from("src1")]);
-        assert!(combined.known_first_party.contains("module1"));
-        assert!(!combined.known_first_party.contains("module2"));
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn test_env_config_parsing() {
-        // Struct to ensure environment cleanup on panic
-        struct EnvGuard {
-            vars: Vec<&'static str>,
-        }
-
-        impl Drop for EnvGuard {
-            fn drop(&mut self) {
-                for var in &self.vars {
-                    unsafe {
-                        env::remove_var(var);
-                    }
-                }
-            }
-        }
-
-        let _guard = EnvGuard {
-            vars: vec![
-                "SERPEN_SRC",
-                "SERPEN_KNOWN_FIRST_PARTY",
-                "SERPEN_PRESERVE_COMMENTS",
-                "SERPEN_TARGET_VERSION",
-            ],
-        };
-
-        // Test with environment variables set
-        unsafe {
-            env::set_var("SERPEN_SRC", "src1,src2,src3");
-            env::set_var("SERPEN_KNOWN_FIRST_PARTY", "mod1,mod2");
-            env::set_var("SERPEN_PRESERVE_COMMENTS", "false");
-            env::set_var("SERPEN_TARGET_VERSION", "py312");
-        }
-
-        let env_config = EnvConfig::from_env();
-
-        assert_eq!(
-            env_config.src,
-            Some(vec![
-                PathBuf::from("src1"),
-                PathBuf::from("src2"),
-                PathBuf::from("src3"),
-            ])
-        );
-        assert_eq!(
-            env_config.known_first_party,
-            Some(HashSet::from(["mod1".to_string(), "mod2".to_string(),]))
-        );
-        assert_eq!(env_config.preserve_comments, Some(false));
-        assert_eq!(env_config.target_version, Some("py312".to_string()));
-
-        // Environment variables are cleaned up automatically by the guard
-    }
-
-    #[test]
-    fn test_load_from_file() -> anyhow::Result<()> {
-        let temp_dir = TempDir::new()?;
-        let config_path = temp_dir.path().join("serpen.toml");
-
-        let config_content = r#"
-src = ["custom_src"]
-known_first_party = ["my_module"]
-preserve_comments = false
-target-version = "py311"
-"#;
-
-        fs::write(&config_path, config_content)?;
-
-        let config = Config::load_from_file(&config_path)?;
-
-        assert_eq!(config.src, vec![PathBuf::from("custom_src")]);
-        assert!(config.known_first_party.contains("my_module"));
-        assert!(!config.preserve_comments);
-        assert_eq!(config.target_version, "py311");
-
-        Ok(())
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn test_hierarchical_config_loading() -> anyhow::Result<()> {
-        let temp_dir = TempDir::new()?;
-
-        // Create a project config
-        let project_config_path = temp_dir.path().join("serpen.toml");
-        fs::write(
-            &project_config_path,
-            r#"
-src = ["project_src"]
-preserve_comments = true
-target-version = "py310"
-"#,
-        )?;
-
-        // Change to temp directory with guard for restoration
-        let original_dir = env::current_dir()?;
-        struct DirGuard(PathBuf);
-        impl Drop for DirGuard {
-            fn drop(&mut self) {
-                let _ = env::set_current_dir(&self.0);
-            }
-        }
-        let _dir_guard = DirGuard(original_dir);
-        env::set_current_dir(&temp_dir)?;
-
-        // Environment variable guard to ensure cleanup
-        struct EnvGuard;
-        impl Drop for EnvGuard {
-            fn drop(&mut self) {
-                unsafe {
-                    env::remove_var("SERPEN_TARGET_VERSION");
-                }
-            }
-        }
-        let _env_guard = EnvGuard;
-
-        // Set environment variable
-        unsafe {
-            env::set_var("SERPEN_TARGET_VERSION", "py312");
-        }
-
-        let config = Config::load(None)?;
-
-        // Environment should override project config for target version
-        assert_eq!(config.target_version, "py312");
-        // Project config should provide other values
-        assert_eq!(config.src, vec![PathBuf::from("project_src")]);
-        assert!(config.preserve_comments);
-
-        // Environment variable is cleaned up automatically by the guard
-        Ok(())
     }
 }

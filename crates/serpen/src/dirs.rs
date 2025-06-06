@@ -10,9 +10,10 @@ use etcetera::BaseStrategy;
 /// On Windows, use, e.g., C:\Users\Alice\AppData\Roaming
 /// On Linux and macOS, use `XDG_CONFIG_HOME` or $HOME/.config, e.g., /home/alice/.config.
 pub fn user_config_dir() -> Option<PathBuf> {
-    etcetera::choose_base_strategy()
-        .map(|dirs| dirs.config_dir())
-        .ok()
+    match etcetera::choose_base_strategy() {
+        Ok(dirs) => Some(dirs.config_dir()),
+        Err(_) => None,
+    }
 }
 
 pub fn user_serpen_config_dir() -> Option<PathBuf> {
@@ -64,7 +65,9 @@ pub fn system_config_file() -> Option<PathBuf> {
 
     #[cfg(not(windows))]
     {
-        if let Some(path) = locate_system_config_xdg(env::var("XDG_CONFIG_DIRS").ok().as_deref()) {
+        // Convert Result to Option - we want to continue if env var is not set
+        let xdg_config_dirs = env::var("XDG_CONFIG_DIRS").ok();
+        if let Some(path) = locate_system_config_xdg(xdg_config_dirs.as_deref()) {
             return Some(path);
         }
 
@@ -112,7 +115,10 @@ mod test {
 
         // Assert that the function returns the correct path.
         assert_eq!(
-            locate_system_config_xdg(Some(context.path().to_str().unwrap())).unwrap(),
+            locate_system_config_xdg(Some(
+                context.path().to_str().expect("path should be valid UTF-8")
+            ))
+            .expect("config should be found"),
             config_dir.join("serpen.toml")
         );
 

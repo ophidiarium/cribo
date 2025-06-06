@@ -1,27 +1,28 @@
+# Complexity thresholds
 cognitive-complexity-threshold = 10
 excessive-nesting-threshold = 4
 too-many-arguments-threshold = 4
 too-many-lines-threshold = 80
 min-ident-chars-threshold = 2
-allowed-idents-below-min-chars = ["..", "id"]
+allowed-idents-below-min-chars = ["..", "id", "x", "y", "z", "i", "j", "k", "n", "m"] # Added common loop/coord vars
 
-# The default clippy value for this is 250, which causes warnings for rather simple types
-# like Box<dyn Fn(&mut Env, &T)>, which seems overly strict. The new value of 400 is
-# a simple guess. It might be worth lowering this, or using the default, in the future.
+# Keep your type complexity threshold - it's reasonable
 type-complexity-threshold = 400
 
-# The default Clippy value is capped at 8 bytes, which was chosen to improve performance on 32-bit.
-# Given that we are building for the future and even low-end mobile phones have 64-bit CPUs,
-# it makes sense to optimize for 64-bit and accept the performance hits on 32-bit.
-# 16 bytes is the number of bytes that fits into two 64-bit CPU registers.
+# Keep your 64-bit optimization
 trivial-copy-size-limit = 16
 
+# Testing allowances
 allow-expect-in-tests = true
 allow-print-in-tests = true
+allow-dbg-in-tests = true
+allow-unwrap-in-tests = true
 suppress-restriction-lint-in-const = true
+
+# Trait implementations
 allow-renamed-params-for = ["core::fmt::Debug", "core::fmt::Display", "futures_sink::Sink", "serde::de::Visitor", ".."]
 
-# copied from Ruff config
+# Documentation
 doc-valid-idents = [
     "..",
     "CodeQL",
@@ -40,51 +41,87 @@ doc-valid-idents = [
     "SNMPv2",
     "SNMPv3",
     "PyFlakes",
+    # Add common Rust ecosystem names
+    "GraphQL",
+    "gRPC",
+    "WebSocket",
+    "PostgreSQL",
+    "MySQL",
+    "SQLite",
+    "MongoDB",
+    "Redis",
+    "Kubernetes",
+    "GitHub",
+    "GitLab",
 ]
 
-# ban foo/bar/baz/tmp as identifiers
-disallowed-names = ["foo", "bar", "baz", "tmp", "qux"]
+# Keep your disallowed names
+disallowed-names = ["foo", "bar", "baz", "tmp", "qux", "temp", "test", "dummy"]
 
-allow-dbg-in-tests = true
-allow-unwrap-in-tests = true
-
+# Types - keeping your deterministic requirements
 disallowed-types = [
     { path = "std::collections::HashMap", reason = "Non-deterministic iter - use indexmap::IndexMap instead" },
     { path = "std::collections::HashSet", reason = "Non-deterministic iter - use indexmap::IndexSet instead" },
+    # Add more problematic types
+    { path = "std::sync::Once", reason = "Use std::sync::OnceLock for lazy initialization (available since 1.70)" },
 ]
 
+# Methods - merging your excellent list with modern practices
 disallowed-methods = [
-    # Ban the top‐level rand::random() helper
+    # Keep all your determinism rules
     { path = "rand::random", reason = "Use a deterministic hash (e.g. via a cryptographic hasher like Sha256) instead of `rand::random`." },
-
-    # Ban calling Rng::gen() on a RNG directly
     { path = "rand::Rng::gen", reason = "Use a deterministic hash (e.g. via Sha256) rather than generating random bytes at runtime." },
-
-    # Ban obtaining a ThreadRng and then calling gen()/gen_range()
     { path = "rand::rngs::ThreadRng", reason = "ThreadRng is inherently non‐deterministic; use a fixed‐seed or hash‐based approach instead." },
     { path = "rand::rngs::ThreadRng::gen", reason = "Use a deterministic hash (e.g. via Sha256) instead of `ThreadRng::gen`." },
     { path = "rand::rngs::ThreadRng::gen_range", reason = "Use a deterministic hash (e.g. via Sha256) instead of `ThreadRng::gen_range`." },
 
+    # Keep your cow_utils optimizations
     { path = "str::to_ascii_lowercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_ascii_lowercase` instead." },
     { path = "str::to_ascii_uppercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_ascii_uppercase` instead." },
     { path = "str::to_lowercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_lowercase` instead." },
     { path = "str::to_uppercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_uppercase` instead." },
     { path = "str::replace", reason = "To avoid memory allocation, use `cow_utils::CowUtils::replace` instead." },
     { path = "str::replacen", reason = "To avoid memory allocation, use `cow_utils::CowUtils::replacen` instead." },
+
+    # Keep your safety rules
     { path = "std::mem::forget", reason = "future::scope is unsafe when used with forget" },
     { path = "futures::executor::block_on", reason = "block_on can cause deadlock easily" },
     { path = "async_std::task::block_on", reason = "block_on can cause deadlock easily" },
     { path = "pollster::block_on", reason = "block_on can cause deadlock easily" },
+
+    # Keep your time determinism rules
     { path = "std::time::Instant::now", reason = "Do not use current date/time in code that must be deterministic" },
     { path = "chrono::DateTime::now", reason = "Do not use current date/time in code that must be deterministic" },
     { path = "chrono::Utc::now", reason = "Do not use current date/time in code that must be deterministic" },
     { path = "namada_core::time::DateTimeUtc::now", reason = "Do not use current date/time in code that must be deterministic" },
     { path = "wasmtimer::std::Instant", reason = "Do not use current date/time in code that must be deterministic" },
+
+    # Keep your for_each rule
+    { path = "std::iter::Iterator::for_each", reason = "prefer `for` for side-effects" },
+
+    # Add modern Rust best practices that AI often misses
+    { path = "std::option::Option::unwrap", reason = "use `expect` with descriptive message or handle None case" },
+    { path = "std::result::Result::unwrap", reason = "use `expect` with descriptive message or handle error case" },
+    { path = "std::vec::Vec::clone", reason = "avoid cloning vectors - use references, slices, or Arc<[T]>" },
+    { path = "std::panic::catch_unwind", reason = "panics are not for control flow - use Result" },
+    { path = "std::process::exit", reason = "return Result from main() instead of exiting" },
+    { path = "std::thread::sleep", reason = "use async sleep in async contexts, or document why blocking is needed" },
+    { path = "std::mem::transmute", reason = "use safe alternatives like bytemuck or zerocopy" },
+    { path = "std::mem::uninitialized", reason = "deprecated - use MaybeUninit" },
+    { path = "std::mem::zeroed", reason = "use MaybeUninit::zeroed or Default::default" },
+
+    # Prevent inefficient string operations that AI often generates
+    { path = "std::string::String::from", reason = "use String::from() only for &str, use to_string() for Display types" },
+    { path = "std::format", reason = "use write! for repeated formatting, format! allocates each time" },
+
+    # Async footguns
+    { path = "tokio::task::spawn_blocking", reason = "document why blocking is necessary - consider async alternatives" },
+    { path = "std::sync::Mutex", reason = "use tokio::sync::Mutex in async code" },
+    { path = "std::sync::RwLock", reason = "use tokio::sync::RwLock in async code" },
 ]
 
+# Keep your interior mutability allowlist
 ignore-interior-mutability = [
-    # Interned is read-only. The wrapped `Rc` never gets updated.
     "ruff_formatter::format_element::Interned",
-    # The expression is read-only.
     "ruff_python_ast::hashable::HashableExpr",
 ]

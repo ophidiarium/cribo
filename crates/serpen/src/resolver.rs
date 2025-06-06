@@ -1,7 +1,7 @@
 use anyhow::Result;
+use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -101,6 +101,8 @@ impl Drop for PythonPathGuard {
     fn drop(&mut self) {
         // Always attempt cleanup, even during panics - that's the whole point of a scope guard!
         // We catch and ignore any errors to prevent double panics, but we must try to clean up.
+        #[allow(clippy::disallowed_methods)]
+        // catch_unwind is necessary here to prevent double panics during cleanup
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             // SAFETY: This is safe as we're restoring the environment to its original state
             unsafe {
@@ -151,6 +153,8 @@ impl Drop for VirtualEnvGuard {
     fn drop(&mut self) {
         // Always attempt cleanup, even during panics - that's the whole point of a scope guard!
         // We catch and ignore any errors to prevent double panics, but we must try to clean up.
+        #[allow(clippy::disallowed_methods)]
+        // catch_unwind is necessary here to prevent double panics during cleanup
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             // SAFETY: This is safe as we're restoring the environment to its original state
             unsafe {
@@ -174,11 +178,11 @@ pub enum ImportType {
 pub struct ModuleResolver {
     config: Config,
     /// Cache of resolved module paths
-    module_cache: HashMap<String, Option<PathBuf>>,
+    module_cache: IndexMap<String, Option<PathBuf>>,
     /// Set of all first-party modules discovered in src directories
-    first_party_modules: HashSet<String>,
+    first_party_modules: IndexSet<String>,
     /// Cache of virtual environment packages to avoid repeated filesystem scans
-    virtualenv_packages_cache: RefCell<Option<HashSet<String>>>,
+    virtualenv_packages_cache: RefCell<Option<IndexSet<String>>>,
 }
 
 impl ModuleResolver {
@@ -204,8 +208,8 @@ impl ModuleResolver {
     ) -> Result<Self> {
         let mut resolver = Self {
             config,
-            module_cache: HashMap::new(),
-            first_party_modules: HashSet::new(),
+            module_cache: IndexMap::new(),
+            first_party_modules: IndexSet::new(),
             virtualenv_packages_cache: RefCell::new(None),
         };
 
@@ -248,7 +252,7 @@ impl ModuleResolver {
         pythonpath_override: Option<&str>,
         _virtualenv_override: Option<&str>,
     ) -> Vec<PathBuf> {
-        let mut unique_dirs = HashSet::new();
+        let mut unique_dirs = IndexSet::new();
 
         // Add configured src directories
         for dir in &self.config.src {
@@ -262,7 +266,7 @@ impl ModuleResolver {
 
         // Add PYTHONPATH directories (for first-party module discovery)
         let pythonpath = pythonpath_override
-            .map(|p| p.to_string())
+            .map(|p| p.to_owned())
             .or_else(|| std::env::var("PYTHONPATH").ok());
 
         if let Some(pythonpath) = pythonpath {
@@ -277,7 +281,7 @@ impl ModuleResolver {
     }
 
     /// Helper method to add a PYTHONPATH directory to the unique set
-    fn add_pythonpath_directory(&self, unique_dirs: &mut HashSet<PathBuf>, path_str: &str) {
+    fn add_pythonpath_directory(&self, unique_dirs: &mut IndexSet<PathBuf>, path_str: &str) {
         if path_str.is_empty() {
             return;
         }
@@ -420,7 +424,7 @@ impl ModuleResolver {
 
     /// Get the set of third-party packages installed in the virtual environment
     /// Used for improving import classification accuracy
-    fn get_virtualenv_packages(&self, virtualenv_override: Option<&str>) -> HashSet<String> {
+    fn get_virtualenv_packages(&self, virtualenv_override: Option<&str>) -> IndexSet<String> {
         // If we have a cached result and no override is specified, return it
         if virtualenv_override.is_none() {
             if let Some(cached_packages) = self.get_cached_virtualenv_packages() {
@@ -433,18 +437,18 @@ impl ModuleResolver {
     }
 
     /// Get cached virtualenv packages if available
-    fn get_cached_virtualenv_packages(&self) -> Option<HashSet<String>> {
+    fn get_cached_virtualenv_packages(&self) -> Option<IndexSet<String>> {
         let cache_ref = self.virtualenv_packages_cache.try_borrow().ok()?;
         cache_ref.as_ref().cloned()
     }
 
     /// Compute virtualenv packages by scanning the filesystem
-    fn compute_virtualenv_packages(&self, virtualenv_override: Option<&str>) -> HashSet<String> {
-        let mut packages = HashSet::new();
+    fn compute_virtualenv_packages(&self, virtualenv_override: Option<&str>) -> IndexSet<String> {
+        let mut packages = IndexSet::new();
 
         // First, try to get explicit VIRTUAL_ENV (either override or environment variable)
         let explicit_virtualenv = virtualenv_override
-            .map(|v| v.to_string())
+            .map(|v| v.to_owned())
             .or_else(|| std::env::var("VIRTUAL_ENV").ok());
 
         let virtualenv_paths = if let Some(virtualenv_path) = explicit_virtualenv {
@@ -479,7 +483,7 @@ impl ModuleResolver {
     fn scan_site_packages_directory(
         &self,
         site_packages_dir: &PathBuf,
-        packages: &mut HashSet<String>,
+        packages: &mut IndexSet<String>,
     ) {
         let Ok(entries) = std::fs::read_dir(site_packages_dir) else {
             return;
@@ -498,11 +502,11 @@ impl ModuleResolver {
 
             // For directories, use the directory name as package name
             if path.is_dir() {
-                packages.insert(name.to_string());
+                packages.insert(name.to_owned());
             }
             // For .py files, use the filename without extension
             else if let Some(package_name) = name.strip_suffix(".py") {
-                packages.insert(package_name.to_string());
+                packages.insert(package_name.to_owned());
             }
         }
     }
@@ -612,7 +616,7 @@ impl ModuleResolver {
                 return src_dir
                     .file_name()
                     .and_then(|os| os.to_str())
-                    .map(|s| s.to_string());
+                    .map(|s| s.to_owned());
             }
         }
         crate::util::path_to_module_name(src_dir, file_path)
@@ -687,7 +691,7 @@ impl ModuleResolver {
 
         // Only resolve first-party modules
         if !self.is_first_party_module(module_name) {
-            self.module_cache.insert(module_name.to_string(), None);
+            self.module_cache.insert(module_name.to_owned(), None);
             return Ok(None);
         }
 
@@ -696,12 +700,12 @@ impl ModuleResolver {
         for src_dir in &directories_to_search {
             if let Some(path) = self.find_module_file(src_dir, module_name)? {
                 self.module_cache
-                    .insert(module_name.to_string(), Some(path.clone()));
+                    .insert(module_name.to_owned(), Some(path.clone()));
                 return Ok(Some(path));
             }
         }
 
-        self.module_cache.insert(module_name.to_string(), None);
+        self.module_cache.insert(module_name.to_owned(), None);
         Ok(None)
     }
 
@@ -745,7 +749,7 @@ impl ModuleResolver {
     }
 
     /// Get all discovered first-party modules
-    pub fn get_first_party_modules(&self) -> &HashSet<String> {
+    pub fn get_first_party_modules(&self) -> &IndexSet<String> {
         &self.first_party_modules
     }
 
@@ -759,7 +763,6 @@ impl ModuleResolver {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use std::collections::{HashMap, HashSet};
     use std::path::Path;
 
     #[test]
@@ -769,13 +772,13 @@ mod tests {
         let file_path = Path::new("/path/to/mypkg/__init__.py");
         let resolver = ModuleResolver {
             config: Config::default(),
-            module_cache: HashMap::new(),
-            first_party_modules: HashSet::new(),
+            module_cache: IndexMap::new(),
+            first_party_modules: IndexSet::new(),
             virtualenv_packages_cache: RefCell::new(None),
         };
         assert_eq!(
             resolver.path_to_module_name(src_dir, file_path),
-            Some("mypkg".to_string())
+            Some("mypkg".to_owned())
         );
     }
 
@@ -787,8 +790,8 @@ mod tests {
         };
         let resolver = ModuleResolver {
             config,
-            module_cache: HashMap::new(),
-            first_party_modules: HashSet::new(),
+            module_cache: IndexMap::new(),
+            first_party_modules: IndexSet::new(),
             virtualenv_packages_cache: RefCell::new(None),
         };
 
@@ -820,8 +823,8 @@ mod tests {
         };
         let resolver = ModuleResolver {
             config,
-            module_cache: HashMap::new(),
-            first_party_modules: HashSet::new(),
+            module_cache: IndexMap::new(),
+            first_party_modules: IndexSet::new(),
             virtualenv_packages_cache: RefCell::new(None),
         };
 

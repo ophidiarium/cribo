@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use anyhow::Result;
 use serpen::dependency_graph::{DependencyGraph, ModuleNode};
 use std::path::PathBuf;

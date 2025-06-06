@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use std::fs;
 
@@ -112,17 +113,17 @@ impl CodeEmitter {
         let mut aliased_stdlib = IndexSet::new();
 
         for import_alias in import_aliases.values() {
-            if import_alias.has_explicit_alias && !import_alias.is_from_import {
-                let module_name = &import_alias.module_name;
-
-                // Check if this module was in third_party or stdlib imports
-                if third_party_imports.contains(module_name) {
-                    aliased_third_party.insert(module_name.clone());
-                    third_party_imports.shift_remove(module_name);
-                } else if stdlib_imports.contains(module_name) {
-                    aliased_stdlib.insert(module_name.clone());
-                    stdlib_imports.shift_remove(module_name);
-                }
+            if !import_alias.has_explicit_alias || import_alias.is_from_import {
+                continue;
+            }
+            let module_name = &import_alias.module_name;
+            // Check if this module was in third_party or stdlib imports
+            if third_party_imports.contains(module_name) {
+                aliased_third_party.insert(module_name.clone());
+                third_party_imports.shift_remove(module_name);
+            } else if stdlib_imports.contains(module_name) {
+                aliased_stdlib.insert(module_name.clone());
+                stdlib_imports.shift_remove(module_name);
             }
         }
 
@@ -285,19 +286,21 @@ impl CodeEmitter {
         // Pre-compute module import flags based on resolver information
         let module_flags = {
             let mut flags = IndexMap::new();
-            for import_alias in ast_rewriter.import_aliases().values() {
-                if import_alias.is_from_import {
-                    let full_module_name = format!(
-                        "{}.{}",
-                        import_alias.module_name, import_alias.original_name
-                    );
-                    let is_module = self
-                        .resolver
-                        .resolve_module_path(&full_module_name)
-                        .unwrap_or(None)
-                        .is_some();
-                    flags.insert(full_module_name, is_module);
-                }
+            for import_alias in ast_rewriter
+                .import_aliases()
+                .values()
+                .filter(|a| a.is_from_import)
+            {
+                let full_module_name = format!(
+                    "{}.{}",
+                    import_alias.module_name, import_alias.original_name
+                );
+                let is_module = self
+                    .resolver
+                    .resolve_module_path(&full_module_name)
+                    .unwrap_or(None)
+                    .is_some();
+                flags.insert(full_module_name, is_module);
             }
             flags
         };
@@ -569,9 +572,9 @@ impl CodeEmitter {
                 names: vec![Alias {
                     name: Identifier::new("types", TextRange::default()),
                     asname: None,
-                    range: Default::default(),
+                    range: TextRange::default(),
                 }],
-                range: Default::default(),
+                range: TextRange::default(),
             };
             statements.insert(0, Stmt::Import(import_types));
         }
@@ -687,27 +690,7 @@ impl CodeEmitter {
         let target_expr = if module_name.contains('.') {
             // Handle dotted module names like "greetings.greeting"
             let parts: Vec<&str> = module_name.split('.').collect();
-            let mut current_expr = Expr::Name(ExprName {
-                id: Identifier::new(parts[0], TextRange::default()).into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            });
-
-            // Build the attribute chain, with the last part having Store context
-            for (idx, &part) in parts[1..].iter().enumerate() {
-                let is_last = idx == parts.len() - 2;
-                current_expr = Expr::Attribute(ExprAttribute {
-                    value: Box::new(current_expr),
-                    attr: Identifier::new(part, TextRange::default()),
-                    ctx: if is_last {
-                        ExprContext::Store
-                    } else {
-                        ExprContext::Load
-                    },
-                    range: TextRange::default(),
-                });
-            }
-            current_expr
+            Self::build_dotted_name_expr(&parts)
         } else {
             // Simple module name
             Expr::Name(ExprName {
@@ -954,23 +937,28 @@ impl CodeEmitter {
         import_from_stmt: &StmtImportFrom,
         strategies: &mut IndexMap<String, ImportStrategy>,
     ) {
-        // `from module import ...` - needs direct inlining
         if let Some(module) = &import_from_stmt.module {
             let module_name = module.as_str();
-            if self.is_first_party_module(module_name) {
-                strategies.insert(module_name.to_string(), ImportStrategy::FromImport);
-
-                // Check if any of the imported names are actually modules
-                for alias in &import_from_stmt.names {
-                    let imported_name = alias.name.as_str();
-                    let full_module_name = format!("{}.{}", module_name, imported_name);
-
-                    // If the imported name resolves to a module, it needs module import strategy
-                    if self.is_first_party_module(&full_module_name) {
-                        strategies.insert(full_module_name, ImportStrategy::ModuleImport);
-                    }
-                }
+            if !self.is_first_party_module(module_name) {
+                return;
             }
+            strategies.insert(module_name.to_string(), ImportStrategy::FromImport);
+
+            for alias in &import_from_stmt.names {
+                let imported_name = alias.name.as_str();
+                let full_module_name = format!("{}.{}", module_name, imported_name);
+                self.insert_module_import_strategy(&full_module_name, strategies);
+            }
+        }
+    }
+
+    fn insert_module_import_strategy(
+        &self,
+        full_module_name: &str,
+        strategies: &mut IndexMap<String, ImportStrategy>,
+    ) {
+        if self.is_first_party_module(full_module_name) {
+            strategies.insert(full_module_name.to_string(), ImportStrategy::ModuleImport);
         }
     }
 
@@ -1189,7 +1177,10 @@ impl CodeEmitter {
             }
             return;
         }
-        let module = import_from_stmt.module.as_ref().unwrap();
+        let module = import_from_stmt
+            .module
+            .as_ref()
+            .expect("module should be present for non-relative imports");
 
         let module_name = module.as_str();
         if matches!(
@@ -1411,17 +1402,46 @@ impl CodeEmitter {
     /// This ensures reproducible builds regardless of the platform where bundling occurs
     fn normalize_line_endings(&self, content: String) -> String {
         // Replace Windows CRLF (\r\n) and Mac CR (\r) with Unix LF (\n)
-        content.replace("\r\n", "\n").replace('\r', "\n")
+        content
+            .cow_replace("\r\n", "\n")
+            .cow_replace('\r', "\n")
+            .into_owned()
+    }
+
+    /// Helper to build a nested dotted name expression for assignment target
+    fn build_dotted_name_expr(parts: &[&str]) -> Expr {
+        let mut current_expr = Expr::Name(ExprName {
+            id: Identifier::new(parts[0], TextRange::default()).into(),
+            ctx: ExprContext::Load,
+            range: TextRange::default(),
+        });
+        let len = parts.len();
+        for (idx, &part) in parts[1..].iter().enumerate() {
+            let ctx = if idx + 2 == len {
+                ExprContext::Store
+            } else {
+                ExprContext::Load
+            };
+            current_expr = Expr::Attribute(ExprAttribute {
+                value: Box::new(current_expr),
+                attr: Identifier::new(part, TextRange::default()),
+                ctx,
+                range: TextRange::default(),
+            });
+        }
+        current_expr
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use crate::config::Config;
     fn create_test_emitter() -> CodeEmitter {
         let config = Config::default();
-        let resolver = ModuleResolver::new(config).unwrap();
+        let resolver =
+            ModuleResolver::new(config).expect("ModuleResolver creation should succeed in test");
         CodeEmitter::new(resolver, false, false)
     }
 
@@ -1435,10 +1455,77 @@ mod tests {
             let keep_predicate = |_module: &str| true; // Keep all imports for this test
             let filtered = emitter
                 .filter_import_statements(&module.syntax().body, keep_predicate)
-                .unwrap();
+                .expect("filter_import_statements should succeed in test");
 
             // Should keep both import statements
             assert_eq!(filtered.len(), 2);
         }
+    }
+
+    #[test]
+    fn test_filter_aliased_imports_logic() {
+        use crate::ast_rewriter::AstRewriter;
+        use indexmap::IndexSet;
+
+        let emitter = create_test_emitter();
+
+        // Create a real AstRewriter and populate it with import aliases using actual Python code
+        let mut ast_rewriter = AstRewriter::new(10); // Python 3.10
+
+        // Create a simulated Python module with import aliases
+        let python_source = r#"
+import numpy as np
+import matplotlib.pyplot as plt
+from pandas import DataFrame as pd
+import os
+"#;
+
+        // Parse the Python source and collect import aliases
+        let parsed =
+            ruff_python_parser::parse_module(python_source).expect("Should parse test Python code");
+        ast_rewriter.collect_import_aliases(parsed.syntax(), "test_module");
+
+        // Set up import sets that contain our test modules
+        let mut third_party_imports = IndexSet::from([
+            "numpy".to_string(),
+            "matplotlib.pyplot".to_string(),
+            "pandas".to_string(),
+        ]);
+        let mut stdlib_imports = IndexSet::from(["os".to_string()]);
+
+        // Store original state for comparison (currently unused but kept for future debugging)
+        let _original_third_party = third_party_imports.clone();
+        let _original_stdlib = stdlib_imports.clone();
+
+        // Call the actual method we're testing
+        let (aliased_third_party, aliased_stdlib) = emitter.filter_aliased_imports(
+            &mut third_party_imports,
+            &mut stdlib_imports,
+            &ast_rewriter,
+        );
+
+        // Verify the correct behavior:
+        // - numpy (has explicit alias "np", not from import) should be filtered to aliased_third_party
+        // - matplotlib.pyplot (has explicit alias "plt", not from import) should be filtered to aliased_third_party
+        // - pandas (has from import, should be skipped even though it has explicit alias)
+        // - os (no explicit alias, should be skipped)
+
+        // Should include numpy and matplotlib.pyplot (both have explicit aliases and are not from imports)
+        assert_eq!(aliased_third_party.len(), 2);
+        assert!(aliased_third_party.contains("numpy"));
+        assert!(aliased_third_party.contains("matplotlib.pyplot"));
+
+        // Should not include any stdlib imports (os doesn't have explicit alias)
+        assert_eq!(aliased_stdlib.len(), 0);
+
+        // pandas should remain in third_party_imports (is_from_import = true, so skipped)
+        assert!(third_party_imports.contains("pandas"));
+
+        // numpy and matplotlib.pyplot should be removed from third_party_imports
+        assert!(!third_party_imports.contains("numpy"));
+        assert!(!third_party_imports.contains("matplotlib.pyplot"));
+
+        // os should remain in stdlib_imports (has_explicit_alias = false, so skipped)
+        assert!(stdlib_imports.contains("os"));
     }
 }

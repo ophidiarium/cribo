@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -174,6 +176,21 @@ fn test_ast_rewriting_happy_path() {
     }
 }
 
+/// Helper function to run a single test fixture and return the result
+fn run_single_fixture(fixture_name: &str) -> (String, bool, Option<String>) {
+    let fixture = AstRewritingFixture::new(fixture_name);
+    match fixture.run_test() {
+        Ok(()) => {
+            println!("✅ {} passed", fixture_name);
+            (fixture_name.to_string(), true, None)
+        }
+        Err(e) => {
+            eprintln!("❌ {} failed: {}", fixture_name, e);
+            (fixture_name.to_string(), false, Some(e.to_string()))
+        }
+    }
+}
+
 #[test]
 fn test_ast_rewriting_all_fixtures() {
     // Initialize logger for debugging
@@ -191,29 +208,19 @@ fn test_ast_rewriting_all_fixtures() {
     // Discover all fixture directories
     if let Ok(entries) = fs::read_dir(&fixtures_dir) {
         for entry in entries.flatten() {
-            if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-                let fixture_name = entry.file_name().to_string_lossy().to_string();
-
-                // Skip if not a test fixture (no main.py)
-                let main_py = entry.path().join("main.py");
-                if !main_py.exists() {
-                    continue;
-                }
-
-                println!("Found fixture: {}", fixture_name);
-
-                let fixture = AstRewritingFixture::new(&fixture_name);
-                match fixture.run_test() {
-                    Ok(()) => {
-                        test_results.push((fixture_name.clone(), true, None));
-                        println!("✅ {} passed", fixture_name);
-                    }
-                    Err(e) => {
-                        test_results.push((fixture_name.clone(), false, Some(e.to_string())));
-                        eprintln!("❌ {} failed: {}", fixture_name, e);
-                    }
-                }
+            if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                continue;
             }
+
+            let fixture_name = entry.file_name().to_string_lossy().to_string();
+            let main_py = entry.path().join("main.py");
+            if !main_py.exists() {
+                continue;
+            }
+
+            println!("Found fixture: {}", fixture_name);
+            let test_result = run_single_fixture(&fixture_name);
+            test_results.push(test_result);
         }
     }
 

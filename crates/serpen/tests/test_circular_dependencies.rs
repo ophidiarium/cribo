@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use anyhow::Result;
 use insta::assert_snapshot;
 use serpen::bundler::Bundler;
@@ -694,11 +696,11 @@ fn test_get_entry_modules() {
     }
 
     let entry_modules = graph.get_entry_modules();
-    let entry_names: std::collections::HashSet<&str> =
+    let entry_names: indexmap::IndexSet<&str> =
         entry_modules.iter().map(|m| m.name.as_str()).collect();
 
     // Should identify modules with no dependencies as entry points
-    let expected_entries: std::collections::HashSet<&str> =
+    let expected_entries: indexmap::IndexSet<&str> =
         ["entry1", "entry2", "module_d"].iter().cloned().collect();
 
     assert_eq!(

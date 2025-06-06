@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use serial_test::serial;
 use std::fs;
 use tempfile::TempDir;

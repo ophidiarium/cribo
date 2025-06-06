@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use serpen::ast_rewriter::AstRewriter;
 
 /// Test regular import statements with aliases (non-"from" imports)

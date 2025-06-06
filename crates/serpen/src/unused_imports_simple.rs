@@ -341,8 +341,8 @@ impl UnusedImportAnalyzer {
         }
         // Track usage in elif/else clauses
         for clause in &if_stmt.elif_else_clauses {
-            if let Some(test) = &clause.test {
-                self.track_usage_in_expression(test);
+            if let Some(condition) = &clause.test {
+                self.track_usage_in_expression(condition);
             }
             for stmt in &clause.body {
                 self.track_usage_in_statement(stmt);
@@ -749,6 +749,7 @@ impl Default for UnusedImportAnalyzer {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use insta::{assert_snapshot, with_settings};
@@ -866,7 +867,9 @@ def calculate(x):
 
         for (description, source) in test_cases {
             let mut analyzer = UnusedImportAnalyzer::new();
-            let unused_imports = analyzer.analyze_file(source).unwrap();
+            let unused_imports = analyzer
+                .analyze_file(source)
+                .expect("analyze_file should succeed for test case");
 
             output.push_str(&format!("## {}\n", description));
             output.push_str(&format!("Source:\n{}\n", source.trim()));
@@ -923,7 +926,9 @@ def calculate(x):
         let mut output = String::new();
 
         for (description, source) in test_files {
-            let unused_imports = analyzer.analyze_file(source).unwrap();
+            let unused_imports = analyzer
+                .analyze_file(source)
+                .expect("analyze_file should succeed for analyzer independence test");
 
             output.push_str(&format!("## {}\n", description));
             output.push_str(&format!("Source:\n{}\n", source.trim()));
@@ -958,7 +963,9 @@ if __name__ == "__main__":
 "#;
 
         let mut analyzer = UnusedImportAnalyzer::new();
-        let unused_imports = analyzer.analyze_file(source).unwrap();
+        let unused_imports = analyzer
+            .analyze_file(source)
+            .expect("analyze_file should succeed for basic unused import detection");
 
         assert_eq!(unused_imports.len(), 1);
         assert_eq!(unused_imports[0].name, "os");
@@ -975,7 +982,9 @@ def main():
 "#;
 
         let mut analyzer = UnusedImportAnalyzer::new();
-        let unused_imports = analyzer.analyze_file(source).unwrap();
+        let unused_imports = analyzer
+            .analyze_file(source)
+            .expect("analyze_file should succeed for star import test");
 
         // Star imports should not be flagged as unused
         assert_eq!(unused_imports.len(), 0);
@@ -995,7 +1004,9 @@ def main():
 "#;
 
         let mut analyzer = UnusedImportAnalyzer::new();
-        let unused_imports = analyzer.analyze_file(source).unwrap();
+        let unused_imports = analyzer
+            .analyze_file(source)
+            .expect("analyze_file should succeed for all export test");
 
         // Only json should be flagged as unused:
         // - os is exported via __all__ (so not flagged even though not used)
@@ -1018,7 +1029,9 @@ def main():
     print(sys.version)
 "#;
 
-        let unused_imports1 = analyzer.analyze_file(source1).unwrap();
+        let unused_imports1 = analyzer
+            .analyze_file(source1)
+            .expect("analyze_file should succeed for first file");
         assert_eq!(unused_imports1.len(), 1);
         assert_eq!(unused_imports1[0].name, "os");
 
@@ -1033,7 +1046,9 @@ def process():
     return p
 "#;
 
-        let unused_imports2 = analyzer.analyze_file(source2).unwrap();
+        let unused_imports2 = analyzer
+            .analyze_file(source2)
+            .expect("analyze_file should succeed for second file");
         assert_eq!(unused_imports2.len(), 1);
         assert_eq!(unused_imports2[0].name, "json");
 
@@ -1045,7 +1060,9 @@ def calculate(x):
     return math.sqrt(x)
 "#;
 
-        let unused_imports3 = analyzer.analyze_file(source3).unwrap();
+        let unused_imports3 = analyzer
+            .analyze_file(source3)
+            .expect("analyze_file should succeed for third file");
         assert_eq!(unused_imports3.len(), 0);
     }
 }

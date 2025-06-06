@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 /// Comprehensive test suite based on stickytape test scenarios
 ///
 /// This test suite mirrors the functionality and test cases from the stickytape Python bundler
@@ -12,6 +14,7 @@
 /// - Scripts with special edge cases
 ///
 /// Reference: https://github.com/mwilliamson/stickytape
+use cow_utils::CowUtils;
 use insta::{assert_snapshot, with_settings};
 use std::path::PathBuf;
 use std::process::Command;
@@ -94,8 +97,8 @@ fn assert_script_output(script_name: &str, expected_output: &str) {
                     eprintln!("Expected output: '{}'", expected_output);
 
                     // Normalize both outputs by trimming whitespace and normalizing line endings
-                    let actual_normalized = actual_output.trim().replace("\r\n", "\n");
-                    let expected_normalized = expected_output.trim().replace("\r\n", "\n");
+                    let actual_normalized = actual_output.trim().cow_replace("\r\n", "\n");
+                    let expected_normalized = expected_output.trim().cow_replace("\r\n", "\n");
 
                     assert_eq!(
                         actual_normalized, expected_normalized,
@@ -108,7 +111,7 @@ fn assert_script_output(script_name: &str, expected_output: &str) {
                         description => format!("Bundled content for {}", script_name),
                         omit_expression => true,
                     }, {
-                        assert_snapshot!(format!("bundled_{}", script_name.replace("/", "_")), bundled_content);
+                        assert_snapshot!(format!("bundled_{}", script_name.cow_replace("/", "_")), bundled_content);
                     });
                 }
                 Err(e) => {
@@ -182,11 +185,6 @@ fn test_can_import_module_from_package_using_from_import_syntax() {
     assert_script_output("script_using_from_to_import_module", "Hello");
 }
 
-// #[test]
-fn test_can_import_multiple_modules_from_module_using_from_import_syntax() {
-    assert_script_output("script_using_from_to_import_multiple_modules", "Hello");
-}
-
 #[test]
 fn test_imported_modules_are_transformed() {
     assert_script_output("imports_in_imported_modules", "Hello");
@@ -197,7 +195,8 @@ fn test_circular_references_dont_cause_stack_overflow() {
     assert_script_output("circular_reference", "Hello");
 }
 
-// #[test]
+#[test]
+#[ignore = "Not passing yet"]
 fn test_explicit_relative_imports_with_single_dot_are_resolved_correctly() {
     assert_script_output("explicit_relative_import_single_dot", "Hello");
 }
@@ -207,22 +206,26 @@ fn test_explicit_relative_imports_with_single_dot_in_package_init_are_resolved_c
     assert_script_output("explicit_relative_import_single_dot_in_init", "Hello");
 }
 
-// #[test]
+#[test]
+#[ignore = "Not passing yet"]
 fn test_explicit_relative_imports_from_parent_package_are_resolved_correctly() {
     assert_script_output("explicit_relative_import_from_parent_package", "Hello");
 }
 
-// #[test]
+#[test]
+#[ignore = "Not passing yet"]
 fn test_explicit_relative_imports_with_module_name_are_resolved_correctly() {
     assert_script_output("explicit_relative_import", "Hello");
 }
 
-// #[test]
+#[test]
+#[ignore = "Not passing yet"]
 fn test_explicit_relative_imports_with_module_name_in_package_init_are_resolved_correctly() {
     assert_script_output("explicit_relative_import_in_init", "Hello");
 }
 
-// #[test]
+#[test]
+#[ignore = "Not passing yet"]
 fn test_package_init_can_be_used_even_if_not_imported_explicitly() {
     assert_script_output("implicit_init_import", "Hello");
 }
@@ -242,7 +245,7 @@ fn test_modules_with_triple_quotes_can_be_bundled() {
     assert_script_output("module_with_triple_quotes", "Hello\n'''\n\"\"\"");
 }
 
-// #[test]
+#[test]
 fn test_additional_python_modules_can_be_explicitly_included() {
     // This test is for dynamic imports which may require special handling
     // We'll test if we can bundle scripts with dynamic imports

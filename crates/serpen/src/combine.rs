@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use indexmap::IndexSet;
 use std::path::PathBuf;
 
 pub trait Combine {
@@ -45,13 +45,13 @@ impl<T> Combine for Option<Vec<T>> {
     }
 }
 
-impl<T> Combine for Option<HashSet<T>>
+impl<T> Combine for Option<IndexSet<T>>
 where
     T: Eq + std::hash::Hash,
 {
-    /// Combine two HashSets by extending the set in `self` with the set in `other`, if they're
+    /// Combine two IndexSets by extending the set in `self` with the set in `other`, if they're
     /// both `Some`.
-    fn combine(self, other: Option<HashSet<T>>) -> Option<HashSet<T>> {
+    fn combine(self, other: Option<IndexSet<T>>) -> Option<IndexSet<T>> {
         match (self, other) {
             (Some(mut a), Some(b)) => {
                 a.extend(b);

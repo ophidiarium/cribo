@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use anyhow::Result;
 use serpen::bundler::Bundler;
 use serpen::config::Config;

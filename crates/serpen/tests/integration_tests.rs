@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use insta::{assert_snapshot, with_settings};
 use std::path::PathBuf;
 use tempfile::TempDir;

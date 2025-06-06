@@ -5,10 +5,10 @@
 //! generating clean Python code using AST rewriting techniques.
 
 use anyhow::{Context, Result};
+use indexmap::IndexSet;
 use ruff_python_ast::{self as ast, Stmt};
 use ruff_python_codegen::{Generator, Stylist};
 use ruff_python_parser;
-use std::collections::HashSet;
 
 use crate::unused_imports_simple::{UnusedImport, UnusedImportAnalyzer};
 
@@ -128,7 +128,7 @@ impl UnusedImportTrimmer {
         imports_to_remove: Vec<UnusedImport>,
     ) -> Result<TrimResult> {
         // Build set of import names to remove for efficient lookup
-        let remove_set: HashSet<String> = imports_to_remove
+        let remove_set: IndexSet<String> = imports_to_remove
             .iter()
             .map(|import| import.name.clone())
             .collect();
@@ -202,7 +202,7 @@ impl UnusedImportTrimmer {
     fn filter_statements(
         &self,
         statements: &[Stmt],
-        remove_set: &HashSet<String>,
+        remove_set: &IndexSet<String>,
     ) -> Result<Vec<Stmt>> {
         let mut filtered_statements = Vec::new();
 
@@ -236,7 +236,7 @@ impl UnusedImportTrimmer {
     fn process_import_statement(
         &self,
         import_stmt: &ast::StmtImport,
-        remove_set: &HashSet<String>,
+        remove_set: &IndexSet<String>,
         filtered_statements: &mut Vec<Stmt>,
     ) {
         let filtered_aliases = self.filter_import_aliases(&import_stmt.names, remove_set);
@@ -253,7 +253,7 @@ impl UnusedImportTrimmer {
     fn process_import_from_statement(
         &self,
         import_from_stmt: &ast::StmtImportFrom,
-        remove_set: &HashSet<String>,
+        remove_set: &IndexSet<String>,
         filtered_statements: &mut Vec<Stmt>,
     ) {
         let filtered_aliases = self.filter_import_aliases(&import_from_stmt.names, remove_set);
@@ -270,7 +270,7 @@ impl UnusedImportTrimmer {
     fn filter_import_aliases(
         &self,
         aliases: &[ast::Alias],
-        remove_set: &HashSet<String>,
+        remove_set: &IndexSet<String>,
     ) -> Vec<ast::Alias> {
         aliases
             .iter()
@@ -311,6 +311,7 @@ impl Default for UnusedImportTrimmer {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use insta::{assert_snapshot, with_settings};
@@ -361,7 +362,9 @@ if __name__ == "__main__":
     main()
 "#;
 
-        let result = trimmer.trim_unused_imports(source, &config).unwrap();
+        let result = trimmer
+            .trim_unused_imports(source, &config)
+            .expect("trim_unused_imports should succeed");
 
         with_settings!({
             description => "Basic unused import trimming removes only unused imports"
@@ -384,7 +387,9 @@ def process_data(items: List[str]) -> Dict[str, int]:
     return result
 "#;
 
-        let result = trimmer.trim_unused_imports(source, &config).unwrap();
+        let result = trimmer
+            .trim_unused_imports(source, &config)
+            .expect("trim_unused_imports should succeed for partial import trimming");
 
         with_settings!({
             description => "Partial import trimming removes only unused items from from-imports"
@@ -407,7 +412,9 @@ def calculate(x):
     return data
 "#;
 
-        let result = trimmer.trim_unused_imports(source, &config).unwrap();
+        let result = trimmer
+            .trim_unused_imports(source, &config)
+            .expect("trim_unused_imports should succeed when no unused imports");
 
         with_settings!({
             description => "Code with no unused imports remains unchanged"
@@ -443,7 +450,9 @@ def main():
     print(f"Defaultdict: {dict(dd)}")
 "#;
 
-        let result = trimmer.trim_unused_imports(source, &config).unwrap();
+        let result = trimmer
+            .trim_unused_imports(source, &config)
+            .expect("trim_unused_imports should succeed for complex import scenarios");
 
         with_settings!({
             description => "Complex import scenario with mixed used and unused imports"
@@ -465,7 +474,9 @@ def main():
     print(sys.version)
 "#;
 
-        let result = trimmer.trim_unused_imports(source, &config).unwrap();
+        let result = trimmer
+            .trim_unused_imports(source, &config)
+            .expect("trim_unused_imports should succeed for future imports");
 
         with_settings!({
             description => "Future imports are preserved by default configuration"
@@ -489,7 +500,9 @@ def main():
     print(p)
 "#;
 
-        let unused_imports = trimmer.analyze_only(source, &config).unwrap();
+        let unused_imports = trimmer
+            .analyze_only(source, &config)
+            .expect("analyze_only should succeed");
 
         let mut output = String::new();
         output.push_str(&format!("Unused imports count: {}\n", unused_imports.len()));
@@ -524,7 +537,9 @@ def main():
     pass
 "#;
 
-        let result = trimmer.trim_unused_imports(source, &config).unwrap();
+        let result = trimmer
+            .trim_unused_imports(source, &config)
+            .expect("trim_unused_imports should succeed for custom preserve patterns");
 
         with_settings!({
             description => "Custom preserve patterns keep specified imports even if unused"
@@ -546,7 +561,9 @@ def process(data: Optional[str]) -> str:
     return data or "default"
 "#;
 
-        let result = trimmer.trim_unused_imports(source, &config).unwrap();
+        let result = trimmer
+            .trim_unused_imports(source, &config)
+            .expect("trim_unused_imports should succeed for empty import statements removal");
 
         with_settings!({
             description => "Import statements with all unused items are completely removed"
