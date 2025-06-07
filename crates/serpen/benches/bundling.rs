@@ -1,7 +1,8 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use serpen::bundler::Bundler;
 use serpen::config::Config;
 use std::fs;
+use std::hint::black_box;
 use std::path::Path;
 use tempfile::TempDir;
 
