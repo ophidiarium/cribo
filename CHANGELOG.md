@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.9](https://github.com/ophidiarium/cribo/compare/v0.4.8...v0.4.9) (2025-06-07)
+
+
+### Bug Fixes
+
+* **ci:** establish baseline benchmarks for performance tracking ([#77](https://github.com/ophidiarium/cribo/issues/77)) ([337d0f1](https://github.com/ophidiarium/cribo/commit/337d0f1c986a419f53333e22e7188c10a480dff0))
+* **ci:** restore start-point parameters for proper PR benchmarking ([#79](https://github.com/ophidiarium/cribo/issues/79)) ([d826376](https://github.com/ophidiarium/cribo/commit/d826376d8b47f39e731d278b0de6292c84c136d0))
+
 ## [0.4.8](https://github.com/ophidiarium/cribo/compare/v0.4.7...v0.4.8) (2025-06-07)
 
 
