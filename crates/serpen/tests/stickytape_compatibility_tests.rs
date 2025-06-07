@@ -201,7 +201,6 @@ fn test_explicit_relative_imports_with_single_dot_are_resolved_correctly() {
 }
 
 #[test]
-#[ignore = "Needs module object creation for 'from . import module' cases"]
 fn test_explicit_relative_imports_with_single_dot_in_package_init_are_resolved_correctly() {
     assert_script_output("explicit_relative_import_single_dot_in_init", "Hello");
 }
