@@ -75,7 +75,7 @@
                 },
                 {
                     "type": "toml",
-                    "path": "core_lib/Cargo.lock",
+                    "path": "Cargo.lock",
                     "jsonpath": "$.package[?(@.name.value == 'serpen')].version"
                 },
                 {
