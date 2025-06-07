@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.8](https://github.com/ophidiarium/cribo/compare/v0.4.7...v0.4.8) (2025-06-07)
+
+
+### Features
+
+* **ast:** handle relative imports from parent packages ([#70](https://github.com/ophidiarium/cribo/issues/70)) ([799790d](https://github.com/ophidiarium/cribo/commit/799790dea090549dc9863eca00ddc92ba04eb8ff))
+* **ci:** add comprehensive benchmarking infrastructure ([#75](https://github.com/ophidiarium/cribo/issues/75)) ([e159b1f](https://github.com/ophidiarium/cribo/commit/e159b1fdbc34201044088b03d667e307e1d4cc82))
+
 ## [0.4.7](https://github.com/tinovyatkin/serpen/compare/v0.4.6...v0.4.7) (2025-06-06)
 
 
