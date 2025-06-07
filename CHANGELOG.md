@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.10](https://github.com/ophidiarium/cribo/compare/v0.4.9...v0.4.10) (2025-06-07)
+
+
+### Features
+
+* **test:** re-enable single dot relative import test ([#80](https://github.com/ophidiarium/cribo/issues/80)) ([f698072](https://github.com/ophidiarium/cribo/commit/f6980728850b4305000c2dda46049074f413ce02))
+
 ## [0.4.9](https://github.com/ophidiarium/cribo/compare/v0.4.8...v0.4.9) (2025-06-07)
 
 
