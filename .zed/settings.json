@@ -1,0 +1,21 @@
+{
+  "file_scan_exclusions": [
+    "**/.git",
+    "**/Thumbs.dn",
+    "**/.vscode",
+    "**/__pycache__"
+  ],
+  "auto_install_extensions": {
+    "toml": true,
+    "typos": true,
+    "mcp-server-github": true,
+    "mcp-server-context7": true
+  },
+  "terminal": {
+    "detect_venv": {
+      "on": {
+        "directories": [".venv"]
+      }
+    }
+  }
+}
