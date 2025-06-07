@@ -38,6 +38,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - [ ] **GitHub Tools Check**: Verify `gh` CLI authenticated and MCP tools available
 - [ ] **Coverage Baseline**: Run `cargo coverage-text` and record current numbers
+- [ ] **Performance Baseline**: Run `cargo bench-save` to save performance baseline
 - [ ] **Record baseline**: Overall %, affected files %, note 80% patch requirement
 - [ ] **Current state**: `git status` and `git branch` - verify clean main
 - [ ] **Dependencies**: Run `cargo test --workspace` for clean starting state
@@ -47,9 +48,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [ ] Create feature branch: `git checkout -b fix/descriptive-name`
 - [ ] Implement changes (with coverage in mind)
 - [ ] **Coverage check**: `cargo coverage-text` after major changes
+- [ ] **Performance check**: `cargo bench-compare` after major changes
 - [ ] **Test validation**: `cargo test --workspace` (must pass)
 - [ ] **Clippy validation**: `cargo clippy --workspace --all-targets` (must be clean)
 - [ ] **Coverage verification**: Ensure no >2% drops, patch >80%
+- [ ] **Performance verification**: Ensure no >5% regressions without justification
 - [ ] Commit with conventional message
 - [ ] Push with upstream: `git push -u origin <branch-name>`
 
@@ -58,6 +61,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [ ] **Use MCP/gh CLI**: `mcp__github__create_pull_request` or `gh pr create`
 - [ ] Include comprehensive description (Summary, Changes, Test Results)
 - [ ] Add coverage impact note if significant
+- [ ] Add performance impact note if benchmarks show changes
 - [ ] **IMMEDIATE status check**: `mcp__github__get_pull_request_status`
 - [ ] **Verify ALL CI GREEN**: No failed GitHub Actions allowed
 
@@ -116,9 +120,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - NEVER skip coverage verification
 - NEVER declare success without full validation suite
 
-### CODE COVERAGE DISCIPLINE
+### CODE COVERAGE & PERFORMANCE DISCIPLINE
 
-#### Coverage Baseline Protocol
+#### Baseline Protocol (Coverage + Performance)
 
 **MANDATORY FIRST STEP** for any code changes:
 
@@ -132,6 +136,11 @@ cargo coverage-text
 # - bundler.rs: 89.4% 
 # - ast_rewriter.rs: 91.2%
 # - emit.rs: 76.8%
+
+# 3. Get baseline performance (BEFORE any changes)
+cargo bench-save     # Save current performance as baseline
+# or
+./scripts/bench.sh --save-baseline main
 ```
 
 #### Coverage Targets and CI Requirements
@@ -178,6 +187,69 @@ cargo coverage-lcov
 3. Add tests for uncovered code paths
 4. Verify fix with `cargo coverage-text`
 5. Push fix and re-check CI status
+
+### PERFORMANCE REGRESSION TRACKING
+
+#### Performance Baseline Management
+
+**MANDATORY**: Track performance alongside code coverage for all significant changes.
+
+```bash
+# Before starting work - save baseline
+cargo bench-save
+# or
+./scripts/bench.sh --save-baseline main
+
+# After implementing changes - compare
+cargo bench-compare
+# or  
+./scripts/bench.sh --baseline main
+
+# View detailed HTML report
+./scripts/bench.sh --open
+```
+
+#### Performance Targets
+
+**ACCEPTABLE REGRESSIONS**:
+
+- ≤3% for individual benchmarks (within noise margin)
+- ≤1% for overall bundling performance
+- Must be justified by significant feature additions
+
+**UNACCEPTABLE REGRESSIONS**:
+
+- 5% for any core operation without justification
+- 10% for any benchmark (indicates algorithmic issue)
+- Any regression in AST parsing (critical path)
+
+#### Benchmark Categories
+
+1. **Core Operations** (CRITICAL):
+   - `bundle_simple_project`: End-to-end bundling
+   - `parse_python_ast`: AST parsing performance
+   - `resolve_module_path`: Module resolution speed
+
+2. **Supporting Operations**:
+   - `extract_imports`: Import extraction
+   - `build_dependency_graph`: Graph construction
+
+#### Performance Recovery Procedures
+
+**If benchmarks show regression**:
+
+1. **Identify**: Run `cargo bench-compare` to pinpoint specific regressions
+2. **Profile**: Use `cargo flamegraph` or `perf` to find hotspots
+3. **Optimize**: Focus on algorithmic improvements first
+4. **Verify**: Re-run benchmarks to confirm improvement
+5. **Document**: Note any trade-offs in commit message
+
+**CI Performance Checks** (via Bencher.dev):
+
+- Automated benchmark runs on PRs with statistical analysis
+- Comprehensive PR comments with visual charts and regression alerts
+- Historical performance tracking with trend analysis
+- Block merge for statistically significant regressions
 
 ### PR STATUS MONITORING (CRITICAL FAILURE PREVENTION)
 
@@ -375,6 +447,32 @@ cargo test --package serpen unused_imports
 
 # Run a specific named test
 cargo test --package serpen test_simple_project_bundling
+```
+
+### Benchmarking Commands
+
+```bash
+# Run all benchmarks
+cargo bench --bench bundling
+# or
+./scripts/bench.sh
+
+# Save performance baseline
+cargo bench-save
+# or
+./scripts/bench.sh --save-baseline main
+
+# Compare against baseline
+cargo bench-compare
+# or
+./scripts/bench.sh --baseline main
+
+# Open HTML report
+./scripts/bench.sh --open
+
+# Run with Bencher.dev cloud tracking
+./scripts/bench-bencher.sh
+# Results viewable at: https://bencher.dev/console/projects/serpen/perf
 ```
 
 ### Coverage Commands

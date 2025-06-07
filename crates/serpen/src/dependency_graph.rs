@@ -267,8 +267,8 @@ impl DependencyGraph {
             .graph
             .neighbors_directed(current_index, petgraph::Direction::Incoming)
             .count();
-        println!(
-            "DEBUG: Module {} has {} incoming edges (dependencies)",
+        debug!(
+            "Module {} has {} incoming edges (dependencies)",
             current_module, incoming_count
         );
 
@@ -360,8 +360,8 @@ impl DependencyGraph {
     ) {
         let neighbor_module = &self.graph[neighbor_index].name;
         let current_module = &self.graph[stack.last().copied().unwrap_or(neighbor_index)].name;
-        println!(
-            "DEBUG: Found dependency: {} -> {}",
+        debug!(
+            "Found dependency: {} -> {}",
             neighbor_module, current_module
         );
         if !visited.contains(&neighbor_index) {

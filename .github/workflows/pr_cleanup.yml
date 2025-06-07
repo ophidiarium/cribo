@@ -1,0 +1,27 @@
+name: PR Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  archive_pr_branch:
+    name: Archive Closed PR Branch
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Bencher CLI
+        uses: bencherdev/bencher@main
+
+      - name: Archive closed PR branch with Bencher
+        run: |
+          bencher archive \
+          --project cribo \
+          --token '${{ secrets.BENCHER_API_TOKEN }}' \
+          --branch "$GITHUB_HEAD_REF"

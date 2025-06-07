@@ -55,6 +55,9 @@ pretty_assertions = "1.4.1"
 serial_test = "3.2.0"
 tempfile = "3.20.0"
 
+# Benchmarking
+criterion = { version = "0.5", features = ["html_reports"] }
+
 [workspace.lints.rust]
 unsafe_code = "warn"
 unreachable_pub = "warn"
