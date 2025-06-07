@@ -83,5 +83,9 @@
         "**/.DS_Store": true,
         "**/Thumbs.db": true,
         "**/__pycache__": true
+    },
+    "sonarlint.connectedMode.project": {
+        "connectionId": "ophidiarium",
+        "projectKey": "ophidiarium_cribo"
     }
 }

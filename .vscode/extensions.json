@@ -16,7 +16,8 @@
         "ms-vscode.vscode-websearchforcopilot",
         "redhat.vscode-yaml",
         "unifiedjs.vscode-remark",
-        "joshbolduc.commitlint"
+        "joshbolduc.commitlint",
+        "sonarsource.sonarlint-vscode"
     ],
     "unwantedRecommendations": [
         "ms-python.vscode-pylance",

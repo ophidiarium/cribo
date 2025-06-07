@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
 use indexmap::{IndexMap, IndexSet};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::fs;
 
 use crate::ast_rewriter::AstRewriter;
@@ -16,6 +18,12 @@ use ruff_text_size::TextRange;
 
 /// Type alias for import sets to reduce complexity
 type ImportSets = (IndexSet<String>, IndexSet<String>);
+
+/// Cached regex for detecting bundled variable references like "__module_name_variable"
+static BUNDLED_VAR_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"__[a-zA-Z_][a-zA-Z0-9_]*_[a-zA-Z_][a-zA-Z0-9_]*")
+        .expect("Invalid regex pattern for bundled variable detection")
+});
 
 /// Pre-parsed module data with AST for efficient processing
 struct ParsedModuleData {
@@ -521,7 +529,7 @@ impl CodeEmitter {
         // This ensures that alias information is available when transforming expressions
         ast_rewriter.transform_module_ast(&mut transformed_ast)?;
 
-        // Transform relative imports in __init__.py files BEFORE removing imports
+        // Transform relative imports in modules BEFORE removing imports
         // This ensures relative imports are resolved to bundled variable references
         let bundled_modules = self.create_bundled_modules_mapping();
         log::debug!(
@@ -552,7 +560,8 @@ impl CodeEmitter {
             ImportStrategy::FromImport | ImportStrategy::Dependency => {
                 // For modules imported as "from module import" or dependency modules,
                 // add variable exposure statements and return the transformed AST
-                let exposure_statements = self.create_variable_exposure_statements(module_name)?;
+                let exposure_statements =
+                    self.create_variable_exposure_statements(module_name, ast_rewriter)?;
                 let exposure_count = exposure_statements.len();
                 if !exposure_statements.is_empty() {
                     transformed_ast.body.extend(exposure_statements);
@@ -594,8 +603,9 @@ impl CodeEmitter {
         };
 
         // Add the exec call that will execute the module code in its namespace
-        // For __init__.py files, include globals to access bundled variables
-        let needs_globals = self.is_init_py_module(module_name);
+        // For __init__.py files and modules with bundled variable references, include globals to access bundled variables
+        let needs_globals = self.is_init_py_module(module_name)
+            || self.module_has_bundled_variable_references(&module_code);
         let exec_stmt =
             self.create_module_exec_statement(module_name, &module_code, needs_globals)?;
         namespace_stmts.push(exec_stmt);
@@ -802,11 +812,83 @@ impl CodeEmitter {
         self.init_modules.contains(module_name)
     }
 
-    /// Create statements to expose renamed variables with their original names
-    ///
-    /// This creates assignment statements like `__module_name_var = __module_name_var`
-    /// to make renamed variables accessible for import resolution in other modules.
-    fn create_variable_exposure_statements(&self, module_name: &str) -> Result<Vec<Stmt>> {
+    /// Check if module code contains references to bundled variables from other modules
+    fn module_has_bundled_variable_references(&self, module_code: &str) -> bool {
+        // Look for bundled variable patterns like "__module_name_variable"
+        // These indicate that the module references variables from other modules
+        BUNDLED_VAR_PATTERN.is_match(module_code)
+    }
+
+    /// Process a single rename entry and create exposure statement if appropriate
+    fn process_rename_entry(
+        &self,
+        rename_entry: (&str, &str), // (original_name, renamed_name)
+        module_name: &str,
+        ast_rewriter: &crate::ast_rewriter::AstRewriter,
+    ) -> Option<Stmt> {
+        let (original_name, renamed_name) = rename_entry;
+        // Check if this rename was due to a name conflict
+        // If it was, skip creating exposure statements since the original name no longer exists
+        if ast_rewriter.is_conflict_based_rename(original_name, module_name) {
+            log::debug!(
+                "Skipping exposure statement for '{}' -> '{}' in module '{}' (conflict-based rename)",
+                original_name,
+                renamed_name,
+                module_name
+            );
+            return None;
+        }
+
+        // Create assignment: renamed_name = original_name
+        // This assigns the original variable's value to the renamed variable for conflict resolution
+        let assignment = Stmt::Assign(StmtAssign {
+            targets: vec![Expr::Name(ExprName {
+                id: renamed_name.into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Name(ExprName {
+                id: original_name.into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        });
+
+        log::debug!(
+            "Creating exposure statement: {} = {} (in module '{}')",
+            renamed_name,
+            original_name,
+            module_name
+        );
+
+        Some(assignment)
+    }
+
+    /// Process all renames for a module and collect statements
+    fn process_module_renames(
+        &self,
+        renames: &IndexMap<String, String>,
+        module_name: &str,
+        ast_rewriter: &crate::ast_rewriter::AstRewriter,
+    ) -> Vec<Stmt> {
+        let mut statements = Vec::new();
+        for (original_name, renamed_name) in renames {
+            if let Some(statement) =
+                self.process_rename_entry((original_name, renamed_name), module_name, ast_rewriter)
+            {
+                statements.push(statement);
+            }
+        }
+        statements
+    }
+
+    /// Create exposure statements for renamed variables in a module
+    fn create_variable_exposure_statements(
+        &self,
+        module_name: &str,
+        ast_rewriter: &crate::ast_rewriter::AstRewriter,
+    ) -> Result<Vec<Stmt>> {
         let mut statements = Vec::new();
 
         // Get renamed variables for this module from bundled_variables
@@ -817,24 +899,7 @@ impl CodeEmitter {
                 renames.len()
             );
 
-            for (original_name, renamed_name) in renames {
-                // Create assignment: original_name = renamed_name
-                // This exposes the renamed variable under its original name for access by other modules
-                let assignment = Stmt::Assign(StmtAssign {
-                    targets: vec![Expr::Name(ExprName {
-                        id: original_name.clone().into(),
-                        ctx: ExprContext::Store,
-                        range: TextRange::default(),
-                    })],
-                    value: Box::new(Expr::Name(ExprName {
-                        id: renamed_name.clone().into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    range: TextRange::default(),
-                });
-                statements.push(assignment);
-            }
+            statements.extend(self.process_module_renames(renames, module_name, ast_rewriter));
         } else {
             log::debug!("No renamed variables found for module '{}'", module_name);
         }

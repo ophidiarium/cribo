@@ -5,6 +5,9 @@ use ruff_python_ast::{self as ast, Alias, Expr, ExprContext, Identifier, Stmt};
 use ruff_python_stdlib::{builtins, keyword};
 use ruff_text_size::TextRange;
 
+/// Suffix used to identify relative import modules
+const REL_IMPORT_SUFFIX: &str = "_imported";
+
 /// Scope type for tracking different kinds of scopes in Python
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScopeType {
@@ -332,7 +335,12 @@ impl AstRewriter {
 
     /// Analyze modules to detect name conflicts
     pub fn analyze_name_conflicts(&mut self, modules: &[(String, &ast::ModModule)]) {
-        // First collect all symbols
+        // Store module dependency information
+        // For now, disable the relative import exclusion logic entirely
+        // The original problem was with specific relative import patterns in packages
+        // We need a more targeted approach that only applies to actual relative imports
+
+        // Build symbol conflicts first
         self.collect_symbols(modules);
 
         let name_to_modules = self.collect_module_level_identifiers(modules);
@@ -609,10 +617,54 @@ impl AstRewriter {
         assign: &mut ast::StmtAssign,
         renames: &IndexMap<String, String>,
     ) -> Result<()> {
+        // Only rename assignment targets if they are not simple variable names
+        // Simple variable names in assignment targets represent new bindings (like in relative imports)
+        // and should not be renamed. Complex expressions (attributes, subscripts) may reference
+        // existing variables and should be renamed.
+        // Exception: Simple variable names that are part of conflict-based renames should be renamed.
         for target in &mut assign.targets {
-            self.apply_renames_to_expr(target, renames)?;
+            if !self.is_simple_variable_binding(target)
+                || self.should_rename_simple_binding(target, renames)
+            {
+                self.apply_renames_to_expr(target, renames)?;
+            }
         }
+        // Always rename the value (right-hand side) as it references existing variables
         self.apply_renames_to_expr(&mut assign.value, renames)
+    }
+
+    /// Check if an expression represents a simple variable binding (should not be renamed)
+    /// Returns true for simple names like 'x', false for complex expressions like 'obj.attr' or 'arr[i]'
+    fn is_simple_variable_binding(&self, expr: &Expr) -> bool {
+        matches!(expr, Expr::Name(_))
+    }
+
+    /// Check if a simple variable binding should be renamed due to conflict-based rename
+    fn should_rename_simple_binding(
+        &self,
+        target: &Expr,
+        renames: &IndexMap<String, String>,
+    ) -> bool {
+        if let Expr::Name(name_expr) = target {
+            if let Some(renamed_to) = renames.get(&name_expr.id.to_string()) {
+                return self.is_conflict_based_rename_mapping(&name_expr.id, renamed_to);
+            }
+        }
+        false
+    }
+
+    /// Check if a rename mapping represents a conflict-based rename
+    /// Conflict-based renames follow the pattern: original_name -> __module_original_name
+    fn is_conflict_based_rename_mapping(&self, original_name: &str, renamed_name: &str) -> bool {
+        // Check if the renamed name follows the conflict resolution pattern
+        if let Some(suffix_start) = renamed_name.strip_prefix("__") {
+            // Find the first underscore after the prefix, which separates module from original name
+            if let Some(underscore_pos) = suffix_start.find('_') {
+                let extracted_original = &suffix_start[underscore_pos + 1..];
+                return extracted_original == original_name;
+            }
+        }
+        false
     }
 
     /// Apply renames to return statement
@@ -1029,7 +1081,7 @@ impl AstRewriter {
         info
     }
 
-    /// Transform relative imports in __init__.py files to use bundled variable references
+    /// Transform relative imports in modules to use bundled variable references
     pub fn transform_init_py_relative_imports(
         &self,
         module_name: &str,
@@ -1042,15 +1094,18 @@ impl AstRewriter {
             self.init_modules.contains(module_name)
         );
 
-        // Only transform if this is an __init__.py file
-        if !self.init_modules.contains(module_name) {
+        // Check if this module has any relative imports before proceeding
+        let has_relative_imports = module_ast
+            .body
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::ImportFrom(import_from) if import_from.level > 0));
+
+        if !has_relative_imports {
+            log::debug!("No relative imports found in module: {}", module_name);
             return Ok(());
         }
 
-        log::debug!(
-            "Transforming relative imports for __init__.py module: {}",
-            module_name
-        );
+        log::debug!("Transforming relative imports for module: {}", module_name);
 
         // Use the provided bundled_modules mapping instead of constructing internally
         let mut imported_modules = IndexMap::new();
@@ -1096,14 +1151,54 @@ impl AstRewriter {
             statements_to_remove.push(i);
         }
 
-        // Replace relative import statements with direct assignments
+        // Remove relative import statements
         for &index in statements_to_remove.iter().rev() {
             module_ast.body.remove(index);
         }
 
-        // Add assignment statements for imported variables
+        // Add assignment statements for imported variables ONLY if we found relative imports
+        // Skip module imports (those ending with REL_IMPORT_SUFFIX) as they are only used for attribute access transformation
+        if !imported_modules.is_empty() {
+            let assignments_to_add =
+                self.create_variable_assignments_for_imports(&imported_modules);
+
+            log::debug!("Total imported_modules: {:?}", imported_modules);
+
+            // Insert assignments at the beginning of the module
+            for (i, assignment) in assignments_to_add.into_iter().enumerate() {
+                module_ast.body.insert(i, assignment);
+            }
+        }
+
+        // Transform attribute access expressions (e.g., messages.message -> __greetings_messages_message)
+        if !imported_modules.is_empty() {
+            self.transform_attribute_access_in_statements(
+                &mut module_ast.body,
+                &imported_modules,
+                bundled_modules,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Create variable assignments for imported modules, skipping module imports
+    fn create_variable_assignments_for_imports(
+        &self,
+        imported_modules: &IndexMap<String, String>,
+    ) -> Vec<Stmt> {
         let mut assignments_to_add = Vec::new();
-        for (imported_name, bundled_name) in &imported_modules {
+        for (imported_name, bundled_name) in imported_modules {
+            // Skip module imports - they are placeholders for attribute access transformation
+            if bundled_name.ends_with(REL_IMPORT_SUFFIX) {
+                log::debug!(
+                    "Skipping assignment for module import: {} = {} (module import placeholder)",
+                    imported_name,
+                    bundled_name
+                );
+                continue;
+            }
+
             let assignment = self.create_variable_assignment(imported_name, bundled_name);
             assignments_to_add.push(assignment);
             log::debug!(
@@ -1112,20 +1207,7 @@ impl AstRewriter {
                 bundled_name
             );
         }
-
-        log::debug!("Total imported_modules: {:?}", imported_modules);
-
-        // Insert assignments at the beginning of the module
-        for (i, assignment) in assignments_to_add.into_iter().enumerate() {
-            module_ast.body.insert(i, assignment);
-        }
-
-        // Transform attribute access expressions (e.g., greeting.message -> __greetings_greeting_message)
-        if !imported_modules.is_empty() {
-            self.transform_attribute_access_in_statements(&mut module_ast.body, &imported_modules)?;
-        }
-
-        Ok(())
+        assignments_to_add
     }
 
     /// Transform attribute access expressions in statements
@@ -1133,9 +1215,25 @@ impl AstRewriter {
         &self,
         statements: &mut [Stmt],
         imported_modules: &IndexMap<String, String>,
+        bundled_modules: &IndexMap<String, String>,
     ) -> Result<()> {
         for stmt in statements {
-            self.transform_attribute_access_in_stmt(stmt, imported_modules)?;
+            self.transform_attribute_access_in_stmt(stmt, imported_modules, bundled_modules)?;
+        }
+        Ok(())
+    }
+
+    /// Process assignment targets for transformation, reducing nesting in transform_attribute_access_in_stmt
+    fn process_assignment_targets(
+        &self,
+        targets: &mut Vec<Expr>,
+        imported_modules: &IndexMap<String, String>,
+        bundled_modules: &IndexMap<String, String>,
+    ) -> Result<()> {
+        for target in targets {
+            if self.should_transform_assignment_target(target, imported_modules) {
+                self.transform_attribute_access_in_expr(target, imported_modules, bundled_modules)?;
+            }
         }
         Ok(())
     }
@@ -1162,16 +1260,27 @@ impl AstRewriter {
         &self,
         stmt: &mut Stmt,
         imported_modules: &IndexMap<String, String>,
+        bundled_modules: &IndexMap<String, String>,
     ) -> Result<()> {
         match stmt {
             Stmt::Assign(assign) => {
-                for target in &mut assign.targets {
-                    self.transform_attribute_access_in_expr(target, imported_modules)?;
-                }
-                self.transform_attribute_access_in_expr(&mut assign.value, imported_modules)?;
+                self.process_assignment_targets(
+                    &mut assign.targets,
+                    imported_modules,
+                    bundled_modules,
+                )?;
+                self.transform_attribute_access_in_expr(
+                    &mut assign.value,
+                    imported_modules,
+                    bundled_modules,
+                )?;
             }
             Stmt::Expr(expr_stmt) => {
-                self.transform_attribute_access_in_expr(&mut expr_stmt.value, imported_modules)?;
+                self.transform_attribute_access_in_expr(
+                    &mut expr_stmt.value,
+                    imported_modules,
+                    bundled_modules,
+                )?;
             }
             // Add more statement types as needed
             _ => {}
@@ -1179,11 +1288,54 @@ impl AstRewriter {
         Ok(())
     }
 
+    /// Determine if an assignment target should be transformed
+    /// For relative imports, we generally don't want to transform simple variable names
+    fn should_transform_assignment_target(
+        &self,
+        target: &Expr,
+        imported_modules: &IndexMap<String, String>,
+    ) -> bool {
+        match target {
+            Expr::Name(_) => {
+                // Simple variable names should not be transformed for relative imports
+                // This preserves the original variable name in assignments like "message = messages.message"
+                false
+            }
+            Expr::Attribute(attr) => self.should_transform_attribute_target(attr, imported_modules),
+            _ => {
+                // Other expression types, transform them
+                true
+            }
+        }
+    }
+
+    /// Helper method to check if an attribute target should be transformed
+    fn should_transform_attribute_target(
+        &self,
+        attr: &ast::ExprAttribute,
+        imported_modules: &IndexMap<String, String>,
+    ) -> bool {
+        // For attribute access targets, check if it's a relative import
+        if let Expr::Name(name) = attr.value.as_ref() {
+            if let Some(module_prefix) = imported_modules.get(name.id.as_str()) {
+                // Don't transform targets for relative imports (indicated by REL_IMPORT_SUFFIX)
+                !module_prefix.ends_with(REL_IMPORT_SUFFIX)
+            } else {
+                // Not an imported module, safe to transform
+                true
+            }
+        } else {
+            // Complex attribute access, transform it
+            true
+        }
+    }
+
     /// Transform attribute access expressions in an expression
     fn transform_attribute_access_in_expr(
         &self,
         expr: &mut Expr,
         imported_modules: &IndexMap<String, String>,
+        bundled_modules: &IndexMap<String, String>,
     ) -> Result<()> {
         match expr {
             Expr::Attribute(attr) => {
@@ -1195,8 +1347,18 @@ impl AstRewriter {
                     return Ok(());
                 };
 
-                // Transform greeting.message -> __greetings_greeting_message
-                let bundled_var_name = format!("__{}_{}", module_prefix, attr.attr);
+                // Check if this is a relative import (indicated by the REL_IMPORT_SUFFIX)
+                let bundled_var_name = if module_prefix.ends_with(REL_IMPORT_SUFFIX) {
+                    self.resolve_relative_import_variable(
+                        &name.id,
+                        (module_prefix, &attr.attr),
+                        bundled_modules,
+                    )
+                } else {
+                    // Regular module import transformation
+                    format!("__{}_{}", module_prefix, attr.attr)
+                };
+
                 log::debug!(
                     "Transforming {}.{} -> {}",
                     name.id,
@@ -1212,51 +1374,111 @@ impl AstRewriter {
                 });
             }
             Expr::Call(call) => {
-                self.transform_attribute_access_in_expr(&mut call.func, imported_modules)?;
+                self.transform_attribute_access_in_expr(
+                    &mut call.func,
+                    imported_modules,
+                    bundled_modules,
+                )?;
                 for arg in &mut call.arguments.args {
-                    self.transform_attribute_access_in_expr(arg, imported_modules)?;
+                    self.transform_attribute_access_in_expr(
+                        arg,
+                        imported_modules,
+                        bundled_modules,
+                    )?;
                 }
                 for keyword in &mut call.arguments.keywords {
-                    self.transform_attribute_access_in_expr(&mut keyword.value, imported_modules)?;
+                    self.transform_attribute_access_in_expr(
+                        &mut keyword.value,
+                        imported_modules,
+                        bundled_modules,
+                    )?;
                 }
             }
             Expr::BinOp(binop) => {
-                self.transform_attribute_access_in_expr(&mut binop.left, imported_modules)?;
-                self.transform_attribute_access_in_expr(&mut binop.right, imported_modules)?;
+                self.transform_attribute_access_in_expr(
+                    &mut binop.left,
+                    imported_modules,
+                    bundled_modules,
+                )?;
+                self.transform_attribute_access_in_expr(
+                    &mut binop.right,
+                    imported_modules,
+                    bundled_modules,
+                )?;
             }
             Expr::Compare(compare) => {
-                self.transform_attribute_access_in_expr(&mut compare.left, imported_modules)?;
+                self.transform_attribute_access_in_expr(
+                    &mut compare.left,
+                    imported_modules,
+                    bundled_modules,
+                )?;
                 for comparator in &mut compare.comparators {
-                    self.transform_attribute_access_in_expr(comparator, imported_modules)?;
+                    self.transform_attribute_access_in_expr(
+                        comparator,
+                        imported_modules,
+                        bundled_modules,
+                    )?;
                 }
             }
             Expr::List(list) => {
                 for elt in &mut list.elts {
-                    self.transform_attribute_access_in_expr(elt, imported_modules)?;
+                    self.transform_attribute_access_in_expr(
+                        elt,
+                        imported_modules,
+                        bundled_modules,
+                    )?;
                 }
             }
             Expr::Tuple(tuple) => {
                 for elt in &mut tuple.elts {
-                    self.transform_attribute_access_in_expr(elt, imported_modules)?;
+                    self.transform_attribute_access_in_expr(
+                        elt,
+                        imported_modules,
+                        bundled_modules,
+                    )?;
                 }
             }
             Expr::Dict(dict) => {
-                dict.items
-                    .iter_mut()
-                    .try_for_each(|item| self.transform_dict_item(item, imported_modules))?;
+                dict.items.iter_mut().try_for_each(|item| {
+                    self.transform_dict_item(item, imported_modules, bundled_modules)
+                })?;
                 return Ok(());
             }
             Expr::If(if_expr) => {
-                self.transform_attribute_access_in_expr(&mut if_expr.test, imported_modules)?;
-                self.transform_attribute_access_in_expr(&mut if_expr.body, imported_modules)?;
-                self.transform_attribute_access_in_expr(&mut if_expr.orelse, imported_modules)?;
+                self.transform_attribute_access_in_expr(
+                    &mut if_expr.test,
+                    imported_modules,
+                    bundled_modules,
+                )?;
+                self.transform_attribute_access_in_expr(
+                    &mut if_expr.body,
+                    imported_modules,
+                    bundled_modules,
+                )?;
+                self.transform_attribute_access_in_expr(
+                    &mut if_expr.orelse,
+                    imported_modules,
+                    bundled_modules,
+                )?;
             }
             Expr::UnaryOp(unary) => {
-                self.transform_attribute_access_in_expr(&mut unary.operand, imported_modules)?;
+                self.transform_attribute_access_in_expr(
+                    &mut unary.operand,
+                    imported_modules,
+                    bundled_modules,
+                )?;
             }
             Expr::Subscript(subscript) => {
-                self.transform_attribute_access_in_expr(&mut subscript.value, imported_modules)?;
-                self.transform_attribute_access_in_expr(&mut subscript.slice, imported_modules)?;
+                self.transform_attribute_access_in_expr(
+                    &mut subscript.value,
+                    imported_modules,
+                    bundled_modules,
+                )?;
+                self.transform_attribute_access_in_expr(
+                    &mut subscript.slice,
+                    imported_modules,
+                    bundled_modules,
+                )?;
             }
             // Add more expression types as needed
             _ => {}
@@ -1269,12 +1491,69 @@ impl AstRewriter {
         &self,
         item: &mut ast::DictItem,
         imported_modules: &IndexMap<String, String>,
+        bundled_modules: &IndexMap<String, String>,
     ) -> Result<()> {
         if let Some(key) = &mut item.key {
-            self.transform_attribute_access_in_expr(key, imported_modules)?;
+            self.transform_attribute_access_in_expr(key, imported_modules, bundled_modules)?;
         }
-        self.transform_attribute_access_in_expr(&mut item.value, imported_modules)?;
+        self.transform_attribute_access_in_expr(
+            &mut item.value,
+            imported_modules,
+            bundled_modules,
+        )?;
         Ok(())
+    }
+
+    /// Resolve relative import variable to actual bundled name
+    fn resolve_relative_import_variable(
+        &self,
+        identifier_name: &str,
+        module_attr_pair: (&str, &str), // (module_prefix, attr_name)
+        bundled_modules: &IndexMap<String, String>,
+    ) -> String {
+        let (module_prefix, attr_name) = module_attr_pair;
+
+        // This is a relative import - resolve to the actual bundled variable
+        // For "messages.message" where messages is from "from . import messages",
+        // we need to look up the actual bundled variable name
+
+        // Safely remove the REL_IMPORT_SUFFIX using strip_suffix
+        let target_module_path = module_prefix
+            .strip_suffix(REL_IMPORT_SUFFIX)
+            .unwrap_or(module_prefix);
+
+        log::debug!(
+            "Relative import transformation: module_prefix='{}', target_module_path='{}', attr='{}'",
+            module_prefix,
+            target_module_path,
+            attr_name
+        );
+
+        // Look up the actual bundled variable name in the bundled_modules mapping
+        let lookup_key = format!("{}.{}", target_module_path, attr_name);
+        let actual_bundled_name = bundled_modules
+            .get(&lookup_key)
+            .cloned()
+            .unwrap_or_else(|| {
+                // If no bundled name exists, use the original variable name
+                // This happens when the variable wasn't renamed due to no conflicts
+                log::debug!(
+                    "No bundled mapping found for '{}', using original variable name '{}'",
+                    lookup_key,
+                    attr_name
+                );
+                attr_name.to_string()
+            });
+
+        log::debug!(
+            "Resolved {}.{} -> {} (lookup_key: {})",
+            identifier_name,
+            attr_name,
+            actual_bundled_name,
+            lookup_key
+        );
+
+        actual_bundled_name
     }
 
     /// Transform module AST to remove import statements that have alias assignments
@@ -1441,28 +1720,6 @@ impl AstRewriter {
         false
     }
 
-    /// Generate fallback bundled name when not found in mapping
-    fn generate_fallback_bundled_name(module_name: &str, imported_name: &str) -> String {
-        format!(
-            "{}_{}",
-            module_name.cow_replace('.', "_"),
-            imported_name.cow_replace('.', "_")
-        )
-    }
-
-    /// Get the bundled name for a module, falling back to a generated name if not found
-    fn get_bundled_name(
-        module_name: &str,
-        imported_name: &str,
-        bundled_modules: &IndexMap<String, String>,
-    ) -> String {
-        let module_key = format!("{}.{}", module_name, imported_name);
-        bundled_modules
-            .get(&module_key)
-            .cloned()
-            .unwrap_or_else(|| Self::generate_fallback_bundled_name(module_name, imported_name))
-    }
-
     /// Process relative import with module name (e.g., "from .greeting import message" or "from ..messages import message")
     fn process_relative_module_import(
         &self,
@@ -1569,10 +1826,63 @@ impl AstRewriter {
         imported_modules: &mut IndexMap<String, String>,
     ) {
         let (module_name, bundled_modules) = context;
+
         for alias in names {
             let imported_name = alias.name.as_str();
-            let bundled_name = Self::get_bundled_name(module_name, imported_name, bundled_modules);
-            imported_modules.insert(imported_name.to_string(), bundled_name);
+
+            // For "from . import module", we need to resolve to the sibling module
+            // in the same package. This means we should construct the full module path
+            // by combining the current module's package with the imported name
+            let target_module_path = if let Some(last_dot) = module_name.rfind('.') {
+                // We're in a subpackage, so the target is in the same subpackage
+                let parent_package = &module_name[..last_dot];
+                format!("{}.{}", parent_package, imported_name)
+            } else {
+                // We're at the top level, so the target is in the same top-level package
+                format!("{}.{}", module_name, imported_name)
+            };
+
+            log::debug!(
+                "Resolving relative dot import: from . import {} in module '{}' -> target module: '{}'",
+                imported_name,
+                module_name,
+                target_module_path
+            );
+
+            // Look for the bundled variable name for this import
+            // For a module import like "from . import messages", we need to track this
+            // so that attribute access like "messages.message" can be transformed
+            // directly to the bundled variable "__greetings_messages_message"
+            let module_alias = if let Some(bundled_name) = bundled_modules.get(&target_module_path)
+            {
+                // Use the actual bundled module name from the mapping
+                bundled_name.clone()
+            } else {
+                // Fallback to the old behavior if not found in bundled_modules
+                format!(
+                    "{}{}",
+                    target_module_path.cow_replace('.', "_"),
+                    REL_IMPORT_SUFFIX
+                )
+            };
+
+            log::debug!(
+                "Mapping relative dot import: {} -> {} (target module: {})",
+                imported_name,
+                module_alias,
+                target_module_path
+            );
+
+            imported_modules.insert(imported_name.to_string(), module_alias);
+        }
+    }
+
+    /// Check if a name was renamed due to a conflict in the specified module
+    pub fn is_conflict_based_rename(&self, original_name: &str, module_name: &str) -> bool {
+        if let Some(conflict) = self.name_conflicts.get(original_name) {
+            conflict.modules.contains(&module_name.to_string())
+        } else {
+            false
         }
     }
 }

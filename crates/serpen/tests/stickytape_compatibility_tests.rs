@@ -196,7 +196,6 @@ fn test_circular_references_dont_cause_stack_overflow() {
 }
 
 #[test]
-#[ignore = "Not passing yet"]
 fn test_explicit_relative_imports_with_single_dot_are_resolved_correctly() {
     assert_script_output("explicit_relative_import_single_dot", "Hello");
 }
