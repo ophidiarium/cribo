@@ -1,60 +1,42 @@
 {
-    "mcpServers": {
-        "context7": {
-            "command": "npx",
-            "args": [
-                "-y",
-                "@upstash/context7-mcp"
-            ]
-        },
-        "docs-manager": {
-            "command": "bunx",
-            "args": [
-                "mcp-docs-service",
-                "."
-            ]
-        },
-        "lsp-rust": {
-            "command": "mcp-language-server",
-            "args": [
-                "--workspace",
-                ".",
-                "--lsp",
-                "rust-analyzer"
-            ]
-        },
-        "lsp-python": {
-            "command": "mcp-language-server",
-            "args": [
-                "--workspace",
-                ".",
-                "--lsp",
-                "uvx",
-                "pyrefly",
-                "lsp"
-            ]
-        },
-        "lsp-toml": {
-            "command": "mcp-language-server",
-            "args": [
-                "--workspace",
-                ".",
-                "--lsp",
-                "taplo",
-                "lsp",
-                "stdio"
-            ]
-        },
-        "lsp-yaml": {
-            "command": "mcp-language-server",
-            "args": [
-                "--workspace",
-                ".",
-                "--lsp",
-                "bunx",
-                "yaml-language-server",
-                "--stdio"
-            ]
-        }
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    },
+    "docs-manager": {
+      "command": "bunx",
+      "args": ["mcp-docs-service", "."]
+    },
+    "git": {
+      "command": "bunx",
+      "args": ["git-mcp-server"],
+      "env": {
+        "GIT_SIGN_COMMITS": "true"
+      }
+    },
+    "lsp-rust": {
+      "command": "mcp-language-server",
+      "args": ["--workspace", ".", "--lsp", "rust-analyzer"]
+    },
+    "lsp-python": {
+      "command": "mcp-language-server",
+      "args": ["--workspace", ".", "--lsp", "uvx", "pyrefly", "lsp"]
+    },
+    "lsp-toml": {
+      "command": "mcp-language-server",
+      "args": ["--workspace", ".", "--lsp", "taplo", "lsp", "stdio"]
+    },
+    "lsp-yaml": {
+      "command": "mcp-language-server",
+      "args": [
+        "--workspace",
+        ".",
+        "--lsp",
+        "bunx",
+        "yaml-language-server",
+        "--stdio"
+      ]
     }
+  }
 }
