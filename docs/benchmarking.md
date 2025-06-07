@@ -2,6 +2,8 @@
 
 This document describes the benchmarking infrastructure for Serpen, designed to track performance regressions and ensure consistent bundling performance.
 
+<!-- Baseline establishment trigger: This change establishes initial benchmarks -->
+
 ## Overview
 
 Serpen uses [Bencher.dev](https://bencher.dev) with [Criterion.rs](https://github.com/bheisler/criterion.rs) and [Hyperfine](https://github.com/sharkdp/hyperfine) for comprehensive benchmarking with three layers of integration:
