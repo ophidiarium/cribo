@@ -13,7 +13,7 @@ retry = 10
 rustflags = ["-C", "target-feature=+crt-static"]
 
 [alias]
-dev = "run --package serpen --bin serpen"
+dev = "run --package cribo --bin cribo"
 bench-local = "bench --bench bundling"
 bench-save = "bench --bench bundling -- --save-baseline main"
 bench-compare = "bench --bench bundling -- --baseline main"
