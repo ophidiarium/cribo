@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.11](https://github.com/ophidiarium/cribo/compare/v0.4.10...v0.4.11) (2025-06-08)
+
+
+### Features
+
+* **ai:** add AI powered release not summary ([6df72c6](https://github.com/ophidiarium/cribo/commit/6df72c66f179dded1bd098fad0ca923daf49dd48))
+
+
+### Bug Fixes
+
+* **bundler:** re-enable package init test and fix parent package imports ([#83](https://github.com/ophidiarium/cribo/issues/83)) ([83856b3](https://github.com/ophidiarium/cribo/commit/83856b3a4036df75ed9999f65b0738142ab07000))
+
 ## [0.4.10](https://github.com/ophidiarium/cribo/compare/v0.4.9...v0.4.10) (2025-06-07)
 
 
