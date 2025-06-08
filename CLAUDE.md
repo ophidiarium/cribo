@@ -39,6 +39,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 #### Phase 0: Pre-Work Baseline (MANDATORY)
 
 - [ ] **GitHub Tools Check**: Verify `gh` CLI authenticated and MCP tools available
+- [ ] **git MCP**: set current working directory for git MCP
 - [ ] **Coverage Baseline**: Run `cargo coverage-text` and record current numbers
 - [ ] **Performance Baseline**: Run `cargo bench-save` to save performance baseline
 - [ ] **Record baseline**: Overall %, affected files %, note 80% patch requirement
