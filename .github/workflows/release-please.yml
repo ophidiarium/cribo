@@ -148,6 +148,7 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -161,7 +162,6 @@ jobs:
         id: summary
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           gh release view "$TAG" --json body | jq -r .body > raw_changelog.md
 
@@ -172,6 +172,7 @@ jobs:
           git log "$PREV_TAG..$TAG" --pretty=format:"%s%n%b%n" >> raw_changelog.md
 
           SUMMARY=$(codex chat \
+            --model chatgpt-4o-latest \
             --system "You are a release note summarizer. Given the raw changelog and full commit messages (including bodies), produce a concise, human-readable summary of the release. Use detailed information from commit messages where appropriate." \
             --user "$(cat raw_changelog.md)" \
             --json \
