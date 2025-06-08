@@ -551,6 +551,9 @@ preserve_type_hints = true
 ```bash
 cribo --entry src/main.py --output bundle.py [options]
 
+# Output to stdout instead of file (useful for debugging)
+cribo --entry src/main.py --stdout [options]
+
 # Common options
 --emit-requirements    # Generate requirements.txt with third-party dependencies
 -v, --verbose...       # Increase verbosity (can be repeated: -v, -vv, -vvv)
@@ -560,7 +563,37 @@ cribo --entry src/main.py --output bundle.py [options]
                        # -vvv: trace messages
 --config               # Specify custom config file path
 --target-version       # Target Python version (e.g., py38, py39, py310, py311, py312, py313)
+--stdout               # Output bundled code to stdout instead of a file
 ```
+
+#### Stdout Mode for Debugging
+
+The `--stdout` flag is particularly useful for debugging and development workflows:
+
+```bash
+# Quick inspection of bundled output without creating files
+cribo --entry main.py --stdout
+
+# Pipe to tools for analysis
+cribo --entry main.py --stdout | python -m py_compile -
+
+# Save to custom location with shell redirection
+cribo --entry main.py --stdout > /path/to/bundle.py
+
+# Combine with verbose logging (logs go to stderr, code to stdout)
+cribo --entry main.py --stdout -vv
+
+# Use in CI/CD pipelines where file creation is not desired
+cribo --entry main.py --stdout | docker exec -i container python -
+```
+
+**Key Benefits:**
+
+- No temporary files created
+- All log output properly separated to stderr
+- Perfect for piping to other tools
+- Ideal for containerized environments
+- Excellent for quick debugging workflows
 
 ### Development Guidelines
 

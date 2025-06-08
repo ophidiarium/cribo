@@ -29,17 +29,26 @@ cargo build --release
 # Run the tool directly
 cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py
 
+# Output to stdout for debugging (no temporary files)
+cargo run --package cribo --bin cribo -- --entry path/to/main.py --stdout
+
 # Run with verbose output for debugging
 cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py -vv
 
 # Run with trace-level output for detailed debugging
 cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py -vvv
+
+# Combine stdout output with verbose logging for development
+cargo run --package cribo --bin cribo -- --entry path/to/main.py --stdout -vv
 ```
 
 ### CLI Usage
 
 ```bash
 cribo --entry src/main.py --output bundle.py [options]
+
+# Output to stdout instead of file (ideal for debugging)
+cribo --entry src/main.py --stdout [options]
 
 # Common options
 --emit-requirements    # Generate requirements.txt with third-party dependencies
@@ -50,9 +59,12 @@ cribo --entry src/main.py --output bundle.py [options]
                        # -vvv: trace messages
 --config               # Specify custom config file path
 --target-version       # Target Python version (e.g., py38, py39, py310, py311, py312, py313)
+--stdout               # Output bundled code to stdout instead of a file
 ```
 
 The verbose flag is particularly useful for debugging bundling issues. Each level provides progressively more detail about the bundling process, import resolution, and dependency graph construction.
+
+The `--stdout` flag is especially valuable for debugging workflows as it avoids creating temporary files and allows direct inspection of the bundled output. All log messages are properly separated to stderr, making it perfect for piping to other tools or quick inspection.
 
 ### Testing Commands
 

@@ -66,15 +66,15 @@ impl Bundler {
         error_msg
     }
 
-    /// Main bundling function
-    pub fn bundle(
+    /// Core bundling logic shared between file and string output modes
+    /// Returns the entry module name, with graph and resolver populated via mutable references
+    fn bundle_core(
         &mut self,
         entry_path: &Path,
-        output_path: &Path,
-        emit_requirements: bool,
-    ) -> Result<()> {
-        info!("Starting bundle process");
-        debug!("Entry: {:?}, Output: {:?}", entry_path, output_path);
+        graph: &mut DependencyGraph,
+        resolver_opt: &mut Option<ModuleResolver>,
+    ) -> Result<String> {
+        debug!("Entry: {:?}", entry_path);
         debug!(
             "Using target Python version: {} (Python 3.{})",
             self.config.target_version,
@@ -97,7 +97,7 @@ impl Bundler {
             }
         }
 
-        // Initialize resolver
+        // Initialize resolver with the updated config
         let mut resolver = ModuleResolver::new(self.config.clone())?;
 
         // Find the entry module name
@@ -105,15 +105,14 @@ impl Bundler {
         info!("Entry module: {}", entry_module_name);
 
         // Build dependency graph
-        let mut graph =
-            self.build_dependency_graph(entry_path, &entry_module_name, &mut resolver)?;
+        *graph = self.build_dependency_graph(entry_path, &entry_module_name, &mut resolver)?;
 
         // Filter to only modules reachable from entry
         debug!(
             "Before filtering - graph has {} modules",
             graph.get_modules().len()
         );
-        graph = graph.filter_reachable_from(&entry_module_name)?;
+        *graph = graph.filter_reachable_from(&entry_module_name)?;
         debug!(
             "After filtering - graph has {} modules",
             graph.get_modules().len()
@@ -158,8 +157,17 @@ impl Bundler {
             }
         }
 
-        // Get topologically sorted modules
-        // If we have cycles but they're all resolvable, we need a different approach
+        // Set the resolver for the caller to use
+        *resolver_opt = Some(resolver);
+
+        Ok(entry_module_name)
+    }
+
+    /// Helper to get sorted modules from graph
+    fn get_sorted_modules_from_graph<'a>(
+        &self,
+        graph: &'a DependencyGraph,
+    ) -> Result<Vec<&'a ModuleNode>> {
         let sorted_modules = if graph.has_cycles() {
             let analysis = graph.classify_circular_dependencies();
             let all_resolvable = analysis.resolvable_cycles.iter().all(|cycle| {
@@ -171,7 +179,7 @@ impl Bundler {
 
             if all_resolvable {
                 // For resolvable cycles, use a custom ordering that breaks cycles
-                self.get_modules_with_cycle_resolution(&graph, &analysis)?
+                self.get_modules_with_cycle_resolution(graph, &analysis)?
             } else {
                 // This should have been caught earlier, but be safe
                 return Err(anyhow!("Unresolvable circular dependencies detected"));
@@ -183,6 +191,67 @@ impl Bundler {
         for (i, module) in sorted_modules.iter().enumerate() {
             debug!("Module {}: {} ({:?})", i, module.name, module.path);
         }
+        Ok(sorted_modules)
+    }
+
+    /// Bundle to string for stdout output
+    pub fn bundle_to_string(
+        &mut self,
+        entry_path: &Path,
+        emit_requirements: bool,
+    ) -> Result<String> {
+        info!("Starting bundle process for stdout output");
+
+        // Initialize empty graph - resolver will be created in bundle_core
+        let mut graph = DependencyGraph::new();
+        let mut resolver_opt = None;
+
+        // Perform core bundling logic
+        let entry_module_name = self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
+
+        // Extract the resolver (it's guaranteed to be Some after bundle_core)
+        let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
+
+        let sorted_modules = self.get_sorted_modules_from_graph(&graph)?;
+
+        // Generate bundled code
+        let mut emitter = CodeEmitter::new(
+            resolver,
+            self.config.preserve_comments,
+            self.config.preserve_type_hints,
+        );
+
+        let bundled_code = emitter.emit_bundle(&sorted_modules, &entry_module_name)?;
+
+        // Generate requirements.txt if requested
+        if emit_requirements {
+            self.write_requirements_file_for_stdout(&sorted_modules, &mut emitter)?;
+        }
+
+        Ok(bundled_code)
+    }
+
+    /// Main bundling function
+    pub fn bundle(
+        &mut self,
+        entry_path: &Path,
+        output_path: &Path,
+        emit_requirements: bool,
+    ) -> Result<()> {
+        info!("Starting bundle process");
+        debug!("Output: {:?}", output_path);
+
+        // Initialize empty graph - resolver will be created in bundle_core
+        let mut graph = DependencyGraph::new();
+        let mut resolver_opt = None;
+
+        // Perform core bundling logic
+        let entry_module_name = self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
+
+        // Extract the resolver (it's guaranteed to be Some after bundle_core)
+        let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
+
+        let sorted_modules = self.get_sorted_modules_from_graph(&graph)?;
 
         // Generate bundled code
         let mut emitter = CodeEmitter::new(
@@ -789,6 +858,27 @@ impl Bundler {
                 debug!("Failed to add parent package dependency edge: {}", e);
             }
         }
+    }
+
+    /// Write requirements.txt file for stdout mode (current directory)
+    fn write_requirements_file_for_stdout(
+        &self,
+        sorted_modules: &[&ModuleNode],
+        emitter: &mut CodeEmitter,
+    ) -> Result<()> {
+        let requirements_content = emitter.generate_requirements(sorted_modules)?;
+        if !requirements_content.is_empty() {
+            let requirements_path = Path::new("requirements.txt");
+
+            fs::write(requirements_path, requirements_content).with_context(|| {
+                format!("Failed to write requirements file: {:?}", requirements_path)
+            })?;
+
+            info!("Requirements written to: {:?}", requirements_path);
+        } else {
+            info!("No third-party dependencies found, skipping requirements.txt");
+        }
+        Ok(())
     }
 
     /// Write requirements.txt file if there are dependencies

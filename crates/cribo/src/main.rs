@@ -14,8 +14,12 @@ struct Cli {
     entry: PathBuf,
 
     /// Output bundled Python file
-    #[arg(short, long)]
-    output: PathBuf,
+    #[arg(short, long, conflicts_with = "stdout")]
+    output: Option<PathBuf>,
+
+    /// Output bundled code to stdout instead of a file
+    #[arg(long, conflicts_with = "output")]
+    stdout: bool,
 
     /// Increase verbosity (can be repeated: -v, -vv, -vvv)
     #[arg(short, long, action = clap::ArgAction::Count)]
@@ -53,7 +57,11 @@ fn main() -> anyhow::Result<()> {
     info!("Starting Cribo Python bundler");
 
     debug!("Entry point: {:?}", cli.entry);
-    debug!("Output: {:?}", cli.output);
+    if cli.stdout {
+        debug!("Output mode: stdout");
+    } else {
+        debug!("Output: {:?}", cli.output);
+    }
 
     // Load configuration
     let mut config = Config::load(cli.config.as_deref())?;
@@ -72,11 +80,30 @@ fn main() -> anyhow::Result<()> {
         config.python_version().unwrap_or(10)
     );
 
+    // Validate arguments
+    if !cli.stdout && cli.output.is_none() {
+        return Err(anyhow::anyhow!(
+            "Either --output or --stdout must be specified"
+        ));
+    }
+
     // Create bundler and run
     let mut bundler = Bundler::new(config);
-    bundler.bundle(&cli.entry, &cli.output, cli.emit_requirements)?;
 
-    info!("Bundle created successfully at {:?}", cli.output);
+    if cli.stdout {
+        // Output to stdout
+        let bundled_code = bundler.bundle_to_string(&cli.entry, cli.emit_requirements)?;
+        print!("{}", bundled_code);
+        info!("Bundle output to stdout");
+    } else {
+        // Output to file
+        let output_path = cli
+            .output
+            .as_ref()
+            .expect("Output path should be present when not using stdout");
+        bundler.bundle(&cli.entry, output_path, cli.emit_requirements)?;
+        info!("Bundle created successfully at {:?}", output_path);
+    }
 
     Ok(())
 }
