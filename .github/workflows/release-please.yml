@@ -146,6 +146,8 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
