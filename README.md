@@ -12,7 +12,7 @@
 - 🦀 **Rust-based CLI** using Ruff's Python AST parser
 - 🐍 **Python 3.10+** support
 - 🌲 **Tree-shaking logic** to inline only the modules that are actually used
-- 🔄 **Smart circular dependency resolution** with detailed diagnostics
+- 🔄 **Circular dependency resolution** using Tarjan's strongly connected components (SCC) analysis and function-level lazy import transformations, with detailed diagnostics
 - 🧹 **Unused import trimming** to clean up Python files standalone
 - 📦 **Requirements generation** with optional `requirements.txt` output
 - 🔧 **Configurable** import classification and source directories
@@ -20,6 +20,8 @@
 - 📊 **Performance tracking** with built-in benchmarking
 
 ## Installation
+
+> **🔐 Supply Chain Security**: All npm and pypi packages include provenance attestations for enhanced security and verification.
 
 ### From PyPI (Python Package)
 
@@ -34,10 +36,8 @@ pip install cribo
 npm install -g cribo
 
 # One-time use
-npx cribo --help
+bunx cribo --help
 ```
-
-> **🔐 Supply Chain Security**: All npm packages include [provenance attestations](docs/NPM_PROVENANCE.md) for enhanced security and verification.
 
 ### Binary Downloads
 
