@@ -67,14 +67,6 @@ const PLATFORM_MAPPINGS = [
     binaryName: 'cribo.exe'
   },
   {
-    rustTarget: 'i686-pc-windows-msvc',
-    nodePkg: '@cribo/win32-ia32',
-    nodeOs: 'win32',
-    nodeArch: 'ia32',
-    extension: '.exe',
-    binaryName: 'cribo.exe'
-  },
-  {
     rustTarget: 'aarch64-pc-windows-msvc',
     nodePkg: '@cribo/win32-arm64',
     nodeOs: 'win32',

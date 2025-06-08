@@ -28,7 +28,7 @@ The system builds and publishes packages for these platforms:
 
 - **Linux**: x64 and ARM64 (both glibc and musl variants)
 - **macOS**: x64 and ARM64 (Intel and Apple Silicon)
-- **Windows**: x64 and x86 (32-bit)
+- **Windows**: x64 and ARM64
 
 ## Scripts
 

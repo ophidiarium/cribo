@@ -76,8 +76,7 @@ This pattern is used by similar projects. For instance, Orhun’s guide on packa
           "cribo-linux-arm64-musl": "X.Y.Z",
           "cribo-darwin-x64": "X.Y.Z",
           "cribo-darwin-arm64": "X.Y.Z",
-          "cribo-win32-x64": "X.Y.Z",
-          "cribo-win32-ia32": "X.Y.Z"
+          "cribo-win32-x64": "X.Y.Z"
           // (+ optionally cribo-win32-arm64 if targeting Windows ARM64)
       }
   }
@@ -139,13 +138,13 @@ This pattern is used by similar projects. For instance, Orhun’s guide on packa
 
   In essence, this script uses the same strategy as Sentry CLI’s wrapper: find the binary path and execute it, inheriting stdio【43†L15-L23】. If the platform-specific package somehow wasn’t installed (e.g. user disabled optional deps), the script can catch the error and print a warning prompting the user to enable optional dependencies or install the correct binary manually【42†L25-L33】【42†L53-L60】. (This Node wrapper is minimal and only serves to launch the Rust binary – no heavy Node logic is involved, aligning with the “no complex Node wrapper” requirement.)
 
-_If you prefer not to include a Node launch script at all:_ An alternative is to rely on npm’s bin linking of the platform packages. In that case, the base package’s `package.json` would not declare a `bin` itself; instead each platform package’s `bin` entry would cause `npx` or global installs to expose `cribo`. However, because the base meta-package is the one being installed, its dependencies’ binaries might not automatically be linked globally by npm. The safest approach is to provide the stub launcher in the base package as above (this is how both **rspack** and **@sentry/cli** handle it, ensuring `npx cribo` works out of the box by running the Rust binary【43†L15-L23】).
+*If you prefer not to include a Node launch script at all:* An alternative is to rely on npm’s bin linking of the platform packages. In that case, the base package’s `package.json` would not declare a `bin` itself; instead each platform package’s `bin` entry would cause `npx` or global installs to expose `cribo`. However, because the base meta-package is the one being installed, its dependencies’ binaries might not automatically be linked globally by npm. The safest approach is to provide the stub launcher in the base package as above (this is how both **rspack** and **@sentry/cli** handle it, ensuring `npx cribo` works out of the box by running the Rust binary【43†L15-L23】).
 
 ## 2. Configuration Files & Scripts for npm Publishing
 
 With the project structured for npm, we need to set up configuration and scripts to produce and publish the packages:
 
-- **NPM package manifests:** We already prepared `package.json` for the base package and a template for platform packages. Ensure the base `package.json` includes relevant fields (name, description, homepage/repo, license, keywords, etc.) and the optionalDependencies map to all supported platforms (as determined by Cribo’s existing release matrix). Each platform package will get a generated `package.json` from the template with appropriate `name`, `version`, `os`, `cpu`, and `bin` fields. The `os`/`cpu` fields are critical – they restrict installation to the intended platform, so npm/yarn will skip incompatible ones. For example, `cribo-linux-arm64` will have `"os": ["linux"], "cpu": ["arm64"]`, so it only installs on Linux ARM64 hosts. For Linux, we will likely provide both _gnu_ and _musl_ variants. Because npm doesn’t have a direct “libc” selector, our strategy is to publish e.g. `cribo-linux-x64-gnu` and `cribo-linux-x64-musl` both with `"os": ["linux"], "cpu": ["x64"]`. This means **both** might be fetched on Linux x64. Our base launcher can detect at runtime which one to prefer – or we could instruct Alpine users to install with `--ignore-optional` for gnu package. Many projects tolerate the redundant download for completeness. Mako, for instance, publishes separate GNU and MUSL packages for Linux x64/arm64【28†L426-L433】.
+- **NPM package manifests:** We already prepared `package.json` for the base package and a template for platform packages. Ensure the base `package.json` includes relevant fields (name, description, homepage/repo, license, keywords, etc.) and the optionalDependencies map to all supported platforms (as determined by Cribo’s existing release matrix). Each platform package will get a generated `package.json` from the template with appropriate `name`, `version`, `os`, `cpu`, and `bin` fields. The `os`/`cpu` fields are critical – they restrict installation to the intended platform, so npm/yarn will skip incompatible ones. For example, `cribo-linux-arm64` will have `"os": ["linux"], "cpu": ["arm64"]`, so it only installs on Linux ARM64 hosts. For Linux, we will likely provide both *gnu* and *musl* variants. Because npm doesn’t have a direct “libc” selector, our strategy is to publish e.g. `cribo-linux-x64-gnu` and `cribo-linux-x64-musl` both with `"os": ["linux"], "cpu": ["x64"]`. This means **both** might be fetched on Linux x64. Our base launcher can detect at runtime which one to prefer – or we could instruct Alpine users to install with `--ignore-optional` for gnu package. Many projects tolerate the redundant download for completeness. Mako, for instance, publishes separate GNU and MUSL packages for Linux x64/arm64【28†L426-L433】.
 
 - **Versioning**: We will keep the npm package version in sync with the Cribo crate version (and PyPI version). The GitHub Actions workflow can inject the version number (for example, derive it from the git tag or Cargo.toml). In Orhun’s example, they export `RELEASE_VERSION` from the tag and use it when generating package.json files. We can do similarly, so that `${node_version}` in our template is set to the new release version, ensuring all npm packages (binary packages and the meta-package) use the same version string.
 
@@ -155,7 +154,7 @@ With the project structured for npm, we need to set up configuration and scripts
 
 - **.npmignore or files:** Ensure the npm packages only include the necessary files. For platform packages, by generating them in CI, we control their content (just the binary and package.json, plus maybe a README). For the base package, if the `npm/cribo` directory contains source files, use a `.npmignore` or `"files"` field so that only the built output (e.g. the `bin/` folder or `lib/` folder with compiled JS) is published. This keeps the package lean.
 
-- **Node scripts for install (if any):** _Optional:_ We might include a small `postinstall` script in the base package as a fallback to handle scenarios where optionalDependencies failed (e.g. user used `--no-optional`). The Sentry blog recommends using both optionalDependencies and a postinstall download as a backup. For Cribo, a simpler approach could be: on postinstall, check if the expected binary exists; if not, print an error or attempt to download the correct binary from a known URL (for example, from the GitHub Releases). This adds robustness. However, if we expect most users to allow optional deps, we can omit the download step initially. We will document clearly that enabling optional dependencies is required to install Cribo via npm (and our launcher will warn if it can’t find a binary).
+- **Node scripts for install (if any):** *Optional:* We might include a small `postinstall` script in the base package as a fallback to handle scenarios where optionalDependencies failed (e.g. user used `--no-optional`). The Sentry blog recommends using both optionalDependencies and a postinstall download as a backup. For Cribo, a simpler approach could be: on postinstall, check if the expected binary exists; if not, print an error or attempt to download the correct binary from a known URL (for example, from the GitHub Releases). This adds robustness. However, if we expect most users to allow optional deps, we can omit the download step initially. We will document clearly that enabling optional dependencies is required to install Cribo via npm (and our launcher will warn if it can’t find a binary).
 
 In summary, the configuration boils down to preparing **consistent package.json files** for one main package and multiple platform-specific ones, and a possible Node stub script. This setup follows the model used by projects like **esbuild** and **@rspack/core/cli**, which distribute prebuilt binaries via npm optional dependencies.
 
@@ -175,7 +174,7 @@ Each of these targets corresponds to one optional npm package (named accordingly
 - Rust target `aarch64-unknown-linux-musl` -> npm package `@cribo/linux-arm64-musl`
 - Rust target `x86_64-pc-windows-msvc` -> npm package `@cribo/win32-x64` (assuming `-msvc` is implicit in name or we can include it for clarity)
 
-_(You can choose a consistent naming scheme. Mako uses `win32-x64-msvc` in package names, whereas some projects omit the “msvc”. The key is that names match what our base optionalDependencies expect.)_
+*(You can choose a consistent naming scheme. Mako uses `win32-x64-msvc` in package names, whereas some projects omit the “msvc”. The key is that names match what our base optionalDependencies expect.)*
 
 **GitHub Actions build strategy:** We will update the release workflow to build these targets. Likely, your current workflow already builds wheels via maturin, possibly using `maturin build` or `publish` which invokes cargo under the hood. To get standalone binaries:
 
@@ -228,7 +227,7 @@ Once a Cribo binary is built in a CI job, that same job will bundle and publish 
      ```bash
      cp path/to/cribo-binary $node_pkg/bin/cribo${EXT}
      ```
-     where `${EXT}` is `.exe` for Windows or empty for others. In Orhun’s workflow, they adjust the binary name for Windows (`bin="${bin}.exe"`) and copy it. We should do similarly. After this, the package folder contains the binary (e.g. `bin/cribo` or `bin/cribo.exe`) and the `package.json`. _(We may also include a small README in each package to satisfy npm if needed, but it’s optional.)_
+     where `${EXT}` is `.exe` for Windows or empty for others. In Orhun’s workflow, they adjust the binary name for Windows (`bin="${bin}.exe"`) and copy it. We should do similarly. After this, the package folder contains the binary (e.g. `bin/cribo` or `bin/cribo.exe`) and the `package.json`. *(We may also include a small README in each package to satisfy npm if needed, but it’s optional.)*
 
 3. **Publish the platform package to npm:** With the package folder ready, publish it using `npm publish`. We change into that folder and run:
    ```bash
@@ -264,8 +263,7 @@ After all the platform-specific packages are uploaded, the final step is to publ
         "@cribo/linux-arm64-musl": "0.1.0",
         "@cribo/darwin-x64": "0.1.0",
         "@cribo/darwin-arm64": "0.1.0",
-        "@cribo/win32-x64": "0.1.0",
-        "@cribo/win32-ia32": "0.1.0"
+        "@cribo/win32-x64": "0.1.0"
     }
 }
 ```
@@ -292,7 +290,7 @@ Once this meta-package is published, users can install Cribo via npm:
 
 **Verifying the selection logic:** We should test the published packages by installing on different platforms to ensure that exactly one binary gets installed and runs correctly. If the optional dependency for some reason doesn’t install (e.g. user has `optional = false` in npm config), our base package’s postinstall or launcher can detect the absence and show a clear message. But in normal cases, npm will log a message like “Skipping unsupported optional dependency: cribo-linux-arm64-musl” on platforms where it’s not needed, and only the correct one will be marked as installed.
 
-By following this pattern, we effectively create a **meta-package** (sometimes called a “proxy” or “wrapper” package) that _dynamically pulls in the correct native binary_. This approach is proven and used by projects like Sentry CLI, esbuild, Prisma, rspack, etc. Users of Cribo can now install it via npm without needing a Rust toolchain – the prebuilt binaries will be readily available.
+By following this pattern, we effectively create a **meta-package** (sometimes called a “proxy” or “wrapper” package) that *dynamically pulls in the correct native binary*. This approach is proven and used by projects like Sentry CLI, esbuild, Prisma, rspack, etc. Users of Cribo can now install it via npm without needing a Rust toolchain – the prebuilt binaries will be readily available.
 
 Finally, we ensure the GitHub Actions workflow is triggered on releases (e.g. when you push a new git tag). It will build and upload all binaries and the npm packages as outlined, in one automated process. This way, publishing to npm can be done alongside the existing PyPI release process. The overall release flow will be:
 
@@ -307,6 +305,6 @@ By reusing the matrix and CI infrastructure, we minimize extra build time – th
 
 **Sources:**
 
-- Orhun’s blog on _Packaging Rust applications for NPM_ – inspiration for project structure, optional dependency template, and CI scripting.
+- Orhun’s blog on *Packaging Rust applications for NPM* – inspiration for project structure, optional dependency template, and CI scripting.
 - Sentry Engineering blog – best practices for distributing platform-specific binaries via npm (using optionalDependencies and a postinstall fallback).
 - Rspack and Mako examples – real-world projects using multiple npm binary packages. Mako’s main package lists a matrix of optional deps for each OS/arch (Linux musl vs gnu, Windows, macOS), and Rspack documents the range of binaries they release (Linux x64/arm64, macOS x64/arm64, Windows x86/x64/arm64), which guided our target selection.

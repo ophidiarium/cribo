@@ -121,11 +121,6 @@
                 {
                     "type": "json",
                     "path": "npm/cribo/package.json",
-                    "jsonpath": "$.optionalDependencies.@cribo/win32-ia32"
-                },
-                {
-                    "type": "json",
-                    "path": "npm/cribo/package.json",
                     "jsonpath": "$.optionalDependencies.@cribo/win32-arm64"
                 }
             ]
