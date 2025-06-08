@@ -1,91 +1,92 @@
 {
-    "[rust]": {
-        "editor.defaultFormatter": "rust-lang.rust-analyzer",
-        "editor.formatOnSave": true
-    },
-    "rust-analyzer.check.command": "clippy",
-    "rust-analyzer.cargo.buildScripts.enable": true,
-    "rust-analyzer.cargo.features": "all",
-    "rust-analyzer.cargo.extraEnv": {
-        "RUSTC_BOOTSTRAP": "1",
-        "RUSTFLAGS": "--cfg proc_macro_span --cfg verus_keep_ghost"
-    },
-    "rust-analyzer.runnableEnv": {
-        "RUSTC_BOOTSTRAP": "1"
-    },
-    "rust-analyzer.checkOnSave": true,
-    "rust-analyzer.testExplorer": true,
-    "rust-analyzer.procMacro.enable": true,
-    "rust-analyzer.workspace.symbol.search.scope": "workspace_and_dependencies",
-    "rust-analyzer.diagnostics.disabled": [
-        "unresolved-extern-crate",
-        "syntax-error"
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": true
+  },
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.cargo.buildScripts.enable": true,
+  "rust-analyzer.cargo.features": "all",
+  "rust-analyzer.cargo.extraEnv": {
+    "RUSTC_BOOTSTRAP": "1",
+    "RUSTFLAGS": "--cfg proc_macro_span --cfg verus_keep_ghost"
+  },
+  "rust-analyzer.runnableEnv": {
+    "RUSTC_BOOTSTRAP": "1"
+  },
+  "rust-analyzer.checkOnSave": true,
+  "rust-analyzer.testExplorer": true,
+  "rust-analyzer.procMacro.enable": true,
+  "rust-analyzer.workspace.symbol.search.scope": "workspace_and_dependencies",
+  "rust-analyzer.diagnostics.disabled": [
+    "unresolved-extern-crate",
+    "syntax-error"
+  ],
+  "rust-analyzer.imports.granularity.enforce": true,
+  "rust-analyzer.imports.granularity.group": "crate",
+  "rust-analyzer.imports.group.enable": true,
+  "rust-analyzer.debug.engine": "llvm-vs-code-extensions.lldb-dap",
+  "python.languageServer": "None",
+  "[json][jsonc][yaml][github-actions-workflow][python][toml][markdown]": {
+    "editor.defaultFormatter": "dprint.dprint",
+    "editor.formatOnSave": true
+  },
+  "ruff.enable": false,
+  "evenBetterToml.schema.enabled": true,
+  "cSpell.enabled": false,
+  "chat.agent.enabled": true,
+  "chat.promptFiles": true,
+  "chat.instructionsFilesLocations": {
+    ".github/instructions": true
+  },
+  "github.copilot.chat.agent.thinkingTool": true,
+  "github.copilot.advanced": {
+    "useLanguageServer": true
+  },
+  "chat.mcp.enabled": true,
+  "mcp": {
+    "inputs": [
+      {
+        "type": "promptString",
+        "id": "github_token",
+        "description": "GitHub Personal Access Token",
+        "password": true
+      }
     ],
-    "rust-analyzer.imports.granularity.enforce": true,
-    "rust-analyzer.imports.granularity.group": "crate",
-    "rust-analyzer.imports.group.enable": true,
-    "rust-analyzer.debug.engine": "llvm-vs-code-extensions.lldb-dap",
-    "python.languageServer": "None",
-    "[json][jsonc][yaml][github-actions-workflow][python][toml][markdown]": {
-        "editor.defaultFormatter": "dprint.dprint",
-        "editor.formatOnSave": true
-    },
-    "ruff.enable": false,
-    "evenBetterToml.schema.enabled": true,
-    "cSpell.enabled": false,
-    "chat.agent.enabled": true,
-    "chat.promptFiles": true,
-    "chat.instructionsFilesLocations": {
-        ".github/instructions": true
-    },
-    "github.copilot.chat.agent.thinkingTool": true,
-    "github.copilot.advanced": {
-        "useLanguageServer": true
-    },
-    "chat.mcp.enabled": true,
-    "mcp": {
-        "inputs": [
-            {
-                "type": "promptString",
-                "id": "github_token",
-                "description": "GitHub Personal Access Token",
-                "password": true
-            }
+    "servers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      },
+      "github": {
+        "command": "docker",
+        "args": [
+          "run",
+          "-i",
+          "--rm",
+          "-e",
+          "GITHUB_PERSONAL_ACCESS_TOKEN",
+          "ghcr.io/github/github-mcp-server"
         ],
-        "servers": {
-            "context7": {
-                "command": "npx",
-                "args": [
-                    "-y",
-                    "@upstash/context7-mcp"
-                ]
-            },
-            "github": {
-                "command": "docker",
-                "args": [
-                    "run",
-                    "-i",
-                    "--rm",
-                    "-e",
-                    "GITHUB_PERSONAL_ACCESS_TOKEN",
-                    "ghcr.io/github/github-mcp-server"
-                ],
-                "env": {
-                    "GITHUB_PERSONAL_ACCESS_TOKEN": "${input:github_token}"
-                }
-            }
+        "env": {
+          "GITHUB_PERSONAL_ACCESS_TOKEN": "${input:github_token}"
         }
-    },
-    "files.exclude": {
-        "**/.git": true,
-        "**/.svn": true,
-        "**/.hg": true,
-        "**/.DS_Store": true,
-        "**/Thumbs.db": true,
-        "**/__pycache__": true
-    },
-    "sonarlint.connectedMode.project": {
-        "connectionId": "ophidiarium",
-        "projectKey": "ophidiarium_cribo"
+      }
     }
+  },
+  "files.exclude": {
+    "**/.git": true,
+    "**/.svn": true,
+    "**/.hg": true,
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true,
+    "**/__pycache__": true,
+    "**/.zed": true
+  },
+  "sonarlint.connectedMode.project": {
+    "connectionId": "ophidiarium",
+    "projectKey": "ophidiarium_cribo"
+  }
 }
