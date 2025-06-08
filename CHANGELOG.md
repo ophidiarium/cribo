@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.13](https://github.com/ophidiarium/cribo/compare/v0.4.12...v0.4.13) (2025-06-08)
+
+
+### Features
+
+* **cli:** add stdout output mode for debugging workflows ([#87](https://github.com/ophidiarium/cribo/issues/87)) ([34a89e9](https://github.com/ophidiarium/cribo/commit/34a89e9763e40b1f4922402ca93f85e68b7883f6))
+
+
+### Bug Fixes
+
+* **ci:** serpen leftovers ([e1acaed](https://github.com/ophidiarium/cribo/commit/e1acaedec3373849398d3aa71d9cccaae2db3609))
+* serpen leftovers ([6366453](https://github.com/ophidiarium/cribo/commit/6366453a07a893b2c0ae3b92235b28028d7ba1be))
+* serpen leftovers ([5aa2a64](https://github.com/ophidiarium/cribo/commit/5aa2a6420fa012bd303ed3f12ae5d712d1b05748))
+
 ## [0.4.12](https://github.com/ophidiarium/cribo/compare/v0.4.11...v0.4.12) (2025-06-08)
 
 
