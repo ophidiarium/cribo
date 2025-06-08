@@ -388,7 +388,7 @@ Before moving between phases, MUST verify:
 
 ### Project Overview
 
-Serpen is a Python source bundler written in Rust that produces a single .py file from a multi-module Python project by inlining first-party source files. It's available as both a CLI tool and a Python library via PyPI and npm.
+cribo is a Python source bundler written in Rust that produces a single .py file from a multi-module Python project by inlining first-party source files. It's available as both a CLI tool and a Python library via PyPI and npm.
 
 Key features:
 
@@ -440,13 +440,13 @@ node scripts/generate-npm-packages.js
 cargo test --workspace
 
 # Run specific test file
-cargo test --package serpen --test integration_tests
+cargo test --package cribo --test integration_tests
 
 # Run tests matching a pattern
-cargo test --package serpen unused_imports
+cargo test --package cribo unused_imports
 
 # Run a specific named test
-cargo test --package serpen test_simple_project_bundling
+cargo test --package cribo test_simple_project_bundling
 ```
 
 ### Benchmarking Commands
@@ -472,7 +472,7 @@ cargo bench-compare
 
 # Run with Bencher.dev cloud tracking
 ./scripts/bench-bencher.sh
-# Results viewable at: https://bencher.dev/console/projects/serpen/perf
+# Results viewable at: https://bencher.dev/console/projects/cribo/perf
 ```
 
 ### Coverage Commands
@@ -496,7 +496,7 @@ cargo coverage-lcov
 
 ### Architecture Overview
 
-The project is organized as a Rust workspace with the main crate in `crates/serpen`.
+The project is organized as a Rust workspace with the main crate in `crates/cribo`.
 
 #### Key Components
 
@@ -527,7 +527,7 @@ The project is organized as a Rust workspace with the main crate in `crates/serp
 
 ### Configuration
 
-Serpen can be configured via a `serpen.toml` file:
+cribo can be configured via a `cribo.toml` file:
 
 ```toml
 # Example configuration
@@ -541,7 +541,7 @@ preserve_type_hints = true
 ### CLI Usage
 
 ```bash
-serpen --entry src/main.py --output bundle.py [options]
+cribo --entry src/main.py --output bundle.py [options]
 
 # Common options
 --emit-requirements    # Generate requirements.txt with third-party dependencies
@@ -605,11 +605,11 @@ for import in sorted_imports { ... }
 
 **MANDATORY**: Before implementing custom test logic for bundling features, **ALWAYS** evaluate if the existing generic snapshot testing framework can be used or extended. This framework provides comprehensive testing with minimal implementation effort.
 
-**Framework Location**: `crates/serpen/tests/test_bundling_snapshots.rs`
+**Framework Location**: `crates/cribo/tests/test_bundling_snapshots.rs`
 
 **How It Works**:
 
-- **Automatic Discovery**: Scans `crates/serpen/tests/fixtures/bundling/` for test directories
+- **Automatic Discovery**: Scans `crates/cribo/tests/fixtures/bundling/` for test directories
 - **Convention-Based**: Each directory with `main.py` becomes a test case automatically
 - **Dual Snapshots**: Generates both bundled code and execution result snapshots
 - **Deterministic**: All output is sorted and reproducible across runs
@@ -618,10 +618,10 @@ for import in sorted_imports { ... }
 
 ```bash
 # 1. Create fixture directory
-mkdir crates/serpen/tests/fixtures/bundling/my_new_feature
+mkdir crates/cribo/tests/fixtures/bundling/my_new_feature
 
 # 2. Add test files (main.py + any supporting modules)
-echo "print('Hello Feature')" > crates/serpen/tests/fixtures/bundling/my_new_feature/main.py
+echo "print('Hello Feature')" > crates/cribo/tests/fixtures/bundling/my_new_feature/main.py
 
 # 3. Run tests - automatically discovered and tested
 cargo test test_all_bundling_fixtures
@@ -666,7 +666,7 @@ cargo insta accept
 **Example Fixture Structure**:
 
 ```text
-crates/serpen/tests/fixtures/bundling/
+crates/cribo/tests/fixtures/bundling/
 ├── future_imports_basic/          # Complex nested packages + future imports
 │   ├── main.py
 │   └── mypackage/
@@ -766,7 +766,7 @@ This approach provides **comprehensive validation with minimal effort** and crea
 
 #### Immediate Code Removal Over Deprecation
 
-**MANDATORY**: Since Serpen only exposes a binary CLI interface (not a library API), unused methods and functions MUST be removed immediately rather than annotated with deprecation markers.
+**MANDATORY**: Since cribo only exposes a binary CLI interface (not a library API), unused methods and functions MUST be removed immediately rather than annotated with deprecation markers.
 
 - **No deprecation annotations**: Do not use `#[deprecated]`, `#[allow(dead_code)]`, or similar annotations to preserve unused code
 - **Binary-only interface**: This project does not maintain API compatibility for external consumers - all code must serve the current CLI functionality
@@ -896,7 +896,5 @@ git diff --staged
 
 # important-instruction-reminders
 
-Do what has been asked; nothing more, nothing less.
 NEVER create files unless they're absolutely necessary for achieving your goal.
 ALWAYS prefer editing an existing file to creating a new one.
-NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.

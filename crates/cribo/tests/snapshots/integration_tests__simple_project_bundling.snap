@@ -11,43 +11,34 @@ expression: content
 import os
 import sys
 
-# ─ Module: models.user ─
-"""User model for the test project."""
-from dataclasses import dataclass
-from typing import Optional
-@dataclass
-class User:
-    """A simple user model."""
-    name: str
-    age: int
-    email: Optional[str] = None
-
-    def is_adult(self) -> bool:
-        """Check if the user is an adult."""
-        return self.age >= 18
-
-    def get_display_name(self) -> str:
-        """Get a display name for the user."""
-        if self.email:
-            return f"{self.name} <{self.email}>"
-        return self.name
-
 # ─ Module: utils.helpers ─
-"""Utility functions for the test project."""
-import os
-import sys
-from typing import Union
-def greet(name: str) -> str:
-    """Greet a person by name."""
-    return f"Hello, {name}!"
-def calculate(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
-    """Calculate the sum of two numbers."""
-    return a + b
-def get_system_info() -> dict:
-    """Get basic system information."""
-    return {"platform": sys.platform, "python_version": sys.version, "cwd": os.getcwd()}
+import types
+utils = types.ModuleType('utils')
+utils.helpers = types.ModuleType('utils.helpers')
+exec('"""Utility functions for the test project."""\nimport os\nimport sys\nfrom typing import Union\ndef greet(name: str) -> str:\n    """Greet a person by name."""\n    return f"Hello, {name}!"\ndef calculate(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:\n    """Calculate the sum of two numbers."""\n    return a + b\ndef get_system_info() -> dict:\n    """Get basic system information."""\n    return {"platform": sys.platform, "python_version": sys.version, "cwd": os.getcwd()}', utils.helpers.__dict__)
+
+# ─ Module: models.user ─
+import types
+models = types.ModuleType('models')
+models.user = types.ModuleType('models.user')
+exec('"""User model for the test project."""\nfrom dataclasses import dataclass\nfrom typing import Optional\n@dataclass\nclass User:\n    """A simple user model."""\n    name: str\n    age: int\n    email: Optional[str] = None\n\n    def is_adult(self) -> bool:\n        """Check if the user is an adult."""\n        return self.age >= 18\n\n    def get_display_name(self) -> str:\n        """Get a display name for the user."""\n        if self.email:\n            return f"{self.name} <{self.email}>"\n        return self.name', models.user.__dict__)
+
+# ─ Module: utils ─
+greet = utils.helpers.greet
+calculate = utils.helpers.calculate
+get_system_info = utils.helpers.get_system_info
+"""Utils package initialization."""
+__all__ = ["greet", "calculate", "get_system_info"]
+
+# ─ Module: models ─
+User = models.user.User
+"""Models package initialization."""
+__all__ = ["User"]
 
 # ─ Entry Module: main ─
+greet = utils.helpers.greet
+calculate = utils.helpers.calculate
+User = models.user.User
 """Simple test project entry point."""
 def main():
     """Main function."""

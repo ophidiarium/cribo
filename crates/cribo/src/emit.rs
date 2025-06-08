@@ -34,7 +34,7 @@ struct ParsedModuleData {
 
 /// Import strategy for how a module should be bundled
 #[derive(Debug, Clone, PartialEq)]
-enum ImportStrategy {
+pub enum ImportStrategy {
     /// Module imported via `import module` - needs namespace
     ModuleImport,
     /// Module imported via `from module import items` - needs direct inlining
@@ -72,6 +72,66 @@ impl CodeEmitter {
             bundled_variables: IndexMap::new(),
             future_imports: IndexSet::new(),
         }
+    }
+
+    /// Helper function to create an ExprName node
+    fn create_name_expr(name: &str, ctx: ExprContext) -> Expr {
+        Expr::Name(ExprName {
+            id: Identifier::new(name, TextRange::default()).into(),
+            ctx,
+            range: TextRange::default(),
+        })
+    }
+
+    /// Helper function to create an ExprAttribute node
+    fn create_attribute_expr(value: Expr, attr: &str, ctx: ExprContext) -> Expr {
+        Expr::Attribute(ExprAttribute {
+            value: Box::new(value),
+            attr: Identifier::new(attr, TextRange::default()),
+            ctx,
+            range: TextRange::default(),
+        })
+    }
+
+    /// Helper function to create a string literal expression
+    fn create_string_literal(value: &str) -> Expr {
+        Expr::StringLiteral(ruff_python_ast::ExprStringLiteral {
+            value: ruff_python_ast::StringLiteralValue::single(ruff_python_ast::StringLiteral {
+                range: TextRange::default(),
+                value: value.to_string().into_boxed_str(),
+                flags: ruff_python_ast::StringLiteralFlags::empty(),
+            }),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Helper function to create a getattr() call expression
+    fn create_getattr_call(obj_expr: Expr, attr_name: &str) -> Expr {
+        Expr::Call(ExprCall {
+            func: Box::new(Self::create_name_expr("getattr", ExprContext::Load)),
+            arguments: Arguments {
+                args: vec![obj_expr, Self::create_string_literal(attr_name)].into(),
+                keywords: vec![].into(),
+                range: TextRange::default(),
+            },
+            range: TextRange::default(),
+        })
+    }
+
+    /// Helper function to build a dotted module expression from parts
+    fn create_dotted_module_expr(parts: &[&str], ctx: ExprContext) -> Expr {
+        let mut current_expr = Self::create_name_expr(parts[0], ExprContext::Load);
+
+        let len = parts.len();
+        for (idx, &part) in parts[1..].iter().enumerate() {
+            let attr_ctx = if idx + 2 == len {
+                ctx
+            } else {
+                ExprContext::Load
+            };
+            current_expr = Self::create_attribute_expr(current_expr, part, attr_ctx);
+        }
+        current_expr
     }
 
     /// Helper method to classify and add import to appropriate set
@@ -277,16 +337,19 @@ impl CodeEmitter {
             let ast = ruff_python_parser::parse_module(&source)
                 .with_context(|| format!("Failed to parse module: {:?}", module.path))?;
 
-            // Analyze unused imports
+            // Analyze unused imports with __init__.py awareness
+            let is_init_py = module.path.file_name() == Some(std::ffi::OsStr::new("__init__.py"));
             let mut unused_analyzer = UnusedImportAnalyzer::new();
-            let unused_imports = unused_analyzer.analyze_file(&source).unwrap_or_else(|err| {
-                log::warn!(
-                    "Failed to analyze unused imports in {:?}: {}",
-                    module.path,
-                    err
-                );
-                Vec::new()
-            });
+            let unused_imports = unused_analyzer
+                .analyze_file_with_init_check(&source, is_init_py)
+                .unwrap_or_else(|err| {
+                    log::warn!(
+                        "Failed to analyze unused imports in {:?}: {}",
+                        module.path,
+                        err
+                    );
+                    Vec::new()
+                });
 
             let module_unused_names: IndexSet<String> = unused_imports
                 .iter()
@@ -384,6 +447,24 @@ impl CodeEmitter {
         let import_strategies =
             self.analyze_import_strategies(modules, entry_module, &parsed_modules_data)?;
 
+        // Pass import strategies to AST rewriter so it can resolve references correctly
+        ast_rewriter.set_import_strategies(&import_strategies);
+
+        // Pre-collect bundled variables from all modules to ensure complete mapping
+        // This must be done before any transformations to ensure the bundled_modules mapping is complete
+        for module in modules {
+            let parsed_data = parsed_modules_data.get(&module.path).ok_or_else(|| {
+                anyhow::anyhow!("Missing parsed data for module: {:?}", module.path)
+            })?;
+
+            // Create a temporary AST for symbol collection
+            let mut temp_ast = parsed_data.ast.clone();
+            ast_rewriter.rewrite_module_ast(&module.name, &mut temp_ast)?;
+
+            // Collect bundled variables from the rewriter for this module
+            self.collect_bundled_variables_from_rewriter(&module.name, &ast_rewriter);
+        }
+
         // Collect and filter preserved imports
         let (mut third_party_imports, mut stdlib_imports) = self.collect_import_sets(modules);
         third_party_imports.retain(|import| !all_unused_imports.contains(import));
@@ -412,7 +493,14 @@ impl CodeEmitter {
         self.add_aliased_imports_to_bundle(&mut bundle_ast, aliased_imports);
 
         // Process each module in dependency order using AST transformations
-        for module in modules {
+        // First process non-init modules, then init modules to ensure dependencies are available
+        let (non_init_modules, init_modules): (Vec<&ModuleNode>, Vec<&ModuleNode>) = modules
+            .iter()
+            .filter(|m| m.name != entry_module)
+            .partition(|m| !self.init_modules.contains(&m.name));
+
+        // Process non-init modules first
+        for module in non_init_modules.into_iter().chain(init_modules.into_iter()) {
             if module.name == entry_module {
                 continue;
             }
@@ -456,8 +544,10 @@ impl CodeEmitter {
                 .get(&entry_module_node.path)
                 .ok_or_else(|| {
                     anyhow::anyhow!(
-                        "Missing parsed data for entry module: {:?}",
-                        entry_module_node.path
+                        "Parsed data missing for entry module `{}` at path `{}`. \
+                    Ensure the module was parsed and included in parsed_modules_data",
+                        entry_module,
+                        entry_module_node.path.display()
                     )
                 })?;
 
@@ -522,8 +612,7 @@ impl CodeEmitter {
         // Apply AST rewriting for name conflict resolution FIRST
         ast_rewriter.rewrite_module_ast(module_name, &mut transformed_ast)?;
 
-        // Track bundled variables from the rewriter
-        self.collect_bundled_variables_from_rewriter(module_name, ast_rewriter);
+        // Note: Bundled variables are now collected upfront in emit_bundle, not here
 
         // Apply import alias transformations BEFORE removing imports
         // This ensures that alias information is available when transforming expressions
@@ -552,7 +641,11 @@ impl CodeEmitter {
             ImportStrategy::ModuleImport => {
                 // For modules imported as "import module", create a module namespace using AST nodes
                 let module_ast = ModModule {
-                    body: self.create_module_namespace_ast(module_name, &transformed_ast)?,
+                    body: self.create_module_namespace_ast(
+                        module_name,
+                        &transformed_ast,
+                        ast_rewriter,
+                    )?,
                     range: Default::default(),
                 };
                 Ok(module_ast)
@@ -581,6 +674,7 @@ impl CodeEmitter {
         &mut self,
         module_name: &str,
         module_ast: &ModModule,
+        ast_rewriter: &AstRewriter,
     ) -> Result<Vec<Stmt>> {
         // Start with the types import and namespace creation
         let mut namespace_stmts = self.create_module_namespace_structure(module_name)?;
@@ -609,6 +703,11 @@ impl CodeEmitter {
         let exec_stmt =
             self.create_module_exec_statement(module_name, &module_code, needs_globals)?;
         namespace_stmts.push(exec_stmt);
+
+        // Add exposure statements for conflict-renamed variables that need to be accessible on the module object
+        let module_exposure_stmts =
+            self.create_module_exposure_statements(module_name, ast_rewriter)?;
+        namespace_stmts.extend(module_exposure_stmts);
 
         Ok(namespace_stmts)
     }
@@ -819,6 +918,13 @@ impl CodeEmitter {
         BUNDLED_VAR_PATTERN.is_match(module_code)
     }
 
+    /// Check if a variable name follows the bundled variable pattern
+    fn is_bundled_variable_name(&self, name: &str) -> bool {
+        // Bundled variables follow the pattern: __module_name_variable
+        // This matches the regex used in BUNDLED_VAR_PATTERN
+        BUNDLED_VAR_PATTERN.is_match(name)
+    }
+
     /// Process a single rename entry and create exposure statement if appropriate
     fn process_rename_entry(
         &self,
@@ -827,11 +933,31 @@ impl CodeEmitter {
         ast_rewriter: &crate::ast_rewriter::AstRewriter,
     ) -> Option<Stmt> {
         let (original_name, renamed_name) = rename_entry;
-        // Check if this rename was due to a name conflict
-        // If it was, skip creating exposure statements since the original name no longer exists
+
+        log::debug!(
+            "process_rename_entry: module='{}', original='{}', renamed='{}', is_conflict={}",
+            module_name,
+            original_name,
+            renamed_name,
+            ast_rewriter.is_conflict_based_rename(original_name, module_name)
+        );
+
+        // If the original name and renamed name are the same, no exposure needed
+        if original_name == renamed_name {
+            log::debug!(
+                "Skipping exposure for non-renamed variable: {} in {}",
+                original_name,
+                module_name
+            );
+            return None;
+        }
+
+        // For conflict-based renames, skip exposure statements to avoid invalid references
+        // When variables are renamed due to conflicts, the original names no longer exist
+        // in the module's namespace, so we can't create backward-compatible aliases
         if ast_rewriter.is_conflict_based_rename(original_name, module_name) {
             log::debug!(
-                "Skipping exposure statement for '{}' -> '{}' in module '{}' (conflict-based rename)",
+                "Skipping exposure for conflict-based rename: {} -> {} in {}",
                 original_name,
                 renamed_name,
                 module_name
@@ -839,16 +965,25 @@ impl CodeEmitter {
             return None;
         }
 
-        // Create assignment: renamed_name = original_name
-        // This assigns the original variable's value to the renamed variable for conflict resolution
+        // For non-conflict renames, determine the correct direction
+        // For bundled variables (with module prefixes), use: renamed_name = original_name
+        // For special variables like __all__, use: original_name = renamed_name
+        let (target, source) = if self.is_bundled_variable_name(renamed_name) {
+            // Bundled variable: __module_name_var = var
+            (renamed_name, original_name)
+        } else {
+            // Special variable or simple rename: var = __module_name_var
+            (original_name, renamed_name)
+        };
+
         let assignment = Stmt::Assign(StmtAssign {
             targets: vec![Expr::Name(ExprName {
-                id: renamed_name.into(),
+                id: target.into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Name(ExprName {
-                id: original_name.into(),
+                id: source.into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
             })),
@@ -857,8 +992,8 @@ impl CodeEmitter {
 
         log::debug!(
             "Creating exposure statement: {} = {} (in module '{}')",
-            renamed_name,
-            original_name,
+            target,
+            source,
             module_name
         );
 
@@ -905,6 +1040,106 @@ impl CodeEmitter {
         }
 
         Ok(statements)
+    }
+
+    /// Create exposure statements for conflict-renamed variables that need to be accessible on module objects
+    /// This handles cases where variables with conflict-based renames inside exec namespaces need to be exposed
+    /// as attributes on the module object (e.g., greetings.greeting.message = __greetings_greeting_message)
+    fn create_module_exposure_statements(
+        &self,
+        module_name: &str,
+        ast_rewriter: &AstRewriter,
+    ) -> Result<Vec<Stmt>> {
+        let mut statements = Vec::new();
+
+        // Get renamed variables for this module
+        if let Some(renames) = self.bundled_variables.get(module_name) {
+            log::debug!(
+                "Creating module exposure statements for '{}' with {} renames",
+                module_name,
+                renames.len()
+            );
+
+            statements.extend(self.create_conflict_exposure_statements(
+                module_name,
+                renames,
+                ast_rewriter,
+            )?);
+        }
+
+        Ok(statements)
+    }
+
+    /// Create exposure statements for conflict-based renames in a module
+    fn create_conflict_exposure_statements(
+        &self,
+        module_name: &str,
+        renames: &IndexMap<String, String>,
+        ast_rewriter: &AstRewriter,
+    ) -> Result<Vec<Stmt>> {
+        let mut statements = Vec::new();
+
+        for (original_name, renamed_name) in renames {
+            // Only create exposure statements for conflict-based renames
+            if ast_rewriter.is_conflict_based_rename(original_name, module_name) {
+                let exposure_stmt = self.create_module_attribute_assignment(
+                    module_name,
+                    original_name,
+                    renamed_name,
+                )?;
+
+                log::debug!(
+                    "Created module exposure: {}.{} = {}",
+                    module_name,
+                    original_name,
+                    renamed_name
+                );
+
+                statements.push(exposure_stmt);
+            }
+        }
+
+        Ok(statements)
+    }
+
+    /// Create a module attribute assignment statement (e.g., greetings.greeting.message = __greetings_greeting_message)
+    fn create_module_attribute_assignment(
+        &self,
+        module_name: &str,
+        original_name: &str,
+        renamed_name: &str,
+    ) -> Result<Stmt> {
+        // Create the target expression: module_name.original_name
+        let target_expr = if module_name.contains('.') {
+            let parts: Vec<&str> = module_name.split('.').collect();
+            let mut module_expr = Self::create_dotted_module_expr(&parts, ExprContext::Load);
+            module_expr =
+                Self::create_attribute_expr(module_expr, original_name, ExprContext::Store);
+            module_expr
+        } else {
+            Self::create_attribute_expr(
+                Self::create_name_expr(module_name, ExprContext::Load),
+                original_name,
+                ExprContext::Store,
+            )
+        };
+
+        // Create the source expression: getattr(module_name, renamed_name)
+        let source_expr = if module_name.contains('.') {
+            let parts: Vec<&str> = module_name.split('.').collect();
+            let module_expr = Self::create_dotted_module_expr(&parts, ExprContext::Load);
+            Self::create_getattr_call(module_expr, renamed_name)
+        } else {
+            let module_expr = Self::create_name_expr(module_name, ExprContext::Load);
+            Self::create_getattr_call(module_expr, renamed_name)
+        };
+
+        // Create the assignment statement
+        Ok(Stmt::Assign(StmtAssign {
+            targets: vec![target_expr],
+            value: Box::new(source_expr),
+            range: TextRange::default(),
+        }))
     }
 
     /// Create an AST for the exec statement that executes module code in its namespace
@@ -1014,14 +1249,28 @@ impl CodeEmitter {
         let mut strategies = IndexMap::new();
 
         // Find the entry module data
-        let entry_module_node = modules
-            .iter()
-            .find(|m| m.name == entry_module)
-            .ok_or_else(|| anyhow::anyhow!("Entry module not found: {}", entry_module))?;
+        let entry_module_node =
+            modules
+                .iter()
+                .find(|m| m.name == entry_module)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Entry module `{}` not found. Available modules: {:?}",
+                        entry_module,
+                        modules.iter().map(|m| &m.name).collect::<Vec<_>>()
+                    )
+                })?;
 
         let entry_parsed_data = parsed_modules_data
             .get(&entry_module_node.path)
-            .ok_or_else(|| anyhow::anyhow!("Entry module data not found"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Parsed data missing for entry module `{}` at path `{}`. \
+                Ensure the module was parsed and included in parsed_modules_data",
+                    entry_module,
+                    entry_module_node.path.display()
+                )
+            })?;
 
         // Analyze import statements in the entry module
         for stmt in &entry_parsed_data.ast.body {
@@ -1036,7 +1285,56 @@ impl CodeEmitter {
             }
         }
 
+        // Also analyze imports in __init__.py files to determine if they need module namespaces
+        // This is important for relative imports like "from . import greeting" in __init__.py
+        for module in modules {
+            if self.init_modules.contains(&module.name) {
+                self.process_init_module_strategies(module, parsed_modules_data, &mut strategies);
+            }
+        }
+
         Ok(strategies)
+    }
+
+    /// Process import strategies for a single __init__.py module
+    fn process_init_module_strategies(
+        &self,
+        module: &crate::dependency_graph::ModuleNode,
+        parsed_modules_data: &IndexMap<std::path::PathBuf, ParsedModuleData>,
+        strategies: &mut IndexMap<String, ImportStrategy>,
+    ) {
+        if let Some(init_parsed_data) = parsed_modules_data.get(&module.path) {
+            log::debug!("Analyzing imports in __init__.py module: {}", module.name);
+            self.process_init_module_statements(
+                &init_parsed_data.ast.body,
+                &module.name,
+                strategies,
+            );
+        }
+    }
+
+    /// Process import statements within an __init__.py module
+    fn process_init_module_statements(
+        &self,
+        statements: &[Stmt],
+        module_name: &str,
+        strategies: &mut IndexMap<String, ImportStrategy>,
+    ) {
+        for stmt in statements {
+            match stmt {
+                Stmt::Import(import_stmt) => {
+                    self.process_import_strategies(import_stmt, strategies);
+                }
+                Stmt::ImportFrom(import_from_stmt) => {
+                    self.process_init_py_import_from_strategies(
+                        import_from_stmt,
+                        module_name,
+                        strategies,
+                    );
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Process import statements for strategy analysis
@@ -1050,6 +1348,31 @@ impl CodeEmitter {
             let module_name = alias.name.as_str();
             if self.is_first_party_module(module_name) {
                 strategies.insert(module_name.to_string(), ImportStrategy::ModuleImport);
+
+                // Also set parent packages as ModuleImport for submodule imports
+                // For example, if importing "greetings.irrelevant", also set "greetings" as ModuleImport
+                self.set_parent_packages_as_module_import(module_name, strategies);
+            }
+        }
+    }
+
+    /// Set parent packages as ModuleImport strategy for submodule imports
+    /// This ensures that __init__.py files are properly executed in their namespace
+    fn set_parent_packages_as_module_import(
+        &self,
+        module_name: &str,
+        strategies: &mut IndexMap<String, ImportStrategy>,
+    ) {
+        let parts: Vec<&str> = module_name.split('.').collect();
+
+        // For each parent package level, set it as ModuleImport if it's a first-party module
+        for i in 1..parts.len() {
+            let parent_module = parts[..i].join(".");
+
+            if self.is_first_party_module(&parent_module)
+                && !strategies.contains_key(&parent_module)
+            {
+                strategies.insert(parent_module.clone(), ImportStrategy::ModuleImport);
             }
         }
     }
@@ -1072,6 +1395,75 @@ impl CodeEmitter {
                 let full_module_name = format!("{}.{}", module_name, imported_name);
                 self.insert_module_import_strategy(&full_module_name, strategies);
             }
+        }
+    }
+
+    /// Process import-from statements in __init__.py files for strategy analysis
+    /// This handles relative imports like "from . import greeting" in __init__.py
+    fn process_init_py_import_from_strategies(
+        &self,
+        import_from_stmt: &StmtImportFrom,
+        init_module_name: &str,
+        strategies: &mut IndexMap<String, ImportStrategy>,
+    ) {
+        // Handle relative imports in __init__.py files
+        if import_from_stmt.level > 0 {
+            // This is a relative import like "from . import greeting"
+            for alias in &import_from_stmt.names {
+                let imported_name = alias.name.as_str();
+
+                // Determine the target module path and set import strategy
+                let target_module = self.resolve_relative_import_target_module(
+                    import_from_stmt,
+                    init_module_name,
+                    imported_name,
+                );
+
+                self.set_target_module_strategy(&target_module, init_module_name, strategies);
+            }
+        } else {
+            // Non-relative imports in __init__.py - process normally
+            self.process_import_from_strategies(import_from_stmt, strategies);
+        }
+    }
+
+    /// Resolve the target module path for a relative import
+    fn resolve_relative_import_target_module(
+        &self,
+        import_from_stmt: &StmtImportFrom,
+        init_module_name: &str,
+        imported_name: &str,
+    ) -> String {
+        // For "from . import greeting" in greetings/__init__.py,
+        // the target module is "greetings.greeting"
+        // For "from .greeting import message" in greetings/__init__.py,
+        // the target module is also "greetings.greeting"
+        if let Some(module_ref) = &import_from_stmt.module {
+            // "from .subpkg import module" case - target is the subpackage
+            let module_name = module_ref.as_str();
+            format!("{}.{}", init_module_name, module_name)
+        } else {
+            // "from . import module" case - target is the sibling module
+            format!("{}.{}", init_module_name, imported_name)
+        }
+    }
+
+    /// Set the import strategy for a target module if it's first-party
+    fn set_target_module_strategy(
+        &self,
+        target_module: &str,
+        init_module_name: &str,
+        strategies: &mut IndexMap<String, ImportStrategy>,
+    ) {
+        if self.is_first_party_module(target_module) {
+            // Set the imported module as ModuleImport so it gets its own namespace
+            // This is necessary because the __init__.py will reference it as a module object
+            log::debug!(
+                "Setting {} as ModuleImport due to relative import in __init__.py {}",
+                target_module,
+                init_module_name
+            );
+            strategies.insert(target_module.to_string(), ImportStrategy::ModuleImport);
         }
     }
 
@@ -1519,7 +1911,6 @@ impl CodeEmitter {
                 mapping.insert(key, bundled_name.clone());
             }
         }
-
         mapping
     }
 
@@ -1542,18 +1933,18 @@ impl CodeEmitter {
         module_name: &str,
         ast_rewriter: &AstRewriter,
     ) {
-        if let Some(renames) = ast_rewriter.get_module_renames(module_name) {
-            log::debug!(
-                "Found {} renames for module {}: {:?}",
-                renames.len(),
-                module_name,
-                renames
-            );
-            for (original_name, renamed_name) in renames {
-                self.track_bundled_variable(module_name, original_name, renamed_name);
-            }
-        } else {
-            log::debug!("No renames found for module {}", module_name);
+        // Get all module-level symbols (both renamed and original)
+        let module_symbols = ast_rewriter.get_module_symbols(module_name);
+
+        log::debug!(
+            "Found {} symbols for module {}: {:?}",
+            module_symbols.len(),
+            module_name,
+            module_symbols
+        );
+
+        for (original_name, final_name) in module_symbols {
+            self.track_bundled_variable(module_name, &original_name, &final_name);
         }
     }
 

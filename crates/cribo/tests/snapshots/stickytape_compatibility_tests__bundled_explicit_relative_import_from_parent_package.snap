@@ -9,9 +9,13 @@ description: Bundled content for explicit_relative_import_from_parent_package
 # ─ Module: greetings.messages ─
 message = "Hello"
 
-# ─ Module: greetings.greeting ─
+# ─ Module: greetings ─
 import types
 greetings = types.ModuleType('greetings')
+exec('', globals(), greetings.__dict__)
+
+# ─ Module: greetings.greeting ─
+import types
 greetings.greeting = types.ModuleType('greetings.greeting')
 exec('message = message\n__all__ = ["message"]', globals(), greetings.greeting.__dict__)
 

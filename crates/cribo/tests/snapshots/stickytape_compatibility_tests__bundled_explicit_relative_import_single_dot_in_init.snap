@@ -7,12 +7,14 @@ description: Bundled content for explicit_relative_import_single_dot_in_init
 # https://github.com/ophidiarium/cribo
 
 # ─ Module: greetings.greeting ─
-message = "Hello"
-
-# ─ Module: greetings ─
 import types
 greetings = types.ModuleType('greetings')
-exec('__all__ = ["message"]\nmessage = message', globals(), greetings.__dict__)
+greetings.greeting = types.ModuleType('greetings.greeting')
+exec('__greetings_greeting_message = "Hello"', globals(), greetings.greeting.__dict__)
+greetings.greeting.message = getattr(greetings.greeting, '__greetings_greeting_message')
+
+# ─ Module: greetings ─
+exec('__all__ = ["message"]\nmessage = greetings.greeting.message', globals(), greetings.__dict__)
 
 # ─ Entry Module: hello ─
 print(greetings.message)

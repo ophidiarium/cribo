@@ -31,6 +31,13 @@ def _transform_data(data: Dict[str, Any]) -> List[str]:
     return [f"{k}={v}" for k, v in data.items()]
 ProcessingResult = Dict[str, Any]
 
+# ─ Module: mypackage.submodule ─
+"""Submodule with future imports."""
+
+# ─ Module: mypackage ─
+"""Package initialization with future import."""
+__version__ = "1.0.0"
+
 # ─ Entry Module: main ─
 def main() -> None:
     """Main function with type annotations that require future import."""

@@ -98,11 +98,11 @@ fn test_comprehensive_ast_rewriting() {
                 "Should have entry module section"
             );
             assert!(
-                bundled_content.contains("UserModel = __models_user_User"),
+                bundled_content.contains("UserModel = models.user.User"),
                 "Should have UserModel alias"
             );
             assert!(
-                bundled_content.contains("UtilLogger = __core_utils_helpers_Logger"),
+                bundled_content.contains("UtilLogger = core.utils.helpers.Logger"),
                 "Should have UtilLogger alias"
             );
 

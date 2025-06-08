@@ -1,0 +1,11 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+---
+RuffLintResults {
+    f401_violations: [
+        "Line 6: F401 - `os` imported but unused",
+    ],
+    f404_violations: [],
+    other_violations: [],
+    total_violations: 1,
+}

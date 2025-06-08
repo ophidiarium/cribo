@@ -39,6 +39,15 @@ impl UnusedImportAnalyzer {
 
     /// Analyze a Python source file for unused imports
     pub fn analyze_file(&mut self, source: &str) -> Result<Vec<UnusedImport>> {
+        self.analyze_file_with_init_check(source, false)
+    }
+
+    /// Analyze a Python source file for unused imports with __init__.py awareness
+    pub fn analyze_file_with_init_check(
+        &mut self,
+        source: &str,
+        is_init_py: bool,
+    ) -> Result<Vec<UnusedImport>> {
         // Clear state from any previous analysis to ensure independence
         self.imported_names.clear();
         self.used_names.clear();
@@ -66,6 +75,7 @@ impl UnusedImportAnalyzer {
                 && !self.exported_names.contains(name)
                 && !import_info.is_star_import
                 && !import_info.is_side_effect
+                && !self.should_preserve_in_init_py(is_init_py, import_info)
             {
                 unused_imports.push(UnusedImport {
                     name: name.clone(),
@@ -75,6 +85,14 @@ impl UnusedImportAnalyzer {
         }
 
         Ok(unused_imports)
+    }
+
+    /// Determine if an import should be preserved in __init__.py files
+    /// In __init__.py files, imports are often re-exports for the package interface
+    fn should_preserve_in_init_py(&self, is_init_py: bool, _import_info: &ImportInfo) -> bool {
+        // In __init__.py files, preserve all imports as they are likely re-exports
+        // This is a conservative approach that avoids breaking package interfaces
+        is_init_py
     }
 
     /// Collect imports from a statement

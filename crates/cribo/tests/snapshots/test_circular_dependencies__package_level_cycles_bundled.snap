@@ -7,9 +7,12 @@ expression: bundled_content
 # https://github.com/ophidiarium/cribo
 
 # ─ Module: pkg1 ─
-import types
-pkg1 = types.ModuleType('pkg1')
-exec('def main_function():\n    """Main function that uses helper from pkg2"""\n    return f"pkg1.main({helper_function()})"\ndef utility_function():\n    """Utility that pkg2 will import"""\n    return "pkg1_utility"', globals(), pkg1.__dict__)
+def main_function():
+    """Main function that uses helper from pkg2"""
+    return f"pkg1.main({helper_function()})"
+def utility_function():
+    """Utility that pkg2 will import"""
+    return "pkg1_utility"
 
 # ─ Module: pkg2 ─
 def helper_function():

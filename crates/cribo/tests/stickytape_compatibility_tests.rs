@@ -222,7 +222,6 @@ fn test_explicit_relative_imports_with_module_name_in_package_init_are_resolved_
 }
 
 #[test]
-#[ignore = "Not passing yet"]
 fn test_package_init_can_be_used_even_if_not_imported_explicitly() {
     assert_script_output("implicit_init_import", "Hello");
 }

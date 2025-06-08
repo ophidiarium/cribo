@@ -2,6 +2,7 @@
 name = "cribo"
 version.workspace = true
 authors.workspace = true
+build = "build.rs"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
