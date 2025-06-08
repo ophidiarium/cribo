@@ -76,57 +76,57 @@
                 {
                     "type": "toml",
                     "path": "Cargo.lock",
-                    "jsonpath": "$.package[?(@.name.value == 'serpen')].version"
+                    "jsonpath": "$.package[?(@.name.value == 'cribo')].version"
                 },
                 {
                     "type": "json",
-                    "path": "npm/serpen/package.json",
+                    "path": "npm/cribo/package.json",
                     "jsonpath": "$.version"
                 },
                 {
                     "type": "json",
-                    "path": "npm/serpen/package.json",
-                    "jsonpath": "$.optionalDependencies.@serpen/linux-x64-gnu"
+                    "path": "npm/cribo/package.json",
+                    "jsonpath": "$.optionalDependencies.@cribo/linux-x64-gnu"
                 },
                 {
                     "type": "json",
-                    "path": "npm/serpen/package.json",
-                    "jsonpath": "$.optionalDependencies.@serpen/linux-x64-musl"
+                    "path": "npm/cribo/package.json",
+                    "jsonpath": "$.optionalDependencies.@cribo/linux-x64-musl"
                 },
                 {
                     "type": "json",
-                    "path": "npm/serpen/package.json",
-                    "jsonpath": "$.optionalDependencies.@serpen/linux-arm64-gnu"
+                    "path": "npm/cribo/package.json",
+                    "jsonpath": "$.optionalDependencies.@cribo/linux-arm64-gnu"
                 },
                 {
                     "type": "json",
-                    "path": "npm/serpen/package.json",
-                    "jsonpath": "$.optionalDependencies.@serpen/linux-arm64-musl"
+                    "path": "npm/cribo/package.json",
+                    "jsonpath": "$.optionalDependencies.@cribo/linux-arm64-musl"
                 },
                 {
                     "type": "json",
-                    "path": "npm/serpen/package.json",
-                    "jsonpath": "$.optionalDependencies.@serpen/darwin-x64"
+                    "path": "npm/cribo/package.json",
+                    "jsonpath": "$.optionalDependencies.@cribo/darwin-x64"
                 },
                 {
                     "type": "json",
-                    "path": "npm/serpen/package.json",
-                    "jsonpath": "$.optionalDependencies.@serpen/darwin-arm64"
+                    "path": "npm/cribo/package.json",
+                    "jsonpath": "$.optionalDependencies.@cribo/darwin-arm64"
                 },
                 {
                     "type": "json",
-                    "path": "npm/serpen/package.json",
-                    "jsonpath": "$.optionalDependencies.@serpen/win32-x64"
+                    "path": "npm/cribo/package.json",
+                    "jsonpath": "$.optionalDependencies.@cribo/win32-x64"
                 },
                 {
                     "type": "json",
-                    "path": "npm/serpen/package.json",
-                    "jsonpath": "$.optionalDependencies.@serpen/win32-ia32"
+                    "path": "npm/cribo/package.json",
+                    "jsonpath": "$.optionalDependencies.@cribo/win32-ia32"
                 },
                 {
                     "type": "json",
-                    "path": "npm/serpen/package.json",
-                    "jsonpath": "$.optionalDependencies.@serpen/win32-arm64"
+                    "path": "npm/cribo/package.json",
+                    "jsonpath": "$.optionalDependencies.@cribo/win32-arm64"
                 }
             ]
         }

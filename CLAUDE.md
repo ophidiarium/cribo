@@ -264,14 +264,14 @@ cargo bench-compare
 
 ```bash
 # PRIMARY: Use MCP for comprehensive status
-mcp__github__get_pull_request_status --owner=tinovyatkin --repo=serpen --pullNumber=<NUM>
+mcp__github__get_pull_request_status --owner=ophidiarium --repo=cribo --pullNumber=<NUM>
 
 # SECONDARY: Use gh CLI for detailed breakdown
 gh pr checks <PR-number>
 gh pr view <PR-number> --json state,mergeable,statusCheckRollup,reviewDecision
 
 # VERIFICATION: Get individual check details
-gh run list --repo=tinovyatkin/serpen --branch=<branch-name>
+gh run list --repo=ophidiarium/cribo --branch=<branch-name>
 ```
 
 #### Status Interpretation Guide
@@ -335,7 +335,7 @@ gh run list --repo=tinovyatkin/serpen --branch=<branch-name>
 
 ```bash
 # Check latest CI run status
-gh run list --repo=tinovyatkin/serpen --limit=5
+gh run list --repo=ophidiarium/cribo --limit=5
 
 # Get details of failed run
 gh run view <run-id>
@@ -717,6 +717,14 @@ This approach provides **comprehensive validation with minimal effort** and crea
 - If any disallowed type or method remains in the generated code, **treat it as a critical error**: halt code generation for that snippet, annotate the violation with the specific reason from `.clippy.toml`, and refuse to proceed until the violation is removed.
 - Continuously re-validate against `.clippy.toml` whenever generating new code or applying automated fixes—do not assume a one-time check is sufficient.
 - Log each check and violation in clear comments or warnings within the pull request or code review context so that maintainers immediately see why a disallowed construct was rejected.
+
+#### Git Operations
+
+**MANDATORY**: Always use MCP Git tools instead of direct bash git commands for all git operations.
+
+- **Use MCP Git tools**: Prefer `mcp__git__*` tools (e.g., `mcp__git__status`, `mcp__git__add`, `mcp__git__commit`) over bash `git` commands
+- **Better integration**: MCP Git tools provide better integration with the development environment and error handling
+- **Consistent workflow**: This ensures consistent git operations across all development workflows
 
 #### Conventional Commits Requirements
 

@@ -1,12 +1,12 @@
-# Serpen Benchmarking Guide
+# Cribo Benchmarking Guide
 
-This document describes the benchmarking infrastructure for Serpen, designed to track performance regressions and ensure consistent bundling performance.
+This document describes the benchmarking infrastructure for Cribo, designed to track performance regressions and ensure consistent bundling performance.
 
 <!-- Baseline establishment trigger: This change establishes initial benchmarks -->
 
 ## Overview
 
-Serpen uses [Bencher.dev](https://bencher.dev) with [Criterion.rs](https://github.com/bheisler/criterion.rs) and [Hyperfine](https://github.com/sharkdp/hyperfine) for comprehensive benchmarking with three layers of integration:
+Cribo uses [Bencher.dev](https://bencher.dev) with [Criterion.rs](https://github.com/bheisler/criterion.rs) and [Hyperfine](https://github.com/sharkdp/hyperfine) for comprehensive benchmarking with three layers of integration:
 
 1. **Local Development**: Quick performance checks during development using Criterion.rs
 2. **PR Comments**: Automatic performance comparison on pull requests via Bencher.dev
@@ -135,7 +135,7 @@ Every PR automatically receives benchmark comparison comments with visual charts
 
 ## Writing New Benchmarks
 
-Add benchmarks to `crates/serpen/benches/bundling.rs`:
+Add benchmarks to `crates/cribo/benches/bundling.rs`:
 
 ```rust
 use criterion::{Criterion, black_box, criterion_group, criterion_main};

@@ -1,17 +1,17 @@
 #!/bin/bash
 
-# Codecov Setup Helper Script for Serpen Project
+# Codecov Setup Helper Script for Cribo Project
 # This script helps with initial Codecov configuration
 
 set -e
 
-echo "🔧 Codecov Setup Helper for Serpen"
+echo "🔧 Codecov Setup Helper for Cribo"
 echo "=================================="
 echo
 
 # Check if we're in a git repository
 if ! git rev-parse --git-dir >/dev/null 2>&1; then
-  echo "❌ Error: This script must be run from within the serpen git repository"
+  echo "❌ Error: This script must be run from within the cribo git repository"
   exit 1
 fi
 
@@ -35,10 +35,10 @@ fi
 echo
 echo "📋 Next Steps for Codecov Integration:"
 echo "1. Go to https://codecov.io and sign up with your GitHub account"
-echo "2. Add the 'tinovyatkin/serpen' repository to Codecov"
+echo "2. Add the 'ophidiarium/cribo' repository to Codecov"
 echo "3. Copy the repository upload token from Codecov dashboard"
 echo "4. Add the token to GitHub repository secrets:"
-echo "   → Go to: https://github.com/tinovyatkin/serpen/settings/secrets/actions"
+echo "   → Go to: https://github.com/ophidiarium/cribo/settings/secrets/actions"
 echo "   → Click 'New repository secret'"
 echo "   → Name: CODECOV_TOKEN"
 echo "   → Value: [paste your Codecov upload token]"

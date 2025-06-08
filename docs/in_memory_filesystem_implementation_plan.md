@@ -1,12 +1,12 @@
-# In-Memory Filesystem Implementation Plan for Serpen
+# In-Memory Filesystem Implementation Plan for Cribo
 
-This document outlines a detailed step-by-step plan for implementing an in-memory filesystem for Serpen, based on our analysis of Ruff's implementation and our test case review.
+This document outlines a detailed step-by-step plan for implementing an in-memory filesystem for Cribo, based on our analysis of Ruff's implementation and our test case review.
 
 ## Phase 1: Core Filesystem Trait Design
 
 ### Step 1: Define Core Traits
 
-Create a new file `crates/serpen/src/filesystem.rs` with the following trait definitions:
+Create a new file `crates/cribo/src/filesystem.rs` with the following trait definitions:
 
 ```rust
 use std::io;
@@ -686,7 +686,7 @@ impl WritableSystem for SharedMemoryFileSystem {
 }
 ```
 
-## Phase 4: Refactoring Serpen for Filesystem Abstraction
+## Phase 4: Refactoring Cribo for Filesystem Abstraction
 
 ### Step 9: Update Dependency Graph and Resolver
 
@@ -799,7 +799,7 @@ fn main() {
 
 ### Step 11: Create Test Utilities Module
 
-Create `crates/serpen/src/test_utils.rs`:
+Create `crates/cribo/src/test_utils.rs`:
 
 ```rust
 use crate::filesystem::{MemoryFileSystem, WritableSystem};
@@ -872,11 +872,11 @@ pub fn setup_virtual_env(fs: &mut MemoryFileSystem) -> PathBuf {
 
 ### Step 12: Update Test Modules to Use In-Memory Filesystem
 
-Update `crates/serpen/tests/test_virtualenv_support.rs`:
+Update `crates/cribo/tests/test_virtualenv_support.rs`:
 
 ```rust
-use serpen::filesystem::MemoryFileSystem;
-use serpen::test_utils::{setup_test_filesystem, setup_virtual_env};
+use cribo::filesystem::MemoryFileSystem;
+use cribo::test_utils::{setup_test_filesystem, setup_virtual_env};
 use std::path::PathBuf;
 
 #[test]
@@ -894,7 +894,7 @@ fn test_virtualenv_detection() {
     .unwrap();
 
     // Test virtualenv detection logic with the filesystem
-    let bundler = serpen::bundler::Bundler::new(fs /* params */);
+    let bundler = cribo::bundler::Bundler::new(fs /* params */);
 
     // Set VIRTUAL_ENV environment variable in the test
     std::env::set_var("VIRTUAL_ENV", venv_path.to_string_lossy().to_string());
@@ -910,9 +910,9 @@ fn test_virtualenv_detection() {
 Create a documentation file explaining how to use the in-memory filesystem:
 
 ````markdown
-# Using the In-Memory Filesystem in Serpen
+# Using the In-Memory Filesystem in Cribo
 
-The in-memory filesystem provides a way to test Serpen's functionality without relying on the physical filesystem. This is particularly useful for:
+The in-memory filesystem provides a way to test Cribo's functionality without relying on the physical filesystem. This is particularly useful for:
 
 - Unit testing that needs to be fast and isolated
 - Testing edge cases that are difficult to set up with real files
@@ -921,7 +921,7 @@ The in-memory filesystem provides a way to test Serpen's functionality without r
 ## Basic Usage
 
 ```rust
-use serpen::filesystem::{MemoryFileSystem, System, WritableSystem};
+use cribo::filesystem::{MemoryFileSystem, System, WritableSystem};
 use std::path::PathBuf;
 
 // Create a new in-memory filesystem
@@ -938,8 +938,8 @@ fs.write_file("/project/src/main.py", "print('Hello, world!')").unwrap();
 let content = fs.read_file_str("/project/src/main.py").unwrap();
 assert_eq!(content, "print('Hello, world!')");
 
-// Use with Serpen's bundler
-let bundler = serpen::Bundler::new(fs, /* other params */);
+// Use with Cribo's bundler
+let bundler = cribo::Bundler::new(fs, /* other params */);
 let result = bundler.bundle("/project/src/main.py").unwrap();
 ```
 ````
@@ -971,7 +971,7 @@ fs.create_fixture("/project", &[
 For concurrent tests, use the `SharedMemoryFileSystem`:
 
 ```rust
-use serpen::filesystem::SharedMemoryFileSystem;
+use cribo::filesystem::SharedMemoryFileSystem;
 
 let fs = SharedMemoryFileSystem::new();
 
@@ -985,7 +985,7 @@ let handle = std::thread::spawn(move || {
 ```
 ## Conclusion and Migration Strategy
 
-This implementation plan outlines a comprehensive approach to adding an in-memory filesystem to Serpen. The key benefits of this approach include:
+This implementation plan outlines a comprehensive approach to adding an in-memory filesystem to Cribo. The key benefits of this approach include:
 
 1. **Abstraction Layer**: By introducing filesystem traits, we separate the concerns of file operations from business logic.
 

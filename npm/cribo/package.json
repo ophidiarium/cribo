@@ -1,0 +1,53 @@
+{
+  "name": "cribo",
+  "version": "0.4.9",
+  "description": "Python source bundler that produces a single .py file from multi-module projects",
+  "keywords": [
+    "bundler",
+    "python",
+    "deployment",
+    "pyspark",
+    "lambda",
+    "rust",
+    "cli",
+    "cdk",
+    "terraform"
+  ],
+  "homepage": "https://github.com/ophidiarium/cribo",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ophidiarium/cribo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ophidiarium/cribo/issues"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Konstantin Vyatkin",
+    "email": "tino@vtkn.io"
+  },
+  "bin": {
+    "cribo": "./bin/cribo.js"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "optionalDependencies": {
+    "@cribo/linux-x64-gnu": "0.4.9",
+    "@cribo/linux-x64-musl": "0.4.9",
+    "@cribo/linux-arm64-gnu": "0.4.9",
+    "@cribo/linux-arm64-musl": "0.4.9",
+    "@cribo/darwin-x64": "0.4.9",
+    "@cribo/darwin-arm64": "0.4.9",
+    "@cribo/win32-x64": "0.4.9",
+    "@cribo/win32-ia32": "0.4.9",
+    "@cribo/win32-arm64": "0.4.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

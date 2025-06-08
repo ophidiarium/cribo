@@ -17,7 +17,7 @@ env:
   CARGO_NET_RETRY: 10
   CARGO_TERM_COLOR: always
   RUSTUP_MAX_RETRIES: 10
-  PACKAGE_NAME: serpen
+  PACKAGE_NAME: cribo
   PYTHON_VERSION: '3.12'
 
 jobs:
@@ -62,19 +62,19 @@ jobs:
         run: cargo test --workspace
         shell: bash
 
-      - name: Install Serpen (development)
+      - name: Install Cribo (development)
         run: uv run --with maturin -- maturin develop --release
 
       - name: Smoke test CLI
         run: |
-          uv run python -m serpen --help
-          uv run serpen --version
+          uv run python -m cribo --help
+          uv run cribo --version
 
       - name: E2E bundle test
         env:
-          ENTRY_FILE: crates/serpen/tests/fixtures/simple_project/main.py
+          ENTRY_FILE: crates/cribo/tests/fixtures/simple_project/main.py
           OUTPUT_FILE: bundle-test/out.py
         run: |
           mkdir bundle-test
-          uv run python -m serpen --entry "${{ env.ENTRY_FILE }}" --output "${{ env.OUTPUT_FILE }}"
+          uv run python -m cribo --entry "${{ env.ENTRY_FILE }}" --output "${{ env.OUTPUT_FILE }}"
           uv run python "${{ env.OUTPUT_FILE }}"

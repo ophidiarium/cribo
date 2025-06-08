@@ -1,6 +1,6 @@
-# Serpen Documentation
+# Cribo Documentation
 
-This directory contains technical documentation for the Serpen project.
+This directory contains technical documentation for the Cribo project.
 
 ## License
 
@@ -35,6 +35,6 @@ When contributing documentation:
 When using or adapting this documentation, please provide attribution as:
 
 ```
-Serpen Documentation by Konstantin Vyatkin, licensed under CC BY 4.0.
-Source: https://github.com/tinovyatkin/serpen/docs
+Cribo Documentation by Konstantin Vyatkin, licensed under CC BY 4.0.
+Source: https://github.com/ophidiarium/cribo/docs
 ```

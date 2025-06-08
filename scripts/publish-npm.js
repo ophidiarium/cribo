@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * NPM publishing script for Serpen
+ * NPM publishing script for Cribo
  * Publishes both the base package and all platform-specific packages
  */
 
@@ -99,7 +99,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`🚀 Publishing Serpen npm packages version ${version}`);
+  console.log(`🚀 Publishing Cribo npm packages version ${version}`);
   console.log(`📁 Distribution directory: ${npmDistDir}`);
   console.log(`🏷️  Tag: ${tag}`);
   console.log(`🧪 Dry run: ${dryRun ? 'Yes' : 'No'}`);
@@ -110,7 +110,7 @@ function main() {
   console.log('');
 
   // Update base package version
-  const basePackagePath = path.join(__dirname, '..', 'npm', 'serpen');
+  const basePackagePath = path.join(__dirname, '..', 'npm', 'cribo');
   updatePackageVersion(basePackagePath, version);
 
   // Collect all platform packages
@@ -130,7 +130,7 @@ function main() {
 
             if (fs.statSync(packagePath).isDirectory() && fs.existsSync(packageJsonPath)) {
               const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-              if (packageJson.name.startsWith('@serpen/') || packageJson.name.startsWith('serpen-')) {
+              if (packageJson.name.startsWith('@cribo/') || packageJson.name.startsWith('cribo-')) {
                 platformPackages.push({
                   name: packageJson.name,
                   path: packagePath

@@ -74,10 +74,10 @@ Each matrix job now builds both PyPI wheels and npm binaries using the same tool
   run: |
     # Build binary using same target as maturin if specified
     if [[ -n "${{ matrix.platform.target }}" ]]; then
-      cargo build --release --package serpen --target ${{ matrix.platform.target }}
+      cargo build --release --package cribo --target ${{ matrix.platform.target }}
       BINARY_PATH="target/${{ matrix.platform.target }}/release/${BINARY_NAME}"
     else
-      cargo build --release --package serpen
+      cargo build --release --package cribo
       BINARY_PATH="target/release/${BINARY_NAME}"
     fi
 
@@ -171,24 +171,24 @@ The maturin-action automatically generates proper platform tags:
 
 ### PyPI Wheels (8 platform variants)
 
-1. **Linux x86_64 (glibc)**: `serpen-*-cp*-cp*-linux_x86_64.whl`
-2. **Linux x86_64 (musl)**: `serpen-*-cp*-cp*-musllinux_*_x86_64.whl`
-3. **Linux aarch64 (glibc)**: `serpen-*-cp*-cp*-linux_aarch64.whl`
-4. **Linux aarch64 (musl)**: `serpen-*-cp*-cp*-musllinux_*_aarch64.whl`
-5. **macOS x86_64**: `serpen-*-cp*-cp*-macosx_*_x86_64.whl`
-6. **macOS ARM64**: `serpen-*-cp*-cp*-macosx_*_arm64.whl`
-7. **Windows x86_64**: `serpen-*-cp*-cp*-win_amd64.whl`
+1. **Linux x86_64 (glibc)**: `cribo-*-cp*-cp*-linux_x86_64.whl`
+2. **Linux x86_64 (musl)**: `cribo-*-cp*-cp*-musllinux_*_x86_64.whl`
+3. **Linux aarch64 (glibc)**: `cribo-*-cp*-cp*-linux_aarch64.whl`
+4. **Linux aarch64 (musl)**: `cribo-*-cp*-cp*-musllinux_*_aarch64.whl`
+5. **macOS x86_64**: `cribo-*-cp*-cp*-macosx_*_x86_64.whl`
+6. **macOS ARM64**: `cribo-*-cp*-cp*-macosx_*_arm64.whl`
+7. **Windows x86_64**: `cribo-*-cp*-cp*-win_amd64.whl`
 
 ### npm Packages (8 platform variants)
 
-1. **serpen-linux-x64-gnu** - Linux x86_64 with glibc
-2. **serpen-linux-x64-musl** - Linux x86_64 with musl
-3. **serpen-linux-arm64-gnu** - Linux ARM64 with glibc
-4. **serpen-linux-arm64-musl** - Linux ARM64 with musl
-5. **serpen-darwin-x64** - macOS Intel
-6. **serpen-darwin-arm64** - macOS Apple Silicon
-7. **serpen-win32-x64** - Windows x86_64
-8. **@serpen/serpen** - Main package with platform detection
+1. **cribo-linux-x64-gnu** - Linux x86_64 with glibc
+2. **cribo-linux-x64-musl** - Linux x86_64 with musl
+3. **cribo-linux-arm64-gnu** - Linux ARM64 with glibc
+4. **cribo-linux-arm64-musl** - Linux ARM64 with musl
+5. **cribo-darwin-x64** - macOS Intel
+6. **cribo-darwin-arm64** - macOS Apple Silicon
+7. **cribo-win32-x64** - Windows x86_64
+8. **@cribo/cribo** - Main package with platform detection
 
 ## Migration Notes
 
@@ -228,19 +228,19 @@ To verify platform support:
 1. **PyPI Installation Test**:
    ```bash
    # On ARM64 Linux
-   pip install serpen  # Should install native aarch64 wheel
+   pip install cribo  # Should install native aarch64 wheel
 
    # On x86_64 Linux with musl
-   pip install serpen  # Should install musl wheel
+   pip install cribo  # Should install musl wheel
    ```
 
 2. **npm Installation Test**:
    ```bash
    # Test platform-specific packages
-   npm install @serpen/serpen
+   npm install @cribo/cribo
 
    # Verify binary exists and works
-   npx serpen --version
+   npx cribo --version
    ```
 
 ## Performance Benefits

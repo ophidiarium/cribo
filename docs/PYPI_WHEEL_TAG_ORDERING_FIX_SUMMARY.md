@@ -68,13 +68,13 @@ fi
 ### Before Fix
 
 ```
-❌ serpen-1.0.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
+❌ cribo-1.0.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
 ```
 
 ### After Fix
 
 ```
-✅ serpen-1.0.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+✅ cribo-1.0.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
 ```
 
 ## 🛡️ Security & Compliance Benefits

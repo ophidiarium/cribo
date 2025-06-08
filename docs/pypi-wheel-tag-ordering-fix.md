@@ -2,7 +2,7 @@
 
 ## Issue Description
 
-The Serpen project was experiencing PyPI publishing failures due to wheel filename tag ordering that violates PEP 425 requirements. The issue manifested as:
+The Cribo project was experiencing PyPI publishing failures due to wheel filename tag ordering that violates PEP 425 requirements. The issue manifested as:
 
 - **Built wheel filename**: `manylinux2014_aarch64.manylinux_2_17_aarch64.whl`
 - **Expected by attestation**: `manylinux_2_17_aarch64.manylinux2014_aarch64.whl`
@@ -100,8 +100,8 @@ For compressed tag sets (multiple tags separated by dots), the tags must be sort
 
 After applying the fix, wheel filenames will be correctly ordered:
 
-- ✅ `serpen-1.0.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl`
-- ❌ `serpen-1.0.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl`
+- ✅ `cribo-1.0.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl`
+- ❌ `cribo-1.0.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl`
 
 ## Testing
 

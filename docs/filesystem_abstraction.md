@@ -1,10 +1,10 @@
-# Filesystem Abstraction in Serpen
+# Filesystem Abstraction in Cribo
 
-This document provides a comprehensive overview of the filesystem abstraction system implemented in Serpen, including its architecture, components, benefits, and usage patterns.
+This document provides a comprehensive overview of the filesystem abstraction system implemented in Cribo, including its architecture, components, benefits, and usage patterns.
 
 ## 1. Overview and Architecture
 
-The filesystem abstraction in Serpen provides a unified interface for interacting with files, allowing both physical and in-memory filesystem implementations. This approach offers several key benefits:
+The filesystem abstraction in Cribo provides a unified interface for interacting with files, allowing both physical and in-memory filesystem implementations. This approach offers several key benefits:
 
 - **Testing Improvements**: Tests can run in isolation without depending on the physical filesystem
 - **Cross-Platform Consistency**: Eliminates platform-specific filesystem behavior differences
@@ -601,7 +601,7 @@ def format_name(user):
 ### 6.1 Basic Usage
 
 ```rust
-use serpen::{BundlerFs, Config, MemoryFileSystem, System, WritableSystem};
+use cribo::{BundlerFs, Config, MemoryFileSystem, System, WritableSystem};
 use std::path::PathBuf;
 
 // Create in-memory filesystem
@@ -742,6 +742,6 @@ fn test_bundling() {
 
 ## Conclusion
 
-The filesystem abstraction layer in Serpen provides a powerful foundation for testing and extensibility. By separating filesystem operations from business logic, it enables more reliable, faster tests and a more flexible architecture. The in-memory filesystem implementation is particularly valuable for test scenarios, offering significant improvements in speed, reliability, and cross-platform consistency.
+The filesystem abstraction layer in Cribo provides a powerful foundation for testing and extensibility. By separating filesystem operations from business logic, it enables more reliable, faster tests and a more flexible architecture. The in-memory filesystem implementation is particularly valuable for test scenarios, offering significant improvements in speed, reliability, and cross-platform consistency.
 
-While there are still areas for improvement, the current implementation delivers substantial benefits for testing and opens up possibilities for future extensions like remote filesystem support. Continued development of this abstraction will further enhance Serpen's architecture and testing capabilities.
+While there are still areas for improvement, the current implementation delivers substantial benefits for testing and opens up possibilities for future extensions like remote filesystem support. Continued development of this abstraction will further enhance Cribo's architecture and testing capabilities.

@@ -36,10 +36,10 @@ function execCommand(command, options = {}) {
 }
 
 async function testPackage() {
-    log('Testing Serpen npm package...');
+    log('Testing Cribo npm package...');
 
     // Create a temporary directory for testing
-    const testDir = path.join(os.tmpdir(), 'serpen-npm-test-' + Date.now());
+    const testDir = path.join(os.tmpdir(), 'cribo-npm-test-' + Date.now());
     fs.mkdirSync(testDir);
 
     try {
@@ -51,42 +51,42 @@ async function testPackage() {
         log('Initialized test npm project');
 
         // Get the path to our local package
-        const packagePath = path.join(__dirname, '..', 'npm', 'serpen');
+        const packagePath = path.join(__dirname, '..', 'npm', 'cribo');
 
         // Install our local package
         log(`Installing local package from: ${packagePath}`);
         execCommand(`npm install "${packagePath}"`);
-        success('Successfully installed local serpen package');
+        success('Successfully installed local cribo package');
 
-        // Test if serpen command is available
-        log('Testing serpen command...');
+        // Test if cribo command is available
+        log('Testing cribo command...');
 
         try {
-            // Test serpen --help
-            const helpOutput = execCommand('npx serpen --help');
-            log('serpen --help output:');
+            // Test cribo --help
+            const helpOutput = execCommand('npx cribo --help');
+            log('cribo --help output:');
             console.log(helpOutput);
-            success('serpen --help executed successfully');
+            success('cribo --help executed successfully');
         } catch (err) {
-            error(`serpen --help failed: ${err.message}`);
+            error(`cribo --help failed: ${err.message}`);
             throw err;
         }
 
-        // Test serpen --version if available
+        // Test cribo --version if available
         try {
-            const versionOutput = execCommand('npx serpen --version');
-            log('serpen --version output:');
+            const versionOutput = execCommand('npx cribo --version');
+            log('cribo --version output:');
             console.log(versionOutput);
-            success('serpen --version executed successfully');
+            success('cribo --version executed successfully');
         } catch (err) {
-            log('serpen --version not available (this is okay)');
+            log('cribo --version not available (this is okay)');
         }
 
         // Check if the correct platform package was installed
         log('Checking installed platform packages...');
         const nodeModulesPath = path.join(testDir, 'node_modules');
         const installedPackages = fs.readdirSync(nodeModulesPath)
-            .filter(name => name.startsWith('serpen-'))
+            .filter(name => name.startsWith('cribo-'))
             .sort();
 
         log(`Installed platform packages: ${installedPackages.join(', ')}`);
@@ -99,13 +99,13 @@ async function testPackage() {
         if (platform === 'linux') {
             // On Linux, we might have both gnu and musl
             expectedPackages = [
-                `serpen-linux-${arch}-gnu`,
-                `serpen-linux-${arch}-musl`
+                `cribo-linux-${arch}-gnu`,
+                `cribo-linux-${arch}-musl`
             ];
         } else if (platform === 'darwin') {
-            expectedPackages = [`serpen-darwin-${arch}`];
+            expectedPackages = [`cribo-darwin-${arch}`];
         } else if (platform === 'win32') {
-            expectedPackages = [`serpen-win32-${arch}`];
+            expectedPackages = [`cribo-win32-${arch}`];
         }
 
         const foundExpected = expectedPackages.some(pkg => installedPackages.includes(pkg));
@@ -119,7 +119,7 @@ async function testPackage() {
 
         // Test the launcher script directly
         log('Testing launcher script...');
-        const launcherPath = path.join(nodeModulesPath, 'serpen', 'bin', 'serpen.js');
+        const launcherPath = path.join(nodeModulesPath, 'cribo', 'bin', 'cribo.js');
 
         if (fs.existsSync(launcherPath)) {
             const launcherModule = require(launcherPath);

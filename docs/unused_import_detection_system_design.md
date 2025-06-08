@@ -2,7 +2,7 @@
 
 ## Overview
 
-The unused import detection and removal feature in Serpen automatically identifies and eliminates unused import statements during the bundling process. This feature reduces bundle size, improves code clarity, and ensures that only necessary dependencies are preserved in the final output.
+The unused import detection and removal feature in Cribo automatically identifies and eliminates unused import statements during the bundling process. This feature reduces bundle size, improves code clarity, and ensures that only necessary dependencies are preserved in the final output.
 
 ## Table of Contents
 
@@ -311,10 +311,10 @@ The feature is enabled by default but can be controlled via CLI flags (future en
 
 ```bash
 # Default behavior - unused imports are removed
-serpen --entry main.py --output bundle.py
+cribo --entry main.py --output bundle.py
 
 # Future: Option to disable unused import removal
-serpen --entry main.py --output bundle.py --keep-unused-imports
+cribo --entry main.py --output bundle.py --keep-unused-imports
 ```
 
 ### 3. Testing Integration
@@ -353,7 +353,7 @@ fn main() {
 **Test Structure**:
 
 ```
-crates/serpen/tests/fixtures/test_unused_imports/
+crates/cribo/tests/fixtures/test_unused_imports/
 ├── test_code.py           # Test module with mixed used/unused imports
 ├── expected_output.py     # Expected result after unused import removal
 └── debug_output.py        # Actual output for comparison
@@ -389,7 +389,7 @@ crates/serpen/tests/fixtures/test_unused_imports/
 
 1. **Configuration Options**:
    ```toml
-   [tool.serpen.unused_imports]
+   [tool.cribo.unused_imports]
    enabled = true
    preserve_patterns = ["test_*", "debug_*"]
    exclude_modules = ["__init__"]
@@ -437,7 +437,7 @@ crates/serpen/tests/fixtures/test_unused_imports/
 
 **Test File Organization**:
 
-- Keep test cases in `crates/serpen/tests/fixtures/test_unused_imports/` directory
+- Keep test cases in `crates/cribo/tests/fixtures/test_unused_imports/` directory
 - Use descriptive filenames for test scenarios
 - Maintain expected outputs alongside test inputs
 
@@ -474,7 +474,7 @@ crates/serpen/tests/fixtures/test_unused_imports/
 
 ## Conclusion
 
-The unused import detection and removal system provides significant value to the Serpen bundler by automatically cleaning up unnecessary imports during the bundling process. The architecture is designed for maintainability, extensibility, and reliable operation across diverse Python codebases.
+The unused import detection and removal system provides significant value to the Cribo bundler by automatically cleaning up unnecessary imports during the bundling process. The architecture is designed for maintainability, extensibility, and reliable operation across diverse Python codebases.
 
 Key success factors:
 

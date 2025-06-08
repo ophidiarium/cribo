@@ -3,7 +3,7 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "serpen"
+name = "cribo"
 dynamic = ["version"]
 description = "Python source bundler that produces a single .py file from multi-module projects"
 authors = [{ name = "Konstantin Vyatkin", email = "tino@vtkn.io" }]
@@ -26,10 +26,10 @@ classifiers = [
 keywords = ["bundler", "python", "deployment", "pyspark", "lambda"]
 
 [project.urls]
-Homepage = "https://github.com/tinovyatkin/serpen"
-Repository = "https://github.com/tinovyatkin/serpen"
-Documentation = "https://github.com/tinovyatkin/serpen#readme"
-Issues = "https://github.com/tinovyatkin/serpen/issues"
+Homepage = "https://github.com/ophidiarium/cribo"
+Repository = "https://github.com/ophidiarium/cribo"
+Documentation = "https://github.com/ophidiarium/cribo#readme"
+Issues = "https://github.com/ophidiarium/cribo/issues"
 
 [dependency-groups]
 test = ["pytest", "pytest-cov"]
@@ -42,7 +42,7 @@ dev = [
 [tool.maturin]
 bindings = "bin"
 python-source = "python"
-manifest-path = "crates/serpen/Cargo.toml"
+manifest-path = "crates/cribo/Cargo.toml"
 
 [tool.uv]
 link-mode = "symlink"

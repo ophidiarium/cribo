@@ -21,7 +21,7 @@ BENCHER_PROJECT="${BENCHER_PROJECT:-cribo}"
 BENCHER_TESTBED="${BENCHER_TESTBED:-local}"
 BENCHER_ADAPTER="${BENCHER_ADAPTER:-rust_criterion}"
 
-echo -e "${PURPLE}🐰 Serpen Benchmarks with Bencher.dev${NC}"
+echo -e "${PURPLE}🐰 Cribo Benchmarks with Bencher.dev${NC}"
 echo "========================================"
 
 # Check if we're in the right directory
@@ -97,7 +97,7 @@ if command -v hyperfine &> /dev/null; then
         --iter 1 \
         "hyperfine --export-json /dev/stdout --runs 5 \
             --setup 'rm -f test_project/bundle.py' \
-            'target/release/serpen --entry test_project/main.py --output test_project/bundle.py' \
+            'target/release/cribo --entry test_project/main.py --output test_project/bundle.py' \
             --cleanup 'rm -f test_project/bundle.py'"
     
     # Cleanup

@@ -1,14 +1,14 @@
 ---
 license: CC BY 4.0
 author: Konstantin Vyatkin
-source: https://github.com/tinovyatkin/serpen/docs
+source: https://github.com/ophidiarium/cribo/docs
 ---
 
 # Unused Import Trimmer (Internal Module)
 
-**Note: This document describes internal functionality that is not currently exposed via the CLI. The `trim` subcommand mentioned in this document does not exist in the current version of Serpen.**
+**Note: This document describes internal functionality that is not currently exposed via the CLI. The `trim` subcommand mentioned in this document does not exist in the current version of Cribo.**
 
-The Serpen bundler includes an internal unused import trimmer module that can analyze Python files and remove unused imports using AST rewriting techniques. This is part of the comprehensive AST rewriting implementation strategy.
+The Cribo bundler includes an internal unused import trimmer module that can analyze Python files and remove unused imports using AST rewriting techniques. This is part of the comprehensive AST rewriting implementation strategy.
 
 ## Features
 
@@ -27,26 +27,26 @@ The Serpen bundler includes an internal unused import trimmer module that can an
 
 ```bash
 # Analyze and trim unused imports (overwrites original file)
-serpen trim script.py
+cribo trim script.py
 
 # Preview changes without modifying the file
-serpen trim script.py --dry-run
+cribo trim script.py --dry-run
 
 # Save trimmed output to a different file
-serpen trim script.py --output clean_script.py
+cribo trim script.py --output clean_script.py
 ```
 
 ### Advanced Options
 
 ```bash
 # Preserve future imports (default: true)
-serpen trim script.py --preserve-future
+cribo trim script.py --preserve-future
 
 # Preserve specific imports by pattern
-serpen trim script.py --preserve-patterns "django,pytest"
+cribo trim script.py --preserve-patterns "django,pytest"
 
 # Verbose output for debugging
-serpen --verbose trim script.py --dry-run
+cribo --verbose trim script.py --dry-run
 ```
 
 ## Configuration Options
@@ -80,7 +80,7 @@ if __name__ == '__main__':
 **Command:**
 
 ```bash
-serpen trim example.py --dry-run
+cribo trim example.py --dry-run
 ```
 
 **Output:**
@@ -139,7 +139,7 @@ The `Optional` and `Union` imports are removed while `List` and `Dict` are prese
 **Command:**
 
 ```bash
-serpen trim test_file.py --preserve-patterns "django,pytest" --dry-run
+cribo trim test_file.py --preserve-patterns "django,pytest" --dry-run
 ```
 
 This will preserve any imports containing "django" or "pytest" in their qualified names, even if they appear unused.

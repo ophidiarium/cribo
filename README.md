@@ -1,11 +1,11 @@
-# Serpen: Python Source Bundler
+# Cribo: Python Source Bundler
 
-[![PyPI](https://img.shields.io/pypi/v/serpen.svg)](https://pypi.org/project/serpen/)
-[![npm](https://img.shields.io/npm/v/serpen.svg)](https://www.npmjs.com/package/serpen)
+[![PyPI](https://img.shields.io/pypi/v/cribo.svg)](https://pypi.org/project/cribo/)
+[![npm](https://img.shields.io/npm/v/cribo.svg)](https://www.npmjs.com/package/cribo)
 [![codecov](https://codecov.io/gh/ophidiarium/cribo/graph/badge.svg?token=Lt1VqlIEqV)](https://codecov.io/gh/ophidiarium/cribo)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Serpen** is a CLI and Python library that produces a single `.py` file from a multi-module Python project by inlining all *first-party* source files. This approach is inspired by JavaScript bundlers and aims to simplify deployment, especially in constrained environments like PySpark jobs, AWS Lambdas, and notebooks.
+**Cribo** is a CLI and Python library that produces a single `.py` file from a multi-module Python project by inlining all *first-party* source files. This approach is inspired by JavaScript bundlers and aims to simplify deployment, especially in constrained environments like PySpark jobs, AWS Lambdas, and notebooks.
 
 ## Features
 
@@ -24,31 +24,31 @@
 ### From PyPI (Python Package)
 
 ```bash
-pip install serpen
+pip install cribo
 ```
 
 ### From npm (Node.js CLI)
 
 ```bash
 # Global installation
-npm install -g serpen
+npm install -g cribo
 
 # One-time use
-npx serpen --help
+npx cribo --help
 ```
 
 > **🔐 Supply Chain Security**: All npm packages include [provenance attestations](docs/NPM_PROVENANCE.md) for enhanced security and verification.
 
 ### Binary Downloads
 
-Download pre-built binaries for your platform from the [latest release](https://github.com/tinovyatkin/serpen/releases/latest):
+Download pre-built binaries for your platform from the [latest release](https://github.com/ophidiarium/cribo/releases/latest):
 
-- **Linux x86_64**: `serpen_*_linux_x86_64.tar.gz`
-- **Linux ARM64**: `serpen_*_linux_arm64.tar.gz`
-- **macOS x86_64**: `serpen_*_darwin_x86_64.tar.gz`
-- **macOS ARM64**: `serpen_*_darwin_arm64.tar.gz`
-- **Windows x86_64**: `serpen_*_windows_x86_64.zip`
-- **Windows ARM64**: `serpen_*_windows_arm64.zip`
+- **Linux x86_64**: `cribo_<version>_linux_x86_64.tar.gz`
+- **Linux ARM64**: `cribo_<version>_linux_arm64.tar.gz`
+- **macOS x86_64**: `cribo_<version>_darwin_x86_64.tar.gz`
+- **macOS ARM64**: `cribo_<version>_darwin_arm64.tar.gz`
+- **Windows x86_64**: `cribo_<version>_windows_x86_64.zip`
+- **Windows ARM64**: `cribo_<version>_windows_arm64.zip`
 
 Each binary includes a SHA256 checksum file for verification.
 
@@ -63,7 +63,7 @@ registries:
   - type: standard
     ref: latest
 packages:
-  - name: tinovyatkin/serpen@latest
+  - name: ophidiarium/cribo@latest
 ```
 
 Then run:
@@ -78,20 +78,20 @@ Using [UBI](https://github.com/houseabsolute/ubi):
 
 ```bash
 # Install latest version
-ubi --project tinovyatkin/serpen
+ubi --project ophidiarium/cribo
 
 # Install specific version
-ubi --project tinovyatkin/serpen --tag v0.4.1
+ubi --project ophidiarium/cribo --tag v0.4.1
 
 # Install to specific directory
-ubi --project tinovyatkin/serpen --in /usr/local/bin
+ubi --project ophidiarium/cribo --in /usr/local/bin
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/tinovyatkin/serpen.git
-cd serpen
+git clone https://github.com/ophidiarium/cribo.git
+cd cribo
 cargo build --release
 ```
 
@@ -101,32 +101,32 @@ cargo build --release
 
 ```bash
 # Basic bundling
-serpen --entry src/main.py --output bundle.py
+cribo --entry src/main.py --output bundle.py
 
 # Generate requirements.txt
-serpen --entry src/main.py --output bundle.py --emit-requirements
+cribo --entry src/main.py --output bundle.py --emit-requirements
 
 # Verbose output
-serpen --entry src/main.py --output bundle.py --verbose
+cribo --entry src/main.py --output bundle.py --verbose
 
 # Custom config file
-serpen --entry src/main.py --output bundle.py --config my-serpen.toml
+cribo --entry src/main.py --output bundle.py --config my-cribo.toml
 ```
 
 ## Configuration
 
-Serpen supports hierarchical configuration with the following precedence (highest to lowest):
+Cribo supports hierarchical configuration with the following precedence (highest to lowest):
 
 1. **CLI-provided config** (`--config` flag)
-2. **Environment variables** (with `SERPEN_` prefix)
-3. **Project config** (`serpen.toml` in current directory)
-4. **User config** (`~/.config/serpen/serpen.toml`)
-5. **System config** (`/etc/serpen/serpen.toml` on Unix, `%SYSTEMDRIVE%\ProgramData\serpen\serpen.toml` on Windows)
+2. **Environment variables** (with `CRIBO_` prefix)
+3. **Project config** (`cribo.toml` in current directory)
+4. **User config** (`~/.config/cribo/cribo.toml`)
+5. **System config** (`/etc/cribo/cribo.toml` on Unix, `%SYSTEMDRIVE%\ProgramData\cribo\cribo.toml` on Windows)
 6. **Default values**
 
 ### Configuration File Format
 
-Create a `serpen.toml` file:
+Create a `cribo.toml` file:
 
 ```toml
 # Source directories to scan for first-party modules
@@ -157,31 +157,31 @@ target-version = "py310"
 
 ### Environment Variables
 
-All configuration options can be overridden using environment variables with the `SERPEN_` prefix:
+All configuration options can be overridden using environment variables with the `CRIBO_` prefix:
 
 ```bash
 # Comma-separated lists
-export SERPEN_SRC="src,lib,custom_dir"
-export SERPEN_KNOWN_FIRST_PARTY="mypackage,myotherpackage"
-export SERPEN_KNOWN_THIRD_PARTY="requests,numpy"
+export CRIBO_SRC="src,lib,custom_dir"
+export CRIBO_KNOWN_FIRST_PARTY="mypackage,myotherpackage"
+export CRIBO_KNOWN_THIRD_PARTY="requests,numpy"
 
 # Boolean values (true/false, 1/0, yes/no, on/off)
-export SERPEN_PRESERVE_COMMENTS="false"
-export SERPEN_PRESERVE_TYPE_HINTS="true"
+export CRIBO_PRESERVE_COMMENTS="false"
+export CRIBO_PRESERVE_TYPE_HINTS="true"
 
 # String values
-export SERPEN_TARGET_VERSION="py312"
+export CRIBO_TARGET_VERSION="py312"
 ```
 
 ### Configuration Locations
 
-- **Project**: `./serpen.toml`
+- **Project**: `./cribo.toml`
 - **User**:
-  - Linux/macOS: `~/.config/serpen/serpen.toml`
-  - Windows: `%APPDATA%\serpen\serpen.toml`
+  - Linux/macOS: `~/.config/cribo/cribo.toml`
+  - Windows: `%APPDATA%\cribo\cribo.toml`
 - **System**:
-  - Linux/macOS: `/etc/serpen/serpen.toml` or `/etc/xdg/serpen/serpen.toml`
-  - Windows: `%SYSTEMDRIVE%\ProgramData\serpen\serpen.toml`
+  - Linux/macOS: `/etc/cribo/cribo.toml` or `/etc/xdg/cribo/cribo.toml`
+  - Windows: `%SYSTEMDRIVE%\ProgramData\cribo\cribo.toml`
 
 ## How It Works
 
@@ -199,7 +199,7 @@ The bundled output follows this structure:
 
 ```python
 #!/usr/bin/env python3
-# Generated by Serpen - Python Source Bundler
+# Generated by Cribo - Python Source Bundler
 
 # Preserved imports (stdlib and third-party)
 import os
@@ -234,7 +234,7 @@ if **name** == "**main**":
 Deploy complex PySpark applications as a single file:
 
 ```bash
-serpen --entry spark_job.py --output dist/spark_job_bundle.py --emit-requirements
+cribo --entry spark_job.py --output dist/spark_job_bundle.py --emit-requirements
 spark-submit dist/spark_job_bundle.py
 ```
 
@@ -243,7 +243,7 @@ spark-submit dist/spark_job_bundle.py
 Package Python Lambda functions with all dependencies:
 
 ```bash
-serpen --entry lambda_handler.py --output deployment/handler.py
+cribo --entry lambda_handler.py --output deployment/handler.py
 # Upload handler.py + requirements.txt to Lambda
 ```
 
@@ -251,7 +251,7 @@ serpen --entry lambda_handler.py --output deployment/handler.py
 
 ### Pydantic Compatibility
 
-Serpen preserves class identity and module structure to ensure Pydantic models work correctly:
+Cribo preserves class identity and module structure to ensure Pydantic models work correctly:
 
 ```python
 # Original: models/user.py
@@ -276,7 +276,7 @@ def validate_dataframe(df: DataFrame[UserSchema]) -> DataFrame[UserSchema]:
 
 ### Circular Dependencies
 
-Serpen intelligently handles circular dependencies with advanced detection and resolution:
+Cribo intelligently handles circular dependencies with advanced detection and resolution:
 
 #### Resolvable Cycles (Function-Level)
 
@@ -322,7 +322,7 @@ Cycle 1: constants_b → constants_a
 
 | Tool        | Language | Tree Shaking | Import Cleanup | Circular Deps       | PySpark Ready | Type Hints |
 | ----------- | -------- | ------------ | -------------- | ------------------- | ------------- | ---------- |
-| Serpen      | Rust     | ✅           | ✅             | ✅ Smart Resolution | ✅            | ✅         |
+| Cribo       | Rust     | ✅           | ✅             | ✅ Smart Resolution | ✅            | ✅         |
 | PyInstaller | Python   | ❌           | ❌             | ❌ Fails            | ❌            | ✅         |
 | Nuitka      | Python   | ❌           | ❌             | ❌ Fails            | ❌            | ✅         |
 | Pex         | Python   | ❌           | ❌             | ❌ Fails            | ❌            | ✅         |
@@ -332,8 +332,8 @@ Cycle 1: constants_b → constants_a
 ### Building from Source
 
 ```bash
-git clone https://github.com/tinovyatkin/serpen.git
-cd serpen
+git clone https://github.com/ophidiarium/cribo.git
+cd cribo
 
 # Build Rust CLI
 cargo build --release
@@ -348,7 +348,7 @@ cargo test
 
 ### Performance Benchmarking
 
-Serpen uses [Bencher.dev](https://bencher.dev) for comprehensive performance tracking with statistical analysis and regression detection:
+Cribo uses [Bencher.dev](https://bencher.dev) for comprehensive performance tracking with statistical analysis and regression detection:
 
 ```bash
 # Run all benchmarks
@@ -376,21 +376,21 @@ cargo bench
 - Automated PR comments with performance comparisons and visual charts
 - Historical performance tracking with trend analysis
 - Statistical significance testing to prevent false positives
-- Dashboard available at [bencher.dev/perf/serpen](https://bencher.dev/perf/serpen)
+- Dashboard available at [bencher.dev/perf/cribo](https://bencher.dev/perf/cribo)
 
 See [docs/benchmarking.md](docs/benchmarking.md) for detailed benchmarking guide.
 
 ### Project Structure
 
 ```text
-serpen/
+cribo/
 ├── src/                    # Rust source code
 │   ├── main.rs            # CLI entry point
 │   ├── bundler.rs         # Core bundling logic
 │   ├── resolver.rs        # Import resolution
 │   ├── emit.rs            # Code generation
 │   └── ...
-├── python/serpen/         # Python package
+├── python/cribo/          # Python package
 ├── tests/                 # Test suites
 │   └── fixtures/          # Test projects
 ├── docs/                  # Documentation
@@ -403,8 +403,8 @@ serpen/
 
 ```bash
 # Clone the repository
-git clone https://github.com/tinovyatkin/serpen.git
-cd serpen
+git clone https://github.com/ophidiarium/cribo.git
+cd cribo
 
 # Install Rust toolchain and components
 rustup component add llvm-tools-preview
@@ -488,6 +488,6 @@ See the [LICENSE](LICENSE) file for the MIT license text and [docs/LICENSE](docs
 
 ---
 
-For more examples and detailed documentation, visit our [documentation site](https://github.com/tinovyatkin/serpen#readme).
+For more examples and detailed documentation, visit our [documentation site](https://github.com/ophidiarium/cribo#readme).
 
 For detailed documentation on the unused import trimmer, see [`docs/unused_import_trimmer.md`](docs/unused_import_trimmer.md).

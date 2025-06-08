@@ -6,9 +6,9 @@ members = ["crates/*"]
 version = "0.4.10"
 authors = ["Konstantin Vyatkin <tino@vtkn.io>"]
 edition = "2024"
-homepage = "https://github.com/tinovyatkin/serpen"
+homepage = "https://github.com/ophidiarium/cribo"
 license = "MIT"
-repository = "https://github.com/tinovyatkin/serpen"
+repository = "https://github.com/ophidiarium/cribo"
 description = "Python source bundler that produces a single .py file from multi-module projects"
 
 [workspace.dependencies]

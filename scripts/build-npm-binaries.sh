@@ -33,7 +33,7 @@ log_error() {
 TARGETS_FILE=""
 OUTPUT_DIR="target/npm-binaries"
 PROFILE="release"
-PACKAGE="serpen"
+PACKAGE="cribo"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -61,7 +61,7 @@ while [[ $# -gt 0 ]]; do
         echo "  --targets-file FILE    File containing list of targets to build (one per line)"
         echo "  --output-dir DIR       Output directory for binaries (default: target/npm-binaries)"
         echo "  --profile PROFILE      Build profile (default: release)"
-        echo "  --package PACKAGE      Package to build (default: serpen)"
+        echo "  --package PACKAGE      Package to build (default: cribo)"
         echo "  -h, --help            Show this help message"
         echo ""
         echo "If --targets-file is not specified, builds for all npm-supported targets."

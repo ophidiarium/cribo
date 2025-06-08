@@ -1,10 +1,10 @@
-# VIRTUAL_ENV Support in Serpen
+# VIRTUAL_ENV Support in Cribo
 
-This document describes how Serpen leverages the `VIRTUAL_ENV` environment variable to improve import classification accuracy.
+This document describes how Cribo leverages the `VIRTUAL_ENV` environment variable to improve import classification accuracy.
 
 ## Overview
 
-Serpen supports the `VIRTUAL_ENV` environment variable to enhance third-party import detection and classification. Unlike `PYTHONPATH` which is used for first-party module discovery, `VIRTUAL_ENV` is specifically used to identify third-party packages installed in virtual environments.
+Cribo supports the `VIRTUAL_ENV` environment variable to enhance third-party import detection and classification. Unlike `PYTHONPATH` which is used for first-party module discovery, `VIRTUAL_ENV` is specifically used to identify third-party packages installed in virtual environments.
 
 ## Key Architectural Differences
 
@@ -23,18 +23,18 @@ Serpen supports the `VIRTUAL_ENV` environment variable to enhance third-party im
 
 ## How It Works
 
-Serpen uses a two-tier approach for virtual environment detection:
+Cribo uses a two-tier approach for virtual environment detection:
 
 ### 1. Explicit VIRTUAL_ENV (Highest Priority)
 
-When `VIRTUAL_ENV` is set, Serpen uses the specified path directly:
+When `VIRTUAL_ENV` is set, Cribo uses the specified path directly:
 
 - **Windows**: `%VIRTUAL_ENV%\Lib\site-packages`
 - **Unix-like**: `$VIRTUAL_ENV/lib/python*/site-packages`
 
 ### 2. Fallback Detection (When VIRTUAL_ENV is not set)
 
-When `VIRTUAL_ENV` is not set, Serpen automatically searches the current working directory for common virtual environment directory names:
+When `VIRTUAL_ENV` is not set, Cribo automatically searches the current working directory for common virtual environment directory names:
 
 - `.venv` (most common in modern Python development)
 - `venv`
@@ -42,11 +42,11 @@ When `VIRTUAL_ENV` is not set, Serpen automatically searches the current working
 - `.virtualenv`
 - `virtualenv`
 
-Serpen validates each directory by checking for the expected site-packages structure before using it.
+Cribo validates each directory by checking for the expected site-packages structure before using it.
 
 ### 3. Import Classification
 
-Once virtual environment packages are detected, Serpen improves import classification:
+Once virtual environment packages are detected, Cribo improves import classification:
 
 - If an import matches a package in a virtual environment → `ThirdParty`
 - If an import matches a first-party module → `FirstParty`
@@ -65,19 +65,19 @@ source venv/bin/activate  # Unix
 # or
 venv\Scripts\activate     # Windows
 
-serpen --entry my_script.py --output bundle.py
+cribo --entry my_script.py --output bundle.py
 ```
 
 ### Automatic Detection (Fallback)
 
-When VIRTUAL_ENV is not set, Serpen automatically detects common virtual environment directories:
+When VIRTUAL_ENV is not set, Cribo automatically detects common virtual environment directories:
 
 ```bash
 # No activated virtual environment, but .venv directory exists
 ls -la
 # drwxr-xr-x  .venv/
 
-serpen --entry my_script.py --output bundle.py  # Automatically detects .venv
+cribo --entry my_script.py --output bundle.py  # Automatically detects .venv
 ```
 
 ### Manual Override
@@ -85,7 +85,7 @@ serpen --entry my_script.py --output bundle.py  # Automatically detects .venv
 You can manually specify the virtual environment path:
 
 ```bash
-VIRTUAL_ENV=/path/to/my/venv serpen --entry my_script.py --output bundle.py
+VIRTUAL_ENV=/path/to/my/venv cribo --entry my_script.py --output bundle.py
 ```
 
 ## Virtual Environment Detection Priority
@@ -97,7 +97,7 @@ VIRTUAL_ENV=/path/to/my/venv serpen --entry my_script.py --output bundle.py
 
 ### Fallback Directory Search Order
 
-When VIRTUAL_ENV is not set, Serpen searches for these directories in order:
+When VIRTUAL_ENV is not set, Cribo searches for these directories in order:
 
 1. `.venv` (preferred for modern Python projects)
 2. `venv`
@@ -107,7 +107,7 @@ When VIRTUAL_ENV is not set, Serpen searches for these directories in order:
 
 ### Multiple Virtual Environments
 
-If multiple virtual environment directories exist, Serpen will scan **all** of them for packages:
+If multiple virtual environment directories exist, Cribo will scan **all** of them for packages:
 
 ```bash
 # Directory structure:
@@ -115,13 +115,13 @@ If multiple virtual environment directories exist, Serpen will scan **all** of t
 # ├── venv/           (contains numpy)
 # └── env/            (contains flask)
 
-serpen --entry app.py --output bundle.py
+cribo --entry app.py --output bundle.py
 # All packages from .venv, venv, and env are detected as third-party
 ```
 
 ### Validation
 
-Serpen validates each potential virtual environment by:
+Cribo validates each potential virtual environment by:
 
 1. Checking directory exists and is readable
 2. Verifying expected site-packages structure:
@@ -133,7 +133,7 @@ Serpen validates each potential virtual environment by:
 
 ### Site-packages Detection
 
-Serpen automatically detects site-packages directories for different Python versions:
+Cribo automatically detects site-packages directories for different Python versions:
 
 - **Single version**: `venv/lib/python3.11/site-packages`
 - **Multiple versions**: All `python*` directories are scanned
@@ -141,7 +141,7 @@ Serpen automatically detects site-packages directories for different Python vers
 
 ### Package Name Extraction
 
-From site-packages directories, Serpen identifies packages by:
+From site-packages directories, Cribo identifies packages by:
 
 - **Directory names**: Package directories (e.g., `requests/`)
 - **Module files**: Single-file modules (e.g., `six.py`)
@@ -149,7 +149,7 @@ From site-packages directories, Serpen identifies packages by:
 
 ### Submodule Handling
 
-For import `requests.auth`, Serpen:
+For import `requests.auth`, Cribo:
 
 1. Checks if `requests.auth` exists as a package
 2. If not found, checks if `requests` (root module) exists in VIRTUAL_ENV
@@ -159,7 +159,7 @@ For import `requests.auth`, Serpen:
 
 ### Resolution Priority
 
-When modules with the same name exist in multiple locations, Serpen follows
+When modules with the same name exist in multiple locations, Cribo follows
 Python's import resolution order:
 
 1. **First-party modules** (from `src` directories and `PYTHONPATH`) take
@@ -179,7 +179,7 @@ Python's import resolution order:
 import requests  # → Resolves to src/requests.py (FirstParty)
 ```
 
-Serpen correctly classifies `requests` as `FirstParty` because local modules
+Cribo correctly classifies `requests` as `FirstParty` because local modules
 take precedence.
 
 #### PYTHONPATH Module Shadows Virtual Environment Package
@@ -233,7 +233,7 @@ fn test_module_shadowing_priority() {
 }
 ```
 
-This ensures that Serpen's bundling behavior matches Python's actual import
+This ensures that Cribo's bundling behavior matches Python's actual import
 resolution.
 
 ## Configuration Integration
@@ -243,7 +243,7 @@ resolution.
 VIRTUAL_ENV works alongside explicit configuration:
 
 ```toml
-[tool.serpen]
+[tool.cribo]
 known_third_party = ["custom_package"]
 ```
 
@@ -252,7 +252,7 @@ Modules in `known_third_party` are always classified as third-party, regardless 
 ### Known First-party
 
 ```toml
-[tool.serpen]
+[tool.cribo]
 known_first_party = ["my_local_package"]
 ```
 
@@ -262,10 +262,10 @@ Explicit first-party configuration takes precedence over VIRTUAL_ENV detection.
 
 ### VirtualEnvGuard
 
-For testing, Serpen provides `VirtualEnvGuard` for safe environment manipulation:
+For testing, Cribo provides `VirtualEnvGuard` for safe environment manipulation:
 
 ```rust
-use serpen::resolver::VirtualEnvGuard;
+use cribo::resolver::VirtualEnvGuard;
 
 // Set VIRTUAL_ENV for testing
 let _guard = VirtualEnvGuard::new("/path/to/test/venv");
@@ -286,7 +286,7 @@ let resolver = ModuleResolver::new_with_overrides(config, pythonpath, virtualenv
 
 ## Insights from Reference Implementations
 
-Based on analysis of virtual environment handling in established Python tooling repositories (Ruff and Pyre), several patterns and improvements have been identified that could enhance Serpen's virtual environment support.
+Based on analysis of virtual environment handling in established Python tooling repositories (Ruff and Pyre), several patterns and improvements have been identified that could enhance Cribo's virtual environment support.
 
 ### Integration Considerations
 
@@ -298,7 +298,7 @@ When implementing these enhancements:
 4. **Testing**: Add comprehensive test coverage for new functionality
 5. **Documentation**: Update user documentation with new capabilities
 
-These insights from established Python tooling provide a roadmap for evolving Serpen's virtual environment support to handle modern Python development workflows while maintaining reliability and performance.
+These insights from established Python tooling provide a roadmap for evolving Cribo's virtual environment support to handle modern Python development workflows while maintaining reliability and performance.
 
 ## Advanced Virtual Environment Patterns
 
@@ -448,14 +448,14 @@ impl DevelopmentEnvironmentDetector {
 // Configuration that adapts to virtual environment context
 #[derive(Debug, Clone)]
 pub struct EnvironmentAwareConfig {
-    base_config: SerpenConfig,
+    base_config: CriboConfig,
     environment_overrides: HashMap<PathBuf, ConfigOverrides>,
     auto_detect_environments: bool,
     environment_priority_order: Vec<EnvironmentType>,
 }
 
 impl EnvironmentAwareConfig {
-    pub fn resolve_for_environment(&self, env_path: Option<&Path>) -> SerpenConfig {
+    pub fn resolve_for_environment(&self, env_path: Option<&Path>) -> CriboConfig {
         let mut config = self.base_config.clone();
 
         // Apply environment-specific overrides
@@ -903,7 +903,7 @@ source myproject_venv/bin/activate
 pip install requests numpy
 
 # Analysis
-serpen --entry app.py --output bundle.py
+cribo --entry app.py --output bundle.py
 ```
 
 In this case:
@@ -920,10 +920,10 @@ In this case:
 ls venv/lib/
 # python3.10/ python3.11/
 
-serpen --entry app.py --output bundle.py
+cribo --entry app.py --output bundle.py
 ```
 
-Serpen will scan both `python3.10/site-packages` and `python3.11/site-packages`.
+Cribo will scan both `python3.10/site-packages` and `python3.11/site-packages`.
 
 ### Complex Project Structure
 
@@ -949,5 +949,5 @@ Import classification:
 ## Related Documentation
 
 - [PYTHONPATH Support](./pythonpath_support.md) - First-party module discovery
-- [Import Resolution Analysis](./serpen_import_resolution_analysis.md) - Overall import resolution strategy
+- [Import Resolution Analysis](./cribo_import_resolution_analysis.md) - Overall import resolution strategy
 - [Configuration Guide](../README.md) - General configuration options

@@ -10,9 +10,9 @@ TEST_DIR="test-wheels"
 mkdir -p "$TEST_DIR"
 
 # Create test wheel files with problematic names
-touch "$TEST_DIR/serpen-1.0.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl"
-touch "$TEST_DIR/serpen-1.0.0-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
-touch "$TEST_DIR/serpen-1.0.0-py3-none-linux_aarch64.whl" # This one should not be changed
+touch "$TEST_DIR/cribo-1.0.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl"
+touch "$TEST_DIR/cribo-1.0.0-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
+touch "$TEST_DIR/cribo-1.0.0-py3-none-linux_aarch64.whl" # This one should not be changed
 
 echo "📋 Original wheel files:"
 ls -la "$TEST_DIR/"

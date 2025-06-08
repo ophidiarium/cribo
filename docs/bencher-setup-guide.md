@@ -1,12 +1,12 @@
-# Bencher.dev Integration Setup Guide for Serpen
+# Bencher.dev Integration Setup Guide for Cribo
 
-This guide provides step-by-step instructions for setting up Bencher.dev API token integration in the Serpen GitHub repository to enable continuous benchmarking.
+This guide provides step-by-step instructions for setting up Bencher.dev API token integration in the Cribo GitHub repository to enable continuous benchmarking.
 
 ## Prerequisites
 
-- Admin access to the `tinovyatkin/serpen` GitHub repository
+- Admin access to the `ophidiarium/cribo` GitHub repository
 - A Bencher.dev account (free tier available at https://bencher.dev)
-- The Serpen project created in Bencher.dev
+- The Cribo project created in Bencher.dev
 
 ## Step 1: Create a Bencher.dev Account and Project
 
@@ -15,12 +15,12 @@ This guide provides step-by-step instructions for setting up Bencher.dev API tok
    - Click "Sign Up" and create an account
    - Verify your email address
 
-2. **Create the Serpen Project**
+2. **Create the Cribo Project**
    - Log in to your Bencher.dev dashboard
    - Click "New Project" or "Create Project"
    - Enter the following details:
-     - **Project Name**: `serpen` (MUST match the `BENCHER_PROJECT` in workflow)
-     - **Project Slug**: `serpen` (auto-generated, verify it matches)
+     - **Project Name**: `cribo` (MUST match the `BENCHER_PROJECT` in workflow)
+     - **Project Slug**: `cribo` (auto-generated, verify it matches)
      - **Description**: "Python source bundler written in Rust"
      - **Visibility**: Choose based on your preference (public recommended for open source)
    - Click "Create Project"
@@ -34,8 +34,8 @@ This guide provides step-by-step instructions for setting up Bencher.dev API tok
 2. **Create a New Token**
    - Click "New Token" or "Generate Token"
    - Enter token details:
-     - **Name**: `GitHub Actions - Serpen`
-     - **Permissions**: Select "Write" permissions for the `serpen` project
+     - **Name**: `GitHub Actions - Cribo`
+     - **Permissions**: Select "Write" permissions for the `cribo` project
      - **Expiration**: Set to "Never" or a long duration
    - Click "Generate Token"
 
@@ -47,7 +47,7 @@ This guide provides step-by-step instructions for setting up Bencher.dev API tok
 ## Step 3: Add the API Token to GitHub Repository Secrets
 
 1. **Navigate to Repository Settings**
-   - Go to https://github.com/tinovyatkin/serpen
+   - Go to https://github.com/ophidiarium/cribo
    - Click on "Settings" tab (requires admin access)
 
 2. **Access Secrets and Variables**
@@ -64,7 +64,7 @@ This guide provides step-by-step instructions for setting up Bencher.dev API tok
 ## Step 4: Configure Bencher.dev Project Settings
 
 1. **Access Project Settings**
-   - In Bencher.dev dashboard, navigate to your `serpen` project
+   - In the Bencher.dev dashboard, navigate to your `cribo` project
    - Click on "Settings" or the gear icon
 
 2. **Configure Testbeds**
@@ -94,7 +94,7 @@ This guide provides step-by-step instructions for setting up Bencher.dev API tok
    - This will trigger the benchmarks workflow
 
 2. **Check GitHub Actions**
-   - Go to https://github.com/tinovyatkin/serpen/actions
+   - Go to https://github.com/ophidiarium/cribo/actions
    - Look for "Continuous Benchmarking" workflow
    - Click on the latest run
    - Verify both jobs complete successfully:
@@ -103,7 +103,7 @@ This guide provides step-by-step instructions for setting up Bencher.dev API tok
 
 3. **Verify in Bencher.dev Dashboard**
    - Go to your Bencher.dev dashboard
-   - Navigate to the `serpen` project
+   - Navigate to the `cribo` project
    - Check "Reports" or "Perf" section
    - You should see new benchmark data points
 
@@ -122,8 +122,8 @@ This guide provides step-by-step instructions for setting up Bencher.dev API tok
    - Try re-creating the secret
 
 2. **"Project not found" Error**
-   - Ensure project name in Bencher.dev exactly matches `serpen`
-   - Check the project slug is also `serpen`
+   - Ensure the project name in Bencher.dev exactly matches `cribo`
+   - Check the project slug is also `cribo`
    - Verify the API token has permissions for this project
 
 3. **"Unauthorized" Error**
@@ -208,5 +208,5 @@ To benchmark on multiple platforms:
 ## Support
 
 - **Bencher.dev Issues**: https://github.com/bencherdev/bencher/issues
-- **Serpen Issues**: https://github.com/tinovyatkin/serpen/issues
+- **Cribo Issues**: https://github.com/ophidiarium/cribo/issues
 - **Bencher Discord**: https://discord.gg/bencherdev

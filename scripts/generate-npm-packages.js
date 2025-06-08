@@ -12,75 +12,75 @@ const path = require('path');
 const PLATFORM_MAPPINGS = [
   {
     rustTarget: 'x86_64-unknown-linux-gnu',
-    nodePkg: '@serpen/linux-x64-gnu',
+    nodePkg: '@cribo/linux-x64-gnu',
     nodeOs: 'linux',
     nodeArch: 'x64',
     extension: '',
-    binaryName: 'serpen'
+    binaryName: 'cribo'
   },
   {
     rustTarget: 'x86_64-unknown-linux-musl',
-    nodePkg: '@serpen/linux-x64-musl',
+    nodePkg: '@cribo/linux-x64-musl',
     nodeOs: 'linux',
     nodeArch: 'x64',
     extension: '',
-    binaryName: 'serpen'
+    binaryName: 'cribo'
   },
   {
     rustTarget: 'aarch64-unknown-linux-gnu',
-    nodePkg: '@serpen/linux-arm64-gnu',
+    nodePkg: '@cribo/linux-arm64-gnu',
     nodeOs: 'linux',
     nodeArch: 'arm64',
     extension: '',
-    binaryName: 'serpen'
+    binaryName: 'cribo'
   },
   {
     rustTarget: 'aarch64-unknown-linux-musl',
-    nodePkg: '@serpen/linux-arm64-musl',
+    nodePkg: '@cribo/linux-arm64-musl',
     nodeOs: 'linux',
     nodeArch: 'arm64',
     extension: '',
-    binaryName: 'serpen'
+    binaryName: 'cribo'
   },
   {
     rustTarget: 'x86_64-apple-darwin',
-    nodePkg: '@serpen/darwin-x64',
+    nodePkg: '@cribo/darwin-x64',
     nodeOs: 'darwin',
     nodeArch: 'x64',
     extension: '',
-    binaryName: 'serpen'
+    binaryName: 'cribo'
   },
   {
     rustTarget: 'aarch64-apple-darwin',
-    nodePkg: '@serpen/darwin-arm64',
+    nodePkg: '@cribo/darwin-arm64',
     nodeOs: 'darwin',
     nodeArch: 'arm64',
     extension: '',
-    binaryName: 'serpen'
+    binaryName: 'cribo'
   },
   {
     rustTarget: 'x86_64-pc-windows-msvc',
-    nodePkg: '@serpen/win32-x64',
+    nodePkg: '@cribo/win32-x64',
     nodeOs: 'win32',
     nodeArch: 'x64',
     extension: '.exe',
-    binaryName: 'serpen.exe'
+    binaryName: 'cribo.exe'
   },
   {
     rustTarget: 'i686-pc-windows-msvc',
-    nodePkg: '@serpen/win32-ia32',
+    nodePkg: '@cribo/win32-ia32',
     nodeOs: 'win32',
     nodeArch: 'ia32',
     extension: '.exe',
-    binaryName: 'serpen.exe'
+    binaryName: 'cribo.exe'
   },
   {
     rustTarget: 'aarch64-pc-windows-msvc',
-    nodePkg: '@serpen/win32-arm64',
+    nodePkg: '@cribo/win32-arm64',
     nodeOs: 'win32',
     nodeArch: 'arm64',
     extension: '.exe',
-    binaryName: 'serpen.exe'
+    binaryName: 'cribo.exe'
   }
 ];
 
@@ -119,12 +119,12 @@ function generatePackages(version, targetDir, binariesDir) {
     // Create package directory - handle scoped packages properly
     let pkgDir;
     if (nodePkg.startsWith('@')) {
-      // For scoped packages like @serpen/darwin-arm64, create @serpen/darwin-arm64/
+      // For scoped packages like @cribo/darwin-arm64, create @cribo/darwin-arm64/
       const [scope, packageName] = nodePkg.split('/');
       const scopeDir = path.join(targetDir, scope);
       pkgDir = path.join(scopeDir, packageName);
     } else {
-      // For regular packages like serpen-darwin-arm64
+      // For regular packages like cribo-darwin-arm64
       pkgDir = path.join(targetDir, nodePkg);
     }
 
@@ -156,11 +156,11 @@ function generatePackages(version, targetDir, binariesDir) {
     // Create a simple README
     const readmeContent = `# ${nodePkg}
 
-This package contains the Serpen binary for ${nodeOs}-${nodeArch}.
+This package contains the Cribo binary for ${nodeOs}-${nodeArch}.
 
-This package is automatically installed as an optional dependency when you install the main \`serpen\` package.
+This package is automatically installed as an optional dependency when you install the main \`cribo\` package.
 
-For more information, visit: https://github.com/tinovyatkin/serpen
+For more information, visit: https://github.com/ophidiarium/cribo
 `;
 
     fs.writeFileSync(path.join(pkgDir, 'README.md'), readmeContent);

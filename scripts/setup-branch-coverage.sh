@@ -1,17 +1,17 @@
 #!/bin/bash
 
-# Branch Coverage Setup and Testing Script for Serpen Project
+# Branch Coverage Setup and Testing Script for Cribo Project
 # This script helps set up and test branch coverage functionality
 
 set -e
 
-echo "🌿 Branch Coverage Setup for Serpen"
+echo "🌿 Branch Coverage Setup for Cribo"
 echo "==================================="
 echo
 
 # Check if we're in a git repository
 if ! git rev-parse --git-dir >/dev/null 2>&1; then
-    echo "❌ Error: This script must be run from within the serpen git repository"
+    echo "❌ Error: This script must be run from within the cribo git repository"
     exit 1
 fi
 

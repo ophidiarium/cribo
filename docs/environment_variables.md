@@ -1,7 +1,7 @@
 # Environment Variables Reference
 
 This document provides a reference for all environment variables supported by
-Serpen.
+Cribo.
 
 ## Supported Variables
 
@@ -17,7 +17,7 @@ Python version targeting is now configured via CLI arguments and configuration f
 ### Target Python Version
 
 **CLI Argument**: `--target-version` (alias: `--python-version`)\
-**Config File**: `target-version` in `serpen.toml`\
+**Config File**: `target-version` in `cribo.toml`\
 **Type**: String (e.g., "py38", "py39", "py310", "py311", "py312", "py313")\
 **Default**: "py310" (Python 3.10)
 
@@ -29,19 +29,19 @@ Specifies which Python version to use for:
 
 ```bash
 # Set Python 3.11 as target version
-serpen --target-version py311 -e main.py -o bundle.py
+cribo --target-version py311 -e main.py -o bundle.py
 
 # Set Python 3.12 as target version using alias
-serpen --python-version py312 -e main.py -o bundle.py
+cribo --python-version py312 -e main.py -o bundle.py
 
 # Use default Python 3.10 (no argument needed)
-serpen -e main.py -o bundle.py
+cribo -e main.py -o bundle.py
 ```
 
 **TOML Configuration**:
 
 ```toml
-# serpen.toml
+# cribo.toml
 target-version = "py311"
 preserve_comments = true
 preserve_type_hints = false
@@ -66,7 +66,7 @@ PYTHONPATH="C:\path\to\dir1;C:\path\to\dir2"
 
 # Usage
 export PYTHONPATH="/external/modules"
-serpen --entry main.py --output bundle.py
+cribo --entry main.py --output bundle.py
 ```
 
 ### `VIRTUAL_ENV`
@@ -77,44 +77,44 @@ serpen --entry main.py --output bundle.py
 Used to identify packages installed in virtual environments. These modules are
 excluded from bundling.
 
-**Fallback Detection**: When `VIRTUAL_ENV` is not set, Serpen automatically
+**Fallback Detection**: When `VIRTUAL_ENV` is not set, Cribo automatically
 searches for common virtual environment directory names (`.venv`, `venv`, `env`, etc.)
 in the current working directory.
 
 ```bash
 # Automatic when venv is activated
 source venv/bin/activate
-serpen --entry main.py --output bundle.py
+cribo --entry main.py --output bundle.py
 
 # Manual override
-VIRTUAL_ENV=/path/to/venv serpen --entry main.py --output bundle.py
+VIRTUAL_ENV=/path/to/venv cribo --entry main.py --output bundle.py
 
 # Automatic fallback detection (no VIRTUAL_ENV needed)
-# Serpen automatically detects .venv, venv, env, etc.
-serpen --entry main.py --output bundle.py
+# Cribo automatically detects .venv, venv, env, etc.
+cribo --entry main.py --output bundle.py
 ```
 
 ```bash
 # Automatic when venv is activated
 source venv/bin/activate
-serpen --entry main.py --output bundle.py
+cribo --entry main.py --output bundle.py
 
 # Manual override
-VIRTUAL_ENV=/path/to/venv serpen --entry main.py --output bundle.py
+VIRTUAL_ENV=/path/to/venv cribo --entry main.py --output bundle.py
 ```
 
 ```bash
 # Automatic when venv is activated
 source venv/bin/activate
-serpen --entry main.py --output bundle.py
+cribo --entry main.py --output bundle.py
 
 # Manual override
-VIRTUAL_ENV=/path/to/venv serpen --entry main.py --output bundle.py
+VIRTUAL_ENV=/path/to/venv cribo --entry main.py --output bundle.py
 ```
 
 ## Module Resolution Priority
 
-When modules with the same name exist in multiple locations, Serpen follows
+When modules with the same name exist in multiple locations, Cribo follows
 Python's import resolution order:
 
 1. **First-party modules** (from `src` directories and `PYTHONPATH`) -
@@ -145,7 +145,7 @@ When both `PYTHONPATH` and `VIRTUAL_ENV` are set:
 ```bash
 export PYTHONPATH="/external/modules"
 export VIRTUAL_ENV="/path/to/venv"
-serpen --entry main.py --output bundle.py
+cribo --entry main.py --output bundle.py
 ```
 
 **Result**:
@@ -203,14 +203,14 @@ serpen --entry main.py --output bundle.py
 Enable verbose logging to see environment variable processing:
 
 ```bash
-serpen --verbose --entry main.py --output bundle.py
+cribo --verbose --entry main.py --output bundle.py
 ```
 
 ## Related Documentation
 
 - [PYTHONPATH Support](./pythonpath_support.md) - Detailed implementation
 - [VIRTUAL_ENV Support](./virtualenv_support.md) - Detailed implementation
-- [Import Resolution Analysis](./serpen_import_resolution_analysis.md) -
+- [Import Resolution Analysis](./cribo_import_resolution_analysis.md) -
   Overall strategy
 - [Configuration Guide](../README.md) - General configuration options
 

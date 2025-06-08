@@ -1,5 +1,5 @@
 #!/bin/bash
-# Serpen - Python Source Bundler
+# Cribo - Python Source Bundler
 # Coverage script for development
 
 set -e
@@ -35,7 +35,7 @@ install_cargo_llvm_cov() {
 
 # Function to show help
 show_help() {
-  echo "Serpen Coverage Tool"
+  echo "Cribo Coverage Tool"
   echo ""
   echo "Usage: $0 [command]"
   echo ""

@@ -1,12 +1,12 @@
 # Test File Organization
 
-This document describes the reorganization of test files in the Serpen project.
+This document describes the reorganization of test files in the Cribo project.
 
 ## Test Structure
 
 ### Unit Tests
 
-Located in `crates/serpen/src/` within each module file:
+Located in `crates/cribo/src/` within each module file:
 
 - `emit.rs` - Contains comprehensive unit tests for import rewriting and processing
 - `resolver.rs` - Contains tests for module resolution
@@ -14,14 +14,14 @@ Located in `crates/serpen/src/` within each module file:
 
 ### Integration Tests
 
-Located in `crates/serpen/tests/`:
+Located in `crates/cribo/tests/`:
 
 - `integration_tests.rs` - Main integration tests for bundling functionality, utilizing snapshot testing (`insta`) to verify outputs.
 - `test_relative_imports.rs` - Tests for relative import resolution
 
 #### Snapshot Testing in Integration Tests
 
-- Snapshot files for integration tests are stored in `crates/serpen/tests/snapshots/`.
+- Snapshot files for integration tests are stored in `crates/cribo/tests/snapshots/`.
 - These snapshots help ensure that the output of certain operations (like module resolution or code generation) remains consistent across changes.
 - To review changes to snapshots, use the command:
   ```bash
@@ -35,7 +35,7 @@ Located in `crates/serpen/tests/`:
 
 ### Test Fixtures
 
-Located in `crates/serpen/tests/fixtures/`:
+Located in `crates/cribo/tests/fixtures/`:
 
 #### Alias Import Tests
 

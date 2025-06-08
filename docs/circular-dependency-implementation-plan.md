@@ -1,6 +1,6 @@
 # Circular Dependency Implementation Plan
 
-Based on the research in `circular-dependencies-research.md` and analysis of existing test fixtures, this document outlines a comprehensive test-driven implementation approach for robust circular dependency handling in Serpen.
+Based on the research in `circular-dependencies-research.md` and analysis of existing test fixtures, this document outlines a comprehensive test-driven implementation approach for robust circular dependency handling in Cribo.
 
 ## Current State Analysis
 
@@ -99,7 +99,7 @@ tests/fixtures/circular_dependencies/
 
 #### 2.1 Implement Tarjan's Strongly Connected Components Algorithm
 
-**File**: `crates/serpen/src/dependency_graph.rs`
+**File**: `crates/cribo/src/dependency_graph.rs`
 
 **New Methods to Add:**
 
@@ -193,7 +193,7 @@ pub enum ImportType {
 
 #### 3.1 Multi-Phase Resolution Strategy
 
-**File**: `crates/serpen/src/circular_dependency_resolver.rs` (new)
+**File**: `crates/cribo/src/circular_dependency_resolver.rs` (new)
 
 ```rust
 pub struct CircularDependencyResolver {
@@ -275,7 +275,7 @@ Suggested resolution:
   2. Use dependency injection to break the circular reference
   3. Compute values at runtime rather than import-time
 
-For more information: https://serpen.dev/docs/circular-dependencies
+For more information: https://cribo.dev/docs/circular-dependencies
 ```
 
 ### Phase 5: Integration & Performance Optimization 🚀
@@ -284,7 +284,7 @@ For more information: https://serpen.dev/docs/circular-dependencies
 
 1. **Bundler Integration**: Update main bundler to use new circular dependency resolver
 2. **CLI Integration**: Add flags for circular dependency handling behavior
-3. **Configuration**: Allow users to configure resolution strategies via `serpen.toml`
+3. **Configuration**: Allow users to configure resolution strategies via `cribo.toml`
 
 #### 5.2 Performance Considerations
 
@@ -369,4 +369,4 @@ For more information: https://serpen.dev/docs/circular-dependencies
 
 ---
 
-This implementation plan provides a systematic, test-driven approach to implementing robust circular dependency handling in Serpen, based on proven algorithms and real-world requirements analysis.
+This implementation plan provides a systematic, test-driven approach to implementing robust circular dependency handling in Cribo, based on proven algorithms and real-world requirements analysis.

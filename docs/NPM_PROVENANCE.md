@@ -15,7 +15,7 @@ This provides an additional layer of security and compliance beyond npm's built-
 
 ## Overview
 
-Starting with our GitHub Actions releases, all Serpen NPM packages are published with **provenance attestations** that provide cryptographic proof of the package's origin and build process. This enhances supply chain security by enabling verification of package integrity and authenticity.
+Starting with our GitHub Actions releases, all Cribo NPM packages are published with **provenance attestations** that provide cryptographic proof of the package's origin and build process. This enhances supply chain security by enabling verification of package integrity and authenticity.
 
 ## What is NPM Provenance?
 
@@ -26,15 +26,15 @@ NPM provenance uses the [SLSA (Supply-chain Levels for Software Artifacts)](http
 - 🛡️ **Tamper Protection**: Detects if packages have been modified after publication
 - 🏷️ **Verification Badges**: Visual indicators on npmjs.com showing provenance status
 
-## Verifying Serpen Packages
+## Verifying Cribo Packages
 
 ### Using npm audit signatures
 
-You can verify the provenance of any Serpen package using npm's built-in verification:
+You can verify the provenance of any Cribo package using npm's built-in verification:
 
 ```bash
 # Verify a specific package
-npm audit signatures serpen
+npm audit signatures cribo
 
 # Verify all packages in your project
 npm audit signatures
@@ -59,7 +59,7 @@ To view detailed provenance information:
 npm install -g jq
 
 # View provenance details
-npm view serpen --json | jq '.dist.attestations'
+npm view cribo --json | jq '.dist.attestations'
 ```
 
 This will show:
@@ -73,7 +73,7 @@ This will show:
 
 ### Supply Chain Protection
 
-1. **Source Verification**: Confirms packages were built from the official Serpen repository
+1. **Source Verification**: Confirms packages were built from the official Cribo repository
 2. **Build Integrity**: Ensures packages weren't tampered with during the build process
 3. **Reproducible Builds**: Links packages to specific commits and build instructions
 4. **Certificate Transparency**: Uses public certificate logs for verification
@@ -172,10 +172,10 @@ If a package lacks provenance attestations:
 If you encounter issues with package verification or have questions about our provenance implementation:
 
 1. Check this documentation for common solutions
-2. Review the [GitHub Issues](https://github.com/tinovyatkin/serpen/issues) for known problems
+2. Review the [GitHub Issues](https://github.com/ophidiarium/cribo/issues) for known problems
 3. Open a new issue with details about verification failures
 4. Include npm version, package version, and error messages
 
 ---
 
-_This documentation is maintained as part of the Serpen project's commitment to supply chain security and transparency._
+_This documentation is maintained as part of the Cribo project's commitment to supply chain security and transparency._

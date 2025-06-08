@@ -1,0 +1,45 @@
+[package]
+name = "cribo"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+cow-utils = { workspace = true }
+env_logger = { workspace = true }
+etcetera = { workspace = true }
+indexmap = { workspace = true }
+log = { workspace = true }
+once_cell = { workspace = true }
+petgraph = { workspace = true }
+regex = { workspace = true }
+ruff_python_ast = { workspace = true }
+ruff_python_codegen = { workspace = true }
+ruff_python_parser = { workspace = true }
+ruff_python_stdlib = { workspace = true }
+ruff_python_trivia = { workspace = true }
+ruff_text_size = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+walkdir = { workspace = true }
+
+# Binary target only - no library for Python bindings following Ruff's pattern
+[[bin]]
+name = "cribo"
+path = "src/main.rs"
+
+[dev-dependencies]
+criterion = { workspace = true }
+insta = { workspace = true }
+ruff_linter = { workspace = true }
+serial_test = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "bundling"
+harness = false
