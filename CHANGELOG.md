@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.12](https://github.com/ophidiarium/cribo/compare/v0.4.11...v0.4.12) (2025-06-08)
+
+
+### Features
+
+* **cli:** add verbose flag repetition support for progressive debugging ([#85](https://github.com/ophidiarium/cribo/issues/85)) ([cc845e0](https://github.com/ophidiarium/cribo/commit/cc845e03f2fa0d70eb69dcf2e30b600ed5a5b38a))
+
 ## [0.4.11](https://github.com/ophidiarium/cribo/compare/v0.4.10...v0.4.11) (2025-06-08)
 
 
