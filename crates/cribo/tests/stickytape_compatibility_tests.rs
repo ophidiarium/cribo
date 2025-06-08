@@ -211,7 +211,6 @@ fn test_explicit_relative_imports_from_parent_package_are_resolved_correctly() {
 }
 
 #[test]
-#[ignore = "Not passing yet"]
 fn test_explicit_relative_imports_with_module_name_are_resolved_correctly() {
     assert_script_output("explicit_relative_import", "Hello");
 }
