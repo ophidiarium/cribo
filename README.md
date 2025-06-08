@@ -106,11 +106,54 @@ cribo --entry src/main.py --output bundle.py
 # Generate requirements.txt
 cribo --entry src/main.py --output bundle.py --emit-requirements
 
-# Verbose output
-cribo --entry src/main.py --output bundle.py --verbose
+# Verbose output (can be repeated for more detail: -v, -vv, -vvv)
+cribo --entry src/main.py --output bundle.py -v
+cribo --entry src/main.py --output bundle.py -vv    # debug level
+cribo --entry src/main.py --output bundle.py -vvv   # trace level
 
 # Custom config file
 cribo --entry src/main.py --output bundle.py --config my-cribo.toml
+```
+
+### CLI Options
+
+- `-e, --entry <PATH>`: Entry point Python script (required)
+- `-o, --output <PATH>`: Output bundled Python file (required)
+- `-v, --verbose...`: Increase verbosity level. Can be repeated for more detail:
+  - No flag: warnings and errors only
+  - `-v`: informational messages
+  - `-vv`: debug messages
+  - `-vvv` or more: trace messages
+- `-c, --config <PATH>`: Custom configuration file path
+- `--emit-requirements`: Generate requirements.txt with third-party dependencies
+- `--target-version <VERSION>`: Target Python version (e.g., py38, py39, py310, py311, py312, py313)
+- `-h, --help`: Print help information
+- `-V, --version`: Print version information
+
+The verbose flag is particularly useful for debugging bundling issues. Each level provides progressively more detail:
+
+```bash
+# Default: only warnings and errors
+cribo --entry main.py --output bundle.py
+
+# Info level: shows progress messages
+cribo --entry main.py --output bundle.py -v
+
+# Debug level: shows detailed processing steps
+cribo --entry main.py --output bundle.py -vv
+
+# Trace level: shows all internal operations
+cribo --entry main.py --output bundle.py -vvv
+```
+
+The verbose levels map directly to Rust's log levels and can also be controlled via the `RUST_LOG` environment variable for more fine-grained control:
+
+```bash
+# Equivalent to -vv
+RUST_LOG=debug cribo --entry main.py --output bundle.py
+
+# Module-specific logging
+RUST_LOG=cribo::bundler=trace,cribo::resolver=debug cribo --entry main.py --output bundle.py
 ```
 
 ## Configuration

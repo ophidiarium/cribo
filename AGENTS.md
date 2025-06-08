@@ -28,7 +28,31 @@ cargo build --release
 
 # Run the tool directly
 cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py
+
+# Run with verbose output for debugging
+cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py -vv
+
+# Run with trace-level output for detailed debugging
+cargo run --package cribo --bin cribo -- --entry path/to/main.py --output bundle.py -vvv
 ```
+
+### CLI Usage
+
+```bash
+cribo --entry src/main.py --output bundle.py [options]
+
+# Common options
+--emit-requirements    # Generate requirements.txt with third-party dependencies
+-v, --verbose...       # Increase verbosity (can be repeated: -v, -vv, -vvv)
+                       # No flag: warnings/errors only
+                       # -v: informational messages  
+                       # -vv: debug messages
+                       # -vvv: trace messages
+--config               # Specify custom config file path
+--target-version       # Target Python version (e.g., py38, py39, py310, py311, py312, py313)
+```
+
+The verbose flag is particularly useful for debugging bundling issues. Each level provides progressively more detail about the bundling process, import resolution, and dependency graph construction.
 
 ### Testing Commands
 

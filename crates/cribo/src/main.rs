@@ -17,9 +17,9 @@ struct Cli {
     #[arg(short, long)]
     output: PathBuf,
 
-    /// Enable verbose logging
-    #[arg(short, long)]
-    verbose: bool,
+    /// Increase verbosity (can be repeated: -v, -vv, -vvv)
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
 
     /// Configuration file path
     #[arg(short, long)]
@@ -37,10 +37,19 @@ struct Cli {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // Initialize logging
-    let log_level = if cli.verbose { "debug" } else { "info" };
+    // Initialize logging based on verbosity level
+    let log_level = match cli.verbose {
+        0 => "warn",  // Default: warnings and errors only
+        1 => "info",  // -v: informational messages
+        2 => "debug", // -vv: debug messages
+        _ => "trace", // -vvv or more: trace messages
+    };
     env_logger::Builder::from_env(Env::default().default_filter_or(log_level)).init();
 
+    debug!(
+        "Verbosity level: {} (log level: {})",
+        cli.verbose, log_level
+    );
     info!("Starting Cribo Python bundler");
 
     debug!("Entry point: {:?}", cli.entry);
