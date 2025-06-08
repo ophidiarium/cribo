@@ -163,7 +163,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          gh release view "$TAG" --json body --jq .body > raw_changelog.md
+          gh release view "$TAG" --json body | jq -r .body > raw_changelog.md
 
           PREV_TAG=$(git tag --sort=-v:refname | grep -m1 -v "$TAG")
 
