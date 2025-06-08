@@ -2,30 +2,54 @@
   "mcpServers": {
     "context7": {
       "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp"]
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
     },
     "docs-manager": {
       "command": "bunx",
-      "args": ["mcp-docs-service", "."]
+      "args": [
+        "mcp-docs-service",
+        "."
+      ]
     },
     "git": {
       "command": "bunx",
-      "args": ["git-mcp-server"],
-      "env": {
-        "GIT_SIGN_COMMITS": "true"
-      }
+      "args": [
+        "@cyanheads/git-mcp-server"
+      ]
     },
     "lsp-rust": {
       "command": "mcp-language-server",
-      "args": ["--workspace", ".", "--lsp", "rust-analyzer"]
+      "args": [
+        "--workspace",
+        ".",
+        "--lsp",
+        "rust-analyzer"
+      ]
     },
     "lsp-python": {
       "command": "mcp-language-server",
-      "args": ["--workspace", ".", "--lsp", "uvx", "pyrefly", "lsp"]
+      "args": [
+        "--workspace",
+        ".",
+        "--lsp",
+        "uvx",
+        "pyrefly",
+        "lsp"
+      ]
     },
     "lsp-toml": {
       "command": "mcp-language-server",
-      "args": ["--workspace", ".", "--lsp", "taplo", "lsp", "stdio"]
+      "args": [
+        "--workspace",
+        ".",
+        "--lsp",
+        "taplo",
+        "lsp",
+        "stdio"
+      ]
     },
     "lsp-yaml": {
       "command": "mcp-language-server",
