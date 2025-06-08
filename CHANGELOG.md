@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.15](https://github.com/ophidiarium/cribo/compare/v0.4.14...v0.4.15) (2025-06-08)
+
+
+### Bug Fixes
+
+* **ci:** use --quiet for codex ([ca14208](https://github.com/ophidiarium/cribo/commit/ca1420890eb3b0b0abf9aa573554daa1c53ad978))
+
 ## [0.4.14](https://github.com/ophidiarium/cribo/compare/v0.4.13...v0.4.14) (2025-06-08)
 
 
