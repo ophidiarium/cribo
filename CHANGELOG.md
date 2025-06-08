@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.16](https://github.com/ophidiarium/cribo/compare/v0.4.15...v0.4.16) (2025-06-08)
+
+
+### Bug Fixes
+
+* **ci:** add missing TAG reference ([2ffe264](https://github.com/ophidiarium/cribo/commit/2ffe264d22deb4f965d140ff4429d5b110934251))
+
 ## [0.4.15](https://github.com/ophidiarium/cribo/compare/v0.4.14...v0.4.15) (2025-06-08)
 
 
