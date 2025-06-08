@@ -6,7 +6,7 @@ This directory contains the npm publishing infrastructure for Serpen, allowing d
 
 The npm publishing system follows the pattern used by projects like `@rspack/core`, `esbuild`, and `@sentry/cli`:
 
-1. **Base Package** (`npm/serpen/`): The main package users install (`npm install serpen`)
+1. **Base Package** (`npm/cribo/`): The main package users install (`npm install cribo`)
 2. **Platform Packages**: Auto-generated packages containing binaries for specific platforms
 3. **Launcher Script**: Node.js script that detects platform and executes the correct binary
 
@@ -14,9 +14,9 @@ The npm publishing system follows the pattern used by projects like `@rspack/cor
 
 ```
 npm/
-├── serpen/                    # Base npm package
+├── cribo/                    # Base npm package
 │   ├── package.json          # Main package metadata
-│   ├── bin/serpen.js         # Node.js launcher script
+│   ├── bin/cribo.js         # Node.js launcher script
 │   └── README.md             # User documentation
 ├── package.json.tmpl         # Template for platform packages
 └── README.md                 # This file
@@ -105,7 +105,7 @@ node scripts/test-npm-package.js
 **Test coverage:**
 
 - Installs package in temporary directory
-- Tests `npx serpen --help`
+- Tests `npx cribo --help`
 - Verifies correct platform package installation
 - Validates launcher script functionality
 
@@ -158,15 +158,15 @@ Users can install and use Serpen via npm:
 
 ```bash
 # Global installation
-npm install -g serpen
-serpen --help
+npm install -g cribo
+cribo --help
 
 # One-time use
-npx serpen --help
+npx cribo --help
 
 # In project
-npm install serpen
-npx serpen --help
+npm install cribo
+npx cribo --help
 ```
 
 The system automatically:
@@ -177,7 +177,7 @@ The system automatically:
 
 ## Platform Detection
 
-The launcher script (`npm/serpen/bin/serpen.js`) detects:
+The launcher script (`npm/cribo/bin/cribo.js`) detects:
 
 - **Operating System**: Linux, macOS, Windows
 - **Architecture**: x64, ARM64, x86 (Windows only)
@@ -191,7 +191,7 @@ If users see "Could not find Serpen binary", they should:
 
 1. Reinstall with optional dependencies:
    ```bash
-   npm install serpen
+   npm install cribo
    ```
 
 2. Check if optional dependencies are enabled:

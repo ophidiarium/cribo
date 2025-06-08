@@ -145,7 +145,7 @@ function main() {
 
           if (fs.existsSync(packageJsonPath)) {
             const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-            if (packageJson.name.startsWith('@serpen/') || packageJson.name.startsWith('serpen-')) {
+            if (packageJson.name.startsWith('@cribo/') || packageJson.name.startsWith('cribo-')) {
               platformPackages.push({
                 name: packageJson.name,
                 path: packagePath
