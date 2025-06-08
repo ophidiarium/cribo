@@ -175,6 +175,7 @@ jobs:
             --system "You are a release note summarizer. Given the raw changelog and full commit messages (including bodies), produce a concise, human-readable summary of the release. Use detailed information from commit messages where appropriate." \
             --user "$(cat raw_changelog.md)" \
             --json \
+            --quiet \
           | jq -r .choices[0].message.content)
 
           echo "$SUMMARY" > changelog_summary.md
