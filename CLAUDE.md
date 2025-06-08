@@ -12,6 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **ABSOLUTE RULE**: Never declare task complete without running full validation suite.
 
+**ABSOLUTE RULE**: Before diagnosing or deferring any issue, assume a clean state: always confirm there are no failing tests (`cargo test --workspace`) or clippy warnings (`cargo clippy --workspace`), and never classify issues as “pre-existing” when the validation suite passes—treat all findings as new and resolve them explicitly.
+
 ### MANDATORY GITHUB INTERACTION RULES
 
 **ABSOLUTE RULE**: NEVER use web API calls or direct GitHub API without authentication
