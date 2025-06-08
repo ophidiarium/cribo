@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.14](https://github.com/ophidiarium/cribo/compare/v0.4.13...v0.4.14) (2025-06-08)
+
+
+### Bug Fixes
+
+* **ci:** missing -r for jq ([31c0ffd](https://github.com/ophidiarium/cribo/commit/31c0ffdcb603aace20056e9f1e5c8f1708c1abac))
+
 ## [0.4.13](https://github.com/ophidiarium/cribo/compare/v0.4.12...v0.4.13) (2025-06-08)
 
 
