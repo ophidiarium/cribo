@@ -138,3 +138,43 @@ jobs:
           done
 
           echo "All CLI binaries uploaded to release: $TAG_NAME"
+
+  generate-changelog-summary:
+    name: Generate human-readable release summary
+    runs-on: ubuntu-latest
+    needs: [release-please]
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: '22'
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex
+      - name: Generate changelog summary
+        id: summary
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          gh release view "$TAG" --json body --jq .body > raw_changelog.md
+
+          PREV_TAG=$(git tag --sort=-v:refname | grep -m1 -v "$TAG")
+
+          echo "" >> raw_changelog.md
+          echo "## Full commit messages between $PREV_TAG and $TAG" >> raw_changelog.md
+          git log "$PREV_TAG..$TAG" --pretty=format:"%s%n%b%n" >> raw_changelog.md
+
+          SUMMARY=$(codex chat \
+            --system "You are a release note summarizer. Given the raw changelog and full commit messages (including bodies), produce a concise, human-readable summary of the release. Use detailed information from commit messages where appropriate." \
+            --user "$(cat raw_changelog.md)" \
+            --json \
+          | jq -r .choices[0].message.content)
+
+          echo "$SUMMARY" > changelog_summary.md
+      - name: Update GitHub Release
+        run: gh release edit "$TAG" --notes-file changelog_summary.md
