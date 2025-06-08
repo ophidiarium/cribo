@@ -228,13 +228,13 @@ jobs:
           echo "Building for Rust target: ${RUST_TARGET}"
 
           # Determine binary name based on platform
-          BINARY_NAME="serpen"
+          BINARY_NAME="cribo"
           if [[ "$RUST_TARGET" == *"windows"* ]]; then
-            BINARY_NAME="serpen.exe"
+            BINARY_NAME="cribo.exe"
           fi
 
           # Build the binary for the specific target
-          cargo build --release --package serpen --target "$RUST_TARGET"
+          cargo build --release --package cribo --target "$RUST_TARGET"
           BINARY_PATH="target/${RUST_TARGET}/release/${BINARY_NAME}"
 
           # Create npm-binaries directory with target-specific naming
@@ -285,10 +285,10 @@ jobs:
           # Get binary name and version
           RUST_TARGET="${{ matrix.platform.rust_target }}"
           VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
-          BINARY_NAME="serpen"
+          BINARY_NAME="cribo"
 
           if [[ "$RUST_TARGET" == *"windows"* ]]; then
-            BINARY_NAME="serpen.exe"
+            BINARY_NAME="cribo.exe"
           fi
 
           # Map Rust targets to Aqua/UBI compatible naming
@@ -513,7 +513,7 @@ jobs:
           mkdir -p target/npm-binaries
 
           echo "Downloaded artifact structure:"
-          find npm-binaries-download -type f -name "serpen*" | head -20
+          find npm-binaries-download -type f -name "cribo*" | head -20
 
           # Copy binaries from artifact directories to organized structure by target
           for artifact_dir in npm-binaries-download/*/; do
@@ -530,11 +530,11 @@ jobs:
                 mkdir -p "target/npm-binaries/$rust_target"
 
                 # Copy binaries for this target
-                find "$artifact_dir" -name "serpen*" -type f -exec cp {} "target/npm-binaries/$rust_target/" \;
+                find "$artifact_dir" -name "cribo*" -type f -exec cp {} "target/npm-binaries/$rust_target/" \;
               else
                 echo "Warning: Could not extract target from artifact name: $artifact_name"
                 # Fallback: copy to a generic location
-                find "$artifact_dir" -name "serpen*" -type f -exec cp {} target/npm-binaries/ \;
+                find "$artifact_dir" -name "cribo*" -type f -exec cp {} target/npm-binaries/ \;
               fi
             fi
           done
@@ -589,7 +589,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/serpen
+      url: https://test.pypi.org/p/cribo
     permissions:
       id-token: write # IMPORTANT: mandatory for trusted publishing
 
@@ -655,7 +655,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/serpen
+      url: https://pypi.org/p/cribo
     permissions:
       id-token: write # IMPORTANT: mandatory for trusted publishing
 
@@ -707,7 +707,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: npm
-      url: https://www.npmjs.com/package/serpen
+      url: https://www.npmjs.com/package/cribo
     permissions:
       id-token: write # IMPORTANT: mandatory for npm provenance generation
       contents: read # required for checkout
