@@ -1,0 +1,8 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Welcome, Alice!\nUser: User(name='Alice', email='alice@example.com', role=admin)\nRole: admin\nDatabase: sqlite://test.db\nTotal: 60\nResult: {'user': 'Alice', 'email': 'alice@example.com', 'role': 'admin', 'total': 60, 'message': 'Welcome, Alice!'}",
+    stderr: "",
+}

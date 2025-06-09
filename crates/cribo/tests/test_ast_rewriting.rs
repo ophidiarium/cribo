@@ -158,24 +158,6 @@ impl AstRewritingFixture {
     }
 }
 
-#[test]
-fn test_ast_rewriting_happy_path() {
-    // Initialize logger for debugging
-    let _ = env_logger::try_init();
-
-    let fixture = AstRewritingFixture::new("happy_path");
-
-    match fixture.run_test() {
-        Ok(()) => {
-            println!("✅ Happy path test passed");
-        }
-        Err(e) => {
-            eprintln!("❌ Happy path test failed: {}", e);
-            panic!("Happy path test failed: {}", e);
-        }
-    }
-}
-
 /// Helper function to run a single test fixture and return the result
 fn run_single_fixture(fixture_name: &str) -> (String, bool, Option<String>) {
     let fixture = AstRewritingFixture::new(fixture_name);
