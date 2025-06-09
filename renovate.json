@@ -1,158 +1,162 @@
 {
-    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-    "extends": [
-        "config:best-practices",
-        ":gitSignOff",
-        ":semanticCommits"
-    ],
-    "dependencyDashboard": true,
-    "automerge": true,
-    "platformAutomerge": true,
-    "lockFileMaintenance": {
-        "enabled": true,
-        "automerge": true
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    ":gitSignOff",
+    ":semanticCommits"
+  ],
+  "dependencyDashboard": true,
+  "automerge": true,
+  "platformAutomerge": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true
+  },
+  "packageRules": [
+    {
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchDatasources": [
+        "github-tags"
+      ],
+      "matchPackageNames": [
+        "/^ruff_.*/"
+      ],
+      "versioning": "semver",
+      "automerge": true,
+      "matchUpdateTypes": "bump",
+      "groupName": "⬆️ Update all ruff git dependencies"
     },
-    "packageRules": [
-        {
-            "matchManagers": [
-                "cargo"
-            ],
-            "matchDatasources": [
-                "github-tags"
-            ],
-            "matchPackageNames": [
-                "/^ruff_.*/"
-            ],
-            "versioning": "semver",
-            "automerge": true,
-            "groupName": "⬆️ Update all ruff git dependencies"
-        },
-        {
-            "matchCategories": [
-                "python"
-            ],
-            "enabled": true
-        },
-        {
-            "description": "Automerge non-major updates",
-            "matchUpdateTypes": [
-                "minor",
-                "patch",
-                "pin",
-                "digest"
-            ],
-            "automerge": true
-        },
-        {
-            "description": "Require manual approval for major updates",
-            "matchUpdateTypes": [
-                "major"
-            ],
-            "dependencyDashboardApproval": true,
-            "automerge": false
-        },
-        {
-            "description": "Group and automerge Rust toolchain updates",
-            "groupName": "Rust toolchain",
-            "matchManagers": [
-                "cargo"
-            ],
-            "matchDepTypes": [
-                "workspace.dependencies"
-            ],
-            "automerge": true
-        },
-        {
-            "description": "Group Python build system dependencies",
-            "groupName": "Python build system",
-            "matchFileNames": [
-                "pyproject.toml"
-            ],
-            "matchDepNames": [
-                "maturin",
-                "setuptools-rust"
-            ],
-            "automerge": true
-        },
-        {
-            "description": "Group pyo3 related dependencies",
-            "groupName": "PyO3 ecosystem",
-            "matchDepNames": [
-                "pyo3",
-                "pyo3-build-config"
-            ],
-            "automerge": true
-        },
-        {
-            "description": "Group CLI and parsing dependencies",
-            "groupName": "CLI dependencies",
-            "matchDepNames": [
-                "clap",
-                "serde",
-                "toml",
-                "anyhow"
-            ],
-            "automerge": true
-        },
-        {
-            "description": "Group development and testing dependencies",
-            "groupName": "Development dependencies",
-            "matchDepTypes": [
-                "dev-dependencies"
-            ],
-            "matchDepNames": [
-                "tempfile"
-            ],
-            "automerge": true
-        },
-        {
-            "description": "Security alerts - automerge with priority",
-            "matchDepTypes": [
-                "vulnerabilities"
-            ],
-            "automerge": true,
-            "labels": [
-                "security",
-                "high-priority"
-            ],
-            "reviewers": [],
-            "assignees": []
-        },
-        {
-            "description": "Ignore our own npm platform packages",
-            "enabled": false,
-            "matchPackageNames": [
-                "/^@cribo//"
-            ]
-        }
-    ],
-    "cargo": {
-        "enabled": true
+    {
+      "matchCategories": [
+        "python"
+      ],
+      "enabled": true
     },
-    "ignoreDeps": [],
-    "schedule": [
-        "after 9am and before 5pm every weekday",
-        "every weekend"
-    ],
-    "timezone": "UTC",
-    "labels": [
-        "dependencies",
-        "renovate"
-    ],
-    "reviewers": [],
-    "assignees": [],
-    "commitMessagePrefix": "chore(deps):",
-    "semanticCommits": "enabled",
-    "rebaseWhen": "conflicted",
-    "vulnerabilityAlerts": {
-        "enabled": true,
-        "automerge": true,
-        "labels": [
-            "security",
-            "vulnerability"
-        ],
-        "schedule": [
-            "at any time"
-        ]
+    {
+      "description": "Automerge non-major updates",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Require manual approval for major updates",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "Group and automerge Rust toolchain updates",
+      "groupName": "Rust toolchain",
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchDepTypes": [
+        "workspace.dependencies"
+      ],
+      "matchPackageNames": [
+        "!/^ruff_.*/"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Group Python build system dependencies",
+      "groupName": "Python build system",
+      "matchFileNames": [
+        "pyproject.toml"
+      ],
+      "matchDepNames": [
+        "maturin",
+        "setuptools-rust"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Group pyo3 related dependencies",
+      "groupName": "PyO3 ecosystem",
+      "matchDepNames": [
+        "pyo3",
+        "pyo3-build-config"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Group CLI and parsing dependencies",
+      "groupName": "CLI dependencies",
+      "matchDepNames": [
+        "clap",
+        "serde",
+        "toml",
+        "anyhow"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Group development and testing dependencies",
+      "groupName": "Development dependencies",
+      "matchDepTypes": [
+        "dev-dependencies"
+      ],
+      "matchDepNames": [
+        "tempfile"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Security alerts - automerge with priority",
+      "matchDepTypes": [
+        "vulnerabilities"
+      ],
+      "automerge": true,
+      "labels": [
+        "security",
+        "high-priority"
+      ],
+      "reviewers": [],
+      "assignees": []
+    },
+    {
+      "description": "Ignore our own npm platform packages",
+      "enabled": false,
+      "matchPackageNames": [
+        "/^@cribo//"
+      ]
     }
+  ],
+  "cargo": {
+    "enabled": true
+  },
+  "ignoreDeps": [],
+  "schedule": [
+    "after 9am and before 5pm every weekday",
+    "every weekend"
+  ],
+  "timezone": "UTC",
+  "labels": [
+    "dependencies",
+    "renovate"
+  ],
+  "reviewers": [],
+  "assignees": [],
+  "commitMessagePrefix": "chore(deps):",
+  "semanticCommits": "enabled",
+  "rebaseWhen": "conflicted",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "automerge": true,
+    "labels": [
+      "security",
+      "vulnerability"
+    ],
+    "schedule": [
+      "at any time"
+    ]
+  }
 }
