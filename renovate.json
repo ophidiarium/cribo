@@ -25,7 +25,6 @@
       ],
       "versioning": "semver",
       "automerge": true,
-      "matchUpdateTypes": "bump",
       "groupName": "⬆️ Update all ruff git dependencies"
     },
     {
