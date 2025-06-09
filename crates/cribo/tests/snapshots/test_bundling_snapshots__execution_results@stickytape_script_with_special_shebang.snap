@@ -1,0 +1,8 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+---
+ExecutionResults {
+    status: Success,
+    stdout: "0",
+    stderr: "",
+}

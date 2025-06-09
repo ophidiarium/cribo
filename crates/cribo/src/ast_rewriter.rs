@@ -1407,17 +1407,42 @@ impl AstRewriter {
 
     /// Create a variable assignment statement: name = value
     fn create_variable_assignment(&self, name: &str, value: &str) -> Stmt {
+        // Create the value expression - handle dotted names properly
+        let value_expr = if value.contains('.') {
+            // For dotted names like "greetings.greeting", create an attribute expression
+            let parts: Vec<&str> = value.split('.').collect();
+            let mut current_expr = Expr::Name(ast::ExprName {
+                id: parts[0].to_string().into(),
+                ctx: ExprContext::Load,
+                range: Default::default(),
+            });
+
+            // Build the attribute chain for the remaining parts
+            for &part in &parts[1..] {
+                current_expr = Expr::Attribute(ast::ExprAttribute {
+                    value: Box::new(current_expr),
+                    attr: Identifier::new(part, TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: Default::default(),
+                });
+            }
+            current_expr
+        } else {
+            // For simple names, create a Name expression
+            Expr::Name(ast::ExprName {
+                id: value.to_string().into(),
+                ctx: ExprContext::Load,
+                range: Default::default(),
+            })
+        };
+
         Stmt::Assign(ast::StmtAssign {
             targets: vec![Expr::Name(ast::ExprName {
                 id: name.to_string().into(),
                 ctx: ExprContext::Store,
                 range: Default::default(),
             })],
-            value: Box::new(Expr::Name(ast::ExprName {
-                id: value.to_string().into(),
-                ctx: ExprContext::Load,
-                range: Default::default(),
-            })),
+            value: Box::new(value_expr),
             range: Default::default(),
         })
     }

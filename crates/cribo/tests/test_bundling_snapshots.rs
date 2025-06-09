@@ -26,6 +26,60 @@ struct ExecutionResults {
     stderr: String,
 }
 
+/// Sanitize file paths in error messages to make them deterministic for snapshots
+fn sanitize_paths(text: &str) -> String {
+    use regex::Regex;
+
+    // Match common temporary directory patterns and replace with a generic placeholder
+    let patterns = vec![
+        // Unix/macOS temp paths like /var/folders/xyz/abc123/T/.tmpXYZ/file.py
+        (r"/var/folders/[^/]+/[^/]+/T/\.[^/]+/", "<TMP>/"),
+        // Standard Unix temp paths like /tmp/.tmpXYZ/file.py
+        (r"/tmp/\.[^/]+/", "<TMP>/"),
+        // Windows temp paths
+        (
+            r"C:\\Users\\[^\\]+\\AppData\\Local\\Temp\\[^\\]+\\",
+            "<TMP>/",
+        ),
+        // Generic temp directory patterns
+        (r"/[Tt]emp/[^/]+/", "<TMP>/"),
+        // Python installation paths (varying versions and locations)
+        (
+            r"/opt/homebrew/Cellar/python@[\d.]+/[\d._]+/Frameworks/Python\.framework/Versions/[\d.]+/lib/python[\d.]+/",
+            "<PYTHON_LIB>/",
+        ),
+        (r"/usr/lib/python[\d.]+/", "<PYTHON_LIB>/"),
+        (r"C:\\Python\d+\\lib\\", "<PYTHON_LIB>/"),
+        // Windows hosted tool cache paths (GitHub Actions)
+        (
+            r"C:\\hostedtoolcache\\windows\\Python\\[\d.]+\\x64\\Lib\\",
+            "<PYTHON_LIB>/",
+        ),
+    ];
+
+    let mut result = text.to_string();
+    for (pattern, replacement) in patterns {
+        let re = Regex::new(pattern).expect("Invalid regex pattern");
+        result = re.replace_all(&result, replacement).to_string();
+    }
+
+    // Normalize Python error formatting differences between versions
+    // Replace line numbers in importlib which vary between Python versions
+    let importlib_line_re = Regex::new(r"line \d+, in import_module").expect("Invalid regex");
+    result = importlib_line_re
+        .replace_all(&result, "line <LINE>, in import_module")
+        .to_string();
+
+    // Remove lines that only contain caret/tilde indicators as they vary between Python versions
+    let indicator_line_re = Regex::new(r"(?m)^\s+[\^~]+\s*\n").expect("Invalid regex");
+    result = indicator_line_re.replace_all(&result, "").to_string();
+
+    // Normalize Windows path separators in sanitized paths
+    result = result.replace("<PYTHON_LIB>/importlib\\", "<PYTHON_LIB>/importlib/");
+
+    result
+}
+
 #[derive(Debug)]
 #[allow(dead_code)] // Fields are used via Debug trait for snapshots
 enum ExecutionStatus {
@@ -152,6 +206,9 @@ fn test_single_bundling_fixture(fixtures_dir: &Path, fixture_name: &str) -> Resu
         return Ok(());
     }
 
+    // Check if this is an expected failure fixture (xfail prefix)
+    let expects_failure = fixture_name.starts_with("xfail_");
+
     // Create temporary directory for output
     let temp_dir = TempDir::new()?;
     let bundle_path = temp_dir.path().join("bundled.py");
@@ -205,6 +262,25 @@ fn test_single_bundling_fixture(fixtures_dir: &Path, fixture_name: &str) -> Resu
     // Note: For timeout support, we'd need a more complex solution or external crate
     // The standard library doesn't provide built-in timeout for process execution
 
+    // Check for unexpected Python execution failures
+    if !python_output.status.success() && !expects_failure {
+        let stderr = String::from_utf8_lossy(&python_output.stderr);
+        let stdout = String::from_utf8_lossy(&python_output.stdout);
+
+        // This is an unexpected failure - fail the test explicitly
+        return Err(anyhow::anyhow!(
+            "Python execution failed unexpectedly for fixture '{}':\n\
+            Exit code: {}\n\
+            Stdout:\n{}\n\
+            Stderr:\n{}\n\n\
+            If this failure is expected, rename the fixture directory with 'xfail_' prefix.",
+            fixture_name,
+            python_output.status.code().unwrap_or(-1),
+            stdout.trim(),
+            stderr.trim()
+        ));
+    }
+
     // Create separate snapshots using insta's named snapshot feature
     insta::with_settings!({
         snapshot_suffix => fixture_name,
@@ -226,10 +302,11 @@ fn test_single_bundling_fixture(fixtures_dir: &Path, fixture_name: &str) -> Resu
                 .trim()
                 .replace("\r\n", "\n")
                 .to_string(),
-            stderr: String::from_utf8_lossy(&python_output.stderr)
-                .trim()
-                .replace("\r\n", "\n")
-                .to_string(),
+            stderr: sanitize_paths(
+                &String::from_utf8_lossy(&python_output.stderr)
+                    .trim()
+                    .replace("\r\n", "\n")
+            ),
         };
 
         insta::assert_debug_snapshot!("execution_results", execution_results);
