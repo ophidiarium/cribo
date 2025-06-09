@@ -157,6 +157,17 @@ jobs:
         id: summary
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SYSTEM_PROMPT: |
+            You are a release note summarizer.
+            1. Exclude any commits whose *only* change is bumping **this project’s** own version number
+              (e.g. “chore(main): release 0.4.17”).
+            2. However, **do include** commits that update dependency versions
+              (e.g. “chore(deps): bump lodash from 4.17.20 to 4.17.21”).
+            3. From the remaining commits (including bodies), produce a concise, human-readable
+              summary of what changed in this release.
+            4. Organize your summary under headings like “Features,” “Bug Fixes,” “Dependencies,”
+              and “Performance,” using bullet points or short paragraphs.
+
         run: |
           gh release view "$TAG" --json body --jq .body > raw_changelog.md
 
@@ -167,13 +178,15 @@ jobs:
 
           REQUEST_PAYLOAD=$(
             jq -n \
-              --arg system "You are a release note summarizer. Given the raw changelog and full commit messages (including bodies), produce a concise, human-readable summary of the release. Use detailed information from commit messages where appropriate." \
+              --arg system "$SYSTEM_PROMPT" \
               --arg prev "$PREV_TAG" \
               --arg tag  "$TAG" \
               --rawfile body <(gh release view "$TAG" --json body --jq .body) \
               --rawfile log  <(git log "$PREV_TAG..$TAG" --pretty=format:'%s%n%b%n') \
               '{
-                model: "gpt-4",
+                model: "gpt-4-turbo-16k",
+                temperature: 0.2,
+                max_tokens: 800,
                 messages: [
                   { role: "system", content: $system },
                   {
