@@ -188,9 +188,19 @@ jobs:
               }'
           )
 
-          SUMMARY=$(curl -s https://api.openai.com/v1/chat/completions \                                              ─╯
+          echo "Request payload for OpenAI API:"
+          echo "$REQUEST_PAYLOAD"
+          echo "Generating summary for release $TAG..."
+
+          SUMMARY_JSON=$(curl -s https://api.openai.com/v1/chat/completions \                                              ─╯
             -H "Authorization: Bearer $OPENAI_API_KEY" \
-            --json "$REQUEST_PAYLOAD"| jq -r '.choices[0].message.content')
+            -H "Content-Type: application/json" \
+            --data "$REQUEST_PAYLOAD")
+
+          echo "OpenAI API response:"
+          echo "$SUMMARY_JSON"
+
+          SUMMARY=$(echo "$SUMMARY_JSON" | jq -r '.choices[0].message.content')
 
           echo "$SUMMARY" > changelog_summary.md
 
