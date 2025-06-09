@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.20](https://github.com/ophidiarium/cribo/compare/v0.4.19...v0.4.20) (2025-06-09)
+
+
+### Bug Fixes
+
+* **ai:** improve changelog prompt and use cheaper model ([49d81e4](https://github.com/ophidiarium/cribo/commit/49d81e439878af6c7c837d0f992ea50b7350b0a3))
+* **bundler:** resolve Python exec scoping and enable module import detection ([#97](https://github.com/ophidiarium/cribo/issues/97)) ([e22a871](https://github.com/ophidiarium/cribo/commit/e22a8719584fa3bef4e563788fdd2825c2dd6c15))
+
 ## [0.4.19](https://github.com/ophidiarium/cribo/compare/v0.4.18...v0.4.19) (2025-06-09)
 
 
