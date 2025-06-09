@@ -9,7 +9,17 @@ fn main() -> io::Result<()> {
             fs::create_dir_all(&target_tmp)?;
             // Instruct Rust test harness to use this directory for temp files
             println!("cargo:rustc-env=TMPDIR={}", target_tmp.display());
+
+            if env::var("VIRTUAL_ENV").is_err() {
+                let cwd = env::current_dir()?;
+                let candidate = cwd.join(".venv");
+                if candidate.is_dir() {
+                    let abs = candidate.canonicalize()?;
+                    println!("cargo:rustc-env=VIRTUAL_ENV={}", abs.display());
+                }
+            }
         }
     }
+
     Ok(())
 }
