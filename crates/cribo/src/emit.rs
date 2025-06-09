@@ -43,6 +43,29 @@ pub enum ImportStrategy {
     Dependency,
 }
 
+/// Parameters for creating module namespace AST
+struct ModuleNamespaceParams<'a> {
+    module_name: &'a str,
+    module_ast: &'a ModModule,
+    ast_rewriter: &'a AstRewriter,
+    import_strategy: &'a ImportStrategy,
+}
+
+/// Parameters for creating module exec statement
+struct ModuleExecParams<'a> {
+    module_name: &'a str,
+    module_code: &'a str,
+    include_globals: bool,
+    import_strategy: &'a ImportStrategy,
+}
+
+/// Parameters for transforming imports in init.py files
+struct TransformImportsParams<'a> {
+    module_name: &'a str,
+    module_ast: &'a mut ModModule,
+    import_strategies: &'a IndexMap<String, ImportStrategy>,
+}
+
 pub struct CodeEmitter {
     resolver: ModuleResolver,
     _preserve_comments: bool,
@@ -415,11 +438,11 @@ impl CodeEmitter {
                     "{}.{}",
                     import_alias.module_name, import_alias.original_name
                 );
-                let is_module = self
-                    .resolver
-                    .resolve_module_path(&full_module_name)
-                    .unwrap_or(None)
-                    .is_some();
+
+                // Check if this is actually a module import by verifying the import pattern:
+                // - from package import module (where module.py exists) -> module import
+                // - from package.module import variable -> variable import
+                let is_module = self.is_true_module_import(import_alias, &full_module_name);
                 flags.insert(full_module_name, is_module);
             }
             flags
@@ -524,6 +547,7 @@ impl CodeEmitter {
                 parsed_data,
                 import_strategy,
                 &mut ast_rewriter,
+                &import_strategies,
             )?;
 
             // Extend the bundle AST with the module's statements
@@ -557,6 +581,7 @@ impl CodeEmitter {
                 parsed_data,
                 &ImportStrategy::Dependency,
                 &mut ast_rewriter,
+                &import_strategies,
             )?;
 
             // Add alias assignments at the beginning of the entry module
@@ -595,6 +620,222 @@ impl CodeEmitter {
         Ok(crate::util::normalize_line_endings(bundled_code))
     }
 
+    /// Determine if this is a true module import vs a variable import from a module
+    ///
+    /// This distinguishes between:
+    /// - `from package import module` (where module.py exists) -> true module import
+    /// - `from package.module import variable` -> variable import, not a module import
+    fn is_true_module_import(
+        &mut self,
+        import_alias: &crate::ast_rewriter::ImportAlias,
+        full_module_name: &str,
+    ) -> bool {
+        // Check if the full module name resolves to a module path
+        let resolves_to_module = self
+            .resolver
+            .resolve_module_path(full_module_name)
+            .unwrap_or(None)
+            .is_some();
+
+        log::debug!(
+            "is_true_module_import: full_module_name='{}', resolves_to_module={}",
+            full_module_name,
+            resolves_to_module
+        );
+
+        if !resolves_to_module {
+            return false;
+        }
+
+        // Check if the base module (without the imported name) resolves to a path
+        let base_module_path = self
+            .resolver
+            .resolve_module_path(&import_alias.module_name)
+            .unwrap_or(None);
+
+        log::debug!(
+            "is_true_module_import: import_alias.module_name='{}', base_module_path={:?}",
+            import_alias.module_name,
+            base_module_path
+        );
+
+        let result = if let Some(base_path) = base_module_path {
+            // Check if the base module is a package (__init__.py) vs a specific module (.py)
+            let is_package = base_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name == "__init__.py")
+                .unwrap_or(false);
+
+            log::debug!(
+                "is_true_module_import: base_path={:?}, is_package={}",
+                base_path,
+                is_package
+            );
+
+            if is_package {
+                // Base module is a package (__init__.py), importing from a package
+                // We need to check if the imported name is defined in the __init__.py file
+                // If it is, then it's a variable import; if not, it's a module import
+
+                // Check if the imported name is defined in the __init__.py file
+                let is_variable_import =
+                    self.is_name_defined_in_package(&base_path, &import_alias.original_name);
+
+                // If defined in __init__.py, it's a variable import; otherwise, it's a module import
+                !is_variable_import
+            } else {
+                // Base module is a specific module file (.py), so we're importing from that module
+                // The imported name is likely a variable/function/class from that module
+                false
+            }
+        } else {
+            // Base module doesn't resolve to any path, but the full module name does
+            // This means we're importing a module from a directory that's not a package
+            // For example: "from greetings import greeting" where greetings/ has no __init__.py
+            // In this case, it's still a module import
+            true
+        };
+
+        log::debug!(
+            "is_true_module_import: result={} for '{}.{}'",
+            result,
+            import_alias.module_name,
+            import_alias.original_name
+        );
+
+        result
+    }
+
+    /// Check if a name is defined in a package's __init__.py file
+    ///
+    /// This is a wrapper around `check_if_name_defined_in_init_py` that handles
+    /// errors gracefully and provides logging.
+    fn is_name_defined_in_package(&self, init_py_path: &std::path::Path, name: &str) -> bool {
+        match self.check_if_name_defined_in_init_py(init_py_path, name) {
+            Ok(is_defined) => {
+                log::debug!(
+                    "is_name_defined_in_package: name='{}', path={:?}, is_defined={}",
+                    name,
+                    init_py_path,
+                    is_defined
+                );
+                is_defined
+            }
+            Err(err) => {
+                log::warn!(
+                    "Failed to check if name '{}' is defined in {:?}: {}",
+                    name,
+                    init_py_path,
+                    err
+                );
+                // On error, assume it's not defined (conservative approach)
+                false
+            }
+        }
+    }
+
+    /// Check if a name is defined in an __init__.py file
+    ///
+    /// This parses the __init__.py file and checks if the given name is defined as:
+    /// - A variable assignment (e.g., `config = ...`)
+    /// - A function definition (e.g., `def config():`)
+    /// - A class definition (e.g., `class config:`)
+    /// - An import that creates the name (e.g., `from .module import config`)
+    fn check_if_name_defined_in_init_py(
+        &self,
+        init_py_path: &std::path::Path,
+        name: &str,
+    ) -> Result<bool> {
+        use std::fs;
+
+        // Read the __init__.py file
+        let source = fs::read_to_string(init_py_path)
+            .with_context(|| format!("Failed to read __init__.py file: {:?}", init_py_path))?;
+
+        // Normalize line endings
+        let source = crate::util::normalize_line_endings(source);
+
+        // Parse into AST
+        let parsed = ruff_python_parser::parse_module(&source)
+            .with_context(|| format!("Failed to parse __init__.py file: {:?}", init_py_path))?;
+
+        // Check each statement to see if it defines the name
+        for stmt in &parsed.syntax().body {
+            if self.statement_defines_name(stmt, name) {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Check if a statement defines the given name
+    fn statement_defines_name(&self, stmt: &Stmt, name: &str) -> bool {
+        match stmt {
+            // Variable assignments: config = ...
+            Stmt::Assign(assign_stmt) => assign_stmt
+                .targets
+                .iter()
+                .any(|target| Self::expression_defines_name(target, name)),
+
+            // Function definitions: def config():
+            Stmt::FunctionDef(func_stmt) => func_stmt.name.as_str() == name,
+
+            // Class definitions: class config:
+            Stmt::ClassDef(class_stmt) => class_stmt.name.as_str() == name,
+
+            // Import statements: import config
+            Stmt::Import(import_stmt) => {
+                import_stmt.names.iter().any(|alias| {
+                    // Check if this import creates the name (either directly or via alias)
+                    let imported_name = alias.name.as_str();
+                    let local_name = alias
+                        .asname
+                        .as_ref()
+                        .map(|n| n.as_str())
+                        .unwrap_or(imported_name);
+                    local_name == name
+                })
+            }
+
+            // From imports: from .module import config, from .config import config
+            Stmt::ImportFrom(import_from_stmt) => import_from_stmt.names.iter().any(|alias| {
+                let imported_name = alias.name.as_str();
+                let local_name = alias
+                    .asname
+                    .as_ref()
+                    .map(|n| n.as_str())
+                    .unwrap_or(imported_name);
+                local_name == name
+            }),
+
+            _ => false,
+        }
+    }
+
+    /// Check if an expression defines the given name (for assignment targets)
+    fn expression_defines_name(expr: &ruff_python_ast::Expr, name: &str) -> bool {
+        use ruff_python_ast::{Expr, ExprList, ExprName, ExprTuple};
+
+        match expr {
+            // Simple name: config = ...
+            Expr::Name(ExprName { id, .. }) => id.as_str() == name,
+
+            // Tuple assignment: (config, other) = ...
+            Expr::Tuple(ExprTuple { elts, .. }) => elts
+                .iter()
+                .any(|elt| Self::expression_defines_name(elt, name)),
+
+            // List assignment: [config, other] = ...
+            Expr::List(ExprList { elts, .. }) => elts
+                .iter()
+                .any(|elt| Self::expression_defines_name(elt, name)),
+
+            _ => false,
+        }
+    }
+
     /// Process a single module's AST to produce a transformed AST for bundling
     #[allow(clippy::too_many_arguments)]
     fn process_module_ast_to_ast(
@@ -603,6 +844,7 @@ impl CodeEmitter {
         parsed_data: &ParsedModuleData,
         import_strategy: &ImportStrategy,
         ast_rewriter: &mut AstRewriter,
+        import_strategies: &IndexMap<String, ImportStrategy>,
     ) -> Result<ModModule> {
         log::info!("Processing module AST '{}'", module_name);
 
@@ -632,20 +874,47 @@ impl CodeEmitter {
             &bundled_modules,
         )?;
 
+        // For __init__.py files, also transform absolute first-party imports to use bundled variables
+        if self.is_init_py_module(module_name) {
+            self.transform_absolute_first_party_imports_in_init_py(TransformImportsParams {
+                module_name,
+                module_ast: &mut transformed_ast,
+                import_strategies,
+            })?;
+        }
+
+        // Note: Global declarations for imports will be handled in create_module_exec_statement
+        // when the code is converted to string for exec
+
         // Remove first-party imports and unused imports AFTER transformations
-        self.remove_first_party_imports(&mut transformed_ast, &parsed_data.first_party_imports)?;
-        self.remove_unused_imports(&mut transformed_ast, &parsed_data.unused_imports)?;
+        // For packages (__init__.py files) using ModuleImport strategy, we need to be more careful
+        // about which imports to remove, as some may be essential for the package to function
+        if matches!(import_strategy, ImportStrategy::ModuleImport)
+            && self.is_init_py_module(module_name)
+        {
+            // For __init__.py files with ModuleImport strategy, only remove unused imports
+            // Don't remove first-party imports as they may be essential for package functionality
+            self.remove_unused_imports(&mut transformed_ast, &parsed_data.unused_imports)?;
+        } else {
+            // For regular modules, remove both first-party and unused imports as before
+            self.remove_first_party_imports(
+                &mut transformed_ast,
+                &parsed_data.first_party_imports,
+            )?;
+            self.remove_unused_imports(&mut transformed_ast, &parsed_data.unused_imports)?;
+        }
 
         // Apply bundling strategy based on how this module is imported
         match import_strategy {
             ImportStrategy::ModuleImport => {
                 // For modules imported as "import module", create a module namespace using AST nodes
                 let module_ast = ModModule {
-                    body: self.create_module_namespace_ast(
+                    body: self.create_module_namespace_ast(ModuleNamespaceParams {
                         module_name,
-                        &transformed_ast,
+                        module_ast: &transformed_ast,
                         ast_rewriter,
-                    )?,
+                        import_strategy,
+                    })?,
                     range: Default::default(),
                 };
                 Ok(module_ast)
@@ -670,14 +939,9 @@ impl CodeEmitter {
     }
 
     /// Create a module namespace using AST operations
-    fn create_module_namespace_ast(
-        &mut self,
-        module_name: &str,
-        module_ast: &ModModule,
-        ast_rewriter: &AstRewriter,
-    ) -> Result<Vec<Stmt>> {
+    fn create_module_namespace_ast(&mut self, params: ModuleNamespaceParams) -> Result<Vec<Stmt>> {
         // Start with the types import and namespace creation
-        let mut namespace_stmts = self.create_module_namespace_structure(module_name)?;
+        let mut namespace_stmts = self.create_module_namespace_structure(params.module_name)?;
 
         // Convert the module AST to a string for the exec call
         // This is necessary because Python AST doesn't allow directly representing a module as an expression
@@ -687,7 +951,7 @@ impl CodeEmitter {
 
             // Generate code for each statement and combine them
             let mut code_parts = Vec::new();
-            for stmt in &module_ast.body {
+            for stmt in &params.module_ast.body {
                 let generator = Generator::from(&stylist);
                 let stmt_code = generator.stmt(stmt);
                 code_parts.push(stmt_code);
@@ -698,16 +962,24 @@ impl CodeEmitter {
 
         // Add the exec call that will execute the module code in its namespace
         // For __init__.py files and modules with bundled variable references, include globals to access bundled variables
-        let needs_globals = self.is_init_py_module(module_name)
+        let needs_globals = self.is_init_py_module(params.module_name)
             || self.module_has_bundled_variable_references(&module_code);
-        let exec_stmt =
-            self.create_module_exec_statement(module_name, &module_code, needs_globals)?;
+        let exec_stmt = self.create_module_exec_statement(ModuleExecParams {
+            module_name: params.module_name,
+            module_code: &module_code,
+            include_globals: needs_globals,
+            import_strategy: params.import_strategy,
+        })?;
         namespace_stmts.push(exec_stmt);
 
         // Add exposure statements for conflict-renamed variables that need to be accessible on the module object
         let module_exposure_stmts =
-            self.create_module_exposure_statements(module_name, ast_rewriter)?;
+            self.create_module_exposure_statements(params.module_name, params.ast_rewriter)?;
         namespace_stmts.extend(module_exposure_stmts);
+
+        // For ModuleImport strategy packages with global declarations, we need to expose
+        // the globally declared variables as module attributes
+        // This is handled inside the exec call by modifying the module code itself
 
         Ok(namespace_stmts)
     }
@@ -1143,17 +1415,21 @@ impl CodeEmitter {
     }
 
     /// Create an AST for the exec statement that executes module code in its namespace
-    fn create_module_exec_statement(
-        &self,
-        module_name: &str,
-        module_code: &str,
-        include_globals: bool,
-    ) -> Result<Stmt> {
+    fn create_module_exec_statement(&self, params: ModuleExecParams) -> Result<Stmt> {
+        // Apply global declarations for packages using ModuleImport strategy
+        let final_code = if matches!(params.import_strategy, ImportStrategy::ModuleImport)
+            && self.is_init_py_module(params.module_name)
+        {
+            self.add_global_declarations_to_code(params.module_name, params.module_code)
+        } else {
+            params.module_code.to_string()
+        };
+
         // Create the module code string literal
         let code_literal = Expr::StringLiteral(ruff_python_ast::ExprStringLiteral {
             value: ruff_python_ast::StringLiteralValue::single(ruff_python_ast::StringLiteral {
                 range: TextRange::default(),
-                value: module_code.to_string().into_boxed_str(),
+                value: final_code.into_boxed_str(),
                 flags: ruff_python_ast::StringLiteralFlags::empty(),
             }),
             range: TextRange::default(),
@@ -1161,9 +1437,9 @@ impl CodeEmitter {
 
         // Create the module __dict__ expression
         let module_dict = Expr::Attribute(ExprAttribute {
-            value: Box::new(if module_name.contains('.') {
+            value: Box::new(if params.module_name.contains('.') {
                 // Handle dotted module names
-                let parts: Vec<&str> = module_name.split('.').collect();
+                let parts: Vec<&str> = params.module_name.split('.').collect();
                 let mut current_expr = Expr::Name(ExprName {
                     id: Identifier::new(parts[0], TextRange::default()).into(),
                     ctx: ExprContext::Load,
@@ -1182,7 +1458,7 @@ impl CodeEmitter {
             } else {
                 // Simple module name
                 Expr::Name(ExprName {
-                    id: Identifier::new(module_name, TextRange::default()).into(),
+                    id: Identifier::new(params.module_name, TextRange::default()).into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 })
@@ -1193,26 +1469,100 @@ impl CodeEmitter {
         });
 
         // Create the arguments based on whether globals are needed
-        let args = if include_globals {
-            // exec(code, globals(), module.__dict__)
-            vec![
-                code_literal,
-                // globals() call
-                Expr::Call(ExprCall {
-                    func: Box::new(Expr::Name(ExprName {
-                        id: Identifier::new("globals", TextRange::default()).into(),
+        let args = if params.include_globals {
+            // For package __init__.py files that reference their own submodules,
+            // we need to make the package module available in the exec globals
+            if self.is_init_py_module(params.module_name)
+                && params.module_code.contains(params.module_name)
+            {
+                // Create a dict merge: {**globals(), module_name: module}
+                // This is done by creating dict(globals(), **{module_name: module})
+                let module_ref = if params.module_name.contains('.') {
+                    // For nested modules, use just the top-level package name
+                    let parts: Vec<&str> = params.module_name.split('.').collect();
+                    Expr::Name(ExprName {
+                        id: parts[0].into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
-                    })),
-                    arguments: Arguments {
-                        args: vec![].into(),
-                        keywords: vec![].into(),
+                    })
+                } else {
+                    Expr::Name(ExprName {
+                        id: params.module_name.into(),
+                        ctx: ExprContext::Load,
                         range: TextRange::default(),
-                    },
+                    })
+                };
+
+                // Create dict merge compatible with Python 3.5+
+                // Use {**globals(), 'package_name': package} pattern
+                let package_name = if params.module_name.contains('.') {
+                    params
+                        .module_name
+                        .split('.')
+                        .next()
+                        .expect("module name should have at least one part before dot")
+                        .to_string()
+                } else {
+                    params.module_name.to_string()
+                };
+
+                let dict_merge = Expr::Dict(ruff_python_ast::ExprDict {
+                    items: vec![
+                        ruff_python_ast::DictItem {
+                            key: None, // **kwargs unpacking
+                            value: Expr::Call(ExprCall {
+                                func: Box::new(Expr::Name(ExprName {
+                                    id: "globals".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                arguments: ruff_python_ast::Arguments {
+                                    args: vec![].into(),
+                                    keywords: vec![].into(),
+                                    range: TextRange::default(),
+                                },
+                                range: TextRange::default(),
+                            }),
+                        },
+                        ruff_python_ast::DictItem {
+                            key: Some(Expr::StringLiteral(ruff_python_ast::ExprStringLiteral {
+                                value: ruff_python_ast::StringLiteralValue::single(
+                                    ruff_python_ast::StringLiteral {
+                                        range: TextRange::default(),
+                                        value: package_name.into_boxed_str(),
+                                        flags: ruff_python_ast::StringLiteralFlags::empty(),
+                                    },
+                                ),
+                                range: TextRange::default(),
+                            })),
+                            value: module_ref,
+                        },
+                    ],
                     range: TextRange::default(),
-                }),
-                module_dict,
-            ]
+                });
+
+                vec![code_literal, dict_merge, module_dict]
+            } else {
+                // exec(code, globals(), module.__dict__)
+                vec![
+                    code_literal,
+                    // globals() call
+                    Expr::Call(ExprCall {
+                        func: Box::new(Expr::Name(ExprName {
+                            id: Identifier::new("globals", TextRange::default()).into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        arguments: Arguments {
+                            args: vec![].into(),
+                            keywords: vec![].into(),
+                            range: TextRange::default(),
+                        },
+                        range: TextRange::default(),
+                    }),
+                    module_dict,
+                ]
+            }
         } else {
             // exec(code, module.__dict__)
             vec![code_literal, module_dict]
@@ -1290,6 +1640,14 @@ impl CodeEmitter {
         for module in modules {
             if self.init_modules.contains(&module.name) {
                 self.process_init_module_strategies(module, parsed_modules_data, &mut strategies);
+            }
+        }
+
+        // Ensure that packages (modules with __init__.py) always use ModuleImport strategy
+        // This is necessary because packages need to execute their __init__.py code in a namespace
+        for module in modules {
+            if self.init_modules.contains(&module.name) && strategies.contains_key(&module.name) {
+                strategies.insert(module.name.clone(), ImportStrategy::ModuleImport);
             }
         }
 
@@ -2030,6 +2388,332 @@ impl CodeEmitter {
             let full_name = format!("{}.{}", module_name, imported_name);
             specific_imports.insert(full_name);
         }
+    }
+
+    /// Add global declarations for imported names in packages using ModuleImport strategy
+    /// This ensures that functions defined in the exec can access the imported names
+    /// Also adds exposure statements to make the variables accessible as module attributes
+    fn add_global_declarations_to_code(&self, _module_name: &str, code: &str) -> String {
+        log::debug!("add_global_declarations_to_code called");
+
+        // Parse the Python code to find assignment statements that import from modules
+        let imported_names = self.find_imported_names_from_ast(code);
+
+        if imported_names.is_empty() {
+            // Fallback to string-based approach if AST parsing fails
+            log::debug!(
+                "AST parsing failed or found no assignments, falling back to string parsing"
+            );
+            let imported_names = self.find_imported_names_from_string(code);
+            return self.build_code_with_globals(code, imported_names);
+        }
+
+        self.build_code_with_globals(code, imported_names)
+    }
+
+    /// Find imported variable names using AST parsing for robustness
+    fn find_imported_names_from_ast(&self, code: &str) -> Vec<String> {
+        let mut imported_names = Vec::new();
+
+        match ruff_python_parser::parse_module(code) {
+            Ok(parsed) => {
+                for stmt in &parsed.syntax().body {
+                    if let Stmt::Assign(assign) = stmt {
+                        self.extract_attribute_assignments(assign, &mut imported_names);
+                    }
+                }
+                log::debug!(
+                    "AST parsing found {} imported names: {:?}",
+                    imported_names.len(),
+                    imported_names
+                );
+            }
+            Err(err) => {
+                log::debug!(
+                    "AST parsing failed: {}, falling back to string approach",
+                    err
+                );
+            }
+        }
+
+        imported_names
+    }
+
+    /// Extract variable names from assignments that use attribute access
+    fn extract_attribute_assignments(&self, assign: &StmtAssign, imported_names: &mut Vec<String>) {
+        // Check if RHS is an attribute access (module.attr)
+        if let Expr::Attribute(_) = assign.value.as_ref() {
+            // Get the target variable name(s)
+            for target in &assign.targets {
+                if let Expr::Name(name) = target {
+                    imported_names.push(name.id.to_string());
+                }
+            }
+        }
+    }
+
+    /// Fallback string-based approach for finding imported names
+    fn find_imported_names_from_string(&self, code: &str) -> Vec<String> {
+        let lines: Vec<&str> = code.lines().collect();
+        let mut imported_names = Vec::new();
+
+        for line in &lines {
+            let trimmed = line.trim();
+            // Look for lines like "sub_function = nested_package.submodule.sub_function"
+            if let Some(eq_pos) = trimmed.find(" = ") {
+                let var_name = trimmed[..eq_pos].trim();
+                let value = trimmed[eq_pos + 3..].trim();
+
+                // Check if it's an attribute access (contains a dot) and valid identifier
+                if value.contains('.')
+                    && !var_name.is_empty()
+                    && var_name.chars().all(|c| c.is_alphanumeric() || c == '_')
+                {
+                    imported_names.push(var_name.to_string());
+                }
+            }
+        }
+
+        imported_names
+    }
+
+    /// Build the final code with global declarations and exposure statements
+    fn build_code_with_globals(&self, code: &str, imported_names: Vec<String>) -> String {
+        if !imported_names.is_empty() {
+            log::debug!(
+                "Found {} imported names to make global: {:?}",
+                imported_names.len(),
+                imported_names
+            );
+            let global_declaration = format!("global {}", imported_names.join(", "));
+
+            // Add the global declaration at the beginning of the code
+            let mut result = global_declaration;
+            result.push('\n');
+            result.push_str(code);
+
+            // Add exposure statements at the end to make variables accessible as module attributes
+            for var_name in &imported_names {
+                result.push('\n');
+                result.push_str(&format!("locals()['{}'] = {}", var_name, var_name));
+            }
+
+            result
+        } else {
+            log::debug!("No imported names found for global declarations");
+            code.to_string()
+        }
+    }
+
+    /// Transform absolute first-party imports in __init__.py files to use bundled variables
+    /// This handles cases like "from greetings.english import message" in greetings/__init__.py
+    /// where greetings.english has been inlined and "message" is available globally
+    fn transform_absolute_first_party_imports_in_init_py(
+        &self,
+        params: TransformImportsParams,
+    ) -> Result<()> {
+        log::debug!(
+            "Transforming absolute first-party imports in __init__.py for module: {}",
+            params.module_name
+        );
+
+        let mut statements_to_replace = Vec::new();
+        let mut new_statements = Vec::new();
+
+        // Find absolute first-party import statements
+        for (i, stmt) in params.module_ast.body.iter().enumerate() {
+            if let Stmt::ImportFrom(import_from_stmt) = stmt {
+                // Skip relative imports (they're handled elsewhere)
+                if import_from_stmt.level > 0 {
+                    continue;
+                }
+
+                let Some(module) = &import_from_stmt.module else {
+                    continue;
+                };
+
+                let imported_module = module.as_str();
+
+                // Check if this is a first-party import
+                if !self.is_first_party_module(imported_module) {
+                    continue;
+                }
+
+                log::debug!(
+                    "Found absolute first-party import in __init__.py: from {} import [...]",
+                    imported_module
+                );
+
+                // Transform each imported name to a simple assignment
+                for alias in &import_from_stmt.names {
+                    let imported_name = alias.name.as_str();
+                    let local_name = alias
+                        .asname
+                        .as_ref()
+                        .map(|n| n.as_str())
+                        .unwrap_or(imported_name);
+
+                    // Check the import strategy of the source module to determine the correct reference
+                    let value_expr = self.create_value_expr_for_strategy(
+                        params.import_strategies.get(imported_module),
+                        imported_module,
+                        imported_name,
+                    );
+
+                    let assignment = Stmt::Assign(StmtAssign {
+                        targets: vec![Expr::Name(ExprName {
+                            id: local_name.into(),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(value_expr),
+                        range: TextRange::default(),
+                    });
+
+                    new_statements.push(assignment);
+
+                    log::debug!(
+                        "Transformed absolute import to assignment: {} = {} (strategy: {:?})",
+                        local_name,
+                        imported_module,
+                        params.import_strategies.get(imported_module)
+                    );
+                }
+
+                statements_to_replace.push(i);
+            }
+        }
+
+        // Replace import statements with assignments
+        if !statements_to_replace.is_empty() {
+            self.replace_import_statements_with_assignments(
+                params.module_ast,
+                &statements_to_replace,
+                new_statements,
+            );
+            log::debug!(
+                "Replaced {} absolute first-party import statements with assignments",
+                statements_to_replace.len()
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Create a module attribute expression for ModuleImport strategy
+    fn create_module_attribute_expr(&self, imported_module: &str, imported_name: &str) -> Expr {
+        if imported_module.contains('.') {
+            // Handle dotted module names like "nested_package.utils"
+            let parts: Vec<&str> = imported_module.split('.').collect();
+            let mut current_expr = Expr::Name(ExprName {
+                id: parts[0].into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            });
+
+            // Build the attribute chain for the remaining parts
+            for &part in &parts[1..] {
+                current_expr = Expr::Attribute(ExprAttribute {
+                    value: Box::new(current_expr),
+                    attr: Identifier::new(part, TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+            }
+
+            // Add the final imported name as an attribute
+            Expr::Attribute(ExprAttribute {
+                value: Box::new(current_expr),
+                attr: Identifier::new(imported_name, TextRange::default()),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })
+        } else {
+            // Simple module name
+            Expr::Attribute(ExprAttribute {
+                value: Box::new(Expr::Name(ExprName {
+                    id: imported_module.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new(imported_name, TextRange::default()),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })
+        }
+    }
+
+    /// Create a value expression based on import strategy
+    fn create_value_expr_for_strategy(
+        &self,
+        strategy: Option<&ImportStrategy>,
+        imported_module: &str,
+        imported_name: &str,
+    ) -> Expr {
+        match strategy {
+            Some(ImportStrategy::ModuleImport) => {
+                self.create_module_attribute_expr(imported_module, imported_name)
+            }
+            Some(ImportStrategy::FromImport) | Some(ImportStrategy::Dependency) => {
+                // Module was inlined, so imported_name should be available globally
+                Expr::Name(ExprName {
+                    id: imported_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })
+            }
+            None => {
+                // No strategy info, fallback to simple name
+                Expr::Name(ExprName {
+                    id: imported_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })
+            }
+        }
+    }
+
+    /// Add replacement statements for an import
+    fn add_replacement_statements_for_import(
+        &self,
+        new_body: &mut Vec<Stmt>,
+        import_from_stmt: &ruff_python_ast::StmtImportFrom,
+        new_stmt_iter: &mut impl Iterator<Item = Stmt>,
+    ) {
+        // Add one assignment per imported name
+        for _ in &import_from_stmt.names {
+            if let Some(assignment) = new_stmt_iter.next() {
+                new_body.push(assignment);
+            }
+        }
+    }
+
+    /// Replace import statements with assignments in the module body
+    fn replace_import_statements_with_assignments(
+        &self,
+        module_ast: &mut ModModule,
+        statements_to_replace: &[usize],
+        new_statements: Vec<Stmt>,
+    ) {
+        let mut new_body = Vec::new();
+        let mut new_stmt_iter = new_statements.into_iter();
+
+        for (i, stmt) in module_ast.body.iter().enumerate() {
+            if statements_to_replace.contains(&i) {
+                // Replace this import statement with assignment(s)
+                if let Stmt::ImportFrom(import_from_stmt) = stmt {
+                    self.add_replacement_statements_for_import(
+                        &mut new_body,
+                        import_from_stmt,
+                        &mut new_stmt_iter,
+                    );
+                }
+            } else {
+                new_body.push(stmt.clone());
+            }
+        }
+
+        module_ast.body = new_body;
     }
 }
 

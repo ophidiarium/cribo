@@ -7,6 +7,9 @@ resolution-markers = [
     "python_full_version < '3.8'",
 ]
 
+[options]
+prerelease-mode = "allow"
+
 [[package]]
 name = "colorama"
 version = "0.4.6"

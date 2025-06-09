@@ -1056,8 +1056,13 @@ impl AstRewriter {
         // Generate assignment if:
         // 1. There's an explicit alias, OR
         // 2. There's a name conflict, OR
-        // 3. The source module uses ModuleImport strategy (needs namespace reference)
-        if import_alias.has_explicit_alias || has_conflict || needs_namespace_reference {
+        // 3. The source module uses ModuleImport strategy (needs namespace reference), OR
+        // 4. This is a module import (e.g., "from greetings import greeting" where greeting is a module)
+        if import_alias.has_explicit_alias
+            || has_conflict
+            || needs_namespace_reference
+            || import_alias.is_module_import
+        {
             let actual_name = self.resolve_actual_name_for_conflict(import_alias);
             let assignment = self.create_from_import_assignment(alias_name, &actual_name);
             assignments.push(Stmt::Assign(assignment));
@@ -1079,6 +1084,14 @@ impl AstRewriter {
 
     /// Resolve the actual name for an import considering name conflicts and import strategies
     fn resolve_actual_name_for_conflict(&self, import_alias: &ImportAlias) -> String {
+        log::debug!(
+            "resolve_actual_name_for_conflict called for alias_name='{}', module_name='{}', original_name='{}', is_module_import={}",
+            import_alias.alias_name,
+            import_alias.module_name,
+            import_alias.original_name,
+            import_alias.is_module_import
+        );
+
         if let Some(_conflict) = self.name_conflicts.get(&import_alias.original_name) {
             // Even when there's a conflict, we need to consider the import strategy
             // The conflict resolution only affects the target variable name, not the source reference
@@ -1145,17 +1158,42 @@ impl AstRewriter {
         alias_name: &str,
         actual_name: &str,
     ) -> ast::StmtAssign {
+        // Create the value expression - handle dotted names for module imports
+        let value_expr = if actual_name.contains('.') {
+            // For dotted names like "greetings.greeting", create an attribute expression
+            let parts: Vec<&str> = actual_name.split('.').collect();
+            let mut current_expr = Expr::Name(ast::ExprName {
+                id: parts[0].to_string().into(),
+                ctx: ExprContext::Load,
+                range: Default::default(),
+            });
+
+            // Build the attribute chain for the remaining parts
+            for &part in &parts[1..] {
+                current_expr = Expr::Attribute(ast::ExprAttribute {
+                    value: Box::new(current_expr),
+                    attr: Identifier::new(part, TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: Default::default(),
+                });
+            }
+            current_expr
+        } else {
+            // For simple names, create a Name expression
+            Expr::Name(ast::ExprName {
+                id: actual_name.to_string().into(),
+                ctx: ExprContext::Load,
+                range: Default::default(),
+            })
+        };
+
         ast::StmtAssign {
             targets: vec![Expr::Name(ast::ExprName {
                 id: alias_name.to_string().into(),
                 ctx: ExprContext::Store,
                 range: Default::default(),
             })],
-            value: Box::new(Expr::Name(ast::ExprName {
-                id: actual_name.to_string().into(),
-                ctx: ExprContext::Load,
-                range: Default::default(),
-            })),
+            value: Box::new(value_expr),
             range: Default::default(),
         }
     }

@@ -1,6 +1,5 @@
 ---
-source: crates/serpen/tests/test_bundling_snapshots.rs
-expression: execution_results
+source: crates/cribo/tests/test_bundling_snapshots.rs
 ---
 ExecutionResults {
     status: Success,

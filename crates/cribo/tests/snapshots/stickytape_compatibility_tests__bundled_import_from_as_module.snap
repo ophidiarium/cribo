@@ -13,6 +13,7 @@ greetings.greeting = types.ModuleType('greetings.greeting')
 exec('message = "Hello"', greetings.greeting.__dict__)
 
 # ─ Module: greetings ─
+exec('', globals(), greetings.__dict__)
 
 # ─ Entry Module: hello ─
 g = greetings.greeting

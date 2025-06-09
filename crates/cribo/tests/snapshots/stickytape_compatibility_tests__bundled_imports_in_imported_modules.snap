@@ -10,6 +10,10 @@ description: Bundled content for imports_in_imported_modules
 message = "Hello"
 
 # ─ Module: greetings ─
+import types
+greetings = types.ModuleType('greetings')
+exec('message = message', globals(), greetings.__dict__)
 
 # ─ Entry Module: hello ─
+message = greetings.message
 print(message)

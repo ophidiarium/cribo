@@ -36,19 +36,15 @@ mypackage.utils.constants = types.ModuleType('mypackage.utils.constants')
 exec('"""Constants module."""\nMAX_ITEMS = 100\nDEFAULT_VALUE = "default"', mypackage.utils.constants.__dict__)
 
 # ─ Module: mypackage.utils ─
-exec('helper_function = mypackage.utils.helper.helper_function\nMAX_ITEMS = mypackage.utils.constants.MAX_ITEMS\nDEFAULT_VALUE = mypackage.utils.constants.DEFAULT_VALUE\n"""Utils subpackage with re-exports."""\n__all__ = ["helper_function", "MAX_ITEMS", "DEFAULT_VALUE"]', globals(), mypackage.utils.__dict__)
+exec('global helper_function, MAX_ITEMS, DEFAULT_VALUE\nhelper_function = mypackage.utils.helper.helper_function\nMAX_ITEMS = mypackage.utils.constants.MAX_ITEMS\nDEFAULT_VALUE = mypackage.utils.constants.DEFAULT_VALUE\n"""Utils subpackage with re-exports."""\n__all__ = ["helper_function", "MAX_ITEMS", "DEFAULT_VALUE"]\nlocals()[\'helper_function\'] = helper_function\nlocals()[\'MAX_ITEMS\'] = MAX_ITEMS\nlocals()[\'DEFAULT_VALUE\'] = DEFAULT_VALUE', {**globals(), 'mypackage': mypackage}, mypackage.utils.__dict__)
 
 # ─ Module: mypackage ─
-process_data = mypackage.data_processor.process_data
-format_data = mypackage.formatter.format_data
-config = mypackage.config.config
-helper_function = mypackage.utils.helper_function
-"""\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
-__version__ = "1.0.0"
-__all__ = ["process_data", "format_data", "config", "helper_function", "__version__"]
-DEBUG_MODE = config.DEBUG
+exec('global process_data, format_data, config, helper_function, DEBUG_MODE\nprocess_data = mypackage.data_processor.process_data\nformat_data = mypackage.formatter.format_data\nconfig = mypackage.config.config\nhelper_function = mypackage.utils.helper_function\n"""\\nPackage initialization with re-exports.\\n\\nThis __init__.py demonstrates the pattern where imports are made but not directly used\\nwithin this file - they are re-exports for the package interface.\\nThese imports should NOT be stripped as unused, even though they don\'t appear\\nto be used within this file itself.\\n"""\n__version__ = "1.0.0"\n__all__ = ["process_data", "format_data", "config", "helper_function", "__version__"]\nDEBUG_MODE = config.DEBUG\nlocals()[\'process_data\'] = process_data\nlocals()[\'format_data\'] = format_data\nlocals()[\'config\'] = config\nlocals()[\'helper_function\'] = helper_function\nlocals()[\'DEBUG_MODE\'] = DEBUG_MODE', {**globals(), 'mypackage': mypackage}, mypackage.__dict__)
 
 # ─ Entry Module: main ─
+format_data = mypackage.format_data
+process_data = mypackage.process_data
+config = mypackage.config
 helper_function = mypackage.utils.helper_function
 '''\nTest script demonstrating __init__.py re-export preservation.\n\nThis fixture tests that imports in __init__.py files are preserved even if they\nappear "unused" within that file, as they are typically re-exports for the package interface.\n'''
 def main():

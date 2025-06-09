@@ -7,21 +7,14 @@ expression: bundled_content
 # https://github.com/ophidiarium/cribo
 
 # ─ Module: pkg1 ─
-def main_function():
-    """Main function that uses helper from pkg2"""
-    return f"pkg1.main({helper_function()})"
-def utility_function():
-    """Utility that pkg2 will import"""
-    return "pkg1_utility"
+import types
+pkg1 = types.ModuleType('pkg1')
+exec('global helper_function\nhelper_function = pkg2.helper_function\ndef main_function():\n    """Main function that uses helper from pkg2"""\n    return f"pkg1.main({helper_function()})"\ndef utility_function():\n    """Utility that pkg2 will import"""\n    return "pkg1_utility"\nlocals()[\'helper_function\'] = helper_function', {**globals(), 'pkg1': pkg1}, pkg1.__dict__)
 
 # ─ Module: pkg2 ─
-def helper_function():
-    """Helper function that depends on pkg1"""
-    util_result = utility_function()
-    return f"pkg2.helper(using_{util_result})"
-def another_helper():
-    """Another function in pkg2"""
-    return "pkg2_helper"
+import types
+pkg2 = types.ModuleType('pkg2')
+exec('global utility_function\nutility_function = pkg1.utility_function\ndef helper_function():\n    """Helper function that depends on pkg1"""\n    util_result = utility_function()\n    return f"pkg2.helper(using_{util_result})"\ndef another_helper():\n    """Another function in pkg2"""\n    return "pkg2_helper"\nlocals()[\'utility_function\'] = utility_function', {**globals(), 'pkg2': pkg2}, pkg2.__dict__)
 
 # ─ Entry Module: main ─
 def main():

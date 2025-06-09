@@ -23,8 +23,10 @@ def execute_query(query):
     return f"query_result({query})"
 
 # ─ Module: services ─
+exec('', globals(), services.__dict__)
 
 # ─ Entry Module: main ─
+auth = services.auth
 def main():
     result = auth.authenticate_user("test_user")
     print(f"Relative import cycle result: {result}")

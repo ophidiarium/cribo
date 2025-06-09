@@ -14,7 +14,7 @@ exec('__greetings_greeting_message = "Hello"', globals(), greetings.greeting.__d
 greetings.greeting.message = getattr(greetings.greeting, '__greetings_greeting_message')
 
 # ─ Module: greetings ─
-exec('__all__ = ["message"]\nmessage = greetings.greeting.message', globals(), greetings.__dict__)
+exec('global message\n__all__ = ["message"]\nmessage = greetings.greeting.message\nlocals()[\'message\'] = message', {**globals(), 'greetings': greetings}, greetings.__dict__)
 
 # ─ Entry Module: hello ─
 print(greetings.message)
