@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.17](https://github.com/ophidiarium/cribo/compare/v0.4.16...v0.4.17) (2025-06-09)
+
+
+### Bug Fixes
+
+* remove win32-ia32 ([0999927](https://github.com/ophidiarium/cribo/commit/09999273c411c878901dd1aadd3e4aa5ba9ec1b9))
+* use curl to call OpenAI API ([f690f9f](https://github.com/ophidiarium/cribo/commit/f690f9fc7bacde34d30b483fab6d0ce041e716a0))
+
 ## [0.4.16](https://github.com/ophidiarium/cribo/compare/v0.4.15...v0.4.16) (2025-06-08)
 
 
