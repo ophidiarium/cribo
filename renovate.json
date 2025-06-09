@@ -23,7 +23,7 @@
             "matchPackageNames": [
                 "/^ruff_.*/"
             ],
-            "versioning": "regex:^(?<version>\\d+.\\d+.\\d+)$",
+            "versioning": "semver",
             "automerge": true,
             "groupName": "⬆️ Update all ruff git dependencies"
         },
