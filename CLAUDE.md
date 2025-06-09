@@ -608,6 +608,18 @@ cribo --entry main.py --stdout | docker exec -i container python -
 
 Under no circumstances should you justify a design or implementation by citing "lack of time," "limited resources," "tight deadlines," or similar human factors.
 
+## Logging Guidelines (IMPORTANT to not break --stdout switch)
+
+- Always use structured logging instead of `println!` for debug output: `use log::{debug, info, warn, error};`
+- Use appropriate log levels:
+  - `debug!()` for detailed diagnostic information useful during development
+  - `info!()` for general information about program execution
+  - `warn!()` for potentially problematic situations
+  - `error!()` for error conditions that should be addressed
+- If debug logging was essential to find a bug in the codebase, that logging should be kept in the codebase at the appropriate log level to aid future debugging
+- Avoid temporary `println!` statements - replace them with proper logging before committing code
+- Use structured logging with context where helpful: `debug!("Processing file: {}", file_path)`
+
 #### Deterministic Output Requirements (CRITICAL FOR DEPLOYMENT)
 
 **MANDATORY**: Considering the potential use of this tool in deployment scenarios, it is **essential** to aim for deterministic, reproducible bundle output. This enables users to:
