@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.18](https://github.com/ophidiarium/cribo/compare/v0.4.17...v0.4.18) (2025-06-09)
+
+
+### Bug Fixes
+
+* adjust OpenAI API curling ([1a5ddda](https://github.com/ophidiarium/cribo/commit/1a5ddda10249578407e09d3e15194d58606022fb))
+
 ## [0.4.17](https://github.com/ophidiarium/cribo/compare/v0.4.16...v0.4.17) (2025-06-09)
 
 
