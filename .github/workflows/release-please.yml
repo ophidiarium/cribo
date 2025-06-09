@@ -184,7 +184,7 @@ jobs:
               --rawfile body <(gh release view "$TAG" --json body --jq .body) \
               --rawfile log  <(git log "$PREV_TAG..$TAG" --pretty=format:'%s%n%b%n') \
               '{
-                model: "gpt-4-turbo-16k",
+                model: "gpt-4",
                 temperature: 0.2,
                 max_tokens: 800,
                 messages: [
