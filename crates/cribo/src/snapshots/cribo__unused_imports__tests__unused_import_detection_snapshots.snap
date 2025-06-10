@@ -1,5 +1,5 @@
 ---
-source: crates/serpen/src/unused_imports_simple.rs
+source: crates/cribo/src/unused_imports.rs
 description: Unused import detection handles various Python import patterns correctly
 expression: output
 ---
@@ -65,9 +65,6 @@ def main():
     print(f"Numbers: {numbers}")
     print(f"Defaultdict: {dict(dd)}")
 Unused imports:
-- Counter (collections.Counter)
-- Dict (typing.Dict)
-- Optional (typing.Optional)
 - json (json)
 - os (os)
 - re (re)

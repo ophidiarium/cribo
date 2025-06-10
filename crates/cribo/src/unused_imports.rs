@@ -1,9 +1,9 @@
 use anyhow::Result;
 use indexmap::{IndexMap, IndexSet};
-use ruff_python_ast::{self as ast, Expr, Stmt};
-use ruff_python_parser;
+use ruff_python_ast::{self as ast, Alias, Expr, ModModule, Stmt, StmtImport, StmtImportFrom};
 
 /// Simple unused import analyzer focused on core functionality
+#[derive(Clone)]
 pub struct UnusedImportAnalyzer {
     /// All imported names in the module
     imported_names: IndexMap<String, ImportInfo>,
@@ -35,56 +35,6 @@ impl UnusedImportAnalyzer {
             used_names: IndexSet::new(),
             exported_names: IndexSet::new(),
         }
-    }
-
-    /// Analyze a Python source file for unused imports
-    pub fn analyze_file(&mut self, source: &str) -> Result<Vec<UnusedImport>> {
-        self.analyze_file_with_init_check(source, false)
-    }
-
-    /// Analyze a Python source file for unused imports with __init__.py awareness
-    pub fn analyze_file_with_init_check(
-        &mut self,
-        source: &str,
-        is_init_py: bool,
-    ) -> Result<Vec<UnusedImport>> {
-        // Clear state from any previous analysis to ensure independence
-        self.imported_names.clear();
-        self.used_names.clear();
-        self.exported_names.clear();
-
-        let parsed = ruff_python_parser::parse_module(source)?;
-
-        let module = parsed; // ruff_python_parser::parse_module returns ModModule directly
-        {
-            // First pass: collect all bindings recursively
-            for stmt in &module.syntax().body {
-                self.collect_imports_recursive(stmt);
-            }
-
-            // Second pass: track usage recursively
-            for stmt in &module.syntax().body {
-                self.track_usage_recursive(stmt);
-            }
-        }
-
-        // Find unused imports
-        let mut unused_imports = Vec::new();
-        for (name, import_info) in &self.imported_names {
-            if !self.used_names.contains(name)
-                && !self.exported_names.contains(name)
-                && !import_info.is_star_import
-                && !import_info.is_side_effect
-                && !self.should_preserve_in_init_py(is_init_py, import_info)
-            {
-                unused_imports.push(UnusedImport {
-                    name: name.clone(),
-                    qualified_name: import_info.qualified_name.clone(),
-                });
-            }
-        }
-
-        Ok(unused_imports)
     }
 
     /// Determine if an import should be preserved in __init__.py files
@@ -766,11 +716,244 @@ impl Default for UnusedImportAnalyzer {
     }
 }
 
+/// AST-based unused import trimmer that operates directly on parsed AST
+/// This avoids double parsing and integrates seamlessly with bundling workflows
+pub struct AstUnusedImportTrimmer {
+    analyzer: UnusedImportAnalyzer,
+}
+
+impl AstUnusedImportTrimmer {
+    pub fn new() -> Self {
+        Self {
+            analyzer: UnusedImportAnalyzer::new(),
+        }
+    }
+
+    /// Trim unused imports from an AST and return the modified AST
+    /// This is the main integration point for the static bundler
+    pub fn trim_unused_imports(
+        &mut self,
+        mut ast: ModModule,
+        is_init_py: bool,
+    ) -> Result<ModModule> {
+        // First analyze the AST to find unused imports
+        let unused_imports = self.analyze_ast(&ast, is_init_py)?;
+
+        if unused_imports.is_empty() {
+            return Ok(ast);
+        }
+
+        log::debug!("Found {} unused imports to trim", unused_imports.len());
+        for unused in &unused_imports {
+            log::debug!("  - {} ({})", unused.name, unused.qualified_name);
+        }
+
+        // Filter the AST body to remove unused imports
+        ast.body = self.filter_imports_from_body(ast.body, &unused_imports);
+
+        Ok(ast)
+    }
+
+    /// Analyze an AST for unused imports without modifying it
+    pub fn analyze_ast(&mut self, ast: &ModModule, is_init_py: bool) -> Result<Vec<UnusedImport>> {
+        // Clear previous state
+        self.analyzer.imported_names.clear();
+        self.analyzer.used_names.clear();
+        self.analyzer.exported_names.clear();
+
+        // Collect imports and usage from the AST
+        for stmt in &ast.body {
+            self.analyzer.collect_imports_recursive(stmt);
+        }
+
+        for stmt in &ast.body {
+            self.analyzer.track_usage_recursive(stmt);
+        }
+
+        // Find unused imports
+        let mut unused_imports = Vec::new();
+        for (name, import_info) in &self.analyzer.imported_names {
+            if !self.analyzer.used_names.contains(name)
+                && !self.analyzer.exported_names.contains(name)
+                && !import_info.is_star_import
+                && !import_info.is_side_effect
+                && !self
+                    .analyzer
+                    .should_preserve_in_init_py(is_init_py, import_info)
+                && !self.is_explicit_reexport(name, import_info)
+            {
+                unused_imports.push(UnusedImport {
+                    name: name.clone(),
+                    qualified_name: import_info.qualified_name.clone(),
+                });
+            }
+        }
+
+        Ok(unused_imports)
+    }
+
+    /// Check if an import is an explicit re-export (e.g., from foo import Bar as Bar)
+    fn is_explicit_reexport(&self, local_name: &str, import_info: &ImportInfo) -> bool {
+        // For simple imports like `import foo as foo`, these are not re-exports
+        if !import_info.qualified_name.contains('.') {
+            return false;
+        }
+
+        // Extract the original imported name from qualified name
+        let original_name = import_info
+            .qualified_name
+            .split('.')
+            .next_back()
+            .unwrap_or(&import_info.qualified_name);
+
+        // If local name equals original name and it's from a module import,
+        // this is an explicit re-export like `from foo import Bar as Bar`
+        local_name == original_name && import_info.qualified_name != import_info.name
+    }
+
+    /// Filter import statements from a list of statements, removing unused ones
+    fn filter_imports_from_body(
+        &self,
+        body: Vec<Stmt>,
+        unused_imports: &[UnusedImport],
+    ) -> Vec<Stmt> {
+        body.into_iter()
+            .filter_map(|stmt| self.filter_import_statement(stmt, unused_imports))
+            .collect()
+    }
+
+    /// Filter a single import statement, returning None if it should be removed entirely
+    fn filter_import_statement(&self, stmt: Stmt, unused_imports: &[UnusedImport]) -> Option<Stmt> {
+        match &stmt {
+            Stmt::Import(import_stmt) => {
+                self.filter_import_stmt(import_stmt.clone(), unused_imports)
+            }
+            Stmt::ImportFrom(import_from_stmt) => {
+                self.filter_import_from_stmt(import_from_stmt.clone(), unused_imports)
+            }
+            _ => Some(stmt), // Non-import statements are preserved
+        }
+    }
+
+    /// Filter a regular import statement (import foo, import bar as baz)
+    fn filter_import_stmt(
+        &self,
+        mut import_stmt: StmtImport,
+        unused_imports: &[UnusedImport],
+    ) -> Option<Stmt> {
+        let original_count = import_stmt.names.len();
+        let filtered_names: Vec<Alias> = import_stmt
+            .names
+            .into_iter()
+            .filter(|alias| {
+                let import_name = &alias.name.id;
+                let local_name = alias.asname.as_ref().map(|n| &n.id).unwrap_or(import_name);
+
+                // Check if this import is in the unused list
+                let is_unused = unused_imports
+                    .iter()
+                    .any(|unused| unused.name == *local_name);
+
+                if is_unused {
+                    log::debug!("Filtering out unused import: {}", local_name);
+                }
+
+                !is_unused
+            })
+            .collect();
+
+        if filtered_names.is_empty() {
+            log::debug!("Removing entire import statement (all imports unused)");
+            None // Remove the entire statement if all imports are unused
+        } else {
+            import_stmt.names = filtered_names;
+            if original_count != import_stmt.names.len() {
+                log::debug!(
+                    "Filtered import statement: kept {} out of {} imports",
+                    import_stmt.names.len(),
+                    original_count
+                );
+            }
+            Some(Stmt::Import(import_stmt))
+        }
+    }
+
+    /// Filter a from-import statement (from foo import bar, from baz import qux as q)
+    fn filter_import_from_stmt(
+        &self,
+        mut import_from_stmt: StmtImportFrom,
+        unused_imports: &[UnusedImport],
+    ) -> Option<Stmt> {
+        let original_count = import_from_stmt.names.len();
+        let filtered_names: Vec<Alias> = import_from_stmt
+            .names
+            .into_iter()
+            .filter(|alias| {
+                let import_name = &alias.name.id;
+                let local_name = alias.asname.as_ref().map(|n| &n.id).unwrap_or(import_name);
+
+                // Check if this import is in the unused list
+                let is_unused = unused_imports
+                    .iter()
+                    .any(|unused| unused.name == *local_name);
+
+                if is_unused {
+                    log::debug!("Filtering out unused from-import: {}", local_name);
+                }
+
+                !is_unused
+            })
+            .collect();
+
+        if filtered_names.is_empty() {
+            log::debug!("Removing entire from-import statement (all imports unused)");
+            None // Remove the entire statement if all imports are unused
+        } else {
+            import_from_stmt.names = filtered_names;
+            if original_count != import_from_stmt.names.len() {
+                log::debug!(
+                    "Filtered from-import statement: kept {} out of {} imports",
+                    import_from_stmt.names.len(),
+                    original_count
+                );
+            }
+            Some(Stmt::ImportFrom(import_from_stmt))
+        }
+    }
+}
+
+impl Default for AstUnusedImportTrimmer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use insta::{assert_snapshot, with_settings};
+
+    /// Helper function to analyze source code in tests
+    fn analyze_source(
+        analyzer: &mut UnusedImportAnalyzer,
+        source: &str,
+        is_init_py: bool,
+    ) -> Result<Vec<UnusedImport>> {
+        // Parse the source code to AST
+        let parsed = ruff_python_parser::parse_module(source)?;
+        let ast = parsed.into_syntax();
+
+        // Create a trimmer and analyze
+        let mut trimmer = AstUnusedImportTrimmer::new();
+        trimmer.analyzer = analyzer.clone();
+        let result = trimmer.analyze_ast(&ast, is_init_py);
+
+        // Copy back the state to the original analyzer for tests that check internal state
+        *analyzer = trimmer.analyzer;
+
+        result
+    }
 
     fn format_unused_imports(unused_imports: &[UnusedImport]) -> String {
         if unused_imports.is_empty() {
@@ -885,9 +1068,8 @@ def calculate(x):
 
         for (description, source) in test_cases {
             let mut analyzer = UnusedImportAnalyzer::new();
-            let unused_imports = analyzer
-                .analyze_file(source)
-                .expect("analyze_file should succeed for test case");
+            let unused_imports = analyze_source(&mut analyzer, source, false)
+                .expect("analyze should succeed for test case");
 
             output.push_str(&format!("## {}\n", description));
             output.push_str(&format!("Source:\n{}\n", source.trim()));
@@ -944,9 +1126,8 @@ def calculate(x):
         let mut output = String::new();
 
         for (description, source) in test_files {
-            let unused_imports = analyzer
-                .analyze_file(source)
-                .expect("analyze_file should succeed for analyzer independence test");
+            let unused_imports = analyze_source(&mut analyzer, source, false)
+                .expect("analyze should succeed for analyzer independence test");
 
             output.push_str(&format!("## {}\n", description));
             output.push_str(&format!("Source:\n{}\n", source.trim()));
@@ -981,9 +1162,8 @@ if __name__ == "__main__":
 "#;
 
         let mut analyzer = UnusedImportAnalyzer::new();
-        let unused_imports = analyzer
-            .analyze_file(source)
-            .expect("analyze_file should succeed for basic unused import detection");
+        let unused_imports = analyze_source(&mut analyzer, source, false)
+            .expect("analyze should succeed for basic unused import detection");
 
         assert_eq!(unused_imports.len(), 1);
         assert_eq!(unused_imports[0].name, "os");
@@ -1000,9 +1180,8 @@ def main():
 "#;
 
         let mut analyzer = UnusedImportAnalyzer::new();
-        let unused_imports = analyzer
-            .analyze_file(source)
-            .expect("analyze_file should succeed for star import test");
+        let unused_imports = analyze_source(&mut analyzer, source, false)
+            .expect("analyze should succeed for star import test");
 
         // Star imports should not be flagged as unused
         assert_eq!(unused_imports.len(), 0);
@@ -1022,9 +1201,8 @@ def main():
 "#;
 
         let mut analyzer = UnusedImportAnalyzer::new();
-        let unused_imports = analyzer
-            .analyze_file(source)
-            .expect("analyze_file should succeed for all export test");
+        let unused_imports = analyze_source(&mut analyzer, source, false)
+            .expect("analyze should succeed for all export test");
 
         // Only json should be flagged as unused:
         // - os is exported via __all__ (so not flagged even though not used)
@@ -1047,9 +1225,8 @@ def main():
     print(sys.version)
 "#;
 
-        let unused_imports1 = analyzer
-            .analyze_file(source1)
-            .expect("analyze_file should succeed for first file");
+        let unused_imports1 = analyze_source(&mut analyzer, source1, false)
+            .expect("analyze should succeed for first file");
         assert_eq!(unused_imports1.len(), 1);
         assert_eq!(unused_imports1[0].name, "os");
 
@@ -1064,9 +1241,8 @@ def process():
     return p
 "#;
 
-        let unused_imports2 = analyzer
-            .analyze_file(source2)
-            .expect("analyze_file should succeed for second file");
+        let unused_imports2 = analyze_source(&mut analyzer, source2, false)
+            .expect("analyze should succeed for second file");
         assert_eq!(unused_imports2.len(), 1);
         assert_eq!(unused_imports2[0].name, "json");
 
@@ -1078,9 +1254,8 @@ def calculate(x):
     return math.sqrt(x)
 "#;
 
-        let unused_imports3 = analyzer
-            .analyze_file(source3)
-            .expect("analyze_file should succeed for third file");
+        let unused_imports3 = analyze_source(&mut analyzer, source3, false)
+            .expect("analyze should succeed for third file");
         assert_eq!(unused_imports3.len(), 0);
     }
 }

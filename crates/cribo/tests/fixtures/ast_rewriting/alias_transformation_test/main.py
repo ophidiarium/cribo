@@ -38,6 +38,10 @@ def main():
     dir_hash = hashlib.md5(b"test_directory").hexdigest()[:8]
     print(f"Current directory: /test/deterministic/{dir_hash}")
 
+    # Use the os import to ensure it's not removed as unused
+    env_var = operating_system.environ.get("PATH", "/default/path")
+    print(f"PATH environment: {env_var[:20]}...")
+
     python_version = system_info.version
     print(f"Python version: {python_version}")
 

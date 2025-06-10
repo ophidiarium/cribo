@@ -24,6 +24,7 @@ struct InlineContext<'a> {
 }
 
 use crate::dependency_graph::ModuleNode;
+use crate::unused_imports::AstUnusedImportTrimmer;
 
 /// Hybrid static bundler that uses sys.modules and hash-based naming
 /// This approach avoids forward reference issues while maintaining Python module semantics
@@ -42,6 +43,8 @@ pub struct HybridStaticBundler {
     entry_path: Option<String>,
     /// Module export information (for __all__ handling)
     module_exports: IndexMap<String, Option<Vec<String>>>,
+    /// Unused import trimmer for cleaning up bundled code
+    unused_import_trimmer: AstUnusedImportTrimmer,
 }
 
 impl Default for HybridStaticBundler {
@@ -60,6 +63,7 @@ impl HybridStaticBundler {
             bundled_modules: IndexSet::new(),
             entry_path: None,
             module_exports: IndexMap::new(),
+            unused_import_trimmer: AstUnusedImportTrimmer::new(),
         }
     }
 
@@ -224,6 +228,42 @@ impl HybridStaticBundler {
         format!("__cribo_{}_{}", short_hash, module_name_escaped)
     }
 
+    /// Trim unused imports from all modules before bundling
+    fn trim_unused_imports_from_modules(
+        &mut self,
+        modules: Vec<(String, ModModule, PathBuf, String)>,
+    ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
+        let mut trimmed_modules = Vec::new();
+
+        for (module_name, ast, module_path, content_hash) in modules {
+            log::debug!("Trimming unused imports from module: {}", module_name);
+
+            // Check if this is an __init__.py file
+            let is_init_py =
+                module_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py");
+
+            // Trim unused imports from the AST
+            let trimmed_ast = self
+                .unused_import_trimmer
+                .trim_unused_imports(ast, is_init_py)
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to trim unused imports from module '{}': {}",
+                        module_name,
+                        e
+                    )
+                })?;
+
+            trimmed_modules.push((module_name, trimmed_ast, module_path, content_hash));
+        }
+
+        log::debug!(
+            "Successfully trimmed unused imports from {} modules",
+            trimmed_modules.len()
+        );
+        Ok(trimmed_modules)
+    }
+
     /// Bundle multiple modules using the hybrid approach
     pub fn bundle_modules(
         &mut self,
@@ -241,6 +281,9 @@ impl HybridStaticBundler {
                 .map(|(name, _, _, _)| name)
                 .collect::<Vec<_>>()
         );
+
+        // First pass: trim unused imports from all modules
+        let modules = self.trim_unused_imports_from_modules(modules)?;
 
         // Store entry path for relative path calculation
         if let Some(entry_node) = sorted_module_nodes.last() {

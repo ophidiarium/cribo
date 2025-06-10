@@ -11,7 +11,6 @@ expression: output
 import re
 from typing import Union
 from typing import Optional
-import json
 """Validation utilities."""
 def validate_email(email: str) -> bool:
     """Simple email validation."""
@@ -61,7 +60,6 @@ class UserResponse(BaseModel):
     bio: Optional[str] = None
 """Schemas package initialization."""
 """Pydantic test project entry point."""
-import json
 from pydantic import ValidationError
 def main():
     """Main function demonstrating Pydantic usage."""
