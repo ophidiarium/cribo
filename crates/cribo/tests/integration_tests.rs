@@ -4,8 +4,8 @@ use insta::{assert_snapshot, with_settings};
 use std::path::PathBuf;
 use tempfile::TempDir;
 
-use cribo::bundler::Bundler;
 use cribo::config::Config;
+use cribo::orchestrator::BundleOrchestrator;
 
 #[test]
 fn test_simple_project_bundling() {
@@ -16,7 +16,7 @@ fn test_simple_project_bundling() {
         src: vec![PathBuf::from("tests/fixtures/simple_project")],
         ..Default::default()
     };
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     // Create temporary output directory
     let temp_dir = TempDir::new().unwrap();
@@ -64,7 +64,7 @@ fn test_simple_project_bundling() {
 #[test]
 fn test_requirements_generation() {
     let config = Config::default();
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     // Create temporary output directory
     let temp_dir = TempDir::new().unwrap();
@@ -268,7 +268,7 @@ fn test_extract_edge_case_imports() {
     // Initialize logger for debugging
     let _ = env_logger::try_init();
 
-    let bundler = Bundler::new(Config::default());
+    let bundler = BundleOrchestrator::new(Config::default());
     // Path to edge-case test file in the fixtures directory
     let file_path = PathBuf::from("tests/fixtures/test_edge_cases.py");
 

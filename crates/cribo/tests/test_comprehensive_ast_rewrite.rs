@@ -4,8 +4,8 @@ use insta::assert_snapshot;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
-use cribo::bundler::Bundler;
 use cribo::config::Config;
+use cribo::orchestrator::BundleOrchestrator;
 
 /// Test comprehensive AST rewriting with complex naming conflicts
 ///
@@ -37,7 +37,7 @@ fn test_comprehensive_ast_rewriting() {
         src: vec![fixture_dir.clone()],
         ..Default::default()
     };
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let output_path = temp_dir.path().join("comprehensive_bundled.py");
@@ -163,7 +163,7 @@ fn test_specific_conflict_patterns() {
         src: vec![fixture_dir.clone()],
         ..Default::default()
     };
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let output_path = temp_dir.path().join("conflict_patterns_bundled.py");
@@ -234,7 +234,7 @@ fn test_import_alias_resolution() {
         src: vec![fixture_dir.clone()],
         ..Default::default()
     };
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let output_path = temp_dir.path().join("alias_resolution_bundled.py");

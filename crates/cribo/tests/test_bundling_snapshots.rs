@@ -6,8 +6,8 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 
-use cribo::bundler::Bundler;
 use cribo::config::Config;
+use cribo::orchestrator::BundleOrchestrator;
 use cribo::util::get_python_executable;
 
 // Ruff linting integration for cross-validation
@@ -147,7 +147,7 @@ fn test_bundling_fixtures() {
 
         // Configure bundler
         let config = Config::default();
-        let mut bundler = Bundler::new(config);
+        let mut bundler = BundleOrchestrator::new(config);
 
         // Bundle the fixture
         bundler.bundle(path, &bundle_path, false).unwrap();

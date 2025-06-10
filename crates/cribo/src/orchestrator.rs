@@ -5,9 +5,9 @@ use ruff_python_ast::{Stmt, StmtImportFrom};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::code_generator::HybridStaticBundler;
 use crate::config::Config;
 use crate::dependency_graph::{CircularDependencyGroup, DependencyGraph, ModuleNode};
-use crate::hybrid_static_bundler::HybridStaticBundler;
 use crate::resolver::{ImportType, ModuleResolver};
 use crate::util::{module_name_from_relative, normalize_line_endings};
 
@@ -38,11 +38,11 @@ struct DiscoveryParams<'a> {
     queued_modules: &'a mut IndexSet<String>,
 }
 
-pub struct Bundler {
+pub struct BundleOrchestrator {
     config: Config,
 }
 
-impl Bundler {
+impl BundleOrchestrator {
     pub fn new(config: Config) -> Self {
         Self { config }
     }

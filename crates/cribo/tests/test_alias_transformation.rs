@@ -1,8 +1,8 @@
 #![allow(clippy::disallowed_methods)]
 
 use anyhow::Result;
-use cribo::bundler::Bundler;
 use cribo::config::Config;
+use cribo::orchestrator::BundleOrchestrator;
 use std::path::Path;
 use tempfile::TempDir;
 
@@ -30,7 +30,7 @@ fn test_alias_transformation_removes_redundant_imports() -> Result<()> {
         src: vec![test_dir.to_path_buf()],
         ..Default::default()
     };
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     // Create temporary output directory
     let temp_dir = TempDir::new()?;
@@ -138,7 +138,7 @@ fn test_alias_assignments_generation() -> Result<()> {
         src: vec![test_dir.to_path_buf()],
         ..Default::default()
     };
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     // Create temporary output directory
     let temp_dir = TempDir::new()?;
@@ -182,7 +182,7 @@ fn test_current_broken_behavior_with_redundant_imports() -> Result<()> {
         src: vec![test_dir.to_path_buf()],
         ..Default::default()
     };
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     // Create temporary output directory
     let temp_dir = TempDir::new()?;

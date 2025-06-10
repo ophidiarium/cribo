@@ -90,25 +90,33 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
 
 #### Key Components
 
-1. **Module Resolution & Import Classification** (`resolver.rs`)
+1. **Bundle Orchestration** (`orchestrator.rs`)
+   - Coordinates the entire bundling workflow
+   - Manages module discovery and dependency resolution
+   - Handles circular dependency detection using Tarjan's algorithm
+   - Calls the code generator for final output
+
+2. **Code Generation** (`code_generator.rs`)
+   - Implements the sys.modules-based bundling approach
+   - Generates deterministic module names using content hashing
+   - Performs AST transformations and import rewriting
+   - Integrates unused import trimming
+   - Produces the final bundled Python output
+
+3. **Module Resolution & Import Classification** (`resolver.rs`)
    - Classifies imports as standard library, first-party, or third-party
    - Resolves actual file paths for bundling
+   - Handles PYTHONPATH and VIRTUAL_ENV support
 
-2. **Dependency Graph** (`dependency_graph.rs`)
+4. **Dependency Graph** (`dependency_graph.rs`)
    - Builds a directed graph of module dependencies
    - Uses topological sorting to determine bundling order
+   - Implements Tarjan's SCC algorithm for circular dependency detection
 
-3. **AST Parsing & Rewriting** (various files)
-   - Uses Ruff's Python AST parser (`ruff_python_parser`) for AST parsing
-   - Implements AST rewriting to handle import statements
-
-4. **Unused Import Detection** (`unused_imports_simple.rs`)
+5. **Unused Import Detection** (`unused_imports.rs`)
    - Detects and removes unused imports
    - Handles various import formats (simple, from, aliased)
-
-5. **Code Generation** (`emit.rs`)
-   - Generates the final bundled Python file
-   - Maintains code structure with proper formatting
+   - Operates directly on AST to avoid double parsing
 
 #### Generic Snapshot Testing Framework (REUSE FOR NEW FEATURES)
 

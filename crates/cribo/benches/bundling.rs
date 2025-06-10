@@ -1,5 +1,5 @@
-use cribo::bundler::Bundler;
 use cribo::config::Config;
+use cribo::orchestrator::BundleOrchestrator;
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::fs;
 use std::hint::black_box;
@@ -94,7 +94,7 @@ fn benchmark_bundling(c: &mut Criterion) {
             },
             |(temp_dir, entry_path, output_path, config)| {
                 // Benchmark: Bundle the project
-                let mut bundler = Bundler::new(config);
+                let mut bundler = BundleOrchestrator::new(config);
                 bundler
                     .bundle(black_box(&entry_path), black_box(&output_path), false)
                     .expect("Bundling should succeed");
@@ -179,7 +179,7 @@ if __name__ == "__main__":
 
 /// Benchmark import extraction
 fn benchmark_import_extraction(c: &mut Criterion) {
-    use cribo::bundler::Bundler;
+    use cribo::orchestrator::BundleOrchestrator;
 
     c.bench_function("extract_imports", |b| {
         b.iter_with_setup(
@@ -212,7 +212,7 @@ from urllib.parse import urlparse, urljoin
             },
             |(temp_dir, test_file)| {
                 // Benchmark: Extract imports
-                let bundler = Bundler::new(Config::default());
+                let bundler = BundleOrchestrator::new(Config::default());
                 let imports = bundler
                     .extract_imports(black_box(&test_file), None)
                     .expect("Import extraction should succeed");

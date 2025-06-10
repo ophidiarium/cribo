@@ -1,8 +1,8 @@
 #![allow(clippy::disallowed_methods)]
 
 use anyhow::Result;
-use cribo::bundler::Bundler;
 use cribo::config::Config;
+use cribo::orchestrator::BundleOrchestrator;
 use insta::assert_snapshot;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -19,7 +19,7 @@ fn bundle_test_script(script_dir: &str) -> Result<String> {
         src: vec![script_dir_path],
         ..Default::default()
     };
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     let temp_dir = TempDir::new()?;
     let output_path = temp_dir.path().join("bundled_script.py");

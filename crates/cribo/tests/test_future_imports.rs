@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cribo::bundler::Bundler;
 use cribo::config::Config;
+use cribo::orchestrator::BundleOrchestrator;
 
 fn get_fixture_path(fixture_name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -22,7 +22,7 @@ fn test_future_imports_bundling_and_execution() -> Result<()> {
 
     // Bundle the project
     let config = Config::default();
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     let entry_path = fixture_path.join("main.py");
     bundler.bundle(&entry_path, &output_path, false)?;
@@ -140,7 +140,7 @@ fn test_multiple_future_imports_deduplication() -> Result<()> {
 
     // Bundle the project
     let config = Config::default();
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     let entry_path = fixture_path.join("main.py");
     bundler.bundle(&entry_path, &output_path, false)?;
@@ -211,7 +211,7 @@ fn test_future_imports_deterministic_output() -> Result<()> {
         let output_path = temp_dir.path().join(format!("bundled_{}.py", i));
 
         let config = Config::default();
-        let mut bundler = Bundler::new(config);
+        let mut bundler = BundleOrchestrator::new(config);
         let entry_path = fixture_path.join("main.py");
         bundler.bundle(&entry_path, &output_path, false)?;
 

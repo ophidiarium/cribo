@@ -1,7 +1,7 @@
 #![allow(clippy::disallowed_methods)]
 
-use cribo::bundler::Bundler;
 use cribo::config::Config;
+use cribo::orchestrator::BundleOrchestrator;
 use std::fs;
 use tempfile::TempDir;
 
@@ -52,7 +52,7 @@ def sub_function():
         ..Config::default()
     };
 
-    let bundler = Bundler::new(config);
+    let bundler = BundleOrchestrator::new(config);
 
     // Test the main.py file
     let file_path = package_dir.join("main.py");

@@ -236,6 +236,23 @@ export CRIBO_TARGET_VERSION="py312"
 6. **Code Generation**: Generates a single Python file with proper module separation
 7. **Requirements**: Optionally generates `requirements.txt` with third-party dependencies
 
+### Architecture Overview
+
+Cribo uses a two-stage architecture for clean separation of concerns:
+
+- **BundleOrchestrator** (`orchestrator.rs`): Handles the high-level bundling workflow
+  - Module discovery and import resolution
+  - Dependency graph construction and analysis
+  - Circular dependency detection using Tarjan's algorithm
+  - Coordination of the overall bundling process
+
+- **HybridStaticBundler** (`code_generator.rs`): Manages Python code generation
+  - Implements the sys.modules-based bundling approach
+  - Generates deterministic module names using content hashing
+  - Handles AST transformations and import rewriting
+  - Integrates unused import trimming
+  - Produces the final bundled Python output
+
 ## Output Structure
 
 The bundled output follows this structure:
@@ -429,9 +446,11 @@ See [docs/benchmarking.md](docs/benchmarking.md) for detailed benchmarking guide
 cribo/
 ├── src/                    # Rust source code
 │   ├── main.rs            # CLI entry point
-│   ├── bundler.rs         # Core bundling logic
+│   ├── orchestrator.rs    # Bundle orchestration and coordination
+│   ├── code_generator.rs  # Python code generation (sys.modules approach)
 │   ├── resolver.rs        # Import resolution
-│   ├── emit.rs            # Code generation
+│   ├── dependency_graph.rs # Dependency analysis and circular detection
+│   ├── unused_imports.rs  # Unused import trimming
 │   └── ...
 ├── python/cribo/          # Python package
 ├── tests/                 # Test suites

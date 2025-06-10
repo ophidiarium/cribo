@@ -3,8 +3,8 @@ use env_logger::Env;
 use log::{debug, info};
 use std::path::PathBuf;
 
-use cribo::bundler::Bundler;
 use cribo::config::Config;
+use cribo::orchestrator::BundleOrchestrator;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -88,7 +88,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Create bundler and run
-    let mut bundler = Bundler::new(config);
+    let mut bundler = BundleOrchestrator::new(config);
 
     if cli.stdout {
         // Output to stdout

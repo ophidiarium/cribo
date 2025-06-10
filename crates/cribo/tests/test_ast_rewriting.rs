@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use tempfile::TempDir;
 
-use cribo::bundler::Bundler;
 use cribo::config::Config;
+use cribo::orchestrator::BundleOrchestrator;
 
 /// Test fixture for AST rewriting scenarios
 #[derive(Debug)]
@@ -51,7 +51,7 @@ impl AstRewritingFixture {
             ..Default::default()
         };
 
-        let mut bundler = Bundler::new(config);
+        let mut bundler = BundleOrchestrator::new(config);
 
         // Create temporary output directory
         let temp_dir = TempDir::new()?;
