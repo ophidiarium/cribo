@@ -19,10 +19,6 @@ def __cribo_init___cribo_fddf57_models_user():
     sys.modules['__cribo_fddf57_models_user'] = module
     sys.modules['models.user'] = module
     """\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
-    from enum import Enum
-    module.Enum = Enum
-    from typing import Optional
-    module.Optional = Optional
 
     class UserRole(Enum):
         """User role enumeration."""

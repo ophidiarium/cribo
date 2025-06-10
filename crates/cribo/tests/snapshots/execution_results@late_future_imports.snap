@@ -4,6 +4,6 @@ input_file: crates/cribo/tests/fixtures/bundling/late_future_imports/main.py
 ---
 ExecutionResults {
     status: Success,
-    stdout: "Hello test\nfrom: bundled.py",
+    stdout: "Hello test\nfrom: <stdin>",
     stderr: "",
 }

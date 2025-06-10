@@ -16,8 +16,6 @@ def __cribo_init___cribo_9a4a7e_mypackage_config():
     sys.modules['__cribo_9a4a7e_mypackage_config'] = module
     sys.modules['mypackage.config'] = module
     """Configuration module."""
-    import os
-    module.os = os
 
     class Config:
         """Configuration class."""

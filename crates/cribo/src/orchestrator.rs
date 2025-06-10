@@ -1055,18 +1055,8 @@ impl BundleOrchestrator {
         _resolver: &ModuleResolver,
         entry_module_name: &str,
     ) -> Result<String> {
-        // Check if we only have one module (the entry module)
-        // In this case, we can skip static bundling transformations
-        if sorted_modules.len() == 1 {
-            info!("Only entry module present - outputting original code without transformations");
-
-            let entry_module = sorted_modules[0];
-            let source = fs::read_to_string(&entry_module.path)
-                .with_context(|| format!("Failed to read module file: {:?}", entry_module.path))?;
-
-            // Return the original source code
-            return Ok(source);
-        }
+        // Even for single-file bundles, we need to apply transformations
+        // to ensure future imports are properly hoisted and handled
 
         let mut static_bundler = HybridStaticBundler::new();
 

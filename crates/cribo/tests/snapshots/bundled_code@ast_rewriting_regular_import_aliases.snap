@@ -75,14 +75,8 @@ sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functio
 __cribo_init___cribo_508050_utils_config()
 __cribo_init___cribo_17db52_utils_helpers()
 '''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
-import json as j
-import collections.abc as abc_collections
-import urllib.parse as url_parser
-import xml.etree.ElementTree as xml_tree
 helper_utils = sys.modules['utils.helpers']
 config_module = sys.modules['utils.config']
-import math
-import random
 def main():
     """Test function that uses the imported modules with aliases."""
     print("Current working directory: /test/working/directory")

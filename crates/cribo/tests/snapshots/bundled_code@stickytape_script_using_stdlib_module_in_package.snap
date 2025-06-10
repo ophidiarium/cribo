@@ -38,7 +38,6 @@ class CriboBundledFinder:
         return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_e6b571_greeting()
-import xml.etree.ElementTree
 greeting = sys.modules['greeting']
 print(xml.etree.ElementTree.__name__)
 print(greeting.message)

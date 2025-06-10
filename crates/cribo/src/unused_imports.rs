@@ -884,6 +884,15 @@ impl AstUnusedImportTrimmer {
         mut import_from_stmt: StmtImportFrom,
         unused_imports: &[UnusedImport],
     ) -> Option<Stmt> {
+        // Check if this is a __future__ import - these should always be removed
+        // since they've been hoisted to the top of the bundle
+        if let Some(ref module) = import_from_stmt.module {
+            if module.as_str() == "__future__" {
+                log::debug!("Removing __future__ import (already hoisted to bundle top)");
+                return None;
+            }
+        }
+
         let original_count = import_from_stmt.names.len();
         let filtered_names: Vec<Alias> = import_from_stmt
             .names

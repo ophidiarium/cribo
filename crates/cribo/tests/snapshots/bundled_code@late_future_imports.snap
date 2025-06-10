@@ -7,10 +7,8 @@ input_file: crates/cribo/tests/fixtures/bundling/late_future_imports/main.py
 # https://github.com/ophidiarium/cribo
 
 from __future__ import annotations
-
-# ─ Entry Module: main ─
-"""Test late future imports - these should trigger F404 rule"""
 from pathlib import Path
+"""Test late future imports - these should trigger F404 rule"""
 def main():
     """Main function with future annotations"""
     name: str = "test"

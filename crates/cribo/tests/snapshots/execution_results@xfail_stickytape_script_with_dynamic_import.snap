@@ -7,5 +7,5 @@ ExecutionResults {
         1,
     ),
     stdout: "",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 5, in <module>",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 6, in <module>",
 }

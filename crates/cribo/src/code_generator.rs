@@ -264,6 +264,25 @@ impl HybridStaticBundler {
         Ok(trimmed_modules)
     }
 
+    /// Collect future imports from an AST
+    fn collect_future_imports_from_ast(&mut self, ast: &ModModule) {
+        for stmt in &ast.body {
+            let Stmt::ImportFrom(import_from) = stmt else {
+                continue;
+            };
+
+            let Some(ref module) = import_from.module else {
+                continue;
+            };
+
+            if module.as_str() == "__future__" {
+                for alias in &import_from.names {
+                    self.future_imports.insert(alias.name.to_string());
+                }
+            }
+        }
+    }
+
     /// Bundle multiple modules using the hybrid approach
     pub fn bundle_modules(
         &mut self,
@@ -282,7 +301,13 @@ impl HybridStaticBundler {
                 .collect::<Vec<_>>()
         );
 
-        // First pass: trim unused imports from all modules
+        // First pass: collect future imports from ALL modules before trimming
+        // This ensures future imports are hoisted even if they appear late in the file
+        for (_module_name, ast, _, _) in &modules {
+            self.collect_future_imports_from_ast(ast);
+        }
+
+        // Second pass: trim unused imports from all modules
         let modules = self.trim_unused_imports_from_modules(modules)?;
 
         // Store entry path for relative path calculation
@@ -1602,22 +1627,41 @@ impl HybridStaticBundler {
         })
     }
 
+    /// Check if a specific module is in our hoisted stdlib imports
+    fn is_import_in_hoisted_stdlib(&self, module_name: &str) -> bool {
+        self.stdlib_imports.iter().any(|hoisted| {
+            matches!(hoisted, Stmt::ImportFrom(hoisted_import)
+                if hoisted_import.module.as_ref().map(|m| m.as_str()) == Some(module_name))
+        })
+    }
+
     /// Check if an import has been hoisted
     fn is_hoisted_import(&self, stmt: &Stmt) -> bool {
         match stmt {
             Stmt::ImportFrom(import_from) => {
                 if let Some(ref module) = import_from.module {
                     let module_name = module.as_str();
-                    // Only consider __future__ imports as hoisted from entry module
-                    module_name == "__future__"
-                } else {
-                    false
+                    // Check if this is a __future__ import (always hoisted)
+                    if module_name == "__future__" {
+                        return true;
+                    }
+                    // Check if this is a stdlib import that we've hoisted
+                    if self.is_safe_stdlib_module(module_name) {
+                        // Check if this exact import is in our hoisted stdlib imports
+                        return self.is_import_in_hoisted_stdlib(module_name);
+                    }
                 }
-            }
-            Stmt::Import(_) => {
-                // Regular import statements from entry module should never be considered hoisted
-                // They need to be preserved in their original location for aliases to work
                 false
+            }
+            Stmt::Import(import_stmt) => {
+                // Check if any of the imported modules are stdlib modules we've hoisted
+                import_stmt.names.iter().any(|alias| {
+                    self.is_safe_stdlib_module(alias.name.as_str())
+                        && self.stdlib_imports.iter().any(|hoisted| {
+                            matches!(hoisted, Stmt::Import(hoisted_import)
+                                if hoisted_import.names.iter().any(|h| h.name == alias.name))
+                        })
+                })
             }
             _ => false,
         }
