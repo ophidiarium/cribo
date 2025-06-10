@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.21](https://github.com/ophidiarium/cribo/compare/v0.4.20...v0.4.21) (2025-06-10)
+
+
+### Features
+
+* **bundler:** implement static bundling to eliminate runtime exec() calls ([#104](https://github.com/ophidiarium/cribo/issues/104)) ([d8f4912](https://github.com/ophidiarium/cribo/commit/d8f4912adb179947001f044dd9394a31f1302aa1))
+
 ## [0.4.20](https://github.com/ophidiarium/cribo/compare/v0.4.19...v0.4.20) (2025-06-09)
 
 
