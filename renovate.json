@@ -23,7 +23,7 @@
             "matchPackageNames": [
                 "/^ruff_.*/"
             ],
-            "versioning": "semver",
+            "versioning": "bump",
             "automerge": true,
             "groupName": "⬆️ Update all ruff git dependencies"
         },
