@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/future_imports_basic/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Processing result: {'input': {'key': 'value', 'numbers': [1, 2, 3]}, 'processed': True, 'output': ['key=value', 'numbers=[1, 2, 3]']}",
+    stderr: "",
+}

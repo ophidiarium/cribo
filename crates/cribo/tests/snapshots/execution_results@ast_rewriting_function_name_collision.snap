@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/ast_rewriting_function_name_collision/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Module A result: Module A processed: INPUT FROM A\nModule B result: Module B processed: input from b\nResult: {'module_a': 'Module A processed: INPUT FROM A', 'module_b': 'Module B processed: input from b'}",
+    stderr: "",
+}

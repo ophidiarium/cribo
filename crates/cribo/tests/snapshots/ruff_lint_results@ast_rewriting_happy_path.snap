@@ -1,0 +1,12 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/ast_rewriting_happy_path/main.py
+---
+RuffLintResults {
+    f401_violations: [
+        "Line 6: F401 - `enum.Enum` imported but unused",
+    ],
+    f404_violations: [],
+    other_violations: [],
+    total_violations: 1,
+}

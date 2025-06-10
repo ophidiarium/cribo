@@ -1,0 +1,12 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/init_reexports/main.py
+---
+RuffLintResults {
+    f401_violations: [
+        "Line 5: F401 - `os` imported but unused",
+    ],
+    f404_violations: [],
+    other_violations: [],
+    total_violations: 1,
+}

@@ -1,8 +1,0 @@
----
-source: crates/serpen/tests/test_bundling_snapshots.rs
----
-ExecutionResults {
-    status: Success,
-    stdout: "Hello test\nfrom: bundled.py",
-    stderr: "",
-}

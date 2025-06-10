@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/stickytape_module_with_triple_quotes/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Hello\n'''\n\"\"\"",
+    stderr: "",
+}

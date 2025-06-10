@@ -5,6 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.4.20"
 authors = ["Konstantin Vyatkin <tino@vtkn.io>"]
+default-run = "cribo"
 edition = "2024"
 homepage = "https://github.com/ophidiarium/cribo"
 license = "MIT"
@@ -50,7 +51,7 @@ pyo3 = "0.25"
 pyo3-build-config = "0.25"
 
 # Testing
-insta = { version = "1.43.1", features = ["filters"] }
+insta = { version = "1.43.1", features = ["filters", "glob"] }
 pretty_assertions = "1.4.1"
 serial_test = "3.2.0"
 tempfile = "3.20.0"

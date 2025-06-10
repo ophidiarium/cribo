@@ -1,0 +1,5 @@
+---
+source: crates/cribo/tests/test_cli_stdout.rs
+expression: stderr
+---
+Error: Either --output or --stdout must be specified

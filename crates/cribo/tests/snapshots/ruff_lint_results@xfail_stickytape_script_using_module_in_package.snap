@@ -1,0 +1,10 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/xfail_stickytape_script_using_module_in_package/main.py
+---
+RuffLintResults {
+    f401_violations: [],
+    f404_violations: [],
+    other_violations: [],
+    total_violations: 0,
+}

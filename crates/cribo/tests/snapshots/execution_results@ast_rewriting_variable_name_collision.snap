@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/ast_rewriting_variable_name_collision/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Constants API URL: https://api.constants.com\nConfig API URL: https://api.constants.com\nConstants Version: 1.0.0\nConfig Version: 1.0.0\nDefault Timeout: 30\nMax Retries: 3\nResult: {'constants_api_url': 'https://api.constants.com', 'config_api_url': 'https://api.constants.com', 'constants_version': '1.0.0', 'config_version': '1.0.0', 'default_timeout': 30, 'max_retries': 3}",
+    stderr: "",
+}

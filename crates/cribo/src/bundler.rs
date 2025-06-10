@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::Config;
 use crate::dependency_graph::{CircularDependencyGroup, DependencyGraph, ModuleNode};
-use crate::emit::CodeEmitter;
+use crate::hybrid_static_bundler::HybridStaticBundler;
 use crate::resolver::{ImportType, ModuleResolver};
 use crate::util::{module_name_from_relative, normalize_line_endings};
 
@@ -188,9 +188,17 @@ impl Bundler {
             graph.topological_sort()?
         };
         info!("Found {} modules to bundle", sorted_modules.len());
+        debug!("=== DEPENDENCY GRAPH DEBUG ===");
+        for module in graph.get_modules() {
+            if let Some(deps) = graph.get_dependencies(&module.name) {
+                debug!("Module '{}' depends on: {:?}", module.name, deps);
+            }
+        }
+        debug!("=== TOPOLOGICAL SORT ORDER ===");
         for (i, module) in sorted_modules.iter().enumerate() {
             debug!("Module {}: {} ({:?})", i, module.name, module.path);
         }
+        debug!("=== END DEBUG ===");
         Ok(sorted_modules)
     }
 
@@ -215,17 +223,13 @@ impl Bundler {
         let sorted_modules = self.get_sorted_modules_from_graph(&graph)?;
 
         // Generate bundled code
-        let mut emitter = CodeEmitter::new(
-            resolver,
-            self.config.preserve_comments,
-            self.config.preserve_type_hints,
-        );
-
-        let bundled_code = emitter.emit_bundle(&sorted_modules, &entry_module_name)?;
+        info!("Using hybrid static bundler");
+        let bundled_code =
+            self.emit_static_bundle(&sorted_modules, &resolver, &entry_module_name)?;
 
         // Generate requirements.txt if requested
         if emit_requirements {
-            self.write_requirements_file_for_stdout(&sorted_modules, &mut emitter)?;
+            self.write_requirements_file_for_stdout(&sorted_modules, &resolver)?;
         }
 
         Ok(bundled_code)
@@ -254,24 +258,20 @@ impl Bundler {
         let sorted_modules = self.get_sorted_modules_from_graph(&graph)?;
 
         // Generate bundled code
-        let mut emitter = CodeEmitter::new(
-            resolver,
-            self.config.preserve_comments,
-            self.config.preserve_type_hints,
-        );
+        info!("Using hybrid static bundler");
+        let bundled_code =
+            self.emit_static_bundle(&sorted_modules, &resolver, &entry_module_name)?;
 
-        let bundled_code = emitter.emit_bundle(&sorted_modules, &entry_module_name)?;
+        // Generate requirements.txt if requested
+        if emit_requirements {
+            self.write_requirements_file(&sorted_modules, &resolver, output_path)?;
+        }
 
         // Write output file
         fs::write(output_path, bundled_code)
             .with_context(|| format!("Failed to write output file: {:?}", output_path))?;
 
         info!("Bundle written to: {:?}", output_path);
-
-        // Generate requirements.txt if requested
-        if emit_requirements {
-            self.write_requirements_file(&sorted_modules, &mut emitter, output_path)?;
-        }
 
         Ok(())
     }
@@ -847,6 +847,15 @@ impl Bundler {
         resolver_and_graph: (&ModuleResolver, &mut DependencyGraph),
     ) {
         let (resolver, graph) = resolver_and_graph;
+        // Skip if parent_module is the same as module_name to avoid self-dependencies
+        if parent_module == module_name {
+            debug!(
+                "Skipping self-dependency: {} -> {}",
+                parent_module, module_name
+            );
+            return;
+        }
+
         if resolver.classify_import(parent_module) == ImportType::FirstParty
             && graph.get_module(parent_module).is_some()
         {
@@ -864,9 +873,9 @@ impl Bundler {
     fn write_requirements_file_for_stdout(
         &self,
         sorted_modules: &[&ModuleNode],
-        emitter: &mut CodeEmitter,
+        resolver: &ModuleResolver,
     ) -> Result<()> {
-        let requirements_content = emitter.generate_requirements(sorted_modules)?;
+        let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
         if !requirements_content.is_empty() {
             let requirements_path = Path::new("requirements.txt");
 
@@ -885,10 +894,10 @@ impl Bundler {
     fn write_requirements_file(
         &self,
         sorted_modules: &[&ModuleNode],
-        emitter: &mut CodeEmitter,
+        resolver: &ModuleResolver,
         output_path: &Path,
     ) -> Result<()> {
-        let requirements_content = emitter.generate_requirements(sorted_modules)?;
+        let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
         if !requirements_content.is_empty() {
             let requirements_path = output_path
                 .parent()
@@ -1037,5 +1046,105 @@ impl Bundler {
                 imported_name, context.base_module
             );
         }
+    }
+
+    /// Emit bundle using static bundler (no exec calls)
+    fn emit_static_bundle(
+        &self,
+        sorted_modules: &[&ModuleNode],
+        _resolver: &ModuleResolver,
+        entry_module_name: &str,
+    ) -> Result<String> {
+        // Check if we only have one module (the entry module)
+        // In this case, we can skip static bundling transformations
+        if sorted_modules.len() == 1 {
+            info!("Only entry module present - outputting original code without transformations");
+
+            let entry_module = sorted_modules[0];
+            let source = fs::read_to_string(&entry_module.path)
+                .with_context(|| format!("Failed to read module file: {:?}", entry_module.path))?;
+
+            // Return the original source code
+            return Ok(source);
+        }
+
+        let mut static_bundler = HybridStaticBundler::new();
+
+        // Parse all modules and prepare them for bundling
+        let mut module_asts = Vec::new();
+
+        for module in sorted_modules {
+            let source = fs::read_to_string(&module.path)
+                .with_context(|| format!("Failed to read module file: {:?}", module.path))?;
+            let source = crate::util::normalize_line_endings(source);
+
+            // Calculate content hash for deterministic module naming
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(source.as_bytes());
+            let hash = hasher.finalize();
+            let content_hash = format!("{:x}", hash);
+
+            // Parse into AST
+            let ast = ruff_python_parser::parse_module(&source)
+                .with_context(|| format!("Failed to parse module: {:?}", module.path))?;
+
+            module_asts.push((
+                module.name.clone(),
+                ast.into_syntax(),
+                module.path.clone(),
+                content_hash,
+            ));
+        }
+
+        // Bundle all modules using static bundler
+        let bundled_ast =
+            static_bundler.bundle_modules(module_asts, sorted_modules, entry_module_name)?;
+
+        // Generate Python code from AST
+        let empty_parsed = ruff_python_parser::parse_module("")?;
+        let stylist = ruff_python_codegen::Stylist::from_tokens(empty_parsed.tokens(), "");
+
+        let mut code_parts = Vec::new();
+        for stmt in &bundled_ast.body {
+            let generator = ruff_python_codegen::Generator::from(&stylist);
+            let stmt_code = generator.stmt(stmt);
+            code_parts.push(stmt_code);
+        }
+
+        // Add shebang and header
+        let mut final_output = vec![
+            "#!/usr/bin/env python3".to_string(),
+            "# Generated by Cribo - Python Source Bundler".to_string(),
+            "# https://github.com/ophidiarium/cribo".to_string(),
+            String::new(), // Empty line
+        ];
+        final_output.extend(code_parts);
+
+        Ok(final_output.join("\n"))
+    }
+
+    /// Generate requirements.txt content from third-party imports
+    fn generate_requirements(
+        &self,
+        modules: &[&ModuleNode],
+        resolver: &ModuleResolver,
+    ) -> Result<String> {
+        let mut third_party_imports = IndexSet::new();
+
+        for module in modules {
+            for import in &module.imports {
+                if let ImportType::ThirdParty = resolver.classify_import(import) {
+                    // Extract top-level package name
+                    let package_name = import.split('.').next().unwrap_or(import);
+                    third_party_imports.insert(package_name.to_string());
+                }
+            }
+        }
+
+        let mut requirements: Vec<String> = third_party_imports.into_iter().collect();
+        requirements.sort();
+
+        Ok(requirements.join("\n"))
     }
 }

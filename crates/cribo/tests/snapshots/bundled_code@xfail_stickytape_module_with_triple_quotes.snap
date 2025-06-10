@@ -1,0 +1,37 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/xfail_stickytape_module_with_triple_quotes/main.py
+---
+import sys, types
+def __cribo_init___cribo_a42795_greeting():
+    if '__cribo_a42795_greeting' in sys.modules:
+        return sys.modules['__cribo_a42795_greeting']
+    module = types.ModuleType('__cribo_a42795_greeting')
+    module.__file__ = '/Volumes/workplace/GitHub/ophidiarium/cribo/crates/cribo/tests/fixtures/bundling/xfail_stickytape_module_with_triple_quotes/greeting.py'
+    sys.modules['__cribo_a42795_greeting'] = module
+    sys.modules['greeting'] = module
+    message = "Hello\n'''\n" + '"""'
+    module.message = message
+    return module
+__cribo_modules = {'greeting': '__cribo_a42795_greeting'}
+__cribo_init_functions = {'__cribo_a42795_greeting': __cribo_init___cribo_a42795_greeting}
+class CriboBundledFinder:
+
+    def __init__(self, module_registry, init_functions):
+        self.module_registry = module_registry
+        self.init_functions = init_functions
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname in self.module_registry:
+            synthetic_name = self.module_registry[fullname]
+            if synthetic_name not in sys.modules:
+                init_func = self.init_functions.get(synthetic_name)
+                if init_func:
+                    init_func()
+            import importlib.util
+            return importlib.util.find_spec(synthetic_name)
+        return None
+sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
+__cribo_init___cribo_a42795_greeting()
+greeting = sys.modules['greeting']
+print(greeting.message)

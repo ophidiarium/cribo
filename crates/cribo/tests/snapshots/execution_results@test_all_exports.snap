@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/test_all_exports/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Helper result: helper_result\nUtility value: test\ntest_all_exports_complete",
+    stderr: "",
+}

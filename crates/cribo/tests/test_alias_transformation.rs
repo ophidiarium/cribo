@@ -42,36 +42,34 @@ fn test_alias_transformation_removes_redundant_imports() -> Result<()> {
     // Read the bundled output
     let bundled_output = std::fs::read_to_string(&output_path)?;
 
-    // The key assertions that will fail without proper transform_module_ast:
+    // The key assertions for hybrid bundler behavior:
 
-    // 1. Should NOT contain aliased imports in preserved imports section
+    // 1. Stdlib imports with aliases are preserved as-is
     assert!(
-        !bundled_output.contains("# Preserved imports\nimport json"),
-        "Bundled output should NOT contain json in preserved imports when it's aliased"
+        bundled_output.contains("import json as j"),
+        "Bundled output should contain aliased json import"
     );
     assert!(
-        !bundled_output.contains("# Preserved imports\nimport os"),
-        "Bundled output should NOT contain os in preserved imports when it's aliased"
+        bundled_output.contains("import os as operating_system"),
+        "Bundled output should contain aliased os import"
     );
     assert!(
-        !bundled_output.contains("# Preserved imports\nimport sys"),
-        "Bundled output should NOT contain sys in preserved imports when it's aliased"
+        bundled_output.contains("import sys as system_info"),
+        "Bundled output should contain aliased sys import"
     );
 
-    // 2. Should have imports for alias assignments in separate section
+    // 2. Local module imports are transformed to simple assignments since modules are inlined
     assert!(
-        bundled_output.contains("# Imports for alias assignments\nimport json")
-            || bundled_output.contains("# Imports for alias assignments")
-                && bundled_output.contains("import json"),
-        "Should have json import in alias assignments section"
+        bundled_output.contains("process_a = process_data"),
+        "Should have process_a assignment to inlined function"
     );
     assert!(
-        bundled_output.contains("import os") && bundled_output.contains("operating_system = os"),
-        "Should have both 'import os' (for alias) and alias assignment"
+        bundled_output.contains("format_a = format_output"),
+        "Should have format_a assignment to inlined function"
     );
     assert!(
-        bundled_output.contains("import sys") && bundled_output.contains("system_info = sys"),
-        "Should have both 'import sys' (for alias) and alias assignment"
+        bundled_output.contains("config_a = load_config"),
+        "Should have config_a assignment to inlined function"
     );
 
     // 2. Should NOT contain aliased from-import statements
@@ -95,44 +93,20 @@ fn test_alias_transformation_removes_redundant_imports() -> Result<()> {
     );
     // The remaining non-aliased item should still be present in some form or handled by bundling
 
-    // 4. Should contain alias assignments
-    assert!(
-        bundled_output.contains("j = json"),
-        "Bundled output should contain alias assignment for json"
-    );
-    assert!(
-        bundled_output.contains("operating_system = os"),
-        "Bundled output should contain alias assignment for os"
-    );
-    assert!(
-        bundled_output.contains("system_info = sys"),
-        "Bundled output should contain alias assignment for sys"
-    );
-    assert!(
-        bundled_output.contains("process_a = process_data"),
-        "Bundled output should contain alias assignment for process_data"
-    );
-    assert!(
-        bundled_output.contains("format_a = format_output"),
-        "Bundled output should contain alias assignment for format_output"
-    );
-    assert!(
-        bundled_output.contains("config_a = load_config"),
-        "Bundled output should contain alias assignment for load_config"
-    );
+    // 4. Mixed from-import should have simple assignments since modules are inlined
     assert!(
         bundled_output.contains("debug_a = debug_print"),
-        "Bundled output should contain alias assignment for debug_print"
+        "Should have debug_a assignment to inlined function"
     );
 
-    // 5. Should still contain non-aliased imports
+    // 5. Non-aliased stdlib imports remain unchanged
     assert!(
         bundled_output.contains("import math"),
-        "Non-aliased imports should remain unchanged"
+        "Non-aliased math import should remain"
     );
     assert!(
         bundled_output.contains("import hashlib"),
-        "Non-aliased imports should remain unchanged"
+        "Non-aliased hashlib import should remain"
     );
 
     // 6. Should contain the bundled module code
@@ -176,20 +150,20 @@ fn test_alias_assignments_generation() -> Result<()> {
     // Read the bundled output
     let bundled_output = std::fs::read_to_string(&output_path)?;
 
-    // This should work regardless of transform_module_ast implementation
-    // because generate_alias_assignments should create these
+    // With hybrid bundler, stdlib imports are preserved with aliases
+    // Local imports use sys.modules
 
     assert!(
-        bundled_output.contains("j = json"),
-        "Should generate alias assignment for json"
+        bundled_output.contains("import json as j"),
+        "Should have aliased json import"
     );
     assert!(
-        bundled_output.contains("operating_system = os"),
-        "Should generate alias assignment for os"
+        bundled_output.contains("import os as operating_system"),
+        "Should have aliased os import"
     );
     assert!(
-        bundled_output.contains("system_info = sys"),
-        "Should generate alias assignment for sys"
+        bundled_output.contains("import sys as system_info"),
+        "Should have aliased sys import"
     );
 
     Ok(())

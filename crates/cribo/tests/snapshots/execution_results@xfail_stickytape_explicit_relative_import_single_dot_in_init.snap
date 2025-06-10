@@ -1,0 +1,11 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/xfail_stickytape_explicit_relative_import_single_dot_in_init/main.py
+---
+ExecutionResults {
+    status: Failed(
+        1,
+    ),
+    stdout: "",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 39, in <module>",
+}

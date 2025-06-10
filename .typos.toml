@@ -9,6 +9,7 @@ extend-exclude = [
     "tests/**",
     "**/CHANGELOG.md",
     "GOVERNANCE.md",
+    "temp/**",
 ]
 
 [default.extend-words]

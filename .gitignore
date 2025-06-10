@@ -60,3 +60,6 @@ references/
 node_modules/
 
 incoming-docs/
+
+# Temporary test output files
+temp/

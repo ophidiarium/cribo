@@ -458,6 +458,44 @@ cargo test --package cribo unused_imports
 cargo test --package cribo test_simple_project_bundling
 ```
 
+#### Running Specific Bundling Fixtures with Insta Glob
+
+The bundling snapshot tests use Insta's glob feature for automatic fixture discovery. You can run specific fixtures using glob filters:
+
+```bash
+# Run a specific fixture using environment variable
+INSTA_GLOB_FILTER="**/stickytape_single_file/main.py" cargo test -p cribo --test test_bundling_snapshots test_bundling_fixtures
+
+# Or using command line flag
+cargo test test_bundling_fixtures -- --glob-filter "**/stickytape_single_file/main.py"
+
+# Run multiple specific fixtures (use regex OR pattern)
+INSTA_GLOB_FILTER="**/simple_math/main.py|**/future_imports_basic/main.py" cargo test test_bundling_fixtures
+
+# Run all fixtures matching a pattern
+INSTA_GLOB_FILTER="**/future_imports_*/main.py" cargo test test_bundling_fixtures
+
+# Run fixture with debug output to see which fixture is running
+INSTA_GLOB_FILTER="**/stickytape_single_file/main.py" cargo test test_bundling_fixtures -- --nocapture
+
+# List available fixtures (useful for finding fixture names)
+find crates/cribo/tests/fixtures/bundling -name "main.py" -type f | sed 's|.*/bundling/||' | sed 's|/main.py||' | sort
+```
+
+**Common fixture patterns:**
+
+- `stickytape_*` - Compatibility tests from stickytape project
+- `future_imports_*` - Tests for **future** import handling
+- `ast_rewriting_*` - Tests for AST transformation features
+- `xfail_*` - Expected failure fixtures (prefix with xfail_)
+
+**Tips:**
+
+- The glob filter matches against the full path relative to the glob base directory
+- Use `**` to match any number of directories
+- The fixture name is the directory name containing `main.py`
+- Fixtures are automatically discovered - just add a new directory with `main.py`
+
 ### Benchmarking Commands
 
 ```bash
@@ -864,6 +902,26 @@ cargo insta accept
 ```
 
 DO NOT use `cargo insta review` as that requires interactive input.
+
+**Managing Unreferenced Snapshots:**
+
+```bash
+# List unreferenced snapshots without deleting them
+cargo insta test --unreferenced=reject
+
+# Auto-delete unreferenced snapshots
+cargo insta test --unreferenced=auto
+
+# Warn about unreferenced snapshots (default behavior)
+cargo insta test --unreferenced=warn
+```
+
+**When to use:**
+
+- After refactoring tests that change snapshot names
+- After deleting tests that had associated snapshots
+- When migrating snapshot locations (e.g., moving to test-specific directories)
+- To clean up orphaned snapshots from renamed fixtures
 
 #### Coverage Requirements
 

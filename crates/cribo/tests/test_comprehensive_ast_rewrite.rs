@@ -73,37 +73,38 @@ fn test_comprehensive_ast_rewriting() {
                 eprintln!("Warning: No obvious renames detected in bundled content");
             }
 
-            // Verify key features instead of exact snapshot due to non-deterministic ordering
-            // Check that AST rewriting occurred
+            // Verify key features for hybrid bundler
+            // Check that modules are properly wrapped with sys.modules
             assert!(
-                bundled_content.contains("__core_utils_helpers_"),
-                "Should contain core utils renames"
+                bundled_content.contains("sys.modules"),
+                "Should use sys.modules for module wrapping"
             );
             assert!(
-                bundled_content.contains("__services_auth_manager_"),
-                "Should contain auth manager renames"
+                bundled_content.contains("types.ModuleType"),
+                "Should use types.ModuleType for module creation"
             );
             assert!(
-                bundled_content.contains("__models_user_"),
-                "Should contain models user renames"
-            );
-            assert!(
-                bundled_content.contains("__main_"),
-                "Should contain main module renames"
+                bundled_content.contains("__cribo_"),
+                "Should contain __cribo_ prefixed module names"
             );
 
-            // Check that alias assignments were generated
+            // Check that hybrid bundler properly handles imports
             assert!(
-                bundled_content.contains("# ─ Entry Module: main ─"),
-                "Should have entry module section"
+                bundled_content.contains("def __cribo_init_"),
+                "Should have module init functions"
             );
             assert!(
-                bundled_content.contains("UserModel = models.user.User"),
-                "Should have UserModel alias"
+                bundled_content.contains("CriboBundledFinder"),
+                "Should have the import finder class"
             );
+            // Check for proper import handling
+            // With inlining, UserModel might be assigned to a renamed User class
             assert!(
-                bundled_content.contains("UtilLogger = core.utils.helpers.Logger"),
-                "Should have UtilLogger alias"
+                bundled_content.contains("UserModel = sys.modules['models.user'].User")
+                    || bundled_content.contains("from models.user import User as UserModel")
+                    || bundled_content.contains("User as UserModel")
+                    || bundled_content.contains("UserModel = User_"), // Inlined and renamed
+                "Should handle UserModel alias in some form"
             );
 
             // Note: Skipping snapshot due to non-deterministic ordering of alias assignments

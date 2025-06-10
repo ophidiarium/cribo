@@ -1,5 +1,5 @@
 ---
-source: crates/serpen/tests/test_circular_dependencies.rs
+source: crates/cribo/tests/test_circular_dependencies.rs
 expression: error_msg
 ---
 Circular dependencies detected in the module graph:

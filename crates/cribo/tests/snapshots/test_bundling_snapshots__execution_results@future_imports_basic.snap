@@ -1,8 +1,0 @@
----
-source: crates/cribo/tests/test_bundling_snapshots.rs
----
-ExecutionResults {
-    status: Success,
-    stdout: "Processing result: {'input': {'key': 'value', 'numbers': [1, 2, 3]}, 'processed': True, 'output': ['key=value', 'numbers=[1, 2, 3]']}",
-    stderr: "",
-}
