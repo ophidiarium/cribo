@@ -1,4 +1,9 @@
 # yaml-language-server: =https://json.schemastore.org/lefthook.json
+output:
+  # - summary # Print summary block (successful and failed steps)
+  # - empty_summary # Print summary heading when there are no steps to run
+  - failure # Print failed steps printing
+# - skips # Print "skip" (i.e. no files matched)
 assert_lefthook_installed: true
 pre-commit:
   commands:
