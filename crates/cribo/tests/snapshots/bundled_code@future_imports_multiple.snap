@@ -7,10 +7,10 @@ input_file: crates/cribo/tests/fixtures/bundling/future_imports_multiple/main.py
 # https://github.com/ophidiarium/cribo
 
 from __future__ import annotations, division, print_function
-def func_b():
-    print("Function B")
 def func_a():
     print("Function A")
+def func_b():
+    print("Function B")
 def main():
     func_a()
     func_b()

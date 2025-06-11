@@ -6,7 +6,14 @@ use ruff_python_ast::{
     StmtImport, StmtImportFrom, StringLiteralValue,
 };
 use ruff_text_size::TextRange;
+use rustc_hash::FxHasher;
+use std::hash::BuildHasherDefault;
 use std::path::{Path, PathBuf};
+
+/// Type alias for IndexMap with FxHasher for better performance
+type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
+/// Type alias for IndexSet with FxHasher for better performance
+type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 
 /// Context for module transformation operations
 struct ModuleTransformContext<'a> {
@@ -17,32 +24,34 @@ struct ModuleTransformContext<'a> {
 
 /// Context for inlining operations
 struct InlineContext<'a> {
-    module_exports_map: &'a IndexMap<String, Option<Vec<String>>>,
-    global_symbols: &'a mut IndexSet<String>,
-    module_renames: &'a mut IndexMap<String, IndexMap<String, String>>,
+    module_exports_map: &'a FxIndexMap<String, Option<Vec<String>>>,
+    global_symbols: &'a mut FxIndexSet<String>,
+    module_renames: &'a mut FxIndexMap<String, FxIndexMap<String, String>>,
     inlined_stmts: &'a mut Vec<Stmt>,
 }
 
-use crate::dependency_graph::ModuleNode;
 use crate::unused_imports::AstUnusedImportTrimmer;
 
 /// Hybrid static bundler that uses sys.modules and hash-based naming
 /// This approach avoids forward reference issues while maintaining Python module semantics
 pub struct HybridStaticBundler {
     /// Map from original module name to synthetic module name
-    module_registry: IndexMap<String, String>,
+    module_registry: FxIndexMap<String, String>,
     /// Map from synthetic module name to init function name
-    init_functions: IndexMap<String, String>,
+    init_functions: FxIndexMap<String, String>,
     /// Collected future imports
-    future_imports: IndexSet<String>,
+    future_imports: FxIndexSet<String>,
     /// Collected stdlib imports that are safe to hoist
-    stdlib_imports: Vec<Stmt>,
+    /// Maps module name to set of imported names for deduplication
+    stdlib_import_from_map: FxIndexMap<String, FxIndexSet<String>>,
+    /// Regular import statements (import module)
+    stdlib_import_statements: Vec<Stmt>,
     /// Track which modules have been bundled
-    bundled_modules: IndexSet<String>,
+    bundled_modules: FxIndexSet<String>,
     /// Entry point path for calculating relative paths
     entry_path: Option<String>,
     /// Module export information (for __all__ handling)
-    module_exports: IndexMap<String, Option<Vec<String>>>,
+    module_exports: FxIndexMap<String, Option<Vec<String>>>,
     /// Unused import trimmer for cleaning up bundled code
     unused_import_trimmer: AstUnusedImportTrimmer,
 }
@@ -56,13 +65,14 @@ impl Default for HybridStaticBundler {
 impl HybridStaticBundler {
     pub fn new() -> Self {
         Self {
-            module_registry: IndexMap::new(),
-            init_functions: IndexMap::new(),
-            future_imports: IndexSet::new(),
-            stdlib_imports: Vec::new(),
-            bundled_modules: IndexSet::new(),
+            module_registry: FxIndexMap::default(),
+            init_functions: FxIndexMap::default(),
+            future_imports: FxIndexSet::default(),
+            stdlib_import_from_map: FxIndexMap::default(),
+            stdlib_import_statements: Vec::new(),
+            bundled_modules: FxIndexSet::default(),
             entry_path: None,
-            module_exports: IndexMap::new(),
+            module_exports: FxIndexMap::default(),
             unused_import_trimmer: AstUnusedImportTrimmer::new(),
         }
     }
@@ -287,7 +297,7 @@ impl HybridStaticBundler {
     pub fn bundle_modules(
         &mut self,
         modules: Vec<(String, ModModule, PathBuf, String)>, // Added content hash
-        sorted_module_nodes: &[&ModuleNode],
+        sorted_modules: &[(String, PathBuf, Vec<String>)],  // Module data from CriboGraph
         entry_module_name: &str,
     ) -> Result<ModModule> {
         let mut final_body = Vec::new();
@@ -311,8 +321,8 @@ impl HybridStaticBundler {
         let modules = self.trim_unused_imports_from_modules(modules)?;
 
         // Store entry path for relative path calculation
-        if let Some(entry_node) = sorted_module_nodes.last() {
-            self.entry_path = Some(entry_node.path.to_string_lossy().to_string());
+        if let Some((_, entry_path, _)) = sorted_modules.last() {
+            self.entry_path = Some(entry_path.to_string_lossy().to_string());
         }
 
         // Track bundled modules
@@ -328,7 +338,7 @@ impl HybridStaticBundler {
         // Separate modules into inlinable and non-inlinable
         let mut inlinable_modules = Vec::new();
         let mut wrapper_modules = Vec::new();
-        let mut module_exports_map = IndexMap::new();
+        let mut module_exports_map = FxIndexMap::default();
 
         for (module_name, ast, module_path, content_hash) in &modules {
             if module_name == entry_module_name {
@@ -377,9 +387,21 @@ impl HybridStaticBundler {
             }
         }
 
-        // First pass: collect imports from ALL modules (for hoisting)
-        for (_module_name, ast, _, _) in &modules {
+        // First pass: normalize stdlib import aliases in ALL modules before collecting imports
+        let mut modules_normalized = modules;
+        for (_module_name, ast, _, _) in &mut modules_normalized {
+            self.normalize_stdlib_import_aliases(ast);
+        }
+
+        // Second pass: collect imports from ALL modules (for hoisting)
+        for (_module_name, ast, _, _) in &modules_normalized {
             self.collect_imports_from_module(ast);
+        }
+
+        // If we have wrapper modules, inject sys and types as stdlib dependencies
+        if !wrapper_modules.is_empty() {
+            self.add_stdlib_import("sys");
+            self.add_stdlib_import("types");
         }
 
         // Register wrapper modules
@@ -406,9 +428,6 @@ impl HybridStaticBundler {
         let need_sys_import = !wrapper_modules.is_empty();
 
         if need_sys_import {
-            // Add import infrastructure (sys, types imports)
-            final_body.extend(self.generate_import_infrastructure_without_registries());
-
             // Transform wrapper modules into init functions
             for (module_name, ast, module_path, _content_hash) in wrapper_modules {
                 let synthetic_name = self.module_registry[&module_name].clone();
@@ -426,8 +445,9 @@ impl HybridStaticBundler {
         }
 
         // Collect global symbols from the entry module first
-        let mut global_symbols = self.collect_global_symbols(&modules, entry_module_name);
-        let mut symbol_renames = IndexMap::new();
+        let mut global_symbols =
+            self.collect_global_symbols(&modules_normalized, entry_module_name);
+        let mut symbol_renames = FxIndexMap::default();
 
         // Inline the inlinable modules BEFORE initializing wrapper modules
         // This ensures that any symbols referenced by wrapper modules are already defined
@@ -451,12 +471,12 @@ impl HybridStaticBundler {
 
         // Initialize wrapper modules in dependency order AFTER inlined modules are defined
         if need_sys_import {
-            for module_node in sorted_module_nodes {
-                if module_node.name == entry_module_name {
+            for (module_name, _, _) in sorted_modules {
+                if module_name == entry_module_name {
                     continue;
                 }
 
-                if let Some(synthetic_name) = self.module_registry.get(&module_node.name) {
+                if let Some(synthetic_name) = self.module_registry.get(module_name) {
                     let init_call = self.generate_module_init_call(synthetic_name);
                     final_body.push(init_call);
                 }
@@ -464,20 +484,20 @@ impl HybridStaticBundler {
 
             // After all wrapper modules are initialized, set any missing attributes
             // for symbols imported from inlined modules
-            for module_node in sorted_module_nodes {
-                if module_node.name != entry_module_name
-                    && self.module_registry.contains_key(&module_node.name)
+            for (module_name, _, _) in sorted_modules {
+                if module_name != entry_module_name
+                    && self.module_registry.contains_key(module_name)
                 {
                     // This is a wrapper module - check if it needs attributes from inlined modules
                     let post_init_stmts =
-                        self.generate_post_init_attributes(&module_node.name, &modules);
+                        self.generate_post_init_attributes(module_name, &modules_normalized);
                     final_body.extend(post_init_stmts);
                 }
             }
         }
 
         // Finally, add entry module code (it's always last in topological order)
-        for (module_name, ast, _, _) in modules {
+        for (module_name, ast, _, _) in modules_normalized {
             if module_name != entry_module_name {
                 continue;
             }
@@ -529,7 +549,7 @@ impl HybridStaticBundler {
                     // Transform any import statements in non-entry modules
                     if !self.is_hoisted_import(&stmt) {
                         // For wrapper modules, we don't have symbol renames
-                        let empty_renames = IndexMap::new();
+                        let empty_renames = FxIndexMap::default();
                         let transformed_stmts = self.rewrite_import_in_stmt_multiple_with_context(
                             stmt.clone(),
                             ctx.module_name,
@@ -604,25 +624,6 @@ impl HybridStaticBundler {
             is_async: false,
             range: TextRange::default(),
         }))
-    }
-
-    /// Generate only the sys and types imports
-    fn generate_import_infrastructure_without_registries(&self) -> Vec<Stmt> {
-        vec![Stmt::Import(StmtImport {
-            names: vec![
-                ruff_python_ast::Alias {
-                    name: Identifier::new("sys", TextRange::default()),
-                    asname: None,
-                    range: TextRange::default(),
-                },
-                ruff_python_ast::Alias {
-                    name: Identifier::new("types", TextRange::default()),
-                    asname: None,
-                    range: TextRange::default(),
-                },
-            ],
-            range: TextRange::default(),
-        })]
     }
 
     /// Generate registries and import hook after init functions are defined
@@ -1422,9 +1423,47 @@ impl HybridStaticBundler {
             }));
         }
 
-        // Then stdlib imports
-        for import_stmt in &self.stdlib_imports {
-            final_body.push(import_stmt.clone());
+        // Then stdlib from imports - deduplicated and sorted by module name
+        let mut sorted_modules: Vec<_> = self.stdlib_import_from_map.iter().collect();
+        sorted_modules.sort_by_key(|(module_name, _)| *module_name);
+
+        for (module_name, imported_names) in sorted_modules {
+            // Sort the imported names for deterministic output
+            let mut sorted_names: Vec<String> = imported_names.iter().cloned().collect();
+            sorted_names.sort();
+
+            let aliases: Vec<ruff_python_ast::Alias> = sorted_names
+                .into_iter()
+                .map(|name| ruff_python_ast::Alias {
+                    name: Identifier::new(&name, TextRange::default()),
+                    asname: None,
+                    range: TextRange::default(),
+                })
+                .collect();
+
+            final_body.push(Stmt::ImportFrom(StmtImportFrom {
+                module: Some(Identifier::new(module_name, TextRange::default())),
+                names: aliases,
+                level: 0,
+                range: TextRange::default(),
+            }));
+        }
+
+        // Finally, regular import statements - deduplicated and sorted by module name
+        let mut seen_modules = FxIndexSet::default();
+        let mut unique_imports = Vec::new();
+
+        for stmt in &self.stdlib_import_statements {
+            if let Stmt::Import(import_stmt) = stmt {
+                self.collect_unique_imports(import_stmt, &mut seen_modules, &mut unique_imports);
+            }
+        }
+
+        // Sort by module name for deterministic output
+        unique_imports.sort_by_key(|(module_name, _)| module_name.clone());
+
+        for (_, import_stmt) in unique_imports {
+            final_body.push(import_stmt);
         }
     }
 
@@ -1444,7 +1483,7 @@ impl HybridStaticBundler {
     }
 
     /// Collect ImportFrom statements
-    fn collect_import_from(&mut self, import_from: &StmtImportFrom, stmt: &Stmt) {
+    fn collect_import_from(&mut self, import_from: &StmtImportFrom, _stmt: &Stmt) {
         let Some(ref module) = import_from.module else {
             return;
         };
@@ -1455,18 +1494,477 @@ impl HybridStaticBundler {
                 self.future_imports.insert(alias.name.to_string());
             }
         } else if self.is_safe_stdlib_module(module_name) {
-            self.stdlib_imports.push(stmt.clone());
+            // Get or create the set of imported names for this module
+            let imported_names = self
+                .stdlib_import_from_map
+                .entry(module_name.to_string())
+                .or_default();
+
+            // Add all imported names to the set (this automatically deduplicates)
+            for alias in &import_from.names {
+                imported_names.insert(alias.name.to_string());
+            }
         }
     }
 
+    /// Collect unique imports from an import statement
+    fn collect_unique_imports(
+        &self,
+        import_stmt: &StmtImport,
+        seen_modules: &mut FxIndexSet<String>,
+        unique_imports: &mut Vec<(String, Stmt)>,
+    ) {
+        for alias in &import_stmt.names {
+            let module_name = alias.name.as_str();
+            if seen_modules.contains(module_name) {
+                continue;
+            }
+            seen_modules.insert(module_name.to_string());
+            // Create canonical import statement
+            unique_imports.push((
+                module_name.to_string(),
+                Stmt::Import(StmtImport {
+                    names: vec![ruff_python_ast::Alias {
+                        name: Identifier::new(module_name, TextRange::default()),
+                        asname: None,
+                        range: TextRange::default(),
+                    }],
+                    range: TextRange::default(),
+                }),
+            ));
+        }
+    }
+
+    /// Normalize import aliases by removing them for stdlib modules
+    fn normalize_import_aliases(&self, import_stmt: &mut StmtImport) {
+        for alias in &mut import_stmt.names {
+            let module_name = alias.name.as_str();
+            if !self.is_safe_stdlib_module(module_name) || alias.asname.is_none() {
+                continue;
+            }
+            // Remove the alias, keeping only the canonical name
+            alias.asname = None;
+            log::debug!("Normalized import to canonical: import {}", module_name);
+        }
+    }
+
+    /// Collect stdlib aliases from import statement
+    fn collect_stdlib_aliases(
+        &self,
+        import_stmt: &StmtImport,
+        alias_to_canonical: &mut FxIndexMap<String, String>,
+    ) {
+        for alias in &import_stmt.names {
+            let module_name = alias.name.as_str();
+            if !self.is_safe_stdlib_module(module_name) {
+                continue;
+            }
+            if let Some(ref alias_name) = alias.asname {
+                // This is an aliased import: import json as j
+                alias_to_canonical.insert(alias_name.as_str().to_string(), module_name.to_string());
+            }
+        }
+    }
+
+    /// Normalize stdlib import aliases within a single file
+    /// Converts "import json as j" to "import json" and rewrites all "j.dumps" to "json.dumps"
+    fn normalize_stdlib_import_aliases(&self, ast: &mut ModModule) {
+        // Step 1: Build alias-to-canonical mapping for this file
+        let mut alias_to_canonical = FxIndexMap::default();
+
+        for stmt in &ast.body {
+            if let Stmt::Import(import_stmt) = stmt {
+                self.collect_stdlib_aliases(import_stmt, &mut alias_to_canonical);
+            }
+        }
+
+        if alias_to_canonical.is_empty() {
+            return; // No aliases to normalize
+        }
+
+        log::debug!("Normalizing stdlib aliases: {:?}", alias_to_canonical);
+
+        // Step 2: Transform all expressions that reference aliases
+        for stmt in &mut ast.body {
+            match stmt {
+                Stmt::Import(_) => {
+                    // We'll handle import statements separately
+                }
+                _ => {
+                    self.rewrite_aliases_in_stmt(stmt, &alias_to_canonical);
+                }
+            }
+        }
+
+        // Step 3: Transform import statements to canonical form
+        for stmt in &mut ast.body {
+            if let Stmt::Import(import_stmt) = stmt {
+                self.normalize_import_aliases(import_stmt);
+            }
+        }
+    }
+
+    /// Recursively rewrite aliases in a statement
+    fn rewrite_aliases_in_stmt(
+        &self,
+        stmt: &mut Stmt,
+        alias_to_canonical: &FxIndexMap<String, String>,
+    ) {
+        match stmt {
+            Stmt::FunctionDef(func_def) => {
+                // Rewrite in default arguments
+                let params = &mut func_def.parameters;
+                for param in &mut params.args {
+                    if let Some(ref mut default) = param.default {
+                        self.rewrite_aliases_in_expr(default, alias_to_canonical);
+                    }
+                }
+                // Rewrite in function body
+                for stmt in &mut func_def.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+            Stmt::ClassDef(class_def) => {
+                // Rewrite in base classes
+                if let Some(ref mut arguments) = class_def.arguments {
+                    for arg in &mut arguments.args {
+                        self.rewrite_aliases_in_expr(arg, alias_to_canonical);
+                    }
+                }
+                // Rewrite in class body
+                for stmt in &mut class_def.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+            Stmt::If(if_stmt) => {
+                self.rewrite_aliases_in_expr(&mut if_stmt.test, alias_to_canonical);
+                for stmt in &mut if_stmt.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+                for clause in &mut if_stmt.elif_else_clauses {
+                    if let Some(ref mut condition) = clause.test {
+                        self.rewrite_aliases_in_expr(condition, alias_to_canonical);
+                    }
+                    for stmt in &mut clause.body {
+                        self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                    }
+                }
+            }
+            Stmt::While(while_stmt) => {
+                self.rewrite_aliases_in_expr(&mut while_stmt.test, alias_to_canonical);
+                for stmt in &mut while_stmt.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+                for stmt in &mut while_stmt.orelse {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                self.rewrite_aliases_in_expr(&mut for_stmt.iter, alias_to_canonical);
+                for stmt in &mut for_stmt.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+                for stmt in &mut for_stmt.orelse {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+            Stmt::With(with_stmt) => {
+                for item in &mut with_stmt.items {
+                    self.rewrite_aliases_in_expr(&mut item.context_expr, alias_to_canonical);
+                }
+                for stmt in &mut with_stmt.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                for stmt in &mut try_stmt.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+                for handler in &mut try_stmt.handlers {
+                    self.rewrite_aliases_in_except_handler(handler, alias_to_canonical);
+                }
+                for stmt in &mut try_stmt.orelse {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+                for stmt in &mut try_stmt.finalbody {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+            Stmt::Assign(assign) => {
+                // Rewrite in targets
+                for target in &mut assign.targets {
+                    self.rewrite_aliases_in_expr(target, alias_to_canonical);
+                }
+                // Rewrite in value
+                self.rewrite_aliases_in_expr(&mut assign.value, alias_to_canonical);
+            }
+            Stmt::AugAssign(aug_assign) => {
+                self.rewrite_aliases_in_expr(&mut aug_assign.target, alias_to_canonical);
+                self.rewrite_aliases_in_expr(&mut aug_assign.value, alias_to_canonical);
+            }
+            Stmt::AnnAssign(ann_assign) => {
+                self.rewrite_aliases_in_expr(&mut ann_assign.target, alias_to_canonical);
+                if let Some(ref mut value) = ann_assign.value {
+                    self.rewrite_aliases_in_expr(value, alias_to_canonical);
+                }
+            }
+            Stmt::Expr(expr_stmt) => {
+                self.rewrite_aliases_in_expr(&mut expr_stmt.value, alias_to_canonical);
+            }
+            Stmt::Return(return_stmt) => {
+                if let Some(ref mut value) = return_stmt.value {
+                    self.rewrite_aliases_in_expr(value, alias_to_canonical);
+                }
+            }
+            Stmt::Raise(raise_stmt) => {
+                if let Some(ref mut exc) = raise_stmt.exc {
+                    self.rewrite_aliases_in_expr(exc, alias_to_canonical);
+                }
+                if let Some(ref mut cause) = raise_stmt.cause {
+                    self.rewrite_aliases_in_expr(cause, alias_to_canonical);
+                }
+            }
+            Stmt::Assert(assert_stmt) => {
+                self.rewrite_aliases_in_expr(&mut assert_stmt.test, alias_to_canonical);
+                if let Some(ref mut msg) = assert_stmt.msg {
+                    self.rewrite_aliases_in_expr(msg, alias_to_canonical);
+                }
+            }
+            Stmt::Delete(delete_stmt) => {
+                for target in &mut delete_stmt.targets {
+                    self.rewrite_aliases_in_expr(target, alias_to_canonical);
+                }
+            }
+            Stmt::Global(_) | Stmt::Nonlocal(_) => {
+                // These don't contain expressions that need rewriting
+            }
+            Stmt::Pass(_) | Stmt::Break(_) | Stmt::Continue(_) => {
+                // These don't contain expressions
+            }
+            Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                // Import statements are handled separately and shouldn't be rewritten here
+            }
+            Stmt::TypeAlias(type_alias) => {
+                self.rewrite_aliases_in_expr(&mut type_alias.value, alias_to_canonical);
+            }
+            Stmt::Match(match_stmt) => {
+                self.rewrite_aliases_in_expr(&mut match_stmt.subject, alias_to_canonical);
+                for case in &mut match_stmt.cases {
+                    // Note: Pattern rewriting would be complex and is skipped for now
+                    if let Some(ref mut guard) = case.guard {
+                        self.rewrite_aliases_in_expr(guard, alias_to_canonical);
+                    }
+                    for stmt in &mut case.body {
+                        self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                    }
+                }
+            }
+            // Catch-all for any future statement types
+            _ => {
+                log::debug!("Unhandled statement type in alias rewriting: {:?}", stmt);
+            }
+        }
+    }
+
+    /// Recursively rewrite aliases in an expression
+    fn rewrite_aliases_in_expr(
+        &self,
+        expr: &mut Expr,
+        alias_to_canonical: &FxIndexMap<String, String>,
+    ) {
+        rewrite_aliases_in_expr_impl(expr, alias_to_canonical);
+    }
+
+    /// Helper to rewrite aliases in except handlers to reduce nesting
+    fn rewrite_aliases_in_except_handler(
+        &self,
+        handler: &mut ruff_python_ast::ExceptHandler,
+        alias_to_canonical: &FxIndexMap<String, String>,
+    ) {
+        match handler {
+            ruff_python_ast::ExceptHandler::ExceptHandler(except_handler) => {
+                for stmt in &mut except_handler.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+        }
+    }
+}
+
+/// Helper function to recursively rewrite aliases in an expression
+fn rewrite_aliases_in_expr_impl(expr: &mut Expr, alias_to_canonical: &FxIndexMap<String, String>) {
+    match expr {
+        Expr::Name(name_expr) => {
+            let name_str = name_expr.id.as_str();
+            if let Some(canonical) = alias_to_canonical.get(name_str) {
+                log::debug!(
+                    "Rewriting alias '{}' to canonical '{}'",
+                    name_str,
+                    canonical
+                );
+                name_expr.id = canonical.clone().into();
+            }
+        }
+        Expr::Attribute(attr_expr) => {
+            // Handle cases like j.dumps -> json.dumps
+            rewrite_aliases_in_expr_impl(&mut attr_expr.value, alias_to_canonical);
+        }
+        Expr::Call(call_expr) => {
+            rewrite_aliases_in_expr_impl(&mut call_expr.func, alias_to_canonical);
+            for arg in &mut call_expr.arguments.args {
+                rewrite_aliases_in_expr_impl(arg, alias_to_canonical);
+            }
+        }
+        Expr::List(list_expr) => {
+            for elem in &mut list_expr.elts {
+                rewrite_aliases_in_expr_impl(elem, alias_to_canonical);
+            }
+        }
+        Expr::Dict(dict_expr) => {
+            for item in &mut dict_expr.items {
+                if let Some(ref mut key) = item.key {
+                    rewrite_aliases_in_expr_impl(key, alias_to_canonical);
+                }
+                rewrite_aliases_in_expr_impl(&mut item.value, alias_to_canonical);
+            }
+        }
+        Expr::Tuple(tuple_expr) => {
+            for elem in &mut tuple_expr.elts {
+                rewrite_aliases_in_expr_impl(elem, alias_to_canonical);
+            }
+        }
+        Expr::Set(set_expr) => {
+            for elem in &mut set_expr.elts {
+                rewrite_aliases_in_expr_impl(elem, alias_to_canonical);
+            }
+        }
+        Expr::BinOp(binop_expr) => {
+            rewrite_aliases_in_expr_impl(&mut binop_expr.left, alias_to_canonical);
+            rewrite_aliases_in_expr_impl(&mut binop_expr.right, alias_to_canonical);
+        }
+        Expr::UnaryOp(unaryop_expr) => {
+            rewrite_aliases_in_expr_impl(&mut unaryop_expr.operand, alias_to_canonical);
+        }
+        Expr::Compare(compare_expr) => {
+            rewrite_aliases_in_expr_impl(&mut compare_expr.left, alias_to_canonical);
+            for comparator in &mut compare_expr.comparators {
+                rewrite_aliases_in_expr_impl(comparator, alias_to_canonical);
+            }
+        }
+        Expr::BoolOp(boolop_expr) => {
+            for value in &mut boolop_expr.values {
+                rewrite_aliases_in_expr_impl(value, alias_to_canonical);
+            }
+        }
+        Expr::If(if_expr) => {
+            rewrite_aliases_in_expr_impl(&mut if_expr.test, alias_to_canonical);
+            rewrite_aliases_in_expr_impl(&mut if_expr.body, alias_to_canonical);
+            rewrite_aliases_in_expr_impl(&mut if_expr.orelse, alias_to_canonical);
+        }
+        Expr::ListComp(listcomp_expr) => {
+            rewrite_aliases_in_expr_impl(&mut listcomp_expr.elt, alias_to_canonical);
+            for generator in &mut listcomp_expr.generators {
+                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
+                for if_clause in &mut generator.ifs {
+                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
+                }
+            }
+        }
+        Expr::SetComp(setcomp_expr) => {
+            rewrite_aliases_in_expr_impl(&mut setcomp_expr.elt, alias_to_canonical);
+            for generator in &mut setcomp_expr.generators {
+                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
+                for if_clause in &mut generator.ifs {
+                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
+                }
+            }
+        }
+        Expr::DictComp(dictcomp_expr) => {
+            rewrite_aliases_in_expr_impl(&mut dictcomp_expr.key, alias_to_canonical);
+            rewrite_aliases_in_expr_impl(&mut dictcomp_expr.value, alias_to_canonical);
+            for generator in &mut dictcomp_expr.generators {
+                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
+                for if_clause in &mut generator.ifs {
+                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
+                }
+            }
+        }
+        Expr::Subscript(subscript_expr) => {
+            rewrite_aliases_in_expr_impl(&mut subscript_expr.value, alias_to_canonical);
+            rewrite_aliases_in_expr_impl(&mut subscript_expr.slice, alias_to_canonical);
+        }
+        Expr::Slice(slice_expr) => {
+            if let Some(ref mut lower) = slice_expr.lower {
+                rewrite_aliases_in_expr_impl(lower, alias_to_canonical);
+            }
+            if let Some(ref mut upper) = slice_expr.upper {
+                rewrite_aliases_in_expr_impl(upper, alias_to_canonical);
+            }
+            if let Some(ref mut step) = slice_expr.step {
+                rewrite_aliases_in_expr_impl(step, alias_to_canonical);
+            }
+        }
+        Expr::Lambda(lambda_expr) => {
+            rewrite_aliases_in_expr_impl(&mut lambda_expr.body, alias_to_canonical);
+        }
+        Expr::Yield(yield_expr) => {
+            if let Some(ref mut value) = yield_expr.value {
+                rewrite_aliases_in_expr_impl(value, alias_to_canonical);
+            }
+        }
+        Expr::YieldFrom(yieldfrom_expr) => {
+            rewrite_aliases_in_expr_impl(&mut yieldfrom_expr.value, alias_to_canonical);
+        }
+        Expr::Await(await_expr) => {
+            rewrite_aliases_in_expr_impl(&mut await_expr.value, alias_to_canonical);
+        }
+        Expr::Starred(starred_expr) => {
+            rewrite_aliases_in_expr_impl(&mut starred_expr.value, alias_to_canonical);
+        }
+        Expr::FString(_fstring_expr) => {
+            // FString handling is complex due to its structure
+            // For now, skip FString rewriting as it's rarely used with module aliases
+            log::debug!("FString expression rewriting not yet implemented");
+        }
+        // Constant values and other literals don't need rewriting
+        Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_) => {
+            // These don't contain references to aliases
+        }
+        _ => {
+            // Log unhandled expression types for future reference
+            log::trace!("Unhandled expression type in alias rewriting");
+        }
+    }
+}
+
+impl HybridStaticBundler {
     /// Collect Import statements
     fn collect_import(&mut self, import_stmt: &StmtImport, stmt: &Stmt) {
         for alias in &import_stmt.names {
             if self.is_safe_stdlib_module(alias.name.as_str()) {
-                self.stdlib_imports.push(stmt.clone());
+                self.stdlib_import_statements.push(stmt.clone());
                 break;
             }
         }
+    }
+
+    /// Add a regular stdlib import (e.g., "sys", "types")
+    /// This creates an import statement and adds it to the tracked imports
+    fn add_stdlib_import(&mut self, module_name: &str) {
+        let import_stmt = Stmt::Import(StmtImport {
+            names: vec![ruff_python_ast::Alias {
+                name: Identifier::new(module_name, TextRange::default()),
+                asname: None,
+                range: TextRange::default(),
+            }],
+            range: TextRange::default(),
+        });
+        self.stdlib_import_statements.push(import_stmt);
     }
 
     /// Extract __all__ exports from a module
@@ -1629,9 +2127,15 @@ impl HybridStaticBundler {
 
     /// Check if a specific module is in our hoisted stdlib imports
     fn is_import_in_hoisted_stdlib(&self, module_name: &str) -> bool {
-        self.stdlib_imports.iter().any(|hoisted| {
-            matches!(hoisted, Stmt::ImportFrom(hoisted_import)
-                if hoisted_import.module.as_ref().map(|m| m.as_str()) == Some(module_name))
+        // Check if module is in our from imports map
+        if self.stdlib_import_from_map.contains_key(module_name) {
+            return true;
+        }
+
+        // Check if module is in our regular import statements
+        self.stdlib_import_statements.iter().any(|hoisted| {
+            matches!(hoisted, Stmt::Import(hoisted_import)
+                if hoisted_import.names.iter().any(|alias| alias.name.as_str() == module_name))
         })
     }
 
@@ -1657,7 +2161,7 @@ impl HybridStaticBundler {
                 // Check if any of the imported modules are stdlib modules we've hoisted
                 import_stmt.names.iter().any(|alias| {
                     self.is_safe_stdlib_module(alias.name.as_str())
-                        && self.stdlib_imports.iter().any(|hoisted| {
+                        && self.stdlib_import_statements.iter().any(|hoisted| {
                             matches!(hoisted, Stmt::Import(hoisted_import)
                                 if hoisted_import.names.iter().any(|h| h.name == alias.name))
                         })
@@ -1718,7 +2222,7 @@ impl HybridStaticBundler {
         &self,
         stmt: Stmt,
         current_module: &str,
-        symbol_renames: &IndexMap<String, IndexMap<String, String>>,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
         match stmt {
             Stmt::ImportFrom(import_from) => {
@@ -1805,8 +2309,8 @@ impl HybridStaticBundler {
         &self,
         modules: &[(String, ModModule, PathBuf, String)],
         _entry_module_name: &str,
-    ) -> IndexSet<String> {
-        let mut directly_imported = IndexSet::new();
+    ) -> FxIndexSet<String> {
+        let mut directly_imported = FxIndexSet::default();
 
         // Check all modules for direct imports
         for (_module_name, ast, _, _) in modules {
@@ -1823,7 +2327,7 @@ impl HybridStaticBundler {
         &self,
         stmt: &Stmt,
         modules: &[(String, ModModule, PathBuf, String)],
-        directly_imported: &mut IndexSet<String>,
+        directly_imported: &mut FxIndexSet<String>,
     ) {
         if let Stmt::Import(import_stmt) = stmt {
             for alias in &import_stmt.names {
@@ -1844,8 +2348,8 @@ impl HybridStaticBundler {
         &self,
         modules: &[(String, ModModule, PathBuf, String)],
         entry_module_name: &str,
-    ) -> IndexSet<String> {
-        let mut global_symbols = IndexSet::new();
+    ) -> FxIndexSet<String> {
+        let mut global_symbols = FxIndexSet::default();
 
         // Collect symbols from all modules that will be in the bundle
         for (module_name, ast, _, _) in modules {
@@ -1861,7 +2365,7 @@ impl HybridStaticBundler {
     }
 
     /// Helper to collect symbols from a statement
-    fn collect_symbol_from_statement(&self, stmt: &Stmt, global_symbols: &mut IndexSet<String>) {
+    fn collect_symbol_from_statement(&self, stmt: &Stmt, global_symbols: &mut FxIndexSet<String>) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
                 global_symbols.insert(func_def.name.to_string());
@@ -1884,7 +2388,11 @@ impl HybridStaticBundler {
     }
 
     /// Generate a unique symbol name to avoid conflicts
-    fn generate_unique_name(&self, base_name: &str, existing_symbols: &IndexSet<String>) -> String {
+    fn generate_unique_name(
+        &self,
+        base_name: &str,
+        existing_symbols: &FxIndexSet<String>,
+    ) -> String {
         if !existing_symbols.contains(base_name) {
             return base_name.to_string();
         }
@@ -1902,7 +2410,7 @@ impl HybridStaticBundler {
     }
 
     /// Get a unique name for a symbol, using the same pattern as generate_unique_name
-    fn get_unique_name(&self, base_name: &str, existing_symbols: &IndexSet<String>) -> String {
+    fn get_unique_name(&self, base_name: &str, existing_symbols: &FxIndexSet<String>) -> String {
         self.generate_unique_name(base_name, existing_symbols)
     }
 
@@ -1913,7 +2421,7 @@ impl HybridStaticBundler {
         ast: ModModule,
         ctx: &mut InlineContext,
     ) -> Result<Vec<Stmt>> {
-        let mut module_renames = IndexMap::new();
+        let mut module_renames = FxIndexMap::default();
 
         // Process each statement in the module
         for stmt in ast.body {
@@ -2009,7 +2517,7 @@ impl HybridStaticBundler {
         &self,
         symbol_name: &str,
         module_name: &str,
-        module_exports_map: &IndexMap<String, Option<Vec<String>>>,
+        module_exports_map: &FxIndexMap<String, Option<Vec<String>>>,
     ) -> bool {
         let exports = module_exports_map.get(module_name).and_then(|e| e.as_ref());
 
@@ -2027,7 +2535,7 @@ impl HybridStaticBundler {
         &self,
         import_from: StmtImportFrom,
         module_name: &str,
-        symbol_renames: &IndexMap<String, IndexMap<String, String>>,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
         let mut assignments = Vec::new();
 
@@ -2180,7 +2688,7 @@ impl HybridStaticBundler {
         &self,
         import_from: StmtImportFrom,
         current_module: &str,
-        symbol_renames: &IndexMap<String, IndexMap<String, String>>,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
         // Resolve relative imports to absolute module names
         let resolved_module_name = self.resolve_relative_import(&import_from, current_module);
@@ -2290,7 +2798,7 @@ impl HybridStaticBundler {
         &self,
         class_def: &ruff_python_ast::StmtClassDef,
         module_name: &str,
-        module_renames: &mut IndexMap<String, String>,
+        module_renames: &mut FxIndexMap<String, String>,
         ctx: &mut InlineContext,
     ) {
         let class_name = class_def.name.to_string();
@@ -2322,7 +2830,7 @@ impl HybridStaticBundler {
         &self,
         assign: &StmtAssign,
         module_name: &str,
-        module_renames: &mut IndexMap<String, String>,
+        module_renames: &mut FxIndexMap<String, String>,
         ctx: &mut InlineContext,
     ) {
         let Some(name) = self.extract_simple_assign_target(assign) else {
@@ -2359,7 +2867,7 @@ impl HybridStaticBundler {
         &self,
         ann_assign: &ruff_python_ast::StmtAnnAssign,
         module_name: &str,
-        module_renames: &mut IndexMap<String, String>,
+        module_renames: &mut FxIndexMap<String, String>,
         ctx: &mut InlineContext,
     ) {
         let Expr::Name(name) = ann_assign.target.as_ref() else {

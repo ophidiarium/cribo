@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 
 use crate::code_generator::HybridStaticBundler;
 use crate::config::Config;
-use crate::dependency_graph::{CircularDependencyGroup, DependencyGraph, ModuleNode};
+use crate::cribo_graph::{
+    CircularDependencyGroup, CircularDependencyType, CriboGraph, ResolutionStrategy,
+};
 use crate::resolver::{ImportType, ModuleResolver};
 use crate::util::{module_name_from_relative, normalize_line_endings};
 
@@ -38,6 +40,23 @@ struct DiscoveryParams<'a> {
     queued_modules: &'a mut IndexSet<String>,
 }
 
+/// Context for dependency building operations
+struct DependencyContext<'a> {
+    resolver: &'a ModuleResolver,
+    graph: &'a mut CriboGraph,
+    module_id_map: &'a indexmap::IndexMap<String, crate::cribo_graph::ModuleId>,
+    current_module: &'a str,
+    from_module_id: crate::cribo_graph::ModuleId,
+}
+
+/// Parameters for graph building operations
+struct GraphBuildParams<'a> {
+    entry_path: &'a Path,
+    entry_module_name: &'a str,
+    resolver: &'a mut ModuleResolver,
+    graph: &'a mut CriboGraph,
+}
+
 pub struct BundleOrchestrator {
     config: Config,
 }
@@ -55,9 +74,7 @@ impl BundleOrchestrator {
             error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, cycle.modules.join(" → ")));
             error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
 
-            if let crate::dependency_graph::ResolutionStrategy::Unresolvable { reason } =
-                &cycle.suggested_resolution
-            {
+            if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
                 error_msg.push_str(&format!("  Reason: {}\n", reason));
             }
             error_msg.push('\n');
@@ -71,7 +88,7 @@ impl BundleOrchestrator {
     fn bundle_core(
         &mut self,
         entry_path: &Path,
-        graph: &mut DependencyGraph,
+        graph: &mut CriboGraph,
         resolver_opt: &mut Option<ModuleResolver>,
     ) -> Result<String> {
         debug!("Entry: {:?}", entry_path);
@@ -105,22 +122,20 @@ impl BundleOrchestrator {
         info!("Entry module: {}", entry_module_name);
 
         // Build dependency graph
-        *graph = self.build_dependency_graph(entry_path, &entry_module_name, &mut resolver)?;
+        let mut build_params = GraphBuildParams {
+            entry_path,
+            entry_module_name: &entry_module_name,
+            resolver: &mut resolver,
+            graph,
+        };
+        self.build_dependency_graph(&mut build_params)?;
 
-        // Filter to only modules reachable from entry
-        debug!(
-            "Before filtering - graph has {} modules",
-            graph.get_modules().len()
-        );
-        *graph = graph.filter_reachable_from(&entry_module_name)?;
-        debug!(
-            "After filtering - graph has {} modules",
-            graph.get_modules().len()
-        );
+        // In CriboGraph, we track all modules but focus on reachable ones
+        debug!("Graph has {} modules", graph.modules.len());
 
         // Enhanced circular dependency detection and analysis
         if graph.has_cycles() {
-            let analysis = graph.classify_circular_dependencies();
+            let analysis = graph.analyze_circular_dependencies();
 
             if !analysis.unresolvable_cycles.is_empty() {
                 let error_msg =
@@ -129,12 +144,10 @@ impl BundleOrchestrator {
             }
 
             // Check if we can resolve the circular dependencies
-            let all_resolvable = analysis.resolvable_cycles.iter().all(|cycle| {
-                matches!(
-                    cycle.cycle_type,
-                    crate::dependency_graph::CircularDependencyType::FunctionLevel
-                )
-            });
+            let all_resolvable = analysis
+                .resolvable_cycles
+                .iter()
+                .all(|cycle| matches!(cycle.cycle_type, CircularDependencyType::FunctionLevel));
 
             if all_resolvable && analysis.unresolvable_cycles.is_empty() {
                 // All cycles are function-level and resolvable - proceed with bundling
@@ -164,18 +177,17 @@ impl BundleOrchestrator {
     }
 
     /// Helper to get sorted modules from graph
-    fn get_sorted_modules_from_graph<'a>(
+    fn get_sorted_modules_from_graph(
         &self,
-        graph: &'a DependencyGraph,
-    ) -> Result<Vec<&'a ModuleNode>> {
-        let sorted_modules = if graph.has_cycles() {
-            let analysis = graph.classify_circular_dependencies();
-            let all_resolvable = analysis.resolvable_cycles.iter().all(|cycle| {
-                matches!(
-                    cycle.cycle_type,
-                    crate::dependency_graph::CircularDependencyType::FunctionLevel
-                )
-            }) && analysis.unresolvable_cycles.is_empty();
+        graph: &CriboGraph,
+    ) -> Result<Vec<(String, PathBuf, Vec<String>)>> {
+        let module_ids = if graph.has_cycles() {
+            let analysis = graph.analyze_circular_dependencies();
+            let all_resolvable = analysis
+                .resolvable_cycles
+                .iter()
+                .all(|cycle| matches!(cycle.cycle_type, CircularDependencyType::FunctionLevel))
+                && analysis.unresolvable_cycles.is_empty();
 
             if all_resolvable {
                 // For resolvable cycles, use a custom ordering that breaks cycles
@@ -187,16 +199,46 @@ impl BundleOrchestrator {
         } else {
             graph.topological_sort()?
         };
+        // Convert module IDs to module data tuples
+        let mut sorted_modules = Vec::new();
+        for module_id in module_ids {
+            if let Some(module) = graph.modules.get(&module_id) {
+                let name = module.module_name.clone();
+                let path = graph
+                    .module_paths
+                    .iter()
+                    .find(|(_, id)| **id == module_id)
+                    .map(|(p, _)| p.clone())
+                    .unwrap_or_else(|| {
+                        warn!("Module path not found for {}, using name as fallback", name);
+                        PathBuf::from(&name)
+                    });
+
+                // Extract imports from module items
+                let imports = self.extract_imports_from_module_items(&module.items);
+
+                sorted_modules.push((name, path, imports));
+            }
+        }
+
         info!("Found {} modules to bundle", sorted_modules.len());
         debug!("=== DEPENDENCY GRAPH DEBUG ===");
-        for module in graph.get_modules() {
-            if let Some(deps) = graph.get_dependencies(&module.name) {
-                debug!("Module '{}' depends on: {:?}", module.name, deps);
+        for (module_id, module) in &graph.modules {
+            let deps = graph.get_dependencies(*module_id);
+            if !deps.is_empty() {
+                let dep_names: Vec<String> = deps
+                    .iter()
+                    .filter_map(|dep_id| graph.modules.get(dep_id).map(|m| m.module_name.clone()))
+                    .collect();
+                debug!(
+                    "Module '{}' depends on: {:?}",
+                    module.module_name, dep_names
+                );
             }
         }
         debug!("=== TOPOLOGICAL SORT ORDER ===");
-        for (i, module) in sorted_modules.iter().enumerate() {
-            debug!("Module {}: {} ({:?})", i, module.name, module.path);
+        for (i, (name, path, _)) in sorted_modules.iter().enumerate() {
+            debug!("Module {}: {} ({:?})", i, name, path);
         }
         debug!("=== END DEBUG ===");
         Ok(sorted_modules)
@@ -211,7 +253,7 @@ impl BundleOrchestrator {
         info!("Starting bundle process for stdout output");
 
         // Initialize empty graph - resolver will be created in bundle_core
-        let mut graph = DependencyGraph::new();
+        let mut graph = CriboGraph::new();
         let mut resolver_opt = None;
 
         // Perform core bundling logic
@@ -222,19 +264,23 @@ impl BundleOrchestrator {
 
         let sorted_modules = self.get_sorted_modules_from_graph(&graph)?;
 
+        // Extract module data from sorted_modules
+        let module_data = sorted_modules
+            .iter()
+            .map(|(name, path, imports)| (name.clone(), path.clone(), imports.clone()))
+            .collect::<Vec<_>>();
+
         // Generate bundled code
         info!("Using hybrid static bundler");
-        let bundled_code =
-            self.emit_static_bundle(&sorted_modules, &resolver, &entry_module_name)?;
+        let bundled_code = self.emit_static_bundle(&module_data, &resolver, &entry_module_name)?;
 
         // Generate requirements.txt if requested
         if emit_requirements {
-            self.write_requirements_file_for_stdout(&sorted_modules, &resolver)?;
+            self.write_requirements_file_for_stdout(&module_data, &resolver)?;
         }
 
         Ok(bundled_code)
     }
-
     /// Main bundling function
     pub fn bundle(
         &mut self,
@@ -246,7 +292,7 @@ impl BundleOrchestrator {
         debug!("Output: {:?}", output_path);
 
         // Initialize empty graph - resolver will be created in bundle_core
-        let mut graph = DependencyGraph::new();
+        let mut graph = CriboGraph::new();
         let mut resolver_opt = None;
 
         // Perform core bundling logic
@@ -277,62 +323,89 @@ impl BundleOrchestrator {
     }
 
     /// Get modules in a valid order for bundling when there are resolvable circular dependencies
-    fn get_modules_with_cycle_resolution<'a>(
+    fn get_modules_with_cycle_resolution(
         &self,
-        graph: &'a DependencyGraph,
-        analysis: &crate::dependency_graph::CircularDependencyAnalysis,
-    ) -> Result<Vec<&'a crate::dependency_graph::ModuleNode>> {
+        graph: &CriboGraph,
+        analysis: &crate::cribo_graph::CircularDependencyAnalysis,
+    ) -> Result<Vec<crate::cribo_graph::ModuleId>> {
         // For simple function-level cycles, we can use a modified topological sort
         // that breaks cycles by removing edges within strongly connected components
 
-        // Get all modules
-        let modules = graph.get_modules();
+        // Get all module IDs
+        let all_module_ids: Vec<_> = graph.modules.keys().cloned().collect();
 
         // Collect all modules that are part of circular dependencies
-        let mut cycle_modules = IndexSet::new();
+        let mut cycle_module_names = IndexSet::new();
         for cycle in &analysis.resolvable_cycles {
             for module_name in &cycle.modules {
-                cycle_modules.insert(module_name.as_str());
+                cycle_module_names.insert(module_name.as_str());
             }
         }
 
         // Split modules into non-cycle and cycle modules
-        let (mut cycle_mods, non_cycle_mods): (Vec<_>, Vec<_>) = modules
-            .into_iter()
-            .partition(|module| cycle_modules.contains(module.name.as_str()));
+        let (mut cycle_ids, non_cycle_ids): (Vec<_>, Vec<_>) =
+            all_module_ids.into_iter().partition(|&module_id| {
+                if let Some(module) = graph.modules.get(&module_id) {
+                    cycle_module_names.contains(module.module_name.as_str())
+                } else {
+                    false
+                }
+            });
 
         // For non-cycle modules, we can still use topological sorting on the subgraph
         let mut result = Vec::new();
 
         // Add non-cycle modules first (they should sort topologically)
-        result.extend(non_cycle_mods);
+        result.extend(non_cycle_ids);
 
         // For cycle modules, try to maintain dependency order where possible
-        // Sort cycle modules by name to get deterministic output, but also
-        // try to respect dependency relationships within the cycle
-        cycle_mods.sort_by(|a, b| {
+        // Sort cycle modules by name to get deterministic output
+        cycle_ids.sort_by(|&a_id, &b_id| {
+            let a_name = &graph.modules[&a_id].module_name;
+            let b_name = &graph.modules[&b_id].module_name;
+
             // For package hierarchies like mypackage.utils vs mypackage,
             // put the deeper/more specific modules first (dependencies before dependents)
-            let a_depth = a.name.matches('.').count();
-            let b_depth = b.name.matches('.').count();
+            let a_depth = a_name.matches('.').count();
+            let b_depth = b_name.matches('.').count();
 
             // If one is a submodule of the other, put the submodule first
-            if a.name.starts_with(&format!("{}.", b.name)) {
+            if a_name.starts_with(&format!("{}.", b_name)) {
                 std::cmp::Ordering::Less // a (submodule) before b (parent)
-            } else if b.name.starts_with(&format!("{}.", a.name)) {
+            } else if b_name.starts_with(&format!("{}.", a_name)) {
                 std::cmp::Ordering::Greater // b (submodule) before a (parent)
             } else {
                 // Otherwise sort by depth (deeper modules first), then by name
                 match a_depth.cmp(&b_depth) {
-                    std::cmp::Ordering::Equal => a.name.cmp(&b.name),
+                    std::cmp::Ordering::Equal => a_name.cmp(b_name),
                     other => other.reverse(), // Deeper modules first
                 }
             }
         });
 
-        result.extend(cycle_mods);
+        result.extend(cycle_ids);
 
         Ok(result)
+    }
+
+    /// Extract imports from module items
+    fn extract_imports_from_module_items(
+        &self,
+        items: &rustc_hash::FxHashMap<crate::cribo_graph::ItemId, crate::cribo_graph::ItemData>,
+    ) -> Vec<String> {
+        let mut imports = Vec::new();
+        for item_data in items.values() {
+            match &item_data.item_type {
+                crate::cribo_graph::ItemType::Import { module } => {
+                    imports.push(module.clone());
+                }
+                crate::cribo_graph::ItemType::FromImport { module, .. } => {
+                    imports.push(module.clone());
+                }
+                _ => {}
+            }
+        }
+        imports
     }
 
     /// Helper method to find module name in source directories
@@ -380,18 +453,15 @@ impl BundleOrchestrator {
     }
 
     /// Build the complete dependency graph starting from the entry module
-    fn build_dependency_graph(
-        &self,
-        entry_path: &Path,
-        entry_module_name: &str,
-        resolver: &mut ModuleResolver,
-    ) -> Result<DependencyGraph> {
-        let mut graph = DependencyGraph::new();
+    fn build_dependency_graph(&self, params: &mut GraphBuildParams<'_>) -> Result<()> {
         let mut processed_modules = ProcessedModules::new();
         let mut queued_modules = IndexSet::new();
         let mut modules_to_process = ModuleQueue::new();
-        modules_to_process.push((entry_module_name.to_owned(), entry_path.to_path_buf()));
-        queued_modules.insert(entry_module_name.to_owned());
+        modules_to_process.push((
+            params.entry_module_name.to_owned(),
+            params.entry_path.to_path_buf(),
+        ));
+        queued_modules.insert(params.entry_module_name.to_owned());
 
         // Store module data for phase 2
         type ModuleData = (String, PathBuf, Vec<String>);
@@ -407,7 +477,7 @@ impl BundleOrchestrator {
             }
 
             // Parse the module and extract imports (including module imports)
-            let imports = self.extract_imports(&module_path, Some(resolver))?;
+            let imports = self.extract_imports(&module_path, Some(params.resolver))?;
             debug!("Extracted imports from {}: {:?}", module_name, imports);
 
             // Store module data for later processing
@@ -416,13 +486,13 @@ impl BundleOrchestrator {
 
             // Find and queue first-party imports for discovery
             for import in imports {
-                let mut params = DiscoveryParams {
-                    resolver,
+                let mut discovery_params = DiscoveryParams {
+                    resolver: params.resolver,
                     modules_to_process: &mut modules_to_process,
                     processed_modules: &processed_modules,
                     queued_modules: &mut queued_modules,
                 };
-                self.process_import_for_discovery(&import, &mut params);
+                self.process_import_for_discovery(&import, &mut discovery_params);
             }
         }
 
@@ -432,31 +502,61 @@ impl BundleOrchestrator {
         info!("Phase 2: Adding modules to graph...");
 
         // First, add all modules to the graph
+        let mut module_id_map = indexmap::IndexMap::new();
         for (module_name, module_path, imports) in &all_modules {
-            let module_node = ModuleNode {
-                name: module_name.clone(),
-                path: module_path.clone(),
-                imports: imports.clone(),
-            };
-            debug!("Adding module to graph: {}", module_node.name);
-            graph.add_module(module_node);
+            let module_id = params
+                .graph
+                .add_module(module_name.clone(), module_path.clone());
+            module_id_map.insert(module_name.clone(), module_id);
+            debug!(
+                "Added module to graph: {} with ID {:?}",
+                module_name, module_id
+            );
+
+            // Add import items to the module
+            if let Some(module) = params.graph.get_module_by_name_mut(module_name) {
+                for import in imports {
+                    module.add_item(crate::cribo_graph::ItemData {
+                        item_type: crate::cribo_graph::ItemType::Import {
+                            module: import.clone(),
+                        },
+                        var_decls: rustc_hash::FxHashSet::default(),
+                        read_vars: rustc_hash::FxHashSet::default(),
+                        eventual_read_vars: rustc_hash::FxHashSet::default(),
+                        write_vars: rustc_hash::FxHashSet::default(),
+                        eventual_write_vars: rustc_hash::FxHashSet::default(),
+                        has_side_effects: false,
+                        span: None,
+                    });
+                }
+            }
         }
 
-        info!("Added {} modules to graph", graph.get_modules().len());
+        info!("Added {} modules to graph", params.graph.modules.len());
 
         // Then, add all dependency edges
         info!("Phase 2: Creating dependency edges...");
         for (module_name, _module_path, imports) in &all_modules {
+            let from_id = module_id_map.get(module_name).cloned();
             for import in imports {
-                self.process_import_for_dependency(import, module_name, (resolver, &mut graph));
+                if let Some(from_module_id) = from_id {
+                    let mut context = DependencyContext {
+                        resolver: params.resolver,
+                        graph: params.graph,
+                        module_id_map: &module_id_map,
+                        current_module: module_name,
+                        from_module_id,
+                    };
+                    self.process_import_for_dependency(import, &mut context);
+                }
             }
         }
 
         info!(
             "Phase 2 complete: dependency graph built with {} modules",
-            graph.get_modules().len()
+            params.graph.modules.len()
         );
-        Ok(graph)
+        Ok(())
     }
 
     /// Extract import statements from a Python file using AST parsing
@@ -790,31 +890,32 @@ impl BundleOrchestrator {
     }
 
     /// Process an import during dependency graph creation phase
-    fn process_import_for_dependency(
-        &self,
-        import: &str,
-        module_name: &str,
-        resolver_and_graph: (&ModuleResolver, &mut DependencyGraph),
-    ) {
-        let (resolver, graph) = resolver_and_graph;
-        match resolver.classify_import(import) {
+    fn process_import_for_dependency(&self, import: &str, context: &mut DependencyContext<'_>) {
+        match context.resolver.classify_import(import) {
             ImportType::FirstParty => {
-                // Add dependency edge (dependency -> dependent)
-                // This means the imported module must come before the importing module
-                debug!("Adding dependency edge: {} -> {}", import, module_name);
-                if let Err(e) = graph.add_dependency(import, module_name) {
-                    debug!("Failed to add dependency edge: {}", e);
-                    warn!("Failed to add dependency edge: {}", e);
-                } else {
+                // Add dependency edge if the imported module exists
+                if let Some(&to_module_id) = context.module_id_map.get(import) {
+                    debug!(
+                        "Adding dependency edge: {} -> {}",
+                        import, context.current_module
+                    );
+                    context
+                        .graph
+                        .add_module_dependency(context.from_module_id, to_module_id);
                     debug!(
                         "Successfully added dependency edge: {} -> {}",
-                        import, module_name
+                        import, context.current_module
+                    );
+                } else {
+                    debug!(
+                        "Module {} not found in graph, skipping dependency edge",
+                        import
                     );
                 }
 
                 // Also add dependency edges for parent packages
                 // For example, if importing "greetings.irrelevant", also add dependency on "greetings"
-                self.add_parent_package_dependencies(import, module_name, (resolver, graph));
+                self.add_parent_package_dependencies(import, context);
             }
             ImportType::ThirdParty | ImportType::StandardLibrary => {
                 // These will be preserved in the output, not inlined
@@ -823,48 +924,36 @@ impl BundleOrchestrator {
     }
 
     /// Add dependency edges for parent packages to ensure proper ordering
-    fn add_parent_package_dependencies(
-        &self,
-        import: &str,
-        module_name: &str,
-        resolver_and_graph: (&ModuleResolver, &mut DependencyGraph),
-    ) {
-        let (resolver, graph) = resolver_and_graph;
+    fn add_parent_package_dependencies(&self, import: &str, context: &mut DependencyContext<'_>) {
         let parts: Vec<&str> = import.split('.').collect();
 
         // For each parent package level, add a dependency edge
         for i in 1..parts.len() {
             let parent_module = parts[..i].join(".");
-            self.try_add_parent_dependency(&parent_module, module_name, (resolver, graph));
+            self.try_add_parent_dependency(&parent_module, context);
         }
     }
 
     /// Try to add a dependency edge for a parent package
-    fn try_add_parent_dependency(
-        &self,
-        parent_module: &str,
-        module_name: &str,
-        resolver_and_graph: (&ModuleResolver, &mut DependencyGraph),
-    ) {
-        let (resolver, graph) = resolver_and_graph;
+    fn try_add_parent_dependency(&self, parent_module: &str, context: &mut DependencyContext<'_>) {
         // Skip if parent_module is the same as module_name to avoid self-dependencies
-        if parent_module == module_name {
+        if parent_module == context.current_module {
             debug!(
                 "Skipping self-dependency: {} -> {}",
-                parent_module, module_name
+                parent_module, context.current_module
             );
             return;
         }
 
-        if resolver.classify_import(parent_module) == ImportType::FirstParty
-            && graph.get_module(parent_module).is_some()
-        {
-            debug!(
-                "Adding parent package dependency edge: {} -> {}",
-                parent_module, module_name
-            );
-            if let Err(e) = graph.add_dependency(parent_module, module_name) {
-                debug!("Failed to add parent package dependency edge: {}", e);
+        if context.resolver.classify_import(parent_module) == ImportType::FirstParty {
+            if let Some(&parent_module_id) = context.module_id_map.get(parent_module) {
+                debug!(
+                    "Adding parent package dependency edge: {} -> {}",
+                    parent_module, context.current_module
+                );
+                context
+                    .graph
+                    .add_module_dependency(context.from_module_id, parent_module_id);
             }
         }
     }
@@ -872,7 +961,7 @@ impl BundleOrchestrator {
     /// Write requirements.txt file for stdout mode (current directory)
     fn write_requirements_file_for_stdout(
         &self,
-        sorted_modules: &[&ModuleNode],
+        sorted_modules: &[(String, PathBuf, Vec<String>)],
         resolver: &ModuleResolver,
     ) -> Result<()> {
         let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
@@ -893,7 +982,7 @@ impl BundleOrchestrator {
     /// Write requirements.txt file if there are dependencies
     fn write_requirements_file(
         &self,
-        sorted_modules: &[&ModuleNode],
+        sorted_modules: &[(String, PathBuf, Vec<String>)],
         resolver: &ModuleResolver,
         output_path: &Path,
     ) -> Result<()> {
@@ -917,7 +1006,7 @@ impl BundleOrchestrator {
 
     /// Helper method to build detailed error message for cycles with resolvable cycles handling
     fn build_cycle_error_message(
-        analysis: &crate::dependency_graph::CircularDependencyAnalysis,
+        analysis: &crate::cribo_graph::CircularDependencyAnalysis,
     ) -> String {
         let mut error_msg = String::from("Circular dependencies detected in the module graph:\n\n");
 
@@ -945,14 +1034,12 @@ impl BundleOrchestrator {
     /// Helper method to append unresolvable cycles to error message
     fn append_unresolvable_cycles_to_error(
         error_msg: &mut String,
-        unresolvable_cycles: &[crate::dependency_graph::CircularDependencyGroup],
+        unresolvable_cycles: &[CircularDependencyGroup],
     ) {
         for (i, cycle) in unresolvable_cycles.iter().enumerate() {
             error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, cycle.modules.join(" → ")));
             error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
-            if let crate::dependency_graph::ResolutionStrategy::Unresolvable { reason } =
-                &cycle.suggested_resolution
-            {
+            if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
                 error_msg.push_str(&format!("  Reason: {}\n", reason));
             }
             error_msg.push('\n');
@@ -962,8 +1049,8 @@ impl BundleOrchestrator {
     /// Helper method to append resolvable cycles to error message
     fn append_resolvable_cycles_to_error(
         error_msg: &mut String,
-        resolvable_cycles: &[crate::dependency_graph::CircularDependencyGroup],
-        unresolvable_cycles: &[crate::dependency_graph::CircularDependencyGroup],
+        resolvable_cycles: &[CircularDependencyGroup],
+        unresolvable_cycles: &[CircularDependencyGroup],
     ) {
         if !unresolvable_cycles.is_empty() {
             error_msg.push_str("RESOLVABLE CYCLES (not yet implemented):\n");
@@ -985,36 +1072,34 @@ impl BundleOrchestrator {
     /// Helper method to append cycle resolution suggestions to error message
     fn append_cycle_resolution_suggestions(
         error_msg: &mut String,
-        suggested_resolution: &crate::dependency_graph::ResolutionStrategy,
+        suggested_resolution: &ResolutionStrategy,
     ) {
         match suggested_resolution {
-            crate::dependency_graph::ResolutionStrategy::LazyImport { modules: _ } => {
+            ResolutionStrategy::LazyImport { modules: _ } => {
                 error_msg.push_str(
                     "  Suggestion: Move imports inside functions to enable lazy loading\n",
                 );
             }
-            crate::dependency_graph::ResolutionStrategy::FunctionScopedImport {
-                import_statements,
-            } => {
+            ResolutionStrategy::FunctionScopedImport { import_statements } => {
                 error_msg.push_str("  Suggestions:\n");
                 for suggestion in import_statements {
                     error_msg.push_str(&format!("    {}\n", suggestion));
                 }
             }
-            crate::dependency_graph::ResolutionStrategy::ModuleSplit { suggestions } => {
+            ResolutionStrategy::ModuleSplit { suggestions } => {
                 error_msg.push_str("  Suggestions:\n");
                 for suggestion in suggestions {
                     error_msg.push_str(&format!("    {}\n", suggestion));
                 }
             }
-            crate::dependency_graph::ResolutionStrategy::Unresolvable { .. } => {
+            ResolutionStrategy::Unresolvable { .. } => {
                 // This shouldn't happen in resolvable cycles
             }
         }
     }
 
     /// Helper method to log resolvable cycles
-    fn log_resolvable_cycles(cycles: &[crate::dependency_graph::CircularDependencyGroup]) {
+    fn log_resolvable_cycles(cycles: &[CircularDependencyGroup]) {
         for cycle in cycles {
             info!("Resolving cycle: {}", cycle.modules.join(" → "));
         }
@@ -1051,23 +1136,19 @@ impl BundleOrchestrator {
     /// Emit bundle using static bundler (no exec calls)
     fn emit_static_bundle(
         &self,
-        sorted_modules: &[&ModuleNode],
+        sorted_modules: &[(String, PathBuf, Vec<String>)],
         _resolver: &ModuleResolver,
         entry_module_name: &str,
     ) -> Result<String> {
-        // Even for single-file bundles, we need to apply transformations
-        // to ensure future imports are properly hoisted and handled
-
         let mut static_bundler = HybridStaticBundler::new();
 
         // Parse all modules and prepare them for bundling
         let mut module_asts = Vec::new();
 
-        for module in sorted_modules {
-            let source = fs::read_to_string(&module.path)
-                .with_context(|| format!("Failed to read module file: {:?}", module.path))?;
+        for (module_name, module_path, _imports) in sorted_modules {
+            let source = fs::read_to_string(module_path)
+                .with_context(|| format!("Failed to read module file: {:?}", module_path))?;
             let source = crate::util::normalize_line_endings(source);
-
             // Calculate content hash for deterministic module naming
             use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
@@ -1077,12 +1158,12 @@ impl BundleOrchestrator {
 
             // Parse into AST
             let ast = ruff_python_parser::parse_module(&source)
-                .with_context(|| format!("Failed to parse module: {:?}", module.path))?;
+                .with_context(|| format!("Failed to parse module: {:?}", module_path))?;
 
             module_asts.push((
-                module.name.clone(),
+                module_name.clone(),
                 ast.into_syntax(),
-                module.path.clone(),
+                module_path.clone(),
                 content_hash,
             ));
         }
@@ -1117,13 +1198,13 @@ impl BundleOrchestrator {
     /// Generate requirements.txt content from third-party imports
     fn generate_requirements(
         &self,
-        modules: &[&ModuleNode],
+        modules: &[(String, PathBuf, Vec<String>)],
         resolver: &ModuleResolver,
     ) -> Result<String> {
         let mut third_party_imports = IndexSet::new();
 
-        for module in modules {
-            for import in &module.imports {
+        for (_module_name, _module_path, imports) in modules {
+            for import in imports {
                 if let ImportType::ThirdParty = resolver.classify_import(import) {
                     // Extract top-level package name
                     let package_name = import.split('.').next().unwrap_or(import);

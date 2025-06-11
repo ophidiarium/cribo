@@ -1,7 +1,7 @@
 pub mod code_generator;
 pub mod combine;
 pub mod config;
-pub mod dependency_graph;
+pub mod cribo_graph;
 pub mod dirs;
 pub mod orchestrator;
 pub mod resolver;

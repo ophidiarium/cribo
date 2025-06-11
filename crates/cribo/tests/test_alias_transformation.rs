@@ -44,18 +44,46 @@ fn test_alias_transformation_removes_redundant_imports() -> Result<()> {
 
     // The key assertions for hybrid bundler behavior:
 
-    // 1. Stdlib imports with aliases are preserved as-is
+    // 1. Stdlib imports are normalized to canonical form (aliases removed)
     assert!(
-        bundled_output.contains("import json as j"),
-        "Bundled output should contain aliased json import"
+        bundled_output.contains("import json"),
+        "Bundled output should contain normalized json import"
     );
     assert!(
-        bundled_output.contains("import os as operating_system"),
-        "Bundled output should contain aliased os import"
+        bundled_output.contains("import os"),
+        "Bundled output should contain normalized os import"
     );
     assert!(
-        bundled_output.contains("import sys as system_info"),
-        "Bundled output should contain aliased sys import"
+        bundled_output.contains("import sys"),
+        "Bundled output should contain normalized sys import"
+    );
+
+    // Aliased imports should NOT be present anymore
+    assert!(
+        !bundled_output.contains("import json as j"),
+        "Bundled output should NOT contain aliased json import"
+    );
+    assert!(
+        !bundled_output.contains("import os as operating_system"),
+        "Bundled output should NOT contain aliased os import"
+    );
+    assert!(
+        !bundled_output.contains("import sys as system_info"),
+        "Bundled output should NOT contain aliased sys import"
+    );
+
+    // References should be rewritten to canonical names
+    assert!(
+        bundled_output.contains("json.dumps"),
+        "References should use canonical json module name"
+    );
+    assert!(
+        bundled_output.contains("os.environ"),
+        "References should use canonical os module name"
+    );
+    assert!(
+        bundled_output.contains("sys.version"),
+        "References should use canonical sys module name"
     );
 
     // 2. Local module imports are transformed to simple assignments since modules are inlined
@@ -150,20 +178,34 @@ fn test_alias_assignments_generation() -> Result<()> {
     // Read the bundled output
     let bundled_output = std::fs::read_to_string(&output_path)?;
 
-    // With hybrid bundler, stdlib imports are preserved with aliases
+    // With hybrid bundler, stdlib imports are normalized to canonical form
     // Local imports use sys.modules
 
     assert!(
-        bundled_output.contains("import json as j"),
-        "Should have aliased json import"
+        bundled_output.contains("import json"),
+        "Should have normalized json import"
     );
     assert!(
-        bundled_output.contains("import os as operating_system"),
-        "Should have aliased os import"
+        bundled_output.contains("import os"),
+        "Should have normalized os import"
     );
     assert!(
-        bundled_output.contains("import sys as system_info"),
-        "Should have aliased sys import"
+        bundled_output.contains("import sys"),
+        "Should have normalized sys import"
+    );
+
+    // Aliases should be normalized away
+    assert!(
+        !bundled_output.contains("import json as j"),
+        "Should NOT have aliased json import"
+    );
+    assert!(
+        !bundled_output.contains("import os as operating_system"),
+        "Should NOT have aliased os import"
+    );
+    assert!(
+        !bundled_output.contains("import sys as system_info"),
+        "Should NOT have aliased sys import"
     );
 
     Ok(())

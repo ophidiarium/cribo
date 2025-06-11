@@ -4,6 +4,6 @@ input_file: crates/cribo/tests/fixtures/bundling/ast_rewriting_variable_name_col
 ---
 ExecutionResults {
     status: Success,
-    stdout: "Constants API URL: https://api.constants.com\nConfig API URL: https://api.constants.com\nConstants Version: 1.0.0\nConfig Version: 1.0.0\nDefault Timeout: 30\nMax Retries: 3\nResult: {'constants_api_url': 'https://api.constants.com', 'config_api_url': 'https://api.constants.com', 'constants_version': '1.0.0', 'config_version': '1.0.0', 'default_timeout': 30, 'max_retries': 3}",
+    stdout: "Constants API URL: https://api.constants.com\nConfig API URL: https://api.config.com\nConstants Version: 1.0.0\nConfig Version: 2.1.0\nDefault Timeout: 30\nMax Retries: 3\nResult: {'constants_api_url': 'https://api.constants.com', 'config_api_url': 'https://api.config.com', 'constants_version': '1.0.0', 'config_version': '2.1.0', 'default_timeout': 30, 'max_retries': 3}",
     stderr: "",
 }

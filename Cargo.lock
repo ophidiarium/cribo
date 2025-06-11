@@ -337,6 +337,7 @@ dependencies = [
  "ruff_python_stdlib",
  "ruff_python_trivia",
  "ruff_text_size",
+ "rustc-hash",
  "serde",
  "serial_test",
  "sha2",

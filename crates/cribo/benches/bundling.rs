@@ -229,40 +229,25 @@ from urllib.parse import urlparse, urljoin
 
 /// Benchmark dependency graph construction
 fn benchmark_dependency_graph(c: &mut Criterion) {
-    use cribo::dependency_graph::DependencyGraph;
-    use cribo::dependency_graph::ModuleNode;
+    use cribo::cribo_graph::CriboGraph;
     use std::path::PathBuf;
 
     c.bench_function("build_dependency_graph", |b| {
         b.iter(|| {
-            let mut graph = DependencyGraph::new();
+            let mut graph = CriboGraph::new();
 
             // Add modules
-            let modules = vec![
-                ModuleNode {
-                    name: "main".to_string(),
-                    path: PathBuf::from("main.py"),
-                    imports: vec!["utils.helpers".to_string(), "models.user".to_string()],
-                },
-                ModuleNode {
-                    name: "utils.helpers".to_string(),
-                    path: PathBuf::from("utils/helpers.py"),
-                    imports: vec!["json".to_string()],
-                },
-                ModuleNode {
-                    name: "models.user".to_string(),
-                    path: PathBuf::from("models/user.py"),
-                    imports: vec!["dataclasses".to_string(), "typing".to_string()],
-                },
-            ];
+            let main_id = graph.add_module("main".to_string(), PathBuf::from("main.py"));
+            let utils_id = graph.add_module(
+                "utils.helpers".to_string(),
+                PathBuf::from("utils/helpers.py"),
+            );
+            let models_id =
+                graph.add_module("models.user".to_string(), PathBuf::from("models/user.py"));
 
-            for module in &modules {
-                graph.add_module(module.clone());
-            }
-
-            // Add dependencies
-            let _ = graph.add_dependency("utils.helpers", "main");
-            let _ = graph.add_dependency("models.user", "main");
+            // Add dependencies - main depends on utils and models
+            graph.add_module_dependency(main_id, utils_id);
+            graph.add_module_dependency(main_id, models_id);
 
             // Topological sort
             let _ = graph.topological_sort();

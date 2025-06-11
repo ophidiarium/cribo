@@ -25,6 +25,7 @@ ruff_python_parser = { workspace = true }
 ruff_python_stdlib = { workspace = true }
 ruff_python_trivia = { workspace = true }
 ruff_text_size = { workspace = true }
+rustc-hash = { workspace = true }
 serde = { workspace = true }
 sha2 = "0.10"
 toml = { workspace = true }

@@ -39,6 +39,7 @@ log = "0.4"
 # Graph and data structures
 indexmap = { version = "2", features = ["serde"] }
 petgraph = "0.8"
+rustc-hash = "2.1"
 
 # Utilities
 cow-utils = "0.1.3"

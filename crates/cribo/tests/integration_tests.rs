@@ -188,55 +188,55 @@ fn test_module_resolution() {
 
 #[test]
 fn test_dependency_graph() {
-    use cribo::dependency_graph::{DependencyGraph, ModuleNode};
+    use cribo::cribo_graph::CriboGraph;
     use std::path::PathBuf;
 
-    let mut graph = DependencyGraph::new();
-
-    // Create test modules
-    let main_module = ModuleNode {
-        name: "main".to_string(),
-        path: PathBuf::from("main.py"),
-        imports: vec!["utils.helpers".to_string(), "models.user".to_string()],
-    };
-
-    let utils_module = ModuleNode {
-        name: "utils.helpers".to_string(),
-        path: PathBuf::from("utils/helpers.py"),
-        imports: vec![],
-    };
-
-    let models_module = ModuleNode {
-        name: "models.user".to_string(),
-        path: PathBuf::from("models/user.py"),
-        imports: vec![],
-    };
+    let mut graph = CriboGraph::new();
 
     // Add modules to graph
-    graph.add_module(main_module);
-    graph.add_module(utils_module);
-    graph.add_module(models_module);
+    let main_id = graph.add_module("main".to_string(), PathBuf::from("main.py"));
+    let utils_id = graph.add_module(
+        "utils.helpers".to_string(),
+        PathBuf::from("utils/helpers.py"),
+    );
+    let models_id = graph.add_module("models.user".to_string(), PathBuf::from("models/user.py"));
 
     // Add dependencies - main depends on utils and models
-    // This means utils.helpers -> main and models.user -> main (dependency -> dependent)
-    graph.add_dependency("utils.helpers", "main").unwrap();
-    graph.add_dependency("models.user", "main").unwrap();
+    graph.add_module_dependency(main_id, utils_id);
+    graph.add_module_dependency(main_id, models_id);
 
     // Collect graph information
-    let mut modules = graph.get_modules();
-    modules.sort_by(|a, b| a.name.cmp(&b.name));
-    let module_count = modules.len();
+    let module_count = graph.modules.len();
     let mut dependencies_info = Vec::new();
 
-    for module in modules {
-        if let Some(deps) = graph.get_dependencies(&module.name) {
-            dependencies_info.push(format!("Module {} depends on: {:?}", module.name, deps));
+    // Get module names in sorted order for deterministic output
+    let mut module_names: Vec<_> = graph
+        .modules
+        .values()
+        .map(|m| m.module_name.clone())
+        .collect();
+    module_names.sort();
+
+    for module_name in &module_names {
+        if let Some(&module_id) = graph.module_names.get(module_name) {
+            let deps = graph.get_dependencies(module_id);
+            let dep_names: Vec<String> = deps
+                .iter()
+                .filter_map(|&dep_id| graph.modules.get(&dep_id).map(|m| m.module_name.clone()))
+                .collect();
+            dependencies_info.push(format!(
+                "Module {} depends on: {:?}",
+                module_name, dep_names
+            ));
         }
     }
 
     // Test topological sort
     let sorted = graph.topological_sort().unwrap();
-    let sorted_names: Vec<&str> = sorted.iter().map(|m| m.name.as_str()).collect();
+    let sorted_names: Vec<String> = sorted
+        .iter()
+        .filter_map(|&id| graph.modules.get(&id).map(|m| m.module_name.clone()))
+        .collect();
 
     let output = format!(
         "Graph has {} modules\n\nDependencies:\n{}\n\nTopological sort: {:?}",
@@ -246,18 +246,21 @@ fn test_dependency_graph() {
     );
 
     with_settings!({
-        description => "Dependency graph creation and topological sorting results",
+        description => "CriboGraph creation and topological sorting results",
     }, {
         assert_snapshot!(output);
     });
 
     // Verify the sort order still makes sense
-    let main_index = sorted.iter().position(|m| m.name == "main").unwrap();
-    let utils_index = sorted
+    let main_index = sorted_names.iter().position(|name| name == "main").unwrap();
+    let utils_index = sorted_names
         .iter()
-        .position(|m| m.name == "utils.helpers")
+        .position(|name| name == "utils.helpers")
         .unwrap();
-    let models_index = sorted.iter().position(|m| m.name == "models.user").unwrap();
+    let models_index = sorted_names
+        .iter()
+        .position(|name| name == "models.user")
+        .unwrap();
 
     assert!(utils_index < main_index);
     assert!(models_index < main_index);

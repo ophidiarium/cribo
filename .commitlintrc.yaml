@@ -78,6 +78,7 @@ rules:
       - bundler
       - resolver
       - ast
+      - graph
       - emit
       - deps
       - config

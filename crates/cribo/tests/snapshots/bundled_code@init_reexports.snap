@@ -7,7 +7,8 @@ input_file: crates/cribo/tests/fixtures/bundling/init_reexports/main.py
 # https://github.com/ophidiarium/cribo
 
 import os
-import sys, types
+import sys
+import types
 def __cribo_init___cribo_9a4a7e_mypackage_config():
     if '__cribo_9a4a7e_mypackage_config' in sys.modules:
         return sys.modules['__cribo_9a4a7e_mypackage_config']
@@ -68,14 +69,14 @@ def process_data(data):
     processed = data.copy()
     processed["processed"] = True
     return processed
-"""Data formatting module."""
-def format_data(data):
-    """Format the processed data."""
-    return f"Formatted: {data}"
 """Helper utilities."""
 def helper_function(data):
     """Helper function for processing data."""
     return f"Helped: {data}"
+"""Data formatting module."""
+def format_data(data):
+    """Format the processed data."""
+    return f"Formatted: {data}"
 """Constants module."""
 MAX_ITEMS = 100
 DEFAULT_VALUE = "default"
