@@ -1,22 +1,35 @@
 # https://github.com/crate-ci/typos
 # cargo install typos-cli
 # typos
-
 [files]
+# https://github.com/crate-ci/typos/issues/868
 extend-exclude = [
-    "**/*.{css,map,json,txt,snap,bak,diff,html}",
-    "**/tests/**",
-    "tests/**",
-    "**/CHANGELOG.md",
-    "GOVERNANCE.md",
-    "temp/**",
+    "**/fixtures/**/*",
+    "**/snapshots/**/*",
 ]
 
 [default.extend-words]
-Colum = "Colum"
-Nd = "Nd"
-fo = "fo"
-splitted = "splitted"
-ws = "ws"
-Pn = "Pn"
-styl = "styl"
+"arange" = "arange"  # e.g. `numpy.arange`
+hel = "hel"
+whos = "whos"
+spawnve = "spawnve"
+ned = "ned"
+pn = "pn"  # `import panel as pn` is a thing
+poit = "poit"
+BA = "BA" # acronym for "Bad Allowed", used in testing.
+jod = "jod" # e.g., `jod-thread`
+Numer = "Numer" # Library name 'NumerBlox' in "Who's Using Ruff?"
+
+[default]
+extend-ignore-re = [
+    # Line ignore with trailing "spellchecker:disable-line"
+    "(?Rm)^.*#\\s*spellchecker:disable-line$",
+    "LICENSEs",
+    # Various third party dependencies uses `typ` as struct field names (e.g., lsp_types::LogMessageParams)
+    "typ",
+    # TODO: Remove this once the `TYP` redirects are removed from `rule_redirects.rs`
+    "TYP",
+]
+
+[default.extend-identifiers]
+"FrIeNdLy" = "FrIeNdLy"
