@@ -7,10 +7,15 @@
 
 **Cribo** is a CLI and Python library that produces a single `.py` file from a multi-module Python project by inlining all *first-party* source files. This approach is inspired by JavaScript bundlers and aims to simplify deployment, especially in constrained environments like PySpark jobs, AWS Lambdas, and notebooks.
 
+## What is "Cribo"?
+
+*Cribo* is named after the [Mussurana snake](https://a-z-animals.com/animals/mussurana-snake/) (*Clelia clelia*), nicknamed "Cribo" in Latin America. Just like the real Cribo specializes in hunting and neutralizing venomous snakes (with a diet that's 70-80% other snakes!), our tool wrangles Python dependencies and circular imports with ease. Brazilian farmers even keep Cribos around for natural pest control—think of this as the Python ecosystem's answer to dependency chaos. In short:*Cribo eats tricky imports for breakfast, so your code doesn't have to*!
+
 ## Features
 
-- 🦀 **Rust-based CLI** using Ruff's Python AST parser
-- 🐍 **Python 3.10+** support
+- 🦀 **Rust-based CLI** based on Ruff's Python AST parser
+- 🐍 Can be installed via `pip install cribo` or `npm install cribo`.
+- 😎 Contemporary minds can also use `uvx cribo` or `bunx cribo`.
 - 🌲 **Tree-shaking logic** to inline only the modules that are actually used
 - 🔄 **Circular dependency resolution** using Tarjan's strongly connected components (SCC) analysis and function-level lazy import transformations, with detailed diagnostics
 - 🧹 **Unused import trimming** to clean up Python files standalone
@@ -527,7 +532,7 @@ This project uses a dual licensing approach:
 - **Source Code**: Licensed under the [MIT License](LICENSE)
 - **Documentation**: Licensed under the [Creative Commons Attribution 4.0 International License (CC BY 4.0)](docs/LICENSE)
 
-### What this means:
+### What this means
 
 - **For the source code**: You can freely use, modify, and distribute the code for any purpose with minimal restrictions under the MIT license.
 - **For the documentation**: You can share, adapt, and use the documentation for any purpose (including commercially) as long as you provide appropriate attribution under CC BY 4.0.

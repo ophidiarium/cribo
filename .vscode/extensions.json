@@ -15,15 +15,15 @@
         "ms-vscode.vscode-commander",
         "ms-vscode.vscode-websearchforcopilot",
         "redhat.vscode-yaml",
-        "unifiedjs.vscode-remark",
         "joshbolduc.commitlint",
-        "sonarsource.sonarlint-vscode"
+        "sonarsource.sonarlint-vscode",
+        "davidanson.vscode-markdownlint"
     ],
     "unwantedRecommendations": [
         "ms-python.vscode-pylance",
         "vadimcn.vscode-lldb",
         "ms-azuretools.vscode-docker",
-        "DavidAnson.vscode-markdownlint",
-        "ms-vscode.makefile-tools"
+        "ms-vscode.makefile-tools",
+        "unifiedjs.vscode-remark"
     ]
 }

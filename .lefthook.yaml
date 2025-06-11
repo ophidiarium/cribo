@@ -14,6 +14,10 @@ pre-commit:
       glob: '**/*.rs'
       run: cargo fmt -- {staged_files}
       stage_fixed: true
+    markdownlint:
+      glob: '*.md'
+      run: markdownlint-cli2 --fix --no-globs {staged_files} || true
+      stage_fixed: true
     dprint:
       glob: '*.{json,jsonc,yaml,yml,md,toml,py}'
       run: bunx dprint fmt {staged_files}
