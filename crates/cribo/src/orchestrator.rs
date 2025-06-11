@@ -40,6 +40,14 @@ struct DiscoveryParams<'a> {
     queued_modules: &'a mut IndexSet<String>,
 }
 
+/// Parameters for static bundle emission
+struct StaticBundleParams<'a> {
+    sorted_modules: &'a [(String, PathBuf, Vec<String>)],
+    _resolver: &'a ModuleResolver, // Unused but kept for future use
+    entry_module_name: &'a str,
+    graph: &'a CriboGraph,
+}
+
 /// Context for dependency building operations
 struct DependencyContext<'a> {
     resolver: &'a ModuleResolver,
@@ -217,6 +225,8 @@ impl BundleOrchestrator {
                 // Extract imports from module items
                 let imports = self.extract_imports_from_module_items(&module.items);
 
+                debug!("Module '{}' has imports: {:?}", name, imports);
+
                 sorted_modules.push((name, path, imports));
             }
         }
@@ -272,7 +282,12 @@ impl BundleOrchestrator {
 
         // Generate bundled code
         info!("Using hybrid static bundler");
-        let bundled_code = self.emit_static_bundle(&module_data, &resolver, &entry_module_name)?;
+        let bundled_code = self.emit_static_bundle(StaticBundleParams {
+            sorted_modules: &module_data,
+            _resolver: &resolver,
+            entry_module_name: &entry_module_name,
+            graph: &graph,
+        })?;
 
         // Generate requirements.txt if requested
         if emit_requirements {
@@ -305,8 +320,12 @@ impl BundleOrchestrator {
 
         // Generate bundled code
         info!("Using hybrid static bundler");
-        let bundled_code =
-            self.emit_static_bundle(&sorted_modules, &resolver, &entry_module_name)?;
+        let bundled_code = self.emit_static_bundle(StaticBundleParams {
+            sorted_modules: &sorted_modules,
+            _resolver: &resolver,
+            entry_module_name: &entry_module_name,
+            graph: &graph,
+        })?;
 
         // Generate requirements.txt if requested
         if emit_requirements {
@@ -396,7 +415,7 @@ impl BundleOrchestrator {
         let mut imports = Vec::new();
         for item_data in items.values() {
             match &item_data.item_type {
-                crate::cribo_graph::ItemType::Import { module } => {
+                crate::cribo_graph::ItemType::Import { module, alias: _ } => {
                     imports.push(module.clone());
                 }
                 crate::cribo_graph::ItemType::FromImport { module, .. } => {
@@ -503,7 +522,7 @@ impl BundleOrchestrator {
 
         // First, add all modules to the graph
         let mut module_id_map = indexmap::IndexMap::new();
-        for (module_name, module_path, imports) in &all_modules {
+        for (module_name, module_path, _) in &all_modules {
             let module_id = params
                 .graph
                 .add_module(module_name.clone(), module_path.clone());
@@ -513,22 +532,16 @@ impl BundleOrchestrator {
                 module_name, module_id
             );
 
-            // Add import items to the module
+            // Parse the module AST and build detailed graph
+            let source = fs::read_to_string(module_path)
+                .with_context(|| format!("Failed to read file: {:?}", module_path))?;
+            let source = crate::util::normalize_line_endings(source);
+            let parsed = ruff_python_parser::parse_module(&source)
+                .with_context(|| format!("Failed to parse Python file: {:?}", module_path))?;
+
             if let Some(module) = params.graph.get_module_by_name_mut(module_name) {
-                for import in imports {
-                    module.add_item(crate::cribo_graph::ItemData {
-                        item_type: crate::cribo_graph::ItemType::Import {
-                            module: import.clone(),
-                        },
-                        var_decls: rustc_hash::FxHashSet::default(),
-                        read_vars: rustc_hash::FxHashSet::default(),
-                        eventual_read_vars: rustc_hash::FxHashSet::default(),
-                        write_vars: rustc_hash::FxHashSet::default(),
-                        eventual_write_vars: rustc_hash::FxHashSet::default(),
-                        has_side_effects: false,
-                        span: None,
-                    });
-                }
+                let mut builder = crate::graph_builder::GraphBuilder::new(module);
+                builder.build_from_ast(parsed.syntax())?;
             }
         }
 
@@ -1134,18 +1147,13 @@ impl BundleOrchestrator {
     }
 
     /// Emit bundle using static bundler (no exec calls)
-    fn emit_static_bundle(
-        &self,
-        sorted_modules: &[(String, PathBuf, Vec<String>)],
-        _resolver: &ModuleResolver,
-        entry_module_name: &str,
-    ) -> Result<String> {
+    fn emit_static_bundle(&self, params: StaticBundleParams<'_>) -> Result<String> {
         let mut static_bundler = HybridStaticBundler::new();
 
         // Parse all modules and prepare them for bundling
         let mut module_asts = Vec::new();
 
-        for (module_name, module_path, _imports) in sorted_modules {
+        for (module_name, module_path, _imports) in params.sorted_modules {
             let source = fs::read_to_string(module_path)
                 .with_context(|| format!("Failed to read module file: {:?}", module_path))?;
             let source = crate::util::normalize_line_endings(source);
@@ -1169,8 +1177,12 @@ impl BundleOrchestrator {
         }
 
         // Bundle all modules using static bundler
-        let bundled_ast =
-            static_bundler.bundle_modules(module_asts, sorted_modules, entry_module_name)?;
+        let bundled_ast = static_bundler.bundle_modules(crate::code_generator::BundleParams {
+            modules: module_asts,
+            sorted_modules: params.sorted_modules,
+            entry_module_name: params.entry_module_name,
+            graph: params.graph,
+        })?;
 
         // Generate Python code from AST
         let empty_parsed = ruff_python_parser::parse_module("")?;
@@ -1205,9 +1217,14 @@ impl BundleOrchestrator {
 
         for (_module_name, _module_path, imports) in modules {
             for import in imports {
+                debug!("Checking import '{}' for requirements", import);
                 if let ImportType::ThirdParty = resolver.classify_import(import) {
                     // Extract top-level package name
                     let package_name = import.split('.').next().unwrap_or(import);
+                    debug!(
+                        "Adding '{}' to requirements (from '{}')",
+                        package_name, import
+                    );
                     third_party_imports.insert(package_name.to_string());
                 }
             }

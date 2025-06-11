@@ -3,9 +3,9 @@ pub mod combine;
 pub mod config;
 pub mod cribo_graph;
 pub mod dirs;
+pub mod graph_builder;
 pub mod orchestrator;
 pub mod resolver;
-pub mod unused_imports;
 pub mod util;
 
 pub use config::Config;

@@ -1,0 +1,12 @@
+---
+source: crates/cribo/tests/test_circular_dependencies.rs
+expression: error_msg
+---
+Circular dependencies detected in the module graph:
+
+Cycle 1: services.database → services.auth
+  Type: ImportTime
+  Suggestions:
+    Extract shared interfaces to a separate module
+    Use dependency injection pattern
+    Reorganize module structure to eliminate circular dependencies

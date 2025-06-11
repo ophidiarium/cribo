@@ -44,6 +44,7 @@ fn test_circular_dependency_detection() {
                 module: "module_b".to_string(),
                 names: vec![("process_b".to_string(), None)],
                 level: 0,
+                is_star: false,
             },
             var_decls: FxHashSet::default(),
             read_vars: FxHashSet::default(),
@@ -52,6 +53,8 @@ fn test_circular_dependency_detection() {
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
             span: None,
+            imported_names: FxHashSet::default(),
+            reexported_names: FxHashSet::default(),
         });
     }
 
@@ -61,6 +64,7 @@ fn test_circular_dependency_detection() {
                 module: "module_c".to_string(),
                 names: vec![("process_c".to_string(), None)],
                 level: 0,
+                is_star: false,
             },
             var_decls: FxHashSet::default(),
             read_vars: FxHashSet::default(),
@@ -69,6 +73,8 @@ fn test_circular_dependency_detection() {
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
             span: None,
+            imported_names: FxHashSet::default(),
+            reexported_names: FxHashSet::default(),
         });
     }
 
@@ -78,6 +84,7 @@ fn test_circular_dependency_detection() {
                 module: "module_a".to_string(),
                 names: vec![("process_a".to_string(), None)],
                 level: 0,
+                is_star: false,
             },
             var_decls: FxHashSet::default(),
             read_vars: FxHashSet::default(),
@@ -86,6 +93,8 @@ fn test_circular_dependency_detection() {
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
             span: None,
+            imported_names: FxHashSet::default(),
+            reexported_names: FxHashSet::default(),
         });
     }
 
@@ -132,6 +141,7 @@ fn test_module_renaming() {
         module.add_item(ItemData {
             item_type: ItemType::Import {
                 module: "dependency".to_string(),
+                alias: None,
             },
             var_decls: FxHashSet::default(),
             read_vars: FxHashSet::default(),
@@ -140,6 +150,8 @@ fn test_module_renaming() {
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
             span: None,
+            imported_names: FxHashSet::default(),
+            reexported_names: FxHashSet::default(),
         });
 
         // Verify import was added
@@ -161,6 +173,7 @@ fn test_module_update_by_name() {
         module.add_item(ItemData {
             item_type: ItemType::Import {
                 module: "old_import".to_string(),
+                alias: None,
             },
             var_decls: FxHashSet::default(),
             read_vars: FxHashSet::default(),
@@ -169,6 +182,8 @@ fn test_module_update_by_name() {
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
             span: None,
+            imported_names: FxHashSet::default(),
+            reexported_names: FxHashSet::default(),
         });
     }
 
@@ -195,6 +210,7 @@ fn test_module_update_by_name() {
         module.add_item(ItemData {
             item_type: ItemType::Import {
                 module: "new_import".to_string(),
+                alias: None,
             },
             var_decls: FxHashSet::default(),
             read_vars: FxHashSet::default(),
@@ -203,6 +219,8 @@ fn test_module_update_by_name() {
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
             span: None,
+            imported_names: FxHashSet::default(),
+            reexported_names: FxHashSet::default(),
         });
     }
 }
