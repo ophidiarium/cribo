@@ -14,8 +14,8 @@
 ## Features
 
 - 🦀 **Rust-based CLI** based on Ruff's Python AST parser
-- 🐍 Can be installed via `pip install cribo` or `npm install cribo`.
-- 😎 Contemporary minds can also use `uvx cribo` or `bunx cribo`.
+- 🐍 Can be installed via `pip install cribo` or `npm install cribo`
+- 😎 Contemporary minds can also use `uvx cribo` or `bunx cribo`
 - 🌲 **Tree-shaking logic** to inline only the modules that are actually used
 - 🔄 **Circular dependency resolution** using Tarjan's strongly connected components (SCC) analysis and function-level lazy import transformations, with detailed diagnostics
 - 🧹 **Unused import trimming** to clean up Python files standalone
