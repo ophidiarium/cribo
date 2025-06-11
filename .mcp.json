@@ -20,15 +20,6 @@
                 "@cyanheads/git-mcp-server"
             ]
         },
-        "lsp-rust": {
-            "command": "mcp-language-server",
-            "args": [
-                "--workspace",
-                ".",
-                "--lsp",
-                "rust-analyzer"
-            ]
-        },
         "lsp-toml": {
             "command": "mcp-language-server",
             "args": [
