@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.22](https://github.com/ophidiarium/cribo/compare/v0.4.21...v0.4.22) (2025-06-11)
+
+
+### Features
+
+* **bundler:** integrate unused import trimming into static bundler ([#108](https://github.com/ophidiarium/cribo/issues/108)) ([b9473ff](https://github.com/ophidiarium/cribo/commit/b9473ff69aefe6bb5ec91b708a707cc19fa36c3e))
+
+
+### Bug Fixes
+
+* **bundler:** ensure future imports are correctly hoisted and late imports handled ([#112](https://github.com/ophidiarium/cribo/issues/112)) ([024b6d8](https://github.com/ophidiarium/cribo/commit/024b6d8b0ceb01e636bcd26f6c4cce2f7215b21d))
+
 ## [0.4.21](https://github.com/ophidiarium/cribo/compare/v0.4.20...v0.4.21) (2025-06-10)
 
 
