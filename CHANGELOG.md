@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.23](https://github.com/ophidiarium/cribo/compare/v0.4.22...v0.4.23) (2025-06-11)
+
+
+### Features
+
+* **bundler:** ensure sys and types imports follow deterministic ordering ([#113](https://github.com/ophidiarium/cribo/issues/113)) ([73f6ea6](https://github.com/ophidiarium/cribo/commit/73f6ea6b5e6435d4e530c37f3dab2ecc7adbafe0))
+
 ## [0.4.22](https://github.com/ophidiarium/cribo/compare/v0.4.21...v0.4.22) (2025-06-11)
 
 
