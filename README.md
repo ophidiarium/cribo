@@ -3,6 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/cribo.svg)](https://pypi.org/project/cribo/)
 [![npm](https://img.shields.io/npm/v/cribo.svg)](https://www.npmjs.com/package/cribo)
 [![codecov](https://codecov.io/gh/ophidiarium/cribo/graph/badge.svg?token=Lt1VqlIEqV)](https://codecov.io/gh/ophidiarium/cribo)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=ophidiarium_cribo&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=ophidiarium_cribo)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Cribo** is a Rust-based CLI tool that, via fast, heuristically proven bundling, consolidates a scattered Python codebase—from a single entry point or monorepo—into one idiomatic `.py` file. This not only streamlines deployment in environments like PySpark, AWS Lambda, and notebooks but also makes ingesting Python codebases into AI models easier and more cost-effective while preserving full functional insights.
