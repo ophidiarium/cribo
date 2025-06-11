@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.24](https://github.com/ophidiarium/cribo/compare/v0.4.23...v0.4.24) (2025-06-11)
+
+
+### Features
+
+* **bundler:** migrate unused imports trimmer to graph-based approach ([#115](https://github.com/ophidiarium/cribo/issues/115)) ([0098bb0](https://github.com/ophidiarium/cribo/commit/0098bb01ed166abc4dd2856e77530e303acac9ff))
+
 ## [0.4.23](https://github.com/ophidiarium/cribo/compare/v0.4.22...v0.4.23) (2025-06-11)
 
 
