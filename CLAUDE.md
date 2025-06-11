@@ -800,10 +800,10 @@ This approach provides **comprehensive validation with minimal effort** and crea
 #### General Coding Standards
 
 - Follow Rust idiomatic practices and use the Rust 2024 edition or later
-- Use strong typing and leverage Rust's safety principles
-- Write testable, extensible code; prefer pure functions where possible
 - Ensure all functions are properly documented with Rust doc comments
-- Take the opportunity to refactor code to improve readability and maintainability
+
+- **Temporary Directory Usage**: When the agent requires a temporary directory for input or output files, it MUST use the `target/tmp` directory.
+- **Stdout Output Support**: Tools support the `--stdout` argument and can output the bundle to stdout.
 
 #### Prohibited Coding Practice: Hardcoding Test Values in Production
 
@@ -980,12 +980,6 @@ cargo insta test --unreferenced=warn
   - Use for: Analyzing documentation quality and finding issues
   - May need path-specific targeting for large repositories
 
-**Non-implemented Functions** (AVOID THESE):
-
-- ❌ `mcp__docs-manager__create_folder` - Error: `Method not implemented`
-- ❌ `mcp__docs-manager__move_document` - Error: `Method not implemented`
-- ❌ `mcp__docs-manager__rename_document` - Error: `Method not implemented`
-
 **Docs-Manager Recommendations**:
 
 - **Use for core documentation workflows**: Reading, writing, editing, listing, and searching work excellently
@@ -1019,22 +1013,6 @@ If tests fail or clippy reports issues, the implementation is NOT complete until
 
 ## 🧠 WORKFLOW MEMORY AIDS
 
-### Git Flow State Verification Commands
-
-```bash
-# Check current branch and status
-git status
-git branch
-
-# Verify remote sync
-git fetch
-git status
-
-# Check for uncommitted changes
-git diff
-git diff --staged
-```
-
 ### Recovery Procedures
 
 **If lost in git flow**:
@@ -1056,6 +1034,6 @@ git diff --staged
 - When running on macOS, you should try `gsed` instead of `sed` for GNU sed compatibility on macOS
 - MANDATORY: When addressing a clippy issue, never treat `#[allow]` annotations as a solution—perform actual refactoring to resolve the issue
 - Remember you have full ruff repository cloned locally at references/type-strip/ruff so you may search in files easier
-- lefhook config is at .lefthook.yaml
+- lefhook (git hooks) config is at .lefthook.yaml
 - use bun to manage Node.js dependencies
 - CRITICAL: When asked to "resolve PR comments that you attended" - DO NOT create a new review. Instead, reply directly to the original comment threads and mark them as resolved. Creating a new review adds duplicate comments instead of resolving the existing ones.
