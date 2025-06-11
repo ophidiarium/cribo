@@ -5,7 +5,7 @@
 [![codecov](https://codecov.io/gh/ophidiarium/cribo/graph/badge.svg?token=Lt1VqlIEqV)](https://codecov.io/gh/ophidiarium/cribo)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Cribo** is a Rust-based CLI Python source code bundler that, via fast, heuristically proven bundling, consolidates a scattered Python codebase—from a single entry point or monorepo—into one idiomatic `.py` file. This not only streamlines deployment in environments like PySpark, AWS Lambda, and notebooks but also makes ingesting Python codebases into AI models easier and more cost-effective while preserving full functional insights.
+**Cribo** is a Rust-based CLI tool that, via fast, heuristically proven bundling, consolidates a scattered Python codebase—from a single entry point or monorepo—into one idiomatic `.py` file. This not only streamlines deployment in environments like PySpark, AWS Lambda, and notebooks but also makes ingesting Python codebases into AI models easier and more cost-effective while preserving full functional insights.
 
 ## What is "Cribo"?
 
