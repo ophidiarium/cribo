@@ -168,8 +168,8 @@ jobs:
               (e.g. “chore(deps): bump lodash from 4.17.20 to 4.17.21”).
             3. From the remaining commits (including bodies), produce a concise, human-readable
               summary of what changed in this release.
-            4. Organize your summary under headings like “Features,” “Bug Fixes,” “Dependencies,”
-              and “Performance,” using bullet points or short paragraphs.
+            4. Organize your summary under headings like “✨ Features,” “🐛 Bug Fixes,” “📦 Dependencies,”
+              and “🚀 Performance,” using bullet points or short paragraphs. Feel free to use emojis in the headings to make them more engaging.
 
         run: |
           gh release view "$TAG" --json body --jq .body > raw_changelog.md
