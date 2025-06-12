@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.25](https://github.com/ophidiarium/cribo/compare/v0.4.24...v0.4.25) (2025-06-12)
+
+
+### Features
+
+* **bundler:** semantically aware bundler ([#118](https://github.com/ophidiarium/cribo/issues/118)) ([1314d3b](https://github.com/ophidiarium/cribo/commit/1314d3b034da76910c292332d084ee68eccab1ea))
+
+
+### Bug Fixes
+
+* **ai:** remove LSP recommendations ([dbf8f0b](https://github.com/ophidiarium/cribo/commit/dbf8f0bbd1be4921241865d1b50a45677b0f9166))
+
 ## [0.4.24](https://github.com/ophidiarium/cribo/compare/v0.4.23...v0.4.24) (2025-06-11)
 
 
