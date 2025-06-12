@@ -75,7 +75,10 @@ class CriboBundledFinder:
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_17db52_utils_helpers()
 __cribo_init___cribo_508050_utils_config()
-'''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
+"""
+Test fixture for regular import statements with aliases (non-"from" imports).
+This exercises the code path in ast_rewriter.rs around lines 216-228.
+"""
 helper_utils = sys.modules['utils.helpers']
 config_module = sys.modules['utils.config']
 def main():

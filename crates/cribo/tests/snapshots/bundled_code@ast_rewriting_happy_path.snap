@@ -10,7 +10,10 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 import sys
 import types
-"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
+"""
+Database service module.
+Contains database-related functionality with unique names.
+"""
 class DatabaseConnection:
     """Represents a database connection."""
 
@@ -49,7 +52,10 @@ class DatabaseService:
         self.connection.disconnect()
 DEFAULT_DATABASE_PATH = "app.db"
 MAX_CONNECTIONS = 10
-"""\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
+"""
+Utility helper functions for the happy path test.
+These functions have unique names that shouldn't conflict.
+"""
 def format_message(greeting: str, name: str) -> str:
     """Format a greeting message."""
     return f"{greeting}, {name}!"
@@ -122,7 +128,10 @@ class CriboBundledFinder:
         return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_fddf57_models_user()
-"""\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
+"""
+Happy path main module that uses multiple nested modules without name collisions.
+This should bundle cleanly without any AST rewriting for conflicts.
+"""
 User = sys.modules['models.user'].User
 UserRole = sys.modules['models.user'].UserRole
 def main():

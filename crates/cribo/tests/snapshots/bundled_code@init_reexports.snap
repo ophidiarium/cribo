@@ -73,7 +73,12 @@ class CriboBundledFinder:
         return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_a81151_mypackage()
-'''\nTest script demonstrating __init__.py re-export preservation.\n\nThis fixture tests that imports in __init__.py files are preserved even if they\nappear "unused" within that file, as they are typically re-exports for the package interface.\n'''
+"""
+Test script demonstrating __init__.py re-export preservation.
+
+This fixture tests that imports in __init__.py files are preserved even if they
+appear "unused" within that file, as they are typically re-exports for the package interface.
+"""
 format_data = sys.modules['mypackage'].format_data
 process_data = sys.modules['mypackage'].process_data
 config = sys.modules['mypackage'].config

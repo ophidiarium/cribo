@@ -92,7 +92,9 @@ def shadow_test_models_base(validate: Any=None, process: Any=None, Logger: Any=N
 process_3 = "models_process_string"
 validate_3 = "models_validate_string"
 connection_2 = "models_connection_string"
-"""\nUser model with extensive naming conflicts across the project\n"""
+"""
+User model with extensive naming conflicts across the project
+"""
 result_3 = {"model": "user"}
 connection_3 = None
 class Logger_2:
@@ -220,7 +222,9 @@ connection_4 = "auth_connection_string"
 Logger_3 = "services_logger_string"
 result_4 = {"services": "initialized"}
 Connection_4 = "utils_connection_type"
-"""\nUtility helpers module with extensive naming conflicts\n"""
+"""
+Utility helpers module with extensive naming conflicts
+"""
 result_6 = 0
 User_4 = "helper_user_string"
 class Logger_4:
@@ -286,7 +290,9 @@ def process_with_conflicts(data: Any, User: str="param_user", result: int=100, L
 validate_6 = validate_6
 process_6 = process_6
 User_5 = "database_user_type"
-"""\nDatabase connection module with naming conflicts\n"""
+"""
+Database connection module with naming conflicts
+"""
 result_8 = []
 connection_5 = None
 class Connection_6:
@@ -505,7 +511,10 @@ class CriboBundledFinder:
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_49b92c_services_auth_manager()
 __cribo_init___cribo_62c387_core()
-"""\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
+"""
+Comprehensive AST rewriter test fixture - Main entry point
+This module demonstrates complex naming conflicts and import scenarios
+"""
 db_process = process_7
 process = process_6
 UtilLogger = Logger_4
