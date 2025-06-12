@@ -85,17 +85,8 @@ impl BundleOrchestrator {
     /// Format error message for unresolvable cycles
     fn format_unresolvable_cycles_error(cycles: &[CircularDependencyGroup]) -> String {
         let mut error_msg = String::from("Unresolvable circular dependencies detected:\n\n");
-
-        for (i, cycle) in cycles.iter().enumerate() {
-            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, cycle.modules.join(" → ")));
-            error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
-
-            if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
-                error_msg.push_str(&format!("  Reason: {}\n", reason));
-            }
-            error_msg.push('\n');
-        }
-
+        // Delegate to append helper
+        Self::append_unresolvable_cycles_to_error(&mut error_msg, cycles);
         error_msg
     }
 
@@ -1013,19 +1004,7 @@ impl BundleOrchestrator {
         sorted_modules: &[(String, PathBuf, Vec<String>)],
         resolver: &ModuleResolver,
     ) -> Result<()> {
-        let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
-        if !requirements_content.is_empty() {
-            let requirements_path = Path::new("requirements.txt");
-
-            fs::write(requirements_path, requirements_content).with_context(|| {
-                format!("Failed to write requirements file: {:?}", requirements_path)
-            })?;
-
-            info!("Requirements written to: {:?}", requirements_path);
-        } else {
-            info!("No third-party dependencies found, skipping requirements.txt");
-        }
-        Ok(())
+        self.write_requirements_common(sorted_modules, resolver, None)
     }
 
     /// Write requirements.txt file if there are dependencies
@@ -1035,18 +1014,27 @@ impl BundleOrchestrator {
         resolver: &ModuleResolver,
         output_path: &Path,
     ) -> Result<()> {
-        let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
-        if !requirements_content.is_empty() {
-            let requirements_path = output_path
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .join("requirements.txt");
+        let dir = output_path.parent().unwrap_or_else(|| Path::new("."));
+        self.write_requirements_common(sorted_modules, resolver, Some(dir))
+    }
 
-            fs::write(&requirements_path, requirements_content).with_context(|| {
-                format!("Failed to write requirements file: {:?}", requirements_path)
-            })?;
-
-            info!("Requirements written to: {:?}", requirements_path);
+    /// Common helper for writing requirements.txt files
+    fn write_requirements_common(
+        &self,
+        sorted_modules: &[(String, PathBuf, Vec<String>)],
+        resolver: &ModuleResolver,
+        dir_opt: Option<&Path>,
+    ) -> Result<()> {
+        let content = self.generate_requirements(sorted_modules, resolver)?;
+        if !content.is_empty() {
+            let path = if let Some(dir) = dir_opt {
+                dir.join("requirements.txt")
+            } else {
+                Path::new("requirements.txt").to_path_buf()
+            };
+            fs::write(&path, content)
+                .with_context(|| format!("Failed to write requirements file: {:?}", path))?;
+            info!("Requirements written to: {:?}", path);
         } else {
             info!("No third-party dependencies found, skipping requirements.txt");
         }
