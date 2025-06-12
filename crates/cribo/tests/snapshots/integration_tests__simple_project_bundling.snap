@@ -11,17 +11,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 import os
 import sys
-"""Utility functions for the test project."""
-def greet(name: str) -> str:
-    """Greet a person by name."""
-    return f"Hello, {name}!"
-def calculate(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
-    """Calculate the sum of two numbers."""
-    return a + b
-def get_system_info() -> dict:
-    """Get basic system information."""
-    return {"platform": sys.platform, "python_version": sys.version, "cwd": os.getcwd()}
-"""Utils package initialization."""
+"""Models package initialization."""
 """User model for the test project."""
 @dataclass
 class User:
@@ -39,7 +29,17 @@ class User:
         if self.email:
             return f"{self.name} <{self.email}>"
         return self.name
-"""Models package initialization."""
+"""Utils package initialization."""
+"""Utility functions for the test project."""
+def greet(name: str) -> str:
+    """Greet a person by name."""
+    return f"Hello, {name}!"
+def calculate(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
+    """Calculate the sum of two numbers."""
+    return a + b
+def get_system_info() -> dict:
+    """Get basic system information."""
+    return {"platform": sys.platform, "python_version": sys.version, "cwd": os.getcwd()}
 """Simple test project entry point."""
 def main():
     """Main function."""

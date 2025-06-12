@@ -9,6 +9,7 @@ use tempfile::TempDir;
 use cribo::config::Config;
 use cribo::orchestrator::BundleOrchestrator;
 use cribo::util::get_python_executable;
+use pretty_assertions::assert_eq;
 
 // Ruff linting integration for cross-validation
 use ruff_linter::linter::{ParseSource, lint_only};
@@ -141,6 +142,42 @@ fn test_bundling_fixtures() {
         // Check if this is an expected failure fixture
         let expects_failure = fixture_name.starts_with("xfail_");
 
+        // First, run the original fixture to ensure it's valid Python code
+        let python_cmd = get_python_executable();
+        let original_output = Command::new(&python_cmd)
+            .arg(path)
+            .current_dir(fixture_dir)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|child| child.wait_with_output())
+            .expect("Failed to execute original fixture");
+
+        // If the original fixture doesn't run correctly, skip bundling
+        if !original_output.status.success() && !expects_failure {
+            let stderr = String::from_utf8_lossy(&original_output.stderr);
+            let stdout = String::from_utf8_lossy(&original_output.stdout);
+
+            panic!(
+                "Original fixture '{}' failed to execute:\n\
+                Exit code: {}\n\
+                Stdout:\n{}\n\
+                Stderr:\n{}\n\n\
+                Fix the fixture before testing bundling.",
+                fixture_name,
+                original_output.status.code().unwrap_or(-1),
+                stdout.trim(),
+                stderr.trim()
+            );
+        }
+
+        // Store original execution results for comparison
+        let original_stdout = String::from_utf8_lossy(&original_output.stdout)
+            .trim()
+            .replace("\r\n", "\n")
+            .to_string();
+        let original_exit_code = original_output.status.code().unwrap_or(-1);
+
         // Create temporary directory for output
         let temp_dir = TempDir::new().unwrap();
         let bundle_path = temp_dir.path().join("bundled.py");
@@ -213,6 +250,31 @@ fn test_bundling_fixtures() {
                 python_output.status.code().unwrap_or(-1),
                 stdout.trim(),
                 stderr.trim()
+            );
+        }
+
+        // Compare bundled execution to original execution
+        let bundled_stdout = String::from_utf8_lossy(&python_output.stdout)
+            .trim()
+            .replace("\r\n", "\n")
+            .to_string();
+        let bundled_exit_code = python_output.status.code().unwrap_or(-1);
+
+        // For non-xfail tests, stdout should match exactly
+        if !expects_failure {
+            assert_eq!(
+                original_stdout, bundled_stdout,
+                "\nBundled output differs from original for fixture '{}'",
+                fixture_name
+            );
+        }
+
+        // Exit codes should also match for non-xfail tests
+        if !expects_failure {
+            assert_eq!(
+                original_exit_code, bundled_exit_code,
+                "\nExit code differs for fixture '{}'",
+                fixture_name
             );
         }
 

@@ -7,5 +7,6 @@ input_file: crates/cribo/tests/fixtures/bundling/xfail_stickytape_import_from_as
 # https://github.com/ophidiarium/cribo
 
 message = "Hello"
-g = greeting
+g = types.SimpleNamespace()
+g.message = message
 print(g.message)

@@ -43,6 +43,7 @@ reviews:
   path_filters:
     - '!**/tests/fixtures/**'
     - '!CHANGELOG.md'
+    - '!**/docs/**'
 chat:
   auto_reply: true
 knowledge_base:

@@ -8,13 +8,15 @@ input_file: crates/cribo/tests/fixtures/bundling/stickytape_explicit_relative_im
 
 import sys
 import types
+message = "Hello"
 def __cribo_init___cribo_492ed5_greetings():
     if '__cribo_492ed5_greetings' in sys.modules:
         return sys.modules['__cribo_492ed5_greetings']
     module = types.ModuleType('__cribo_492ed5_greetings')
-    module.__file__ = __file__
+    module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_492ed5_greetings'] = module
     sys.modules['greetings'] = module
+    module.message = message
     __all__ = ["message"]
     module.__all__ = ['message']
     return module
@@ -37,8 +39,6 @@ class CriboBundledFinder:
             return importlib.util.find_spec(synthetic_name)
         return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
-message = "Hello"
 __cribo_init___cribo_492ed5_greetings()
-sys.modules['greetings'].message = message
 greetings = sys.modules['greetings']
 print(greetings.message)

@@ -10,31 +10,13 @@ from __future__ import annotations
 from typing import Any, Dict, List, Union
 import sys
 import types
-def __cribo_init___cribo_609581_mypackage_core():
-    if '__cribo_609581_mypackage_core' in sys.modules:
-        return sys.modules['__cribo_609581_mypackage_core']
-    module = types.ModuleType('__cribo_609581_mypackage_core')
-    module.__file__ = __file__
-    sys.modules['__cribo_609581_mypackage_core'] = module
-    sys.modules['mypackage.core'] = module
-
-    def process_data(data: Dict[str, Any]) -> Dict[str, Any]:
-        """Process input data and return results.\n\n    This function uses forward references in type hints.\n    """
-        result: ProcessingResult = {"input": data, "processed": True, "output": _transform_data(data)}
-        return result
-    module.process_data = process_data
-
-    def _transform_data(data: Dict[str, Any]) -> List[str]:
-        """Transform data into list format."""
-        return [f"{k}={v}" for k, v in data.items()]
-    ProcessingResult = Dict[str, Any]
-    module.ProcessingResult = ProcessingResult
-    return module
+"""Submodule with future imports."""
+"""Package initialization with future import."""
 def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
     if '__cribo_c3d681_mypackage_submodule_utils' in sys.modules:
         return sys.modules['__cribo_c3d681_mypackage_submodule_utils']
     module = types.ModuleType('__cribo_c3d681_mypackage_submodule_utils')
-    module.__file__ = __file__
+    module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_c3d681_mypackage_submodule_utils'] = module
     sys.modules['mypackage.submodule.utils'] = module
 
@@ -54,8 +36,28 @@ def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
     FormattedOutput = Union[str, Dict[str, Any]]
     module.FormattedOutput = FormattedOutput
     return module
-__cribo_modules = {'mypackage.core': '__cribo_609581_mypackage_core', 'mypackage.submodule.utils': '__cribo_c3d681_mypackage_submodule_utils'}
-__cribo_init_functions = {'__cribo_609581_mypackage_core': __cribo_init___cribo_609581_mypackage_core, '__cribo_c3d681_mypackage_submodule_utils': __cribo_init___cribo_c3d681_mypackage_submodule_utils}
+def __cribo_init___cribo_609581_mypackage_core():
+    if '__cribo_609581_mypackage_core' in sys.modules:
+        return sys.modules['__cribo_609581_mypackage_core']
+    module = types.ModuleType('__cribo_609581_mypackage_core')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_609581_mypackage_core'] = module
+    sys.modules['mypackage.core'] = module
+
+    def process_data(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Process input data and return results.\n\n    This function uses forward references in type hints.\n    """
+        result: ProcessingResult = {"input": data, "processed": True, "output": _transform_data(data)}
+        return result
+    module.process_data = process_data
+
+    def _transform_data(data: Dict[str, Any]) -> List[str]:
+        """Transform data into list format."""
+        return [f"{k}={v}" for k, v in data.items()]
+    ProcessingResult = Dict[str, Any]
+    module.ProcessingResult = ProcessingResult
+    return module
+__cribo_modules = {'mypackage.submodule.utils': '__cribo_c3d681_mypackage_submodule_utils', 'mypackage.core': '__cribo_609581_mypackage_core'}
+__cribo_init_functions = {'__cribo_c3d681_mypackage_submodule_utils': __cribo_init___cribo_c3d681_mypackage_submodule_utils, '__cribo_609581_mypackage_core': __cribo_init___cribo_609581_mypackage_core}
 class CriboBundledFinder:
 
     def __init__(self, module_registry, init_functions):
@@ -73,8 +75,6 @@ class CriboBundledFinder:
             return importlib.util.find_spec(synthetic_name)
         return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
-"""Package initialization with future import."""
-"""Submodule with future imports."""
 __cribo_init___cribo_609581_mypackage_core()
 __cribo_init___cribo_c3d681_mypackage_submodule_utils()
 process_data = sys.modules['mypackage.core'].process_data

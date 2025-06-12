@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use indexmap::IndexSet;
 use log::{debug, info, warn};
-use ruff_python_ast::{Stmt, StmtImportFrom};
+use ruff_python_ast::{ModModule, Stmt, StmtImportFrom};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -11,12 +11,15 @@ use crate::cribo_graph::{
     CircularDependencyGroup, CircularDependencyType, CriboGraph, ResolutionStrategy,
 };
 use crate::resolver::{ImportType, ModuleResolver};
+use crate::semantic_bundler::SemanticBundler;
 use crate::util::{module_name_from_relative, normalize_line_endings};
 
 /// Type alias for module processing queue
 type ModuleQueue = Vec<(String, PathBuf)>;
 /// Type alias for processed modules set
 type ProcessedModules = IndexSet<String>;
+/// Type alias for parsed module data with AST and source
+type ParsedModuleData = (String, PathBuf, Vec<String>, ModModule, String);
 
 /// Context for import extraction operations
 struct ImportExtractionContext<'a> {
@@ -43,7 +46,8 @@ struct DiscoveryParams<'a> {
 /// Parameters for static bundle emission
 struct StaticBundleParams<'a> {
     sorted_modules: &'a [(String, PathBuf, Vec<String>)],
-    _resolver: &'a ModuleResolver, // Unused but kept for future use
+    parsed_modules: Option<&'a [ParsedModuleData]>, // Optional pre-parsed modules
+    _resolver: &'a ModuleResolver,                  // Unused but kept for future use
     entry_module_name: &'a str,
     graph: &'a CriboGraph,
 }
@@ -67,11 +71,15 @@ struct GraphBuildParams<'a> {
 
 pub struct BundleOrchestrator {
     config: Config,
+    semantic_bundler: SemanticBundler,
 }
 
 impl BundleOrchestrator {
     pub fn new(config: Config) -> Self {
-        Self { config }
+        Self {
+            config,
+            semantic_bundler: SemanticBundler::new(),
+        }
     }
 
     /// Format error message for unresolvable cycles
@@ -98,7 +106,7 @@ impl BundleOrchestrator {
         entry_path: &Path,
         graph: &mut CriboGraph,
         resolver_opt: &mut Option<ModuleResolver>,
-    ) -> Result<String> {
+    ) -> Result<(String, Vec<ParsedModuleData>)> {
         debug!("Entry: {:?}", entry_path);
         debug!(
             "Using target Python version: {} (Python 3.{})",
@@ -136,7 +144,7 @@ impl BundleOrchestrator {
             resolver: &mut resolver,
             graph,
         };
-        self.build_dependency_graph(&mut build_params)?;
+        let parsed_modules = self.build_dependency_graph(&mut build_params)?;
 
         // In CriboGraph, we track all modules but focus on reachable ones
         debug!("Graph has {} modules", graph.modules.len());
@@ -181,7 +189,7 @@ impl BundleOrchestrator {
         // Set the resolver for the caller to use
         *resolver_opt = Some(resolver);
 
-        Ok(entry_module_name)
+        Ok((entry_module_name, parsed_modules))
     }
 
     /// Helper to get sorted modules from graph
@@ -267,7 +275,8 @@ impl BundleOrchestrator {
         let mut resolver_opt = None;
 
         // Perform core bundling logic
-        let entry_module_name = self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
+        let (entry_module_name, parsed_modules) =
+            self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
         let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
@@ -284,6 +293,7 @@ impl BundleOrchestrator {
         info!("Using hybrid static bundler");
         let bundled_code = self.emit_static_bundle(StaticBundleParams {
             sorted_modules: &module_data,
+            parsed_modules: Some(&parsed_modules),
             _resolver: &resolver,
             entry_module_name: &entry_module_name,
             graph: &graph,
@@ -311,7 +321,8 @@ impl BundleOrchestrator {
         let mut resolver_opt = None;
 
         // Perform core bundling logic
-        let entry_module_name = self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
+        let (entry_module_name, parsed_modules) =
+            self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
         let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
@@ -322,6 +333,7 @@ impl BundleOrchestrator {
         info!("Using hybrid static bundler");
         let bundled_code = self.emit_static_bundle(StaticBundleParams {
             sorted_modules: &sorted_modules,
+            parsed_modules: Some(&parsed_modules), // Use pre-parsed modules to avoid double parsing
             _resolver: &resolver,
             entry_module_name: &entry_module_name,
             graph: &graph,
@@ -472,7 +484,11 @@ impl BundleOrchestrator {
     }
 
     /// Build the complete dependency graph starting from the entry module
-    fn build_dependency_graph(&self, params: &mut GraphBuildParams<'_>) -> Result<()> {
+    /// Returns the parsed modules to avoid re-parsing
+    fn build_dependency_graph(
+        &mut self,
+        params: &mut GraphBuildParams<'_>,
+    ) -> Result<Vec<ParsedModuleData>> {
         let mut processed_modules = ProcessedModules::new();
         let mut queued_modules = IndexSet::new();
         let mut modules_to_process = ModuleQueue::new();
@@ -483,8 +499,8 @@ impl BundleOrchestrator {
         queued_modules.insert(params.entry_module_name.to_owned());
 
         // Store module data for phase 2
-        type ModuleData = (String, PathBuf, Vec<String>);
-        let mut all_modules: Vec<ModuleData> = Vec::new();
+        type DiscoveryData = (String, PathBuf, Vec<String>); // (name, path, imports) for discovery phase
+        let mut discovered_modules: Vec<DiscoveryData> = Vec::new();
 
         // PHASE 1: Discover and collect all modules
         info!("Phase 1: Discovering all modules...");
@@ -500,7 +516,7 @@ impl BundleOrchestrator {
             debug!("Extracted imports from {}: {:?}", module_name, imports);
 
             // Store module data for later processing
-            all_modules.push((module_name.clone(), module_path.clone(), imports.clone()));
+            discovered_modules.push((module_name.clone(), module_path.clone(), imports.clone()));
             processed_modules.insert(module_name.clone());
 
             // Find and queue first-party imports for discovery
@@ -515,14 +531,19 @@ impl BundleOrchestrator {
             }
         }
 
-        info!("Phase 1 complete: discovered {} modules", all_modules.len());
+        info!(
+            "Phase 1 complete: discovered {} modules",
+            discovered_modules.len()
+        );
 
         // PHASE 2: Add all modules to graph and create dependency edges
         info!("Phase 2: Adding modules to graph...");
 
-        // First, add all modules to the graph
+        // First, add all modules to the graph and parse them
         let mut module_id_map = indexmap::IndexMap::new();
-        for (module_name, module_path, _) in &all_modules {
+        let mut parsed_modules: Vec<ParsedModuleData> = Vec::new();
+
+        for (module_name, module_path, imports) in discovered_modules.iter() {
             let module_id = params
                 .graph
                 .add_module(module_name.clone(), module_path.clone());
@@ -539,17 +560,32 @@ impl BundleOrchestrator {
             let parsed = ruff_python_parser::parse_module(&source)
                 .with_context(|| format!("Failed to parse Python file: {:?}", module_path))?;
 
+            let ast = parsed.into_syntax();
+
+            // Perform semantic analysis on this module
+            self.semantic_bundler
+                .analyze_module(module_id, &ast, &source, module_path)?;
+
             if let Some(module) = params.graph.get_module_by_name_mut(module_name) {
                 let mut builder = crate::graph_builder::GraphBuilder::new(module);
-                builder.build_from_ast(parsed.syntax())?;
+                builder.build_from_ast(&ast)?;
             }
+
+            // Store parsed module data for later use
+            parsed_modules.push((
+                module_name.clone(),
+                module_path.clone(),
+                imports.clone(),
+                ast,
+                source,
+            ));
         }
 
         info!("Added {} modules to graph", params.graph.modules.len());
 
         // Then, add all dependency edges
         info!("Phase 2: Creating dependency edges...");
-        for (module_name, _module_path, imports) in &all_modules {
+        for (module_name, _module_path, imports, _ast, _source) in &parsed_modules {
             let from_id = module_id_map.get(module_name).cloned();
             for import in imports {
                 if let Some(from_module_id) = from_id {
@@ -569,7 +605,7 @@ impl BundleOrchestrator {
             "Phase 2 complete: dependency graph built with {} modules",
             params.graph.modules.len()
         );
-        Ok(())
+        Ok(parsed_modules)
     }
 
     /// Extract import statements from a Python file using AST parsing
@@ -1147,33 +1183,69 @@ impl BundleOrchestrator {
     }
 
     /// Emit bundle using static bundler (no exec calls)
-    fn emit_static_bundle(&self, params: StaticBundleParams<'_>) -> Result<String> {
+    fn emit_static_bundle(&mut self, params: StaticBundleParams<'_>) -> Result<String> {
+        // First, detect and resolve conflicts after all modules have been analyzed
+        let conflicts = self.semantic_bundler.detect_and_resolve_conflicts();
+        if !conflicts.is_empty() {
+            info!(
+                "Detected {} symbol conflicts across modules, applying renaming strategy",
+                conflicts.len()
+            );
+            for conflict in &conflicts {
+                debug!(
+                    "Symbol '{}' conflicts across modules: {:?}",
+                    conflict.symbol, conflict.modules
+                );
+            }
+        }
+
         let mut static_bundler = HybridStaticBundler::new();
 
         // Parse all modules and prepare them for bundling
         let mut module_asts = Vec::new();
 
-        for (module_name, module_path, _imports) in params.sorted_modules {
-            let source = fs::read_to_string(module_path)
-                .with_context(|| format!("Failed to read module file: {:?}", module_path))?;
-            let source = crate::util::normalize_line_endings(source);
-            // Calculate content hash for deterministic module naming
-            use sha2::{Digest, Sha256};
-            let mut hasher = Sha256::new();
-            hasher.update(source.as_bytes());
-            let hash = hasher.finalize();
-            let content_hash = format!("{:x}", hash);
+        // Check if we have pre-parsed modules
+        if let Some(parsed_modules) = params.parsed_modules {
+            // Use pre-parsed modules to avoid double parsing
+            for (module_name, module_path, _imports, ast, source) in parsed_modules {
+                // Calculate content hash for deterministic module naming
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(source.as_bytes());
+                let hash = hasher.finalize();
+                let content_hash = format!("{:x}", hash);
 
-            // Parse into AST
-            let ast = ruff_python_parser::parse_module(&source)
-                .with_context(|| format!("Failed to parse module: {:?}", module_path))?;
+                module_asts.push((
+                    module_name.clone(),
+                    ast.clone(),
+                    module_path.clone(),
+                    content_hash,
+                ));
+            }
+        } else {
+            // Fall back to parsing modules if not pre-parsed
+            for (module_name, module_path, _imports) in params.sorted_modules {
+                let source = fs::read_to_string(module_path)
+                    .with_context(|| format!("Failed to read module file: {:?}", module_path))?;
+                let source = crate::util::normalize_line_endings(source);
+                // Calculate content hash for deterministic module naming
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(source.as_bytes());
+                let hash = hasher.finalize();
+                let content_hash = format!("{:x}", hash);
 
-            module_asts.push((
-                module_name.clone(),
-                ast.into_syntax(),
-                module_path.clone(),
-                content_hash,
-            ));
+                // Parse into AST
+                let ast = ruff_python_parser::parse_module(&source)
+                    .with_context(|| format!("Failed to parse module: {:?}", module_path))?;
+
+                module_asts.push((
+                    module_name.clone(),
+                    ast.into_syntax(),
+                    module_path.clone(),
+                    content_hash,
+                ));
+            }
         }
 
         // Bundle all modules using static bundler
@@ -1182,6 +1254,7 @@ impl BundleOrchestrator {
             sorted_modules: params.sorted_modules,
             entry_module_name: params.entry_module_name,
             graph: params.graph,
+            semantic_bundler: &self.semantic_bundler,
         })?;
 
         // Generate Python code from AST

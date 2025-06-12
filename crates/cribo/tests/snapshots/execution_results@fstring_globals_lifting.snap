@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/fstring_globals_lifting/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Result is: modified\nModule result: modified\nCount: 001, Sum: 7, Max: 3\nModule counter: 1, values: [1, 2, 3, 1]\nResult: NESTED_MODIFIED, Length: 15\nFinal result: nested_modified\nDecimal: 42, Hex: 0x2a, Binary: 00101010\nFinal counter: 42",
+    stderr: "",
+}

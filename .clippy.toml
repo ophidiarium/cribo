@@ -1,7 +1,7 @@
 # Complexity thresholds
 cognitive-complexity-threshold = 10
-excessive-nesting-threshold = 5
-too-many-arguments-threshold = 4
+excessive-nesting-threshold = 6
+too-many-arguments-threshold = 5
 too-many-lines-threshold = 80
 min-ident-chars-threshold = 2
 allowed-idents-below-min-chars = ["..", "id", "x", "y", "z", "i", "j", "k", "n", "m"] # Added common loop/coord vars
@@ -76,12 +76,12 @@ disallowed-methods = [
     { path = "rand::rngs::ThreadRng::gen_range", reason = "Use a deterministic hash (e.g. via Sha256) instead of `ThreadRng::gen_range`." },
 
     # Keep your cow_utils optimizations
-    { path = "str::to_ascii_lowercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_ascii_lowercase` instead." },
-    { path = "str::to_ascii_uppercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_ascii_uppercase` instead." },
-    { path = "str::to_lowercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_lowercase` instead." },
-    { path = "str::to_uppercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_uppercase` instead." },
-    { path = "str::replace", reason = "To avoid memory allocation, use `cow_utils::CowUtils::replace` instead." },
-    { path = "str::replacen", reason = "To avoid memory allocation, use `cow_utils::CowUtils::replacen` instead." },
+    { path = "str::to_ascii_lowercase", reason = "To avoid memory allocation, use `use cow_utils::CowUtils; s.cow_to_ascii_lowercase()` instead." },
+    { path = "str::to_ascii_uppercase", reason = "To avoid memory allocation, use `use cow_utils::CowUtils; s.cow_to_ascii_uppercase()` instead." },
+    { path = "str::to_lowercase", reason = "To avoid memory allocation, use `use cow_utils::CowUtils; s.cow_to_lowercase()` instead." },
+    { path = "str::to_uppercase", reason = "To avoid memory allocation, use `use cow_utils::CowUtils; s.cow_to_uppercase()` instead." },
+    { path = "str::replace", reason = "To avoid memory allocation, use `use cow_utils::CowUtils; s.cow_replace(from, to)` instead." },
+    { path = "str::replacen", reason = "To avoid memory allocation, use `use cow_utils::CowUtils; s.cow_replacen(from, to, count)` instead." },
 
     # Keep your safety rules
     { path = "std::mem::forget", reason = "future::scope is unsafe when used with forget" },

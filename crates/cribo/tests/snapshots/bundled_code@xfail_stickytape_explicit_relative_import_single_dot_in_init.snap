@@ -8,11 +8,12 @@ input_file: crates/cribo/tests/fixtures/bundling/xfail_stickytape_explicit_relat
 
 import sys
 import types
+message_2 = "Hello"
 def __cribo_init___cribo_b4af24_greetings():
     if '__cribo_b4af24_greetings' in sys.modules:
         return sys.modules['__cribo_b4af24_greetings']
     module = types.ModuleType('__cribo_b4af24_greetings')
-    module.__file__ = __file__
+    module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_b4af24_greetings'] = module
     sys.modules['greetings'] = module
     greeting = sys.modules['greetings'].greeting
@@ -40,7 +41,6 @@ class CriboBundledFinder:
             return importlib.util.find_spec(synthetic_name)
         return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
-message = "Hello"
 __cribo_init___cribo_b4af24_greetings()
 greetings = sys.modules['greetings']
 print(greetings.message)

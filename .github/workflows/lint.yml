@@ -51,3 +51,6 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Cargo Machete
+        uses: bnjbvr/cargo-machete@v0.8.0

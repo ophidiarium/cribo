@@ -1,9 +1,8 @@
 {
     "mcpServers": {
         "context7": {
-            "command": "npx",
+            "command": "bunx",
             "args": [
-                "-y",
                 "@upstash/context7-mcp"
             ]
         },
@@ -12,6 +11,12 @@
             "args": [
                 "mcp-docs-service",
                 "."
+            ]
+        },
+        "mcp-sequentialthinking-tools": {
+            "command": "bunx",
+            "args": [
+                "mcp-sequentialthinking-tools"
             ]
         },
         "git": {
@@ -39,6 +44,17 @@
                 "--lsp",
                 "bunx",
                 "yaml-language-server",
+                "--stdio"
+            ]
+        },
+        "lsp-copilot": {
+            "command": "mcp-language-server",
+            "args": [
+                "--workspace",
+                ".",
+                "--lsp",
+                "bunx",
+                "@github/copilot-language-server",
                 "--stdio"
             ]
         }

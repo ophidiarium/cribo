@@ -26,6 +26,12 @@ impl ModuleId {
     pub fn new(id: u32) -> Self {
         Self(id)
     }
+
+    /// Returns the underlying u32 value of the ModuleId
+    #[inline]
+    pub const fn as_u32(&self) -> u32 {
+        self.0
+    }
 }
 
 /// Unique identifier for an item within a module

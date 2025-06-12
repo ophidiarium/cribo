@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/comprehensive_ast_rewrite/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Comprehensive AST rewriter test completed\nFinal results: {'process_results': ['db_processed: database_data', 'main_process: utility_data', 'auth_processed: auth_str_auth_data, base: module_init: base_initialized_default'], 'validation_results': ['main_validate: local_data', 'auth_valid: auth_data, lambda: fallback_auth_data', 'main_validate: util_data'], 'user_types': ['auth_type', 'model_type', 'service_type'], 'logger_messages': ['Utils Logger: util', 'Model Logger: model'], 'base_init': 'module_init: base_initialized_default', 'total': 'db_processed: database_datamain_process: utility_dataauth_processed: auth_str_auth_data, base: module_init: base_initialized_default42'}",
+    stderr: "",
+}
