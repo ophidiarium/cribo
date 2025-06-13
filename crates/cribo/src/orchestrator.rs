@@ -1262,8 +1262,6 @@ impl BundleOrchestrator {
 
     /// Generate code from AST with custom handling for triple-quoted strings
     fn generate_code_from_ast(&self, module: &ModModule) -> Result<String> {
-        // We'll generate code manually for statements that contain triple-quoted strings
-        // and use ruff's generator for everything else
         let empty_parsed = ruff_python_parser::parse_module("")?;
         let stylist = ruff_python_codegen::Stylist::from_tokens(empty_parsed.tokens(), "");
 
@@ -1365,10 +1363,27 @@ impl BundleOrchestrator {
                 let before_body = &func_str[..colon_pos + 2];
                 let after_body = &func_str[colon_pos + 2..];
 
+                // Determine the indentation level by finding the indentation of the function definition
+                let indent = if let Some(def_pos) = func_str.find("def ") {
+                    // Count spaces before "def"
+                    let line_start = func_str[..def_pos].rfind('\n').map(|p| p + 1).unwrap_or(0);
+                    let indent_str = &func_str[line_start..def_pos];
+                    indent_str.to_string() + "    " // Parent indent + 4 spaces for body
+                } else {
+                    // Fallback: count leading spaces in the after_body if it exists
+                    if !after_body.trim().is_empty() {
+                        let first_line = after_body.lines().next().unwrap_or("");
+                        let spaces = first_line.len() - first_line.trim_start().len();
+                        " ".repeat(spaces)
+                    } else {
+                        "    ".to_string() // Default to 4 spaces
+                    }
+                };
+
                 // Build the final result
                 let mut result = String::new();
                 result.push_str(before_body);
-                result.push_str("    ");
+                result.push_str(&indent);
                 result.push_str(&docstring);
                 if !after_body.trim().is_empty() {
                     result.push('\n');
