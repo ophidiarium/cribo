@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.26](https://github.com/ophidiarium/cribo/compare/v0.4.25...v0.4.26) (2025-06-13)
+
+
+### Bug Fixes
+
+* **bundler:** resolve all fixable xfail import test cases ([#120](https://github.com/ophidiarium/cribo/issues/120)) ([2e3fd31](https://github.com/ophidiarium/cribo/commit/2e3fd31dfb42c9452567f67922ac704082bf6c11))
+
 ## [0.4.25](https://github.com/ophidiarium/cribo/compare/v0.4.24...v0.4.25) (2025-06-12)
 
 
