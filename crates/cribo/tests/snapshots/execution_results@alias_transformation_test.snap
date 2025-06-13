@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/alias_transformation_test/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "JSON data: {\"test\": \"data\"}\nCurrent directory: /test/deterministic/81608cbb\nCRIBO_TEST environment: default_value\nPython version: 3.12\nProcessed and formatted: 2, 4, 6, 8, 10\nLoaded config: {'file': 'settings.json', 'loaded': True, 'settings': {'debug': False}}\nMath result: 4.0, Deterministic: 213\n[DEBUG] Helper result: Processed: TEST",
+    stderr: "",
+}

@@ -39,11 +39,12 @@ def main():
     print(f"Current directory: /test/deterministic/{dir_hash}")
 
     # Use the os import to ensure it's not removed as unused
-    env_var = operating_system.environ.get("PATH", "/default/path")
-    print(f"PATH environment: {env_var[:20]}...")
+    env_var = operating_system.environ.get("CRIBO_TEST", "default_value")
+    print(f"CRIBO_TEST environment: {env_var}")
 
-    python_version = system_info.version
-    print(f"Python version: {python_version}")
+    # Use a more deterministic sys attribute
+    python_version_info = system_info.version_info
+    print(f"Python version: {python_version_info.major}.{python_version_info.minor}")
 
     # Use from-import aliases
     processed = process_a([1, 2, 3, 4, 5])
