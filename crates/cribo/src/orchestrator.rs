@@ -12,7 +12,7 @@ use crate::cribo_graph::{
 };
 use crate::resolver::{ImportType, ModuleResolver};
 use crate::semantic_bundler::SemanticBundler;
-use crate::util::{module_name_from_relative, normalize_line_endings};
+use crate::util::module_name_from_relative;
 
 /// Type alias for module processing queue
 type ModuleQueue = Vec<(String, PathBuf)>;
@@ -547,7 +547,6 @@ impl BundleOrchestrator {
             // Parse the module AST and build detailed graph
             let source = fs::read_to_string(module_path)
                 .with_context(|| format!("Failed to read file: {:?}", module_path))?;
-            let source = crate::util::normalize_line_endings(source);
             let parsed = ruff_python_parser::parse_module(&source)
                 .with_context(|| format!("Failed to parse Python file: {:?}", module_path))?;
 
@@ -608,7 +607,6 @@ impl BundleOrchestrator {
     ) -> Result<Vec<String>> {
         let source = fs::read_to_string(file_path)
             .with_context(|| format!("Failed to read file: {:?}", file_path))?;
-        let source = normalize_line_endings(source);
 
         let parsed = ruff_python_parser::parse_module(&source)
             .with_context(|| format!("Failed to parse Python file: {:?}", file_path))?;
@@ -1215,7 +1213,6 @@ impl BundleOrchestrator {
             for (module_name, module_path, _imports) in params.sorted_modules {
                 let source = fs::read_to_string(module_path)
                     .with_context(|| format!("Failed to read module file: {:?}", module_path))?;
-                let source = crate::util::normalize_line_endings(source);
                 // Calculate content hash for deterministic module naming
                 use sha2::{Digest, Sha256};
                 let mut hasher = Sha256::new();

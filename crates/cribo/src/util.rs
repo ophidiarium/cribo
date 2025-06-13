@@ -1,4 +1,3 @@
-use cow_utils::CowUtils;
 use std::path::{Path, PathBuf};
 
 /// Convert a relative path to a Python module name, handling .py extension and __init__.py
@@ -48,16 +47,6 @@ pub fn path_to_module_name(src_dir: &Path, file_path: &Path) -> Option<String> {
             .map(|s| s.to_owned());
     }
     module_name_from_relative(relative_path)
-}
-
-/// Normalize line endings to LF (\n) for cross-platform consistency
-/// This ensures reproducible builds regardless of the platform where bundling occurs
-pub fn normalize_line_endings(content: String) -> String {
-    // Replace Windows CRLF (\r\n) and Mac CR (\r) with Unix LF (\n)
-    content
-        .cow_replace("\r\n", "\n")
-        .cow_replace('\r', "\n")
-        .into_owned()
 }
 
 /// Get the Python executable path, with support for virtual environments
