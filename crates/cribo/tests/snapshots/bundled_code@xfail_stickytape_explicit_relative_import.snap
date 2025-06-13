@@ -10,34 +10,34 @@ import sys
 import types
 message = "Hello"
 def __cribo_init___cribo_bc01a2_greetings_greeting():
-    if '__cribo_bc01a2_greetings_greeting' in sys.modules:
-        return sys.modules['__cribo_bc01a2_greetings_greeting']
-    module = types.ModuleType('__cribo_bc01a2_greetings_greeting')
-    module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_bc01a2_greetings_greeting'] = module
-    sys.modules['greetings.greeting'] = module
-    module.message = message
-    __all__ = ["message"]
-    module.__all__ = ['message']
-    return module
+	if '__cribo_bc01a2_greetings_greeting' in sys.modules:
+		return sys.modules['__cribo_bc01a2_greetings_greeting']
+	module = types.ModuleType('__cribo_bc01a2_greetings_greeting')
+	module.__file__ = __file__ if '__file__' in globals() else None
+	sys.modules['__cribo_bc01a2_greetings_greeting'] = module
+	sys.modules['greetings.greeting'] = module
+	module.message = message
+	__all__ = ["message"]
+	module.__all__ = ['message']
+	return module
 __cribo_modules = {'greetings.greeting': '__cribo_bc01a2_greetings_greeting'}
 __cribo_init_functions = {'__cribo_bc01a2_greetings_greeting': __cribo_init___cribo_bc01a2_greetings_greeting}
 class CriboBundledFinder:
 
-    def __init__(self, module_registry, init_functions):
-        self.module_registry = module_registry
-        self.init_functions = init_functions
+	def __init__(self, module_registry, init_functions):
+		self.module_registry = module_registry
+		self.init_functions = init_functions
 
-    def find_spec(self, fullname, path, target=None):
-        if fullname in self.module_registry:
-            synthetic_name = self.module_registry[fullname]
-            if synthetic_name not in sys.modules:
-                init_func = self.init_functions.get(synthetic_name)
-                if init_func:
-                    init_func()
-            import importlib.util
-            return importlib.util.find_spec(synthetic_name)
-        return None
+	def find_spec(self, fullname, path, target=None):
+		if fullname in self.module_registry:
+			synthetic_name = self.module_registry[fullname]
+			if synthetic_name not in sys.modules:
+				init_func = self.init_functions.get(synthetic_name)
+				if init_func:
+					init_func()
+			import importlib.util
+			return importlib.util.find_spec(synthetic_name)
+		return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_bc01a2_greetings_greeting()
 greetings.greeting = sys.modules['greetings.greeting']

@@ -13,79 +13,79 @@ import types
 """Submodule with future imports."""
 """Package initialization with future import."""
 def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
-    if '__cribo_c3d681_mypackage_submodule_utils' in sys.modules:
-        return sys.modules['__cribo_c3d681_mypackage_submodule_utils']
-    module = types.ModuleType('__cribo_c3d681_mypackage_submodule_utils')
-    module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_c3d681_mypackage_submodule_utils'] = module
-    sys.modules['mypackage.submodule.utils'] = module
+	if '__cribo_c3d681_mypackage_submodule_utils' in sys.modules:
+		return sys.modules['__cribo_c3d681_mypackage_submodule_utils']
+	module = types.ModuleType('__cribo_c3d681_mypackage_submodule_utils')
+	module.__file__ = __file__ if '__file__' in globals() else None
+	sys.modules['__cribo_c3d681_mypackage_submodule_utils'] = module
+	sys.modules['mypackage.submodule.utils'] = module
 
-    def validate_input(data: InputData) -> bool:
-        """Validate input data structure.\n\n    Uses forward reference that requires future import.\n    """
-        if not isinstance(data, dict):
-            return False
-        return "key" in data and isinstance(data.get("numbers"), list)
-    module.validate_input = validate_input
+	def validate_input(data: InputData) -> bool:
+		"""Validate input data structure.\n\n    Uses forward reference that requires future import.\n    """
+		if not isinstance(data, dict):
+			return False
+		return "key" in data and isinstance(data.get("numbers"), list)
+	module.validate_input = validate_input
 
-    def format_output(data: Any) -> FormattedOutput:
-        """Format data for output."""
-        return f"Formatted: {data}"
-    module.format_output = format_output
-    InputData = Dict[str, Any]
-    module.InputData = InputData
-    FormattedOutput = Union[str, Dict[str, Any]]
-    module.FormattedOutput = FormattedOutput
-    return module
+	def format_output(data: Any) -> FormattedOutput:
+		"""Format data for output."""
+		return f"Formatted: {data}"
+	module.format_output = format_output
+	InputData = Dict[str, Any]
+	module.InputData = InputData
+	FormattedOutput = Union[str, Dict[str, Any]]
+	module.FormattedOutput = FormattedOutput
+	return module
 def __cribo_init___cribo_609581_mypackage_core():
-    if '__cribo_609581_mypackage_core' in sys.modules:
-        return sys.modules['__cribo_609581_mypackage_core']
-    module = types.ModuleType('__cribo_609581_mypackage_core')
-    module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_609581_mypackage_core'] = module
-    sys.modules['mypackage.core'] = module
+	if '__cribo_609581_mypackage_core' in sys.modules:
+		return sys.modules['__cribo_609581_mypackage_core']
+	module = types.ModuleType('__cribo_609581_mypackage_core')
+	module.__file__ = __file__ if '__file__' in globals() else None
+	sys.modules['__cribo_609581_mypackage_core'] = module
+	sys.modules['mypackage.core'] = module
 
-    def process_data(data: Dict[str, Any]) -> Dict[str, Any]:
-        """Process input data and return results.\n\n    This function uses forward references in type hints.\n    """
-        result: ProcessingResult = {"input": data, "processed": True, "output": _transform_data(data)}
-        return result
-    module.process_data = process_data
+	def process_data(data: Dict[str, Any]) -> Dict[str, Any]:
+		"""Process input data and return results.\n\n    This function uses forward references in type hints.\n    """
+		result: ProcessingResult = {"input": data, "processed": True, "output": _transform_data(data)}
+		return result
+	module.process_data = process_data
 
-    def _transform_data(data: Dict[str, Any]) -> List[str]:
-        """Transform data into list format."""
-        return [f"{k}={v}" for k, v in data.items()]
-    ProcessingResult = Dict[str, Any]
-    module.ProcessingResult = ProcessingResult
-    return module
+	def _transform_data(data: Dict[str, Any]) -> List[str]:
+		"""Transform data into list format."""
+		return [f"{k}={v}" for k, v in data.items()]
+	ProcessingResult = Dict[str, Any]
+	module.ProcessingResult = ProcessingResult
+	return module
 __cribo_modules = {'mypackage.submodule.utils': '__cribo_c3d681_mypackage_submodule_utils', 'mypackage.core': '__cribo_609581_mypackage_core'}
 __cribo_init_functions = {'__cribo_c3d681_mypackage_submodule_utils': __cribo_init___cribo_c3d681_mypackage_submodule_utils, '__cribo_609581_mypackage_core': __cribo_init___cribo_609581_mypackage_core}
 class CriboBundledFinder:
 
-    def __init__(self, module_registry, init_functions):
-        self.module_registry = module_registry
-        self.init_functions = init_functions
+	def __init__(self, module_registry, init_functions):
+		self.module_registry = module_registry
+		self.init_functions = init_functions
 
-    def find_spec(self, fullname, path, target=None):
-        if fullname in self.module_registry:
-            synthetic_name = self.module_registry[fullname]
-            if synthetic_name not in sys.modules:
-                init_func = self.init_functions.get(synthetic_name)
-                if init_func:
-                    init_func()
-            import importlib.util
-            return importlib.util.find_spec(synthetic_name)
-        return None
+	def find_spec(self, fullname, path, target=None):
+		if fullname in self.module_registry:
+			synthetic_name = self.module_registry[fullname]
+			if synthetic_name not in sys.modules:
+				init_func = self.init_functions.get(synthetic_name)
+				if init_func:
+					init_func()
+			import importlib.util
+			return importlib.util.find_spec(synthetic_name)
+		return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_609581_mypackage_core()
 __cribo_init___cribo_c3d681_mypackage_submodule_utils()
 process_data = sys.modules['mypackage.core'].process_data
 validate_input = sys.modules['mypackage.submodule.utils'].validate_input
 def main() -> None:
-    """Main function with type annotations that require future import."""
-    data = {"key": "value", "numbers": [1, 2, 3]}
-    if validate_input(data):
-        result = process_data(data)
-        print(f"Processing result: {result}")
-    else:
-        print("Invalid input data")
+	"""Main function with type annotations that require future import."""
+	data = {"key": "value", "numbers": [1, 2, 3]}
+	if validate_input(data):
+		result = process_data(data)
+		print(f"Processing result: {result}")
+	else:
+		print("Invalid input data")
 if __name__ == "__main__":
-    main()
+	main()

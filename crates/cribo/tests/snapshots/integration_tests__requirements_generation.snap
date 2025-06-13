@@ -13,69 +13,69 @@ import re
 """Utils package initialization."""
 """Validation utilities."""
 def validate_email(email: str) -> bool:
-    """Simple email validation."""
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return bool(re.match(pattern, email))
+	"""Simple email validation."""
+	pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+	return bool(re.match(pattern, email))
 def sanitize_input(text: str) -> str:
-    """Sanitize input text."""
-    dangerous_chars = ['<', '>', '"', "'", '&']
-    sanitized = text
-    for char in dangerous_chars:
-        sanitized = sanitized.replace(char, '')
-    return sanitized.strip()
+	"""Sanitize input text."""
+	dangerous_chars = ['<', '>', '"', "'", '&']
+	sanitized = text
+	for char in dangerous_chars:
+		sanitized = sanitized.replace(char, '')
+	return sanitized.strip()
 def validate_age(age: Union[int, str]) -> bool:
-    """Validate age value."""
-    try:
-        age_int = int(age)
-        return 0 <= age_int <= 150
-    except (ValueError, TypeError):
-        return False
+	"""Validate age value."""
+	try:
+		age_int = int(age)
+		return 0 <= age_int <= 150
+	except (ValueError, TypeError):
+		return False
 """Schemas package initialization."""
 """User schema definitions using Pydantic."""
 class UserSchema(BaseModel):
-    """User model with Pydantic validation."""
-    name: str = Field(..., min_length=1, max_length=100, description="User's full name")
-    email: EmailStr = Field(..., description="User's email address")
-    age: int = Field(..., ge=0, le=150, description="User's age")
-    is_active: bool = Field(default=True, description="Whether the user is active")
-    bio: Optional[str] = Field(default=None, max_length=500, description="User's biography")
+	"""User model with Pydantic validation."""
+	name: str = Field(..., min_length=1, max_length=100, description="User's full name")
+	email: EmailStr = Field(..., description="User's email address")
+	age: int = Field(..., ge=0, le=150, description="User's age")
+	is_active: bool = Field(default=True, description="Whether the user is active")
+	bio: Optional[str] = Field(default=None, max_length=500, description="User's biography")
 
-    class Config:
-        """Pydantic configuration."""
-        json_encoders = {}
-        schema_extra = {"example": {"name": "John Doe", "email": "john@example.com", "age": 30, "is_active": True, "bio": "Software developer"}}
+	class Config:
+		"""Pydantic configuration."""
+		json_encoders = {}
+		schema_extra = {"example": {"name": "John Doe", "email": "john@example.com", "age": 30, "is_active": True, "bio": "Software developer"}}
 class CreateUserRequest(BaseModel):
-    """Request model for creating a new user."""
-    name: str = Field(..., min_length=1, max_length=100)
-    email: EmailStr
-    age: Optional[int] = Field(default=None, ge=0, le=150)
-    bio: Optional[str] = Field(default=None, max_length=500)
+	"""Request model for creating a new user."""
+	name: str = Field(..., min_length=1, max_length=100)
+	email: EmailStr
+	age: Optional[int] = Field(default=None, ge=0, le=150)
+	bio: Optional[str] = Field(default=None, max_length=500)
 class UserResponse(BaseModel):
-    """Response model for user data."""
-    id: int
-    name: str
-    email: str
-    age: int
-    is_active: bool
-    bio: Optional[str] = None
+	"""Response model for user data."""
+	id: int
+	name: str
+	email: str
+	age: int
+	is_active: bool
+	bio: Optional[str] = None
 """Pydantic test project entry point."""
 from pydantic import ValidationError
 def main():
-    """Main function demonstrating Pydantic usage."""
-    user_data = {"name": "John Doe", "email": "john@example.com", "age": 25}
-    try:
-        user = UserSchema(**user_data)
-        print(f"Created user: {user}")
-        if validate_email(user.email):
-            print("Email validation passed")
-        user_json = user.model_dump_json()
-        print(f"User JSON: {user_json}")
-        request = CreateUserRequest(name="Jane Doe", email="jane@example.com")
-        print(f"Create request: {request}")
-    except ValidationError as e:
-        print(f"Validation error: {e}")
+	"""Main function demonstrating Pydantic usage."""
+	user_data = {"name": "John Doe", "email": "john@example.com", "age": 25}
+	try:
+		user = UserSchema(**user_data)
+		print(f"Created user: {user}")
+		if validate_email(user.email):
+			print("Email validation passed")
+		user_json = user.model_dump_json()
+		print(f"User JSON: {user_json}")
+		request = CreateUserRequest(name="Jane Doe", email="jane@example.com")
+		print(f"Create request: {request}")
+	except ValidationError as e:
+		print(f"Validation error: {e}")
 if __name__ == "__main__":
-    main()
+	main()
 === END BUNDLE CONTENT ===
 
 === REQUIREMENTS.TXT ===

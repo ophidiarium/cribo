@@ -10,11 +10,11 @@ import os
 import sys
 import types
 class Config_mypackage_config:
-    """Configuration class."""
+	"""Configuration class."""
 
-    def __init__(self):
-        self.DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
-        self.LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+	def __init__(self):
+		self.DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
+		self.LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 config_mypackage_config = Config_mypackage_config()
 """Utils subpackage with re-exports."""
 """Constants module."""
@@ -22,55 +22,55 @@ MAX_ITEMS = 100
 DEFAULT_VALUE = "default"
 """Helper utilities."""
 def helper_function(data):
-    """Helper function for processing data."""
-    return f"Helped: {data}"
+	"""Helper function for processing data."""
+	return f"Helped: {data}"
 """Data formatting module."""
 def format_data(data):
-    """Format the processed data."""
-    return f"Formatted: {data}"
+	"""Format the processed data."""
+	return f"Formatted: {data}"
 """Data processing module."""
 def process_data(data):
-    """Process the input data."""
-    processed = data.copy()
-    processed["processed"] = True
-    return processed
+	"""Process the input data."""
+	processed = data.copy()
+	processed["processed"] = True
+	return processed
 def __cribo_init___cribo_a81151_mypackage():
-    if '__cribo_a81151_mypackage' in sys.modules:
-        return sys.modules['__cribo_a81151_mypackage']
-    module = types.ModuleType('__cribo_a81151_mypackage')
-    module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_a81151_mypackage'] = module
-    sys.modules['mypackage'] = module
-    """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
-    module.process_data = process_data
-    module.format_data = format_data
-    config = config_mypackage_config
-    module.config = config
-    module.helper_function = helper_function
-    __version__ = "1.0.0"
-    module.__version__ = __version__
-    __all__ = ["process_data", "format_data", "config", "helper_function", "__version__"]
-    DEBUG_MODE = config.DEBUG
-    module.__all__ = ['process_data', 'format_data', 'config', 'helper_function', '__version__']
-    return module
+	if '__cribo_a81151_mypackage' in sys.modules:
+		return sys.modules['__cribo_a81151_mypackage']
+	module = types.ModuleType('__cribo_a81151_mypackage')
+	module.__file__ = __file__ if '__file__' in globals() else None
+	sys.modules['__cribo_a81151_mypackage'] = module
+	sys.modules['mypackage'] = module
+	"""\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
+	module.process_data = process_data
+	module.format_data = format_data
+	config = config_mypackage_config
+	module.config = config
+	module.helper_function = helper_function
+	__version__ = "1.0.0"
+	module.__version__ = __version__
+	__all__ = ["process_data", "format_data", "config", "helper_function", "__version__"]
+	DEBUG_MODE = config.DEBUG
+	module.__all__ = ['process_data', 'format_data', 'config', 'helper_function', '__version__']
+	return module
 __cribo_modules = {'mypackage': '__cribo_a81151_mypackage'}
 __cribo_init_functions = {'__cribo_a81151_mypackage': __cribo_init___cribo_a81151_mypackage}
 class CriboBundledFinder:
 
-    def __init__(self, module_registry, init_functions):
-        self.module_registry = module_registry
-        self.init_functions = init_functions
+	def __init__(self, module_registry, init_functions):
+		self.module_registry = module_registry
+		self.init_functions = init_functions
 
-    def find_spec(self, fullname, path, target=None):
-        if fullname in self.module_registry:
-            synthetic_name = self.module_registry[fullname]
-            if synthetic_name not in sys.modules:
-                init_func = self.init_functions.get(synthetic_name)
-                if init_func:
-                    init_func()
-            import importlib.util
-            return importlib.util.find_spec(synthetic_name)
-        return None
+	def find_spec(self, fullname, path, target=None):
+		if fullname in self.module_registry:
+			synthetic_name = self.module_registry[fullname]
+			if synthetic_name not in sys.modules:
+				init_func = self.init_functions.get(synthetic_name)
+				if init_func:
+					init_func()
+			import importlib.util
+			return importlib.util.find_spec(synthetic_name)
+		return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_a81151_mypackage()
 """
@@ -83,14 +83,14 @@ format_data = sys.modules['mypackage'].format_data
 process_data = sys.modules['mypackage'].process_data
 config = sys.modules['mypackage'].config
 def main():
-    """Main function demonstrating usage of re-exported functions."""
-    data = {"name": "test", "value": 42}
-    processed = process_data(data)
-    formatted = format_data(processed)
-    result = helper_function(formatted)
-    if config.DEBUG:
-        print(f"Debug: {result}")
-    else:
-        print(result)
+	"""Main function demonstrating usage of re-exported functions."""
+	data = {"name": "test", "value": 42}
+	processed = process_data(data)
+	formatted = format_data(processed)
+	result = helper_function(formatted)
+	if config.DEBUG:
+		print(f"Debug: {result}")
+	else:
+		print(result)
 if __name__ == "__main__":
-    main()
+	main()

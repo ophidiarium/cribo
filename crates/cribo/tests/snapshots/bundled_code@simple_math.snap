@@ -7,18 +7,18 @@ input_file: crates/cribo/tests/fixtures/bundling/simple_math/main.py
 # https://github.com/ophidiarium/cribo
 
 def format_result(operation, result):
-    """Format operation result for display."""
-    return f"{operation}: {result}"
+	"""Format operation result for display."""
+	return f"{operation}: {result}"
 def add(a, b):
-    """Add two numbers."""
-    return a + b
+	"""Add two numbers."""
+	return a + b
 def multiply(a, b):
-    """Multiply two numbers."""
-    return a * b
+	"""Multiply two numbers."""
+	return a * b
 def main():
-    result1 = add(5, 3)
-    result2 = multiply(4, 7)
-    print(format_result("Addition", result1))
-    print(format_result("Multiplication", result2))
+	result1 = add(5, 3)
+	result2 = multiply(4, 7)
+	print(format_result("Addition", result1))
+	print(format_result("Multiplication", result2))
 if __name__ == "__main__":
-    main()
+	main()

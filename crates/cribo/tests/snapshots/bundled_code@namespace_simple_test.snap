@@ -9,8 +9,8 @@ input_file: crates/cribo/tests/fixtures/bundling/namespace_simple_test/main.py
 import types
 CONSTANT_mymodule_utils = 42
 def greet_mymodule_utils(name: str) -> str:
-    """Greet someone"""
-    return f'Hello, {name}!'
+	"""Greet someone"""
+	return f'Hello, {name}!'
 """Test namespace imports with simple module"""
 utils = types.SimpleNamespace()
 utils.CONSTANT = CONSTANT_mymodule_utils

@@ -8,5 +8,5 @@ input_file: crates/cribo/tests/fixtures/bundling/stickytape_script_using_from_to
 
 message = "Hello"
 def print_stdout(value):
-    print(value)
+	print(value)
 print_stdout(message)

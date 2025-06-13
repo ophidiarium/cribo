@@ -32,13 +32,13 @@ VERSION = VERSION_2
 CONFIG_API_URL = API_URL_1
 CONFIG_VERSION = VERSION_1
 def main():
-    print(f"Constants API URL: {API_URL}")
-    print(f"Config API URL: {CONFIG_API_URL}")
-    print(f"Constants Version: {VERSION}")
-    print(f"Config Version: {CONFIG_VERSION}")
-    print(f"Default Timeout: {DEFAULT_TIMEOUT}")
-    print(f"Max Retries: {MAX_RETRIES}")
-    return {"constants_api_url": API_URL, "config_api_url": CONFIG_API_URL, "constants_version": VERSION, "config_version": CONFIG_VERSION, "default_timeout": DEFAULT_TIMEOUT, "max_retries": MAX_RETRIES}
+	print(f"Constants API URL: {API_URL}")
+	print(f"Config API URL: {CONFIG_API_URL}")
+	print(f"Constants Version: {VERSION}")
+	print(f"Config Version: {CONFIG_VERSION}")
+	print(f"Default Timeout: {DEFAULT_TIMEOUT}")
+	print(f"Max Retries: {MAX_RETRIES}")
+	return {"constants_api_url": API_URL, "config_api_url": CONFIG_API_URL, "constants_version": VERSION, "config_version": CONFIG_VERSION, "default_timeout": DEFAULT_TIMEOUT, "max_retries": MAX_RETRIES}
 if __name__ == "__main__":
-    result = main()
-    print("Result:", result)
+	result = main()
+	print("Result:", result)

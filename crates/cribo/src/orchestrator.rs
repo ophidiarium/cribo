@@ -1262,8 +1262,13 @@ impl BundleOrchestrator {
 
     /// Generate code from AST with custom handling for triple-quoted strings
     fn generate_code_from_ast(&self, module: &ModModule) -> Result<String> {
-        let empty_parsed = ruff_python_parser::parse_module("")?;
-        let stylist = ruff_python_codegen::Stylist::from_tokens(empty_parsed.tokens(), "");
+        // Using predermined Stylist output with TABs (to be smaller)
+        let stylist = {
+            let sample_code = "def foo():\n\tprint(\"Cribo!\")\n";
+            let parsed = ruff_python_parser::parse_module(sample_code)
+                .expect("Failed to parse sample code for stylist");
+            ruff_python_codegen::Stylist::from_tokens(parsed.tokens(), sample_code)
+        };
 
         let mut result = Vec::new();
         for stmt in &module.body {
@@ -1368,7 +1373,7 @@ impl BundleOrchestrator {
                     // Count spaces before "def"
                     let line_start = func_str[..def_pos].rfind('\n').map(|p| p + 1).unwrap_or(0);
                     let indent_str = &func_str[line_start..def_pos];
-                    indent_str.to_string() + "    " // Parent indent + 4 spaces for body
+                    indent_str.to_string() + stylist.indentation()
                 } else {
                     // Fallback: count leading spaces in the after_body if it exists
                     if !after_body.trim().is_empty() {
@@ -1376,7 +1381,7 @@ impl BundleOrchestrator {
                         let spaces = first_line.len() - first_line.trim_start().len();
                         " ".repeat(spaces)
                     } else {
-                        "    ".to_string() // Default to 4 spaces
+                        "\t".to_string() // Default to 1 tab
                     }
                 };
 

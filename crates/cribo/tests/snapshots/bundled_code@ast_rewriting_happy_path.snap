@@ -15,41 +15,41 @@ Database service module.
 Contains database-related functionality with unique names.
 """
 class DatabaseConnection:
-    """Represents a database connection."""
+	"""Represents a database connection."""
 
-    def __init__(self, connection_string: str):
-        self.connection_string = connection_string
-        self.is_connected = False
+	def __init__(self, connection_string: str):
+		self.connection_string = connection_string
+		self.is_connected = False
 
-    def connect(self) -> bool:
-        """Connect to the database."""
-        self.is_connected = True
-        return True
+	def connect(self) -> bool:
+		"""Connect to the database."""
+		self.is_connected = True
+		return True
 
-    def disconnect(self) -> None:
-        """Disconnect from the database."""
-        self.is_connected = False
+	def disconnect(self) -> None:
+		"""Disconnect from the database."""
+		self.is_connected = False
 class DatabaseService:
-    """Service for database operations."""
+	"""Service for database operations."""
 
-    def __init__(self, database_path: str):
-        self.connection_string = f"sqlite://{database_path}"
-        self.connection = DatabaseConnection(self.connection_string)
-        self.cache: Dict[str, Any] = {}
+	def __init__(self, database_path: str):
+		self.connection_string = f"sqlite://{database_path}"
+		self.connection = DatabaseConnection(self.connection_string)
+		self.cache: Dict[str, Any] = {}
 
-    def connect(self) -> bool:
-        """Connect to the database."""
-        return self.connection.connect()
+	def connect(self) -> bool:
+		"""Connect to the database."""
+		return self.connection.connect()
 
-    def query(self, sql: str) -> Optional[Dict[str, Any]]:
-        """Execute a query."""
-        if not self.connection.is_connected:
-            self.connect()
-        return {"result": f"Executed: {sql}"}
+	def query(self, sql: str) -> Optional[Dict[str, Any]]:
+		"""Execute a query."""
+		if not self.connection.is_connected:
+			self.connect()
+		return {"result": f"Executed: {sql}"}
 
-    def close(self) -> None:
-        """Close the database connection."""
-        self.connection.disconnect()
+	def close(self) -> None:
+		"""Close the database connection."""
+		self.connection.disconnect()
 DEFAULT_DATABASE_PATH = "app.db"
 MAX_CONNECTIONS = 10
 """
@@ -57,75 +57,75 @@ Utility helper functions for the happy path test.
 These functions have unique names that shouldn't conflict.
 """
 def format_message(greeting: str, name: str) -> str:
-    """Format a greeting message."""
-    return f"{greeting}, {name}!"
+	"""Format a greeting message."""
+	return f"{greeting}, {name}!"
 def calculate_total(values: List[int]) -> int:
-    """Calculate the sum of a list of integers."""
-    return sum(values)
+	"""Calculate the sum of a list of integers."""
+	return sum(values)
 def get_version() -> str:
-    """Get the version string."""
-    return "1.0.0"
+	"""Get the version string."""
+	return "1.0.0"
 UTILS_VERSION = "1.0.0"
 def __cribo_init___cribo_fddf57_models_user():
-    if '__cribo_fddf57_models_user' in sys.modules:
-        return sys.modules['__cribo_fddf57_models_user']
-    module = types.ModuleType('__cribo_fddf57_models_user')
-    module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_fddf57_models_user'] = module
-    sys.modules['models.user'] = module
-    """\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
+	if '__cribo_fddf57_models_user' in sys.modules:
+		return sys.modules['__cribo_fddf57_models_user']
+	module = types.ModuleType('__cribo_fddf57_models_user')
+	module.__file__ = __file__ if '__file__' in globals() else None
+	sys.modules['__cribo_fddf57_models_user'] = module
+	sys.modules['models.user'] = module
+	"""\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 
-    class UserRole(Enum):
-        """User role enumeration."""
-        ADMIN = "admin"
-        USER = "user"
-        GUEST = "guest"
-    module.UserRole = UserRole
+	class UserRole(Enum):
+		"""User role enumeration."""
+		ADMIN = "admin"
+		USER = "user"
+		GUEST = "guest"
+	module.UserRole = UserRole
 
-    class User:
-        """Simple user model."""
+	class User:
+		"""Simple user model."""
 
-        def __init__(self, name: str, email: str, role: UserRole=UserRole.USER):
-            self.name = name
-            self.email = email
-            self.role = role
-            self.active = True
+		def __init__(self, name: str, email: str, role: UserRole=UserRole.USER):
+			self.name = name
+			self.email = email
+			self.role = role
+			self.active = True
 
-        def __str__(self) -> str:
-            return f"User(name='{self.name}', email='{self.email}', role={self.role.value})"
+		def __str__(self) -> str:
+			return f"User(name='{self.name}', email='{self.email}', role={self.role.value})"
 
-        def __repr__(self) -> str:
-            return self.__str__()
+		def __repr__(self) -> str:
+			return self.__str__()
 
-        def activate(self) -> None:
-            """Activate the user."""
-            self.active = True
+		def activate(self) -> None:
+			"""Activate the user."""
+			self.active = True
 
-        def deactivate(self) -> None:
-            """Deactivate the user."""
-            self.active = False
-    module.User = User
-    DEFAULT_ROLE = UserRole.USER
-    module.DEFAULT_ROLE = DEFAULT_ROLE
-    return module
+		def deactivate(self) -> None:
+			"""Deactivate the user."""
+			self.active = False
+	module.User = User
+	DEFAULT_ROLE = UserRole.USER
+	module.DEFAULT_ROLE = DEFAULT_ROLE
+	return module
 __cribo_modules = {'models.user': '__cribo_fddf57_models_user'}
 __cribo_init_functions = {'__cribo_fddf57_models_user': __cribo_init___cribo_fddf57_models_user}
 class CriboBundledFinder:
 
-    def __init__(self, module_registry, init_functions):
-        self.module_registry = module_registry
-        self.init_functions = init_functions
+	def __init__(self, module_registry, init_functions):
+		self.module_registry = module_registry
+		self.init_functions = init_functions
 
-    def find_spec(self, fullname, path, target=None):
-        if fullname in self.module_registry:
-            synthetic_name = self.module_registry[fullname]
-            if synthetic_name not in sys.modules:
-                init_func = self.init_functions.get(synthetic_name)
-                if init_func:
-                    init_func()
-            import importlib.util
-            return importlib.util.find_spec(synthetic_name)
-        return None
+	def find_spec(self, fullname, path, target=None):
+		if fullname in self.module_registry:
+			synthetic_name = self.module_registry[fullname]
+			if synthetic_name not in sys.modules:
+				init_func = self.init_functions.get(synthetic_name)
+				if init_func:
+					init_func()
+			import importlib.util
+			return importlib.util.find_spec(synthetic_name)
+		return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_fddf57_models_user()
 """
@@ -135,16 +135,16 @@ This should bundle cleanly without any AST rewriting for conflicts.
 User = sys.modules['models.user'].User
 UserRole = sys.modules['models.user'].UserRole
 def main():
-    user = User("Alice", "alice@example.com", UserRole.ADMIN)
-    db = DatabaseService("test.db")
-    message = format_message("Welcome", user.name)
-    total = calculate_total([10, 20, 30])
-    print(message)
-    print(f"User: {user}")
-    print(f"Role: {user.role.value}")
-    print(f"Database: {db.connection_string}")
-    print(f"Total: {total}")
-    return {"user": user.name, "email": user.email, "role": user.role.value, "total": total, "message": message}
+	user = User("Alice", "alice@example.com", UserRole.ADMIN)
+	db = DatabaseService("test.db")
+	message = format_message("Welcome", user.name)
+	total = calculate_total([10, 20, 30])
+	print(message)
+	print(f"User: {user}")
+	print(f"Role: {user.role.value}")
+	print(f"Database: {db.connection_string}")
+	print(f"Total: {total}")
+	return {"user": user.name, "email": user.email, "role": user.role.value, "total": total, "message": message}
 if __name__ == "__main__":
-    result = main()
-    print("Result:", result)
+	result = main()
+	print("Result:", result)

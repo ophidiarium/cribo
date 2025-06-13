@@ -11,55 +11,55 @@ Entities module with User and Product classes.
 These will conflict with models.py when bundled.
 """
 class User_1:
-    """User entity for business logic."""
+	"""User entity for business logic."""
 
-    def __init__(self, name: str, age: int):
-        self.name = name
-        self.age = age
-        self.active = True
+	def __init__(self, name: str, age: int):
+		self.name = name
+		self.age = age
+		self.active = True
 
-    def __str__(self) -> str:
-        return f"Entity User(name='{self.name}', age={self.age})"
+	def __str__(self) -> str:
+		return f"Entity User(name='{self.name}', age={self.age})"
 class Product_1:
-    """Product entity for business logic."""
+	"""Product entity for business logic."""
 
-    def __init__(self, sku: str, name: str):
-        self.sku = sku
-        self.name = name
-        self.available = True
+	def __init__(self, sku: str, name: str):
+		self.sku = sku
+		self.name = name
+		self.available = True
 
-    def __str__(self) -> str:
-        return f"Entity Product(sku='{self.sku}', name='{self.name}')"
+	def __str__(self) -> str:
+		return f"Entity Product(sku='{self.sku}', name='{self.name}')"
 def create_product(sku: str, name: str) -> Product_1:
-    """Factory function for creating products."""
-    return Product_1(sku, name)
+	"""Factory function for creating products."""
+	return Product_1(sku, name)
 """
 Models module with User and Product classes.
 These will conflict with entities.py when bundled.
 """
 class User_2:
-    """User model for data persistence."""
+	"""User model for data persistence."""
 
-    def __init__(self, name: str, email: str):
-        self.name = name
-        self.email = email
-        self.id = None
+	def __init__(self, name: str, email: str):
+		self.name = name
+		self.email = email
+		self.id = None
 
-    def __str__(self) -> str:
-        return f"Model User(name='{self.name}', email='{self.email}')"
+	def __str__(self) -> str:
+		return f"Model User(name='{self.name}', email='{self.email}')"
 class Product_2:
-    """Product model for catalog."""
+	"""Product model for catalog."""
 
-    def __init__(self, name: str, price: float):
-        self.name = name
-        self.price = price
-        self.id = None
+	def __init__(self, name: str, price: float):
+		self.name = name
+		self.price = price
+		self.id = None
 
-    def __str__(self) -> str:
-        return f"Model Product(name='{self.name}', price={self.price})"
+	def __str__(self) -> str:
+		return f"Model Product(name='{self.name}', price={self.price})"
 def create_user(name: str, email: str) -> User_2:
-    """Factory function for creating users."""
-    return User_2(name, email)
+	"""Factory function for creating users."""
+	return User_2(name, email)
 """
 Class name collision test.
 Both modules define classes with the same names.
@@ -69,15 +69,15 @@ ModelProduct = Product_2
 EntityUser = User_1
 EntityProduct = Product_1
 def main():
-    model_user = ModelUser("Alice", "alice@example.com")
-    entity_user = EntityUser("Bob", 25)
-    model_product = ModelProduct("Widget", 19.99)
-    entity_product = EntityProduct("P001", "Gadget")
-    print(f"Model User: {model_user}")
-    print(f"Entity User: {entity_user}")
-    print(f"Model Product: {model_product}")
-    print(f"Entity Product: {entity_product}")
-    return {"model_user": str(model_user), "entity_user": str(entity_user), "model_product": str(model_product), "entity_product": str(entity_product)}
+	model_user = ModelUser("Alice", "alice@example.com")
+	entity_user = EntityUser("Bob", 25)
+	model_product = ModelProduct("Widget", 19.99)
+	entity_product = EntityProduct("P001", "Gadget")
+	print(f"Model User: {model_user}")
+	print(f"Entity User: {entity_user}")
+	print(f"Model Product: {model_product}")
+	print(f"Entity Product: {entity_product}")
+	return {"model_user": str(model_user), "entity_user": str(entity_user), "model_product": str(model_product), "entity_product": str(entity_product)}
 if __name__ == "__main__":
-    result = main()
-    print("Result:", result)
+	result = main()
+	print("Result:", result)
