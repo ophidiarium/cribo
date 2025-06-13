@@ -593,6 +593,20 @@ impl ModuleResolver {
         if let Some(module_name) = self.path_to_module_name(src_dir, path) {
             debug!("Found first-party module: {}", module_name);
             self.first_party_modules.insert(module_name.clone());
+
+            // Also add parent packages to support namespace packages
+            // For example, if we find "greetings.greeting", also add "greetings"
+            let parts: Vec<&str> = module_name.split('.').collect();
+            for i in 1..parts.len() {
+                let parent_module = parts[..i].join(".");
+                if !self.first_party_modules.contains(&parent_module) {
+                    debug!("Adding parent package: {}", parent_module);
+                    self.first_party_modules.insert(parent_module.clone());
+                    // Cache the absence of a physical file to avoid repeated scans later
+                    self.module_cache.entry(parent_module).or_insert(None);
+                }
+            }
+
             self.module_cache
                 .insert(module_name, Some(path.to_path_buf()));
         }

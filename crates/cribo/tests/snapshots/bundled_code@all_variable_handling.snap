@@ -10,9 +10,6 @@ import sys
 import types
 message_1 = "from conflict_module"
 SHARED_NAME = "conflict_module_version"
-def exported_from_init():
-    """Function exported from package __init__.py"""
-    return f"From init, using helper: {helper_func()}"
 def helper_func():
     """Helper function used by other modules"""
     return "helper result"
@@ -42,6 +39,29 @@ def __cribo_init___cribo_11029d_nested_package_submodule():
     message = "from submodule"
     module.__all__ = ['sub_function', 'SUB_CONSTANT']
     return module
+def __cribo_init___cribo_c56070_nested_package():
+    if '__cribo_c56070_nested_package' in sys.modules:
+        return sys.modules['__cribo_c56070_nested_package']
+    module = types.ModuleType('__cribo_c56070_nested_package')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_c56070_nested_package'] = module
+    sys.modules['nested_package'] = module
+    sub_function = sys.modules['nested_package.submodule'].sub_function
+    module.sub_function = sub_function
+    module.helper_func = helper_func
+    __all__ = ["exported_from_init", "sub_function"]
+
+    def exported_from_init():
+        """Function exported from package __init__.py"""
+        return f"From init, using helper: {helper_func()}"
+    module.exported_from_init = exported_from_init
+
+    def _internal_init_func():
+        """Internal function not exported"""
+        return "internal"
+    PACKAGE_CONSTANT = "from_package"
+    module.__all__ = ['exported_from_init', 'sub_function']
+    return module
 def __cribo_init___cribo_8010fb_simple_module():
     if '__cribo_8010fb_simple_module' in sys.modules:
         return sys.modules['__cribo_8010fb_simple_module']
@@ -67,8 +87,8 @@ def __cribo_init___cribo_8010fb_simple_module():
         pass
     module.__all__ = ['public_func', 'CONSTANT']
     return module
-__cribo_modules = {'nested_package.submodule': '__cribo_11029d_nested_package_submodule', 'simple_module': '__cribo_8010fb_simple_module'}
-__cribo_init_functions = {'__cribo_11029d_nested_package_submodule': __cribo_init___cribo_11029d_nested_package_submodule, '__cribo_8010fb_simple_module': __cribo_init___cribo_8010fb_simple_module}
+__cribo_modules = {'nested_package.submodule': '__cribo_11029d_nested_package_submodule', 'nested_package': '__cribo_c56070_nested_package', 'simple_module': '__cribo_8010fb_simple_module'}
+__cribo_init_functions = {'__cribo_11029d_nested_package_submodule': __cribo_init___cribo_11029d_nested_package_submodule, '__cribo_c56070_nested_package': __cribo_init___cribo_c56070_nested_package, '__cribo_8010fb_simple_module': __cribo_init___cribo_8010fb_simple_module}
 class CriboBundledFinder:
 
     def __init__(self, module_registry, init_functions):
@@ -88,8 +108,10 @@ class CriboBundledFinder:
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_8010fb_simple_module()
 __cribo_init___cribo_11029d_nested_package_submodule()
+__cribo_init___cribo_c56070_nested_package()
 public_func = sys.modules['simple_module'].public_func
 CONSTANT = sys.modules['simple_module'].CONSTANT
+exported_from_init = sys.modules['nested_package'].exported_from_init
 sub_function = sys.modules['nested_package.submodule'].sub_function
 message = message_1
 print("Testing simple module exports:")
@@ -102,5 +124,6 @@ print("\nTesting conflict resolution:")
 print(f"message = {message}")
 simple_module = sys.modules['simple_module']
 print(f"\nsimple_module.__all__ = {simple_module.__all__}")
+nested_package = sys.modules['nested_package']
 sub = sys.modules['nested_package.submodule']
 print(f"submodule.__all__ = {sub.__all__}")

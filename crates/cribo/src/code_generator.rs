@@ -4,11 +4,11 @@ use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use ruff_python_ast::{
-    CmpOp, Comprehension, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprCompare, ExprContext,
-    ExprFString, ExprIf, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, FString,
-    FStringElement, FStringElements, FStringExpressionElement, FStringFlags, FStringValue,
-    Identifier, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtIf, StmtImport,
-    StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
+    Arguments, CmpOp, Comprehension, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprCompare,
+    ExprContext, ExprFString, ExprIf, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral,
+    FString, FStringElement, FStringElements, FStringExpressionElement, FStringFlags, FStringValue,
+    Identifier, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtIf,
+    StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
 };
 use ruff_text_size::TextRange;
 use rustc_hash::FxHasher;
@@ -75,6 +75,13 @@ struct AddSymbolsParams<'a> {
     local_name: &'a str,
     imported_name: &'a str,
     inlined_module_key: &'a str,
+}
+
+/// Context for collecting direct imports
+struct DirectImportContext<'a> {
+    current_module: &'a str,
+    module_path: &'a Path,
+    modules: &'a [(String, ModModule, PathBuf, String)],
 }
 
 /// Parameters for handling symbol imports from inlined modules
@@ -301,6 +308,9 @@ pub struct HybridStaticBundler {
     /// Modules that are imported as namespaces (e.g., from package import module)
     /// Maps module name to set of importing modules
     namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>>,
+    /// Tracks namespace modules already created in the entry module to avoid duplicates
+    /// Used when processing multiple dotted imports
+    created_namespace_modules: FxIndexSet<String>,
 }
 
 impl Default for HybridStaticBundler {
@@ -323,6 +333,7 @@ impl HybridStaticBundler {
             module_exports: FxIndexMap::default(),
             lifted_global_declarations: Vec::new(),
             namespace_imported_modules: FxIndexMap::default(),
+            created_namespace_modules: FxIndexSet::default(),
         }
     }
 
@@ -880,6 +891,30 @@ impl HybridStaticBundler {
             self.init_functions.insert(synthetic_name, init_func_name);
         }
 
+        // Also register namespace hybrid modules' exports
+        // We'll use either explicit __all__ exports or fall back to all module-level symbols
+        for (module_name, ast, _, _) in &namespace_hybrid_modules {
+            let explicit_exports = module_exports_map.get(module_name).cloned().flatten();
+
+            // If no explicit __all__, extract all module-level symbols as exports
+            let exports = if explicit_exports.is_none() {
+                // Extract all module-level assignments, functions, and classes
+                let mut symbols = Vec::new();
+                for stmt in &ast.body {
+                    self.collect_module_symbol(stmt, &mut symbols);
+                }
+                if symbols.is_empty() {
+                    None
+                } else {
+                    Some(symbols)
+                }
+            } else {
+                explicit_exports
+            };
+
+            self.module_exports.insert(module_name.clone(), exports);
+        }
+
         // Add imports first
         self.add_hoisted_imports(&mut final_body);
 
@@ -923,7 +958,12 @@ impl HybridStaticBundler {
                 inlined_stmts: &mut inlined_stmts,
                 import_aliases: FxIndexMap::default(),
             };
-            self.inline_module_for_namespace(module_name, ast.clone(), &mut inline_ctx)?;
+            self.inline_module_for_namespace(
+                module_name,
+                ast.clone(),
+                _module_path,
+                &mut inline_ctx,
+            )?;
             log::debug!(
                 "Inlined {} statements from namespace hybrid module '{}'",
                 inlined_stmts.len(),
@@ -944,7 +984,7 @@ impl HybridStaticBundler {
                 inlined_stmts: &mut inlined_stmts,
                 import_aliases: FxIndexMap::default(),
             };
-            self.inline_module(module_name, ast.clone(), &mut inline_ctx)?;
+            self.inline_module(module_name, ast.clone(), _module_path, &mut inline_ctx)?;
             log::debug!(
                 "Inlined {} statements from module '{}'",
                 inlined_stmts.len(),
@@ -1048,13 +1088,18 @@ impl HybridStaticBundler {
 
                 // For the entry module, we need to handle both imports and symbol references
                 match &mut stmt {
-                    Stmt::ImportFrom(_) | Stmt::Import(_) => {
-                        // Handle imports with renaming
+                    Stmt::ImportFrom(_) => {
+                        // Handle from imports with renaming
                         let rewritten_stmts = self.rewrite_import_in_stmt_multiple_with_context(
                             stmt,
                             module_name,
                             &symbol_renames,
                         );
+                        final_body.extend(rewritten_stmts);
+                    }
+                    Stmt::Import(import_stmt) => {
+                        // Handle regular imports with namespace tracking for entry module
+                        let rewritten_stmts = self.rewrite_import_entry_module(import_stmt.clone());
                         final_body.extend(rewritten_stmts);
                     }
                     _ => {
@@ -3295,6 +3340,24 @@ impl HybridStaticBundler {
         self.stdlib_import_statements.push(import_stmt);
     }
 
+    /// Collect a symbol from a module statement
+    fn collect_module_symbol(&self, stmt: &Stmt, symbols: &mut Vec<String>) {
+        match stmt {
+            Stmt::FunctionDef(func) => {
+                symbols.push(func.name.to_string());
+            }
+            Stmt::ClassDef(class) => {
+                symbols.push(class.name.to_string());
+            }
+            Stmt::Assign(assign) if assign.targets.len() == 1 => {
+                if let Expr::Name(name) = &assign.targets[0] {
+                    symbols.push(name.id.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Extract __all__ exports from a module
     /// Returns Some(vec) if __all__ is defined, None if not defined
     fn extract_all_exports(&self, ast: &ModModule) -> Option<Vec<String>> {
@@ -3387,11 +3450,21 @@ impl HybridStaticBundler {
     }
 
     /// Add module attribute assignments for imported symbols that should be re-exported
-    fn add_imported_symbol_attributes(&self, stmt: &Stmt, module_name: &str, body: &mut Vec<Stmt>) {
+    fn add_imported_symbol_attributes(
+        &self,
+        stmt: &Stmt,
+        module_name: &str,
+        module_path: Option<&Path>,
+        body: &mut Vec<Stmt>,
+    ) {
         match stmt {
             Stmt::ImportFrom(import_from) => {
                 // First check if this is an import from an inlined module
-                let resolved_module_name = self.resolve_relative_import(import_from, module_name);
+                let resolved_module_name = self.resolve_relative_import_with_context(
+                    import_from,
+                    module_name,
+                    module_path,
+                );
                 if let Some(ref imported_module) = resolved_module_name {
                     // If this is an inlined module, skip module attribute assignment
                     // The symbols will be referenced directly in the transformed import
@@ -3533,14 +3606,25 @@ impl HybridStaticBundler {
             let imported_name = alias.name.as_str();
             let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
-            // Create: target = sys.modules['module'].imported_name
-            assignments.push(Stmt::Assign(StmtAssign {
-                targets: vec![Expr::Name(ExprName {
-                    id: target_name.as_str().into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Attribute(ExprAttribute {
+            // Check if we're importing a submodule (e.g., from greetings import greeting)
+            let full_module_path = format!("{}.{}", module_name, imported_name);
+            let importing_submodule = self.bundled_modules.contains(&full_module_path)
+                && self.module_registry.contains_key(&full_module_path);
+
+            if importing_submodule {
+                // We're importing a submodule, not an attribute
+                // Create: target = sys.modules['module.submodule']
+                log::debug!(
+                    "Importing submodule '{}' from '{}' via from import",
+                    imported_name,
+                    module_name
+                );
+                assignments.push(Stmt::Assign(StmtAssign {
+                    targets: vec![Expr::Name(ExprName {
+                        id: target_name.as_str().into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
                     value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
                         value: Box::new(Expr::Attribute(ExprAttribute {
                             value: Box::new(Expr::Name(ExprName {
@@ -3552,16 +3636,44 @@ impl HybridStaticBundler {
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
                         })),
-                        slice: Box::new(self.create_string_literal(module_name)),
+                        slice: Box::new(self.create_string_literal(&full_module_path)),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
-                    attr: Identifier::new(imported_name, TextRange::default()),
-                    ctx: ExprContext::Load,
                     range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+                }));
+            } else {
+                // Regular attribute import
+                // Create: target = sys.modules['module'].imported_name
+                assignments.push(Stmt::Assign(StmtAssign {
+                    targets: vec![Expr::Name(ExprName {
+                        id: target_name.as_str().into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Attribute(ExprAttribute {
+                        value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
+                            value: Box::new(Expr::Attribute(ExprAttribute {
+                                value: Box::new(Expr::Name(ExprName {
+                                    id: "sys".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new("modules", TextRange::default()),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            slice: Box::new(self.create_string_literal(module_name)),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new(imported_name, TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+            }
         }
 
         assignments
@@ -3651,13 +3763,50 @@ impl HybridStaticBundler {
             );
 
             if importing_module {
-                let namespace_params = NamespaceImportParams {
-                    local_name,
-                    imported_name,
-                    resolved_module: params.resolved_module,
-                    full_module_path: &full_module_path,
-                };
-                self.create_namespace_for_inlined_module(&namespace_params, symbol_renames, body);
+                // Check if this module is actually a wrapper module (not inlined)
+                if self.module_registry.contains_key(&full_module_path) {
+                    // It's a wrapper module, create a sys.modules access instead
+                    log::debug!(
+                        "Module '{}' is a wrapper module, creating sys.modules access",
+                        full_module_path
+                    );
+                    body.push(Stmt::Assign(StmtAssign {
+                        targets: vec![Expr::Name(ExprName {
+                            id: local_name.into(),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
+                            value: Box::new(Expr::Attribute(ExprAttribute {
+                                value: Box::new(Expr::Name(ExprName {
+                                    id: "sys".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new("modules", TextRange::default()),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            slice: Box::new(self.create_string_literal(&full_module_path)),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    }));
+                } else {
+                    // It's truly an inlined module, create a namespace
+                    let namespace_params = NamespaceImportParams {
+                        local_name,
+                        imported_name,
+                        resolved_module: params.resolved_module,
+                        full_module_path: &full_module_path,
+                    };
+                    self.create_namespace_for_inlined_module(
+                        &namespace_params,
+                        symbol_renames,
+                        body,
+                    );
+                }
                 continue;
             }
 
@@ -3898,6 +4047,16 @@ impl HybridStaticBundler {
         import_from: &StmtImportFrom,
         current_module: &str,
     ) -> Option<String> {
+        self.resolve_relative_import_with_context(import_from, current_module, None)
+    }
+
+    /// Resolve a relative import to an absolute module name with optional module path context
+    fn resolve_relative_import_with_context(
+        &self,
+        import_from: &StmtImportFrom,
+        current_module: &str,
+        module_path: Option<&Path>,
+    ) -> Option<String> {
         log::debug!(
             "Resolving relative import: level={}, module={:?}, current_module={}",
             import_from.level,
@@ -3935,12 +4094,43 @@ impl HybridStaticBundler {
                     parts.clear();
                 }
             } else {
-                // For modules with multiple components (e.g., "core.utils.helpers")
-                // For level 1 (.module), we go to parent package (remove current module)
-                // For level 2 (..module), we go up one more level (remove current + 1 parent)
-                // For level 3 (...module), we go up two more levels (remove current + 2 parents)
-                // So we remove 'level' parts
-                for _ in 0..import_from.level {
+                // For modules with multiple components (e.g., "greetings.greeting")
+                // Special handling: if this module represents a package __init__.py file,
+                // the first level doesn't remove anything (stays in the package)
+                // Subsequent levels go up the hierarchy
+
+                // Check if current module is a package __init__.py file
+                let is_package_init = if let Some(path) = module_path {
+                    path.file_name()
+                        .and_then(|f| f.to_str())
+                        .map(|f| f == "__init__.py")
+                        .unwrap_or(false)
+                } else {
+                    // Fallback: check if module has submodules
+                    self.bundled_modules
+                        .iter()
+                        .any(|m| m.starts_with(&format!("{}.", current_module)))
+                };
+
+                let levels_to_remove = if is_package_init {
+                    // For package __init__.py files, the first dot stays in the package
+                    // So we remove (level - 1) parts
+                    import_from.level.saturating_sub(1)
+                } else {
+                    // For regular modules, remove 'level' parts
+                    import_from.level
+                };
+
+                log::debug!(
+                    "Relative import resolution: current_module={}, is_package_init={}, level={}, levels_to_remove={}, parts={:?}",
+                    current_module,
+                    is_package_init,
+                    import_from.level,
+                    levels_to_remove,
+                    parts
+                );
+
+                for _ in 0..levels_to_remove {
                     if parts.is_empty() {
                         log::debug!("Invalid relative import - ran out of parent levels");
                         return None; // Invalid relative import
@@ -3983,10 +4173,15 @@ impl HybridStaticBundler {
         let mut directly_imported = FxIndexSet::default();
 
         // Check all modules for direct imports
-        for (module_name, ast, _, _) in modules {
+        for (module_name, ast, module_path, _) in modules {
             log::debug!("Checking module '{}' for direct imports", module_name);
+            let ctx = DirectImportContext {
+                current_module: module_name,
+                module_path,
+                modules,
+            };
             for stmt in &ast.body {
-                self.collect_direct_imports(stmt, modules, &mut directly_imported);
+                self.collect_direct_imports(stmt, &ctx, &mut directly_imported);
             }
         }
 
@@ -4002,7 +4197,7 @@ impl HybridStaticBundler {
     fn collect_direct_imports(
         &self,
         stmt: &Stmt,
-        modules: &[(String, ModModule, PathBuf, String)],
+        ctx: &DirectImportContext<'_>,
         directly_imported: &mut FxIndexSet<String>,
     ) {
         match stmt {
@@ -4010,11 +4205,22 @@ impl HybridStaticBundler {
                 for alias in &import_stmt.names {
                     let imported_module = alias.name.as_str();
                     // Check if this is a bundled module
-                    if modules
+                    if ctx
+                        .modules
                         .iter()
                         .any(|(name, _, _, _)| name == imported_module)
                     {
                         directly_imported.insert(imported_module.to_string());
+
+                        // When importing a submodule, Python implicitly imports parent packages
+                        // For example, importing 'greetings.irrelevant' also imports 'greetings'
+                        if imported_module.contains('.') {
+                            self.mark_parent_packages_as_imported(
+                                imported_module,
+                                ctx.modules,
+                                directly_imported,
+                            );
+                        }
                     }
                 }
             }
@@ -4034,7 +4240,8 @@ impl HybridStaticBundler {
                         );
 
                         // Check if this full path matches a bundled module
-                        if modules
+                        if ctx
+                            .modules
                             .iter()
                             .any(|(name, _, _, _)| name == &full_module_path)
                         {
@@ -4046,11 +4253,92 @@ impl HybridStaticBundler {
                                 full_module_path
                             );
                             directly_imported.insert(full_module_path);
+
+                            // Note: We don't mark the parent module as directly imported here
+                            // because `from models import base` is importing the submodule `base`,
+                            // not the parent package `models` itself
                         }
                     }
+                } else if import_from.level > 0 {
+                    // Handle relative imports (e.g., from . import greeting)
+                    self.collect_direct_relative_imports(import_from, ctx, directly_imported);
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Collect direct imports from relative import statements
+    fn collect_direct_relative_imports(
+        &self,
+        import_from: &StmtImportFrom,
+        ctx: &DirectImportContext<'_>,
+        directly_imported: &mut FxIndexSet<String>,
+    ) {
+        let resolved_module = self.resolve_relative_import_with_context(
+            import_from,
+            ctx.current_module,
+            Some(ctx.module_path),
+        );
+
+        let Some(base_module) = resolved_module else {
+            return;
+        };
+
+        // Check if any imported name is actually a submodule
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let full_module_path = format!("{}.{}", base_module, imported_name);
+
+            log::debug!(
+                "Checking if '{}' (from . import {}) is a bundled module",
+                full_module_path,
+                imported_name
+            );
+
+            // Check if this full path matches a bundled module
+            let is_bundled_module = ctx
+                .modules
+                .iter()
+                .any(|(name, _, _, _)| name == &full_module_path);
+
+            if is_bundled_module {
+                // This is importing a submodule directly
+                log::info!(
+                    "Found direct submodule import via relative import: from . import {} -> {}",
+                    imported_name,
+                    full_module_path
+                );
+                directly_imported.insert(full_module_path);
+            }
+        }
+    }
+
+    /// Mark parent packages as directly imported when a submodule is imported
+    fn mark_parent_packages_as_imported(
+        &self,
+        imported_module: &str,
+        modules: &[(String, ModModule, PathBuf, String)],
+        directly_imported: &mut FxIndexSet<String>,
+    ) {
+        let parts: Vec<&str> = imported_module.split('.').collect();
+        let mut parent = String::new();
+
+        for (i, part) in parts.iter().enumerate() {
+            if i > 0 {
+                parent.push('.');
+            }
+            parent.push_str(part);
+
+            // Only add if it's a bundled module (skip the last part as it's already added)
+            if i < parts.len() - 1 && modules.iter().any(|(name, _, _, _)| name == &parent) {
+                log::info!(
+                    "Marking parent package '{}' as directly imported (implicit import via '{}')",
+                    parent,
+                    imported_module
+                );
+                directly_imported.insert(parent.clone());
+            }
         }
     }
 
@@ -4205,6 +4493,7 @@ impl HybridStaticBundler {
         &mut self,
         module_name: &str,
         ast: ModModule,
+        module_path: &Path,
         ctx: &mut InlineContext,
     ) -> Result<Vec<Stmt>> {
         let mut module_renames = FxIndexMap::default();
@@ -4215,7 +4504,7 @@ impl HybridStaticBundler {
                 Stmt::Import(_) | Stmt::ImportFrom(_) => {
                     // Track import aliases for resolution in assignments
                     if let Stmt::ImportFrom(import_from) = &stmt {
-                        self.track_import_aliases(import_from, module_name, ctx);
+                        self.track_import_aliases(import_from, module_name, module_path, ctx);
                     }
 
                     // Skip imports - they should be handled separately
@@ -4345,6 +4634,7 @@ impl HybridStaticBundler {
         &mut self,
         module_name: &str,
         ast: ModModule,
+        module_path: &Path,
         ctx: &mut InlineContext,
     ) -> Result<Vec<Stmt>> {
         log::debug!("Inlining module '{}' for namespace import", module_name);
@@ -4356,7 +4646,7 @@ impl HybridStaticBundler {
                 Stmt::Import(_) | Stmt::ImportFrom(_) => {
                     // Track import aliases for resolution in the module
                     if let Stmt::ImportFrom(import_from) = &stmt {
-                        self.track_import_aliases(import_from, module_name, ctx);
+                        self.track_import_aliases(import_from, module_name, module_path, ctx);
                     }
                     log::debug!(
                         "Tracked import in namespace hybrid module '{}': {:?}",
@@ -4829,7 +5119,11 @@ impl HybridStaticBundler {
         // For wrapper modules, we need special handling for imports from inlined modules
         if let Stmt::ImportFrom(import_from) = &stmt {
             // Check if this is importing from an inlined module
-            let resolved_module = self.resolve_relative_import(import_from, ctx.module_name);
+            let resolved_module = self.resolve_relative_import_with_context(
+                import_from,
+                ctx.module_name,
+                Some(ctx.module_path),
+            );
             log::debug!(
                 "Checking import from {:?} in wrapper module {}: resolved to {:?}",
                 import_from.module.as_ref().map(|m| m.as_str()),
@@ -4868,7 +5162,12 @@ impl HybridStaticBundler {
             body.extend(transformed_stmts);
 
             // Check if any imported symbols should be re-exported as module attributes
-            self.add_imported_symbol_attributes(&stmt, ctx.module_name, body);
+            self.add_imported_symbol_attributes(
+                &stmt,
+                ctx.module_name,
+                Some(ctx.module_path),
+                body,
+            );
         }
     }
 
@@ -5053,9 +5352,11 @@ impl HybridStaticBundler {
         &self,
         import_from: &StmtImportFrom,
         module_name: &str,
+        module_path: &Path,
         ctx: &mut InlineContext,
     ) {
-        let resolved_module = self.resolve_relative_import(import_from, module_name);
+        let resolved_module =
+            self.resolve_relative_import_with_context(import_from, module_name, Some(module_path));
         if let Some(resolved) = resolved_module {
             // Track aliases for ALL imports, not just from inlined modules
             for alias in &import_from.names {
@@ -5275,17 +5576,42 @@ impl HybridStaticBundler {
 
         if !self.bundled_modules.contains(&module_name) {
             log::debug!(
-                "Module '{}' not found in bundled modules, keeping original import",
+                "Module '{}' not found in bundled modules, checking if importing submodules",
                 module_name
             );
-            // For relative imports from non-bundled modules, convert to absolute import
-            if import_from.level > 0 {
-                let mut absolute_import = import_from.clone();
-                absolute_import.level = 0;
-                absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
-                return vec![Stmt::ImportFrom(absolute_import)];
+
+            // Check if we're importing submodules from a namespace package
+            // e.g., from greetings import greeting where greeting is actually greetings.greeting
+            let mut has_bundled_submodules = false;
+            for alias in &import_from.names {
+                let imported_name = alias.name.as_str();
+                let full_module_path = format!("{}.{}", module_name, imported_name);
+                if self.bundled_modules.contains(&full_module_path) {
+                    has_bundled_submodules = true;
+                    break;
+                }
             }
-            return vec![Stmt::ImportFrom(import_from)];
+
+            if !has_bundled_submodules {
+                // No bundled submodules, keep original import
+                // For relative imports from non-bundled modules, convert to absolute import
+                if import_from.level > 0 {
+                    let mut absolute_import = import_from.clone();
+                    absolute_import.level = 0;
+                    absolute_import.module =
+                        Some(Identifier::new(&module_name, TextRange::default()));
+                    return vec![Stmt::ImportFrom(absolute_import)];
+                }
+                return vec![Stmt::ImportFrom(import_from)];
+            }
+
+            // We have bundled submodules, need to transform them
+            log::debug!(
+                "Module '{}' has bundled submodules, transforming imports",
+                module_name
+            );
+            // Transform each submodule import
+            return self.transform_namespace_package_imports(import_from, &module_name);
         }
 
         log::debug!("Transforming bundled import from module: {}", module_name);
@@ -5312,6 +5638,109 @@ impl HybridStaticBundler {
         }
     }
 
+    /// Transform imports from a namespace package (package without __init__.py)
+    fn transform_namespace_package_imports(
+        &self,
+        import_from: StmtImportFrom,
+        module_name: &str,
+    ) -> Vec<Stmt> {
+        let mut result_stmts = Vec::new();
+
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+            let full_module_path = format!("{}.{}", module_name, imported_name);
+
+            if self.bundled_modules.contains(&full_module_path) {
+                if self.module_registry.contains_key(&full_module_path) {
+                    // Wrapper module - create sys.modules access
+                    result_stmts.push(Stmt::Assign(StmtAssign {
+                        targets: vec![Expr::Name(ExprName {
+                            id: local_name.into(),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
+                            value: Box::new(Expr::Attribute(ExprAttribute {
+                                value: Box::new(Expr::Name(ExprName {
+                                    id: "sys".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new("modules", TextRange::default()),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            slice: Box::new(self.create_string_literal(&full_module_path)),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    }));
+                } else {
+                    // Inlined module - create a namespace object for it
+                    log::debug!(
+                        "Submodule '{}' from namespace package '{}' was inlined, creating namespace",
+                        imported_name,
+                        module_name
+                    );
+
+                    // For namespace hybrid modules, we need to create the namespace object
+                    // The inlined module's symbols are already renamed with module prefix
+                    // e.g., message -> message_greetings_greeting
+                    let inlined_key = full_module_path.cow_replace('.', "_").into_owned();
+
+                    // Get the exported symbols from this module
+                    let keywords = self.create_namespace_keywords(&full_module_path, &inlined_key);
+
+                    // Create a types.SimpleNamespace with the renamed attributes
+                    result_stmts.push(Stmt::Assign(StmtAssign {
+                        targets: vec![Expr::Name(ExprName {
+                            id: local_name.into(),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(Expr::Call(ExprCall {
+                            func: Box::new(Expr::Attribute(ExprAttribute {
+                                value: Box::new(Expr::Name(ExprName {
+                                    id: "types".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            arguments: Arguments {
+                                args: Box::new([]),
+                                keywords: keywords.into_boxed_slice(),
+                                range: TextRange::default(),
+                            },
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    }));
+                }
+            } else {
+                // Not a bundled submodule, keep as attribute access
+                // This might be importing a symbol from the namespace package's __init__.py
+                // But since we're here, the namespace package has no __init__.py
+                log::warn!(
+                    "Import '{}' from namespace package '{}' is not a bundled module",
+                    imported_name,
+                    module_name
+                );
+            }
+        }
+
+        if result_stmts.is_empty() {
+            // If we didn't transform anything, return the original
+            vec![Stmt::ImportFrom(import_from)]
+        } else {
+            result_stmts
+        }
+    }
+
     /// Rewrite Import statements
     fn rewrite_import(&self, import_stmt: StmtImport) -> Vec<Stmt> {
         // Check each import individually
@@ -5320,24 +5749,57 @@ impl HybridStaticBundler {
 
         for alias in &import_stmt.names {
             let module_name = alias.name.as_str();
-            if !self.bundled_modules.contains(module_name) {
-                handled_all = false;
-                continue;
-            }
 
-            if self.module_registry.contains_key(module_name) {
-                // Module uses wrapper approach - transform to sys.modules access
-                let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                result_stmts
-                    .push(self.create_sys_modules_assignment(target_name.as_str(), module_name));
+            // Check if this is a dotted import (e.g., greetings.greeting)
+            if module_name.contains('.') {
+                // Handle dotted imports specially
+                let parts: Vec<&str> = module_name.split('.').collect();
+
+                // Check if the full module is bundled
+                if self.bundled_modules.contains(module_name)
+                    && self.module_registry.contains_key(module_name)
+                {
+                    // Create all parent namespaces if needed (e.g., for a.b.c.d, create a, a.b, a.b.c)
+                    self.create_parent_namespaces(&parts, &mut result_stmts);
+
+                    let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+                    // If there's no alias, we need to handle the dotted name specially
+                    if alias.asname.is_none() && module_name.contains('.') {
+                        // Create assignments for each level of nesting
+                        self.create_dotted_assignments(&parts, &mut result_stmts);
+                    } else {
+                        // For aliased imports or non-dotted imports, just assign to the target
+                        result_stmts.push(
+                            self.create_sys_modules_assignment(target_name.as_str(), module_name),
+                        );
+                    }
+                } else {
+                    handled_all = false;
+                    continue;
+                }
             } else {
-                // Module was inlined - this is problematic for direct imports
-                // We need to create a mock module object
-                log::warn!(
-                    "Direct import of inlined module '{}' detected - this pattern is not fully supported",
-                    module_name
-                );
-                // For now, skip it
+                // Non-dotted import - handle as before
+                if !self.bundled_modules.contains(module_name) {
+                    handled_all = false;
+                    continue;
+                }
+
+                if self.module_registry.contains_key(module_name) {
+                    // Module uses wrapper approach - transform to sys.modules access
+                    let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+                    result_stmts.push(
+                        self.create_sys_modules_assignment(target_name.as_str(), module_name),
+                    );
+                } else {
+                    // Module was inlined - this is problematic for direct imports
+                    // We need to create a mock module object
+                    log::warn!(
+                        "Direct import of inlined module '{}' detected - this pattern is not fully supported",
+                        module_name
+                    );
+                    // For now, skip it
+                }
             }
         }
 
@@ -5346,6 +5808,103 @@ impl HybridStaticBundler {
         } else {
             // Keep original import for non-bundled modules
             vec![Stmt::Import(import_stmt)]
+        }
+    }
+
+    /// Rewrite Import statements in entry module with namespace tracking
+    fn rewrite_import_entry_module(&mut self, import_stmt: StmtImport) -> Vec<Stmt> {
+        // We need to handle namespace tracking differently to avoid borrow issues
+        let mut result_stmts = Vec::new();
+        let mut handled_all = true;
+
+        for alias in &import_stmt.names {
+            let module_name = alias.name.as_str();
+
+            // Check if this is a dotted import (e.g., greetings.greeting)
+            if module_name.contains('.') {
+                // Handle dotted imports specially
+                let parts: Vec<&str> = module_name.split('.').collect();
+
+                // Check if the full module is bundled
+                if self.bundled_modules.contains(module_name)
+                    && self.module_registry.contains_key(module_name)
+                {
+                    // Create all parent namespaces if needed (e.g., for a.b.c.d, create a, a.b, a.b.c)
+                    self.create_parent_namespaces_entry_module(&parts, &mut result_stmts);
+
+                    let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+                    // If there's no alias, we need to handle the dotted name specially
+                    if alias.asname.is_none() && module_name.contains('.') {
+                        // Create assignments for each level of nesting
+                        self.create_dotted_assignments(&parts, &mut result_stmts);
+                    } else {
+                        // For aliased imports or non-dotted imports, just assign to the target
+                        result_stmts.push(
+                            self.create_sys_modules_assignment(target_name.as_str(), module_name),
+                        );
+                    }
+                } else {
+                    handled_all = false;
+                    continue;
+                }
+            } else {
+                // Non-dotted import - handle as before
+                if !self.bundled_modules.contains(module_name) {
+                    handled_all = false;
+                    continue;
+                }
+
+                if self.module_registry.contains_key(module_name) {
+                    // Module uses wrapper approach - transform to sys.modules access
+                    let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+                    result_stmts.push(
+                        self.create_sys_modules_assignment(target_name.as_str(), module_name),
+                    );
+                } else {
+                    // Module was inlined - this is problematic for direct imports
+                    // We need to create a mock module object
+                    log::warn!(
+                        "Direct import of inlined module '{}' detected - this pattern is not fully supported",
+                        module_name
+                    );
+                    // For now, skip it
+                }
+            }
+        }
+
+        if handled_all {
+            result_stmts
+        } else {
+            // Keep original import for non-bundled modules
+            vec![Stmt::Import(import_stmt)]
+        }
+    }
+
+    /// Create parent namespaces for dotted imports in entry module
+    fn create_parent_namespaces_entry_module(
+        &mut self,
+        parts: &[&str],
+        result_stmts: &mut Vec<Stmt>,
+    ) {
+        for i in 1..parts.len() {
+            let parent_path = parts[..i].join(".");
+
+            if self.module_registry.contains_key(&parent_path) {
+                // Parent is a wrapper module, get it from sys.modules
+                result_stmts.push(self.create_sys_modules_assignment(&parent_path, &parent_path));
+            } else if !self.bundled_modules.contains(&parent_path) {
+                // Check if we haven't already created this namespace globally or in result_stmts
+                let already_created = self.created_namespace_modules.contains(&parent_path)
+                    || self.is_namespace_already_created(&parent_path, result_stmts);
+
+                if !already_created {
+                    // Parent is not a wrapper module and not an inlined module, create a simple namespace
+                    result_stmts.push(self.create_namespace_module(&parent_path));
+                    // Track that we created this namespace module
+                    self.created_namespace_modules.insert(parent_path);
+                }
+            }
         }
     }
 
@@ -5369,6 +5928,139 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })),
                 slice: Box::new(self.create_string_literal(module_name)),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Create parent namespaces for dotted imports
+    fn create_parent_namespaces(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
+        for i in 1..parts.len() {
+            let parent_path = parts[..i].join(".");
+
+            if self.module_registry.contains_key(&parent_path) {
+                // Parent is a wrapper module, get it from sys.modules
+                result_stmts.push(self.create_sys_modules_assignment(&parent_path, &parent_path));
+            } else if !self.bundled_modules.contains(&parent_path) {
+                // Check if we haven't already created this namespace in result_stmts
+                let already_created = self.is_namespace_already_created(&parent_path, result_stmts);
+
+                if !already_created {
+                    // Parent is not a wrapper module and not an inlined module, create a simple namespace
+                    result_stmts.push(self.create_namespace_module(&parent_path));
+                }
+            }
+        }
+    }
+
+    /// Check if a namespace module was already created
+    fn is_namespace_already_created(&self, parent_path: &str, result_stmts: &[Stmt]) -> bool {
+        result_stmts.iter().any(|stmt| {
+            if let Stmt::Assign(assign) = stmt {
+                if let Some(Expr::Name(name)) = assign.targets.first() {
+                    return name.id.as_str() == parent_path;
+                }
+            }
+            false
+        })
+    }
+
+    /// Create dotted attribute assignments for imports
+    fn create_dotted_assignments(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
+        // For import a.b.c.d, we need:
+        // a.b = sys.modules['a.b']
+        // a.b.c = sys.modules['a.b.c']
+        // a.b.c.d = sys.modules['a.b.c.d']
+        for i in 2..=parts.len() {
+            let parent = parts[..i - 1].join(".");
+            let attr = parts[i - 1];
+            let full_path = parts[..i].join(".");
+            result_stmts.push(self.create_dotted_attribute_assignment(&parent, attr, &full_path));
+        }
+    }
+
+    /// Create namespace keywords for a module
+    fn create_namespace_keywords(&self, full_module_path: &str, inlined_key: &str) -> Vec<Keyword> {
+        let mut keywords = Vec::new();
+        if let Some(Some(exports)) = self.module_exports.get(full_module_path) {
+            for symbol in exports {
+                keywords.push(Keyword {
+                    arg: Some(Identifier::new(symbol.as_str(), TextRange::default())),
+                    value: Expr::Name(ExprName {
+                        id: format!("{}_{}", symbol, inlined_key).into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    }),
+                    range: TextRange::default(),
+                });
+            }
+        }
+        keywords
+    }
+
+    /// Create a simple namespace module object
+    fn create_namespace_module(&self, module_name: &str) -> Stmt {
+        // Create: module_name = types.ModuleType('module_name')
+        Stmt::Assign(StmtAssign {
+            targets: vec![Expr::Name(ExprName {
+                id: module_name.into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Call(ExprCall {
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    value: Box::new(Expr::Name(ExprName {
+                        id: "types".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("ModuleType", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: ruff_python_ast::Arguments {
+                    args: Box::from([self.create_string_literal(module_name)]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Create dotted attribute assignment (e.g., greetings.greeting = sys.modules['greetings.greeting'])
+    fn create_dotted_attribute_assignment(
+        &self,
+        parent_module: &str,
+        attr_name: &str,
+        full_module_name: &str,
+    ) -> Stmt {
+        Stmt::Assign(StmtAssign {
+            targets: vec![Expr::Attribute(ExprAttribute {
+                value: Box::new(Expr::Name(ExprName {
+                    id: parent_module.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new(attr_name, TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
+                value: Box::new(Expr::Attribute(ExprAttribute {
+                    value: Box::new(Expr::Name(ExprName {
+                        id: "sys".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("modules", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                slice: Box::new(self.create_string_literal(full_module_name)),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
             })),
