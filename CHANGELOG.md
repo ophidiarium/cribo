@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.27](https://github.com/ophidiarium/cribo/compare/v0.4.26...v0.4.27) (2025-06-13)
+
+
+### Bug Fixes
+
+* **deps:** upgrade ruff crates from 0.11.12 to 0.11.13 ([#122](https://github.com/ophidiarium/cribo/issues/122)) ([878f73f](https://github.com/ophidiarium/cribo/commit/878f73f2486a4b2c5b6696231118633f96508b5c))
+
 ## [0.4.26](https://github.com/ophidiarium/cribo/compare/v0.4.25...v0.4.26) (2025-06-13)
 
 

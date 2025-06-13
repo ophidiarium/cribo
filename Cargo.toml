@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.4.26"
+version = "0.4.27"
 authors = ["Konstantin Vyatkin <tino@vtkn.io>"]
 default-run = "cribo"
 edition = "2024"
