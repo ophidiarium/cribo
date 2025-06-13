@@ -100,20 +100,19 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
     let mut other_violations = Vec::new();
 
     for message in &result.messages {
-        if let Some(rule) = message.to_rule() {
-            let location = message.compute_start_location();
-            let violation_info = format!(
-                "Line {}: {} - {}",
-                location.line.get(),
-                rule.noqa_code(),
-                message.body()
-            );
+        let location = message.compute_start_location();
+        let rule_name = message.name();
+        let violation_info = format!(
+            "Line {}: {} - {}",
+            location.line.get(),
+            rule_name,
+            message.body()
+        );
 
-            match rule {
-                Rule::UnusedImport => f401_violations.push(violation_info),
-                Rule::LateFutureImport => f404_violations.push(violation_info),
-                _ => other_violations.push(violation_info),
-            }
+        match rule_name {
+            "F401" => f401_violations.push(violation_info),
+            "F404" => f404_violations.push(violation_info),
+            _ => other_violations.push(violation_info),
         }
     }
 

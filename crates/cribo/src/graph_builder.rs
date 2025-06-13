@@ -824,7 +824,7 @@ impl<'a> GraphBuilder<'a> {
             Expr::FString(fstring) => {
                 // Process f-string value parts
                 for element in fstring.value.elements() {
-                    if let ast::FStringElement::Expression(expr_element) = element {
+                    if let ast::InterpolatedStringElement::Interpolation(expr_element) = element {
                         self.collect_vars_in_expr(&expr_element.expression, vars);
                     }
                 }

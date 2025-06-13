@@ -6,9 +6,10 @@ use log::debug;
 use ruff_python_ast::{
     Arguments, CmpOp, Comprehension, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprCompare,
     ExprContext, ExprFString, ExprIf, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral,
-    FString, FStringElement, FStringElements, FStringExpressionElement, FStringFlags, FStringValue,
-    Identifier, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtIf,
-    StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
+    FString, FStringFlags, FStringValue, Identifier, InterpolatedElement,
+    InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign,
+    StmtClassDef, StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StringLiteral,
+    StringLiteralFlags, StringLiteralValue,
 };
 use ruff_text_size::TextRange;
 use rustc_hash::FxHasher;
@@ -4971,21 +4972,23 @@ impl HybridStaticBundler {
 
                 for element in fstring.value.elements() {
                     match element {
-                        FStringElement::Literal(lit_elem) => {
-                            transformed_elements.push(FStringElement::Literal(lit_elem.clone()));
+                        InterpolatedStringElement::Literal(lit_elem) => {
+                            transformed_elements
+                                .push(InterpolatedStringElement::Literal(lit_elem.clone()));
                         }
-                        FStringElement::Expression(expr_elem) => {
+                        InterpolatedStringElement::Interpolation(expr_elem) => {
                             let mut new_expr = expr_elem.expression.clone();
                             Self::rename_references_in_expr(&mut new_expr, module_renames);
 
-                            let new_element = FStringExpressionElement {
+                            let new_element = InterpolatedElement {
                                 expression: new_expr,
                                 debug_text: expr_elem.debug_text.clone(),
                                 conversion: expr_elem.conversion,
                                 format_spec: expr_elem.format_spec.clone(),
                                 range: expr_elem.range,
                             };
-                            transformed_elements.push(FStringElement::Expression(new_element));
+                            transformed_elements
+                                .push(InterpolatedStringElement::Interpolation(new_element));
                             any_transformed = true;
                         }
                     }
@@ -4993,7 +4996,7 @@ impl HybridStaticBundler {
 
                 if any_transformed {
                     let new_fstring = FString {
-                        elements: FStringElements::from(transformed_elements),
+                        elements: InterpolatedStringElements::from(transformed_elements),
                         range: TextRange::default(),
                         flags: FStringFlags::empty(),
                     };
@@ -5271,18 +5274,20 @@ impl HybridStaticBundler {
 
             for element in fstring.value.elements() {
                 match element {
-                    FStringElement::Literal(lit_elem) => {
+                    InterpolatedStringElement::Literal(lit_elem) => {
                         // Literal elements stay the same
-                        transformed_elements.push(FStringElement::Literal(lit_elem.clone()));
+                        transformed_elements
+                            .push(InterpolatedStringElement::Literal(lit_elem.clone()));
                     }
-                    FStringElement::Expression(expr_elem) => {
+                    InterpolatedStringElement::Interpolation(expr_elem) => {
                         let (new_element, was_transformed) = self.transform_fstring_expression(
                             expr_elem,
                             lifted_names,
                             global_info,
                             in_function_with_globals,
                         );
-                        transformed_elements.push(FStringElement::Expression(new_element));
+                        transformed_elements
+                            .push(InterpolatedStringElement::Interpolation(new_element));
                         if was_transformed {
                             any_transformed = true;
                         }
@@ -5294,7 +5299,7 @@ impl HybridStaticBundler {
             if any_transformed {
                 // Create a new FString with our transformed elements
                 let new_fstring = FString {
-                    elements: FStringElements::from(transformed_elements),
+                    elements: InterpolatedStringElements::from(transformed_elements),
                     range: TextRange::default(),
                     flags: FStringFlags::empty(),
                 };
@@ -5316,11 +5321,11 @@ impl HybridStaticBundler {
     /// Transform a single f-string expression element
     fn transform_fstring_expression(
         &self,
-        expr_elem: &FStringExpressionElement,
+        expr_elem: &InterpolatedElement,
         lifted_names: &FxIndexMap<String, String>,
         global_info: &ModuleGlobalInfo,
         in_function_with_globals: Option<&FxIndexSet<String>>,
-    ) -> (FStringExpressionElement, bool) {
+    ) -> (InterpolatedElement, bool) {
         // Clone and transform the expression
         let mut new_expr = (*expr_elem.expression).clone();
         let old_expr_str = format!("{:?}", new_expr);
@@ -5336,7 +5341,7 @@ impl HybridStaticBundler {
         let was_transformed = old_expr_str != new_expr_str;
 
         // Create a new expression element with the transformed expression
-        let new_element = FStringExpressionElement {
+        let new_element = InterpolatedElement {
             expression: Box::new(new_expr),
             debug_text: expr_elem.debug_text.clone(),
             conversion: expr_elem.conversion,
