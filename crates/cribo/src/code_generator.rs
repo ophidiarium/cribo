@@ -1056,22 +1056,10 @@ impl HybridStaticBundler {
             final_body.extend(self.generate_registries_and_hook());
         }
 
-        // Initialize wrapper modules in dependency order AFTER inlined modules are defined
-        if need_sys_import {
-            for (module_name, _, _) in params.sorted_modules {
-                if module_name == params.entry_module_name {
-                    continue;
-                }
-
-                if let Some(synthetic_name) = self.module_registry.get(module_name) {
-                    let init_call = self.generate_module_init_call(synthetic_name);
-                    final_body.push(init_call);
-                }
-            }
-
-            // Note: Post-init attribute generation is disabled because wrapper modules
-            // already handle their own imports correctly in their init functions
-        }
+        // Note: We do NOT eagerly initialize wrapper modules here.
+        // They should only be initialized when imported via the meta path finder.
+        // Eager initialization causes problems with circular dependencies where
+        // module A needs module B during initialization but B hasn't been loaded yet.
 
         // Finally, add entry module code (it's always last in topological order)
         for (module_name, ast, _, _) in &modules_normalized {
@@ -1096,10 +1084,11 @@ impl HybridStaticBundler {
 
                 // For the entry module, we need to handle both imports and symbol references
                 match &mut stmt {
-                    Stmt::ImportFrom(_) => {
-                        // Handle from imports with renaming
-                        let rewritten_stmts = self.rewrite_import_in_stmt_multiple_with_context(
-                            stmt,
+                    Stmt::ImportFrom(import_from) => {
+                        // For entry module, we need special handling for wrapped module imports
+                        // to ensure they're initialized before accessing their attributes
+                        let rewritten_stmts = self.rewrite_import_from_entry_module(
+                            import_from.clone(),
                             module_name,
                             &symbol_renames,
                         );
@@ -1275,6 +1264,12 @@ impl HybridStaticBundler {
         let init_func_name = &self.init_functions[ctx.synthetic_name];
         let mut body = Vec::new();
 
+        log::debug!(
+            "Transforming module '{}' to init function. AST has {} statements",
+            ctx.module_name,
+            ast.body.len()
+        );
+
         // Check if module already exists in sys.modules
         body.push(self.create_module_exists_check(ctx.synthetic_name));
 
@@ -1302,10 +1297,47 @@ impl HybridStaticBundler {
             None
         };
 
+        // Note: ImportRewriter may have moved some imports to function scope to handle circular dependencies.
+        // However, it currently doesn't handle methods inside classes, which can cause issues.
+
         // Transform module contents
-        for stmt in ast.body {
+        for (idx, stmt) in ast.body.into_iter().enumerate() {
+            if ctx.module_name == "config" {
+                log::debug!(
+                    "Config module statement {}: {:?}",
+                    idx,
+                    match &stmt {
+                        Stmt::ImportFrom(_) => "ImportFrom",
+                        Stmt::Import(_) => "Import",
+                        Stmt::ClassDef(_) => "ClassDef",
+                        Stmt::FunctionDef(_) => "FunctionDef",
+                        Stmt::Assign(_) => "Assign",
+                        Stmt::Expr(_) => "Expr",
+                        _ => "Other",
+                    }
+                );
+            }
             match &stmt {
                 Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                    log::debug!(
+                        "Processing import in wrapper module '{}': {:?}",
+                        ctx.module_name,
+                        match &stmt {
+                            Stmt::ImportFrom(imp) => format!(
+                                "from {} import ...",
+                                imp.module.as_ref().map(|m| m.as_str()).unwrap_or("<none>")
+                            ),
+                            Stmt::Import(imp) => format!(
+                                "import {}",
+                                imp.names
+                                    .iter()
+                                    .map(|a| a.name.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ),
+                            _ => "unknown".to_string(),
+                        }
+                    );
                     // Transform any import statements in non-entry modules
                     self.process_wrapper_module_import(
                         stmt.clone(),
@@ -1315,7 +1347,7 @@ impl HybridStaticBundler {
                     );
                 }
                 Stmt::ClassDef(class_def) => {
-                    // Add class definition
+                    // Add class definition (imports have already been hoisted)
                     body.push(stmt.clone());
                     // Set as module attribute only if it should be exported
                     let symbol_name = class_def.name.to_string();
@@ -1868,7 +1900,130 @@ impl HybridStaticBundler {
             range: TextRange::default(),
         }));
 
-        // return importlib.util.find_spec(synthetic_name)
+        // Create a dummy loader class
+        if_body.push(Stmt::ClassDef(StmtClassDef {
+            name: Identifier::new("_DummyLoader", TextRange::default()),
+            type_params: None,
+            arguments: None,
+            body: vec![
+                // def create_module(self, spec):
+                //     return sys.modules.get(spec.name)
+                Stmt::FunctionDef(StmtFunctionDef {
+                    name: Identifier::new("create_module", TextRange::default()),
+                    type_params: None,
+                    parameters: Box::new(ruff_python_ast::Parameters {
+                        posonlyargs: vec![],
+                        args: vec![
+                            ParameterWithDefault {
+                                parameter: Parameter {
+                                    name: Identifier::new("self", TextRange::default()),
+                                    annotation: None,
+                                    range: TextRange::default(),
+                                },
+                                default: None,
+                                range: TextRange::default(),
+                            },
+                            ParameterWithDefault {
+                                parameter: Parameter {
+                                    name: Identifier::new("spec", TextRange::default()),
+                                    annotation: None,
+                                    range: TextRange::default(),
+                                },
+                                default: None,
+                                range: TextRange::default(),
+                            },
+                        ],
+                        vararg: None,
+                        kwonlyargs: vec![],
+                        kwarg: None,
+                        range: TextRange::default(),
+                    }),
+                    returns: None,
+                    body: vec![Stmt::Return(StmtReturn {
+                        value: Some(Box::new(Expr::Call(ExprCall {
+                            func: Box::new(Expr::Attribute(ExprAttribute {
+                                value: Box::new(Expr::Attribute(ExprAttribute {
+                                    value: Box::new(Expr::Name(ExprName {
+                                        id: "sys".into(),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    })),
+                                    attr: Identifier::new("modules", TextRange::default()),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new("get", TextRange::default()),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            arguments: ruff_python_ast::Arguments {
+                                args: Box::from([Expr::Attribute(ExprAttribute {
+                                    value: Box::new(Expr::Name(ExprName {
+                                        id: "spec".into(),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    })),
+                                    attr: Identifier::new("name", TextRange::default()),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })]),
+                                keywords: Box::from([]),
+                                range: TextRange::default(),
+                            },
+                            range: TextRange::default(),
+                        }))),
+                        range: TextRange::default(),
+                    })],
+                    decorator_list: vec![],
+                    is_async: false,
+                    range: TextRange::default(),
+                }),
+                // def exec_module(self, module):
+                //     pass
+                Stmt::FunctionDef(StmtFunctionDef {
+                    name: Identifier::new("exec_module", TextRange::default()),
+                    type_params: None,
+                    parameters: Box::new(ruff_python_ast::Parameters {
+                        posonlyargs: vec![],
+                        args: vec![
+                            ParameterWithDefault {
+                                parameter: Parameter {
+                                    name: Identifier::new("self", TextRange::default()),
+                                    annotation: None,
+                                    range: TextRange::default(),
+                                },
+                                default: None,
+                                range: TextRange::default(),
+                            },
+                            ParameterWithDefault {
+                                parameter: Parameter {
+                                    name: Identifier::new("module", TextRange::default()),
+                                    annotation: None,
+                                    range: TextRange::default(),
+                                },
+                                default: None,
+                                range: TextRange::default(),
+                            },
+                        ],
+                        vararg: None,
+                        kwonlyargs: vec![],
+                        kwarg: None,
+                        range: TextRange::default(),
+                    }),
+                    returns: None,
+                    body: vec![Stmt::Pass(ruff_python_ast::StmtPass {
+                        range: TextRange::default(),
+                    })],
+                    decorator_list: vec![],
+                    is_async: false,
+                    range: TextRange::default(),
+                }),
+            ],
+            decorator_list: vec![],
+            range: TextRange::default(),
+        }));
+
+        // return importlib.util.spec_from_loader(fullname, _DummyLoader())
         if_body.push(Stmt::Return(StmtReturn {
             value: Some(Box::new(Expr::Call(ExprCall {
                 func: Box::new(Expr::Attribute(ExprAttribute {
@@ -1882,16 +2037,31 @@ impl HybridStaticBundler {
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
-                    attr: Identifier::new("find_spec", TextRange::default()),
+                    attr: Identifier::new("spec_from_loader", TextRange::default()),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 })),
                 arguments: ruff_python_ast::Arguments {
-                    args: Box::from([Expr::Name(ExprName {
-                        id: "synthetic_name".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })]),
+                    args: Box::from([
+                        Expr::Name(ExprName {
+                            id: "fullname".into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        }),
+                        Expr::Call(ExprCall {
+                            func: Box::new(Expr::Name(ExprName {
+                                id: "_DummyLoader".into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            arguments: ruff_python_ast::Arguments {
+                                args: Box::from([]),
+                                keywords: Box::from([]),
+                                range: TextRange::default(),
+                            },
+                            range: TextRange::default(),
+                        }),
+                    ]),
                     keywords: Box::from([]),
                     range: TextRange::default(),
                 },
@@ -2197,32 +2367,6 @@ impl HybridStaticBundler {
             if self.should_export_symbol(&name, module_name) {
                 body.push(self.create_module_attr_assignment("module", &name));
             }
-        }
-    }
-
-    /// Generate a call to initialize a module
-    fn generate_module_init_call(&self, synthetic_name: &str) -> Stmt {
-        if let Some(init_func_name) = self.init_functions.get(synthetic_name) {
-            Stmt::Expr(ruff_python_ast::StmtExpr {
-                value: Box::new(Expr::Call(ExprCall {
-                    func: Box::new(Expr::Name(ExprName {
-                        id: init_func_name.as_str().into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    arguments: ruff_python_ast::Arguments {
-                        args: Box::from([]),
-                        keywords: Box::from([]),
-                        range: TextRange::default(),
-                    },
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            })
-        } else {
-            Stmt::Pass(ruff_python_ast::StmtPass {
-                range: TextRange::default(),
-            })
         }
     }
 
@@ -4340,7 +4484,23 @@ impl HybridStaticBundler {
             Stmt::ImportFrom(import_from) => {
                 if let Some(module) = &import_from.module {
                     let module_name = module.as_str();
-                    // Check if any imported name is actually a submodule
+
+                    // First check if the module itself is a bundled module
+                    // This handles cases like "from config import Config" where config should be wrapped
+                    if ctx
+                        .modules
+                        .iter()
+                        .any(|(name, _, _, _)| name == module_name)
+                    {
+                        log::debug!(
+                            "Module '{}' is imported via 'from {} import ...' - marking as directly imported",
+                            module_name,
+                            module_name
+                        );
+                        directly_imported.insert(module_name.to_string());
+                    }
+
+                    // Also check if any imported name is actually a submodule
                     for alias in &import_from.names {
                         let imported_name = alias.name.as_str();
                         let full_module_path = format!("{}.{}", module_name, imported_name);
@@ -6023,6 +6183,71 @@ impl HybridStaticBundler {
                 }
             }
         }
+    }
+
+    /// Rewrite ImportFrom statements in the entry module
+    /// Special handling for wrapped modules to ensure they're initialized before use
+    fn rewrite_import_from_entry_module(
+        &self,
+        import_from: StmtImportFrom,
+        current_module: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Vec<Stmt> {
+        // First resolve the module name
+        let resolved_module_name = self.resolve_relative_import(&import_from, current_module);
+        let Some(module_name) = resolved_module_name else {
+            // If we can't resolve the module, return the original import
+            return vec![Stmt::ImportFrom(import_from)];
+        };
+
+        // Check if this is a bundled wrapped module
+        if self.bundled_modules.contains(&module_name)
+            && self.module_registry.contains_key(&module_name)
+        {
+            // This is a wrapped module - we need to ensure it's initialized before accessing its attributes
+            let mut result_stmts = Vec::new();
+
+            // First, ensure the module is imported (this will trigger initialization via the finder)
+            result_stmts.push(Stmt::Import(StmtImport {
+                names: vec![ruff_python_ast::Alias {
+                    name: Identifier::new(&module_name, TextRange::default()),
+                    asname: None,
+                    range: TextRange::default(),
+                }],
+                range: TextRange::default(),
+            }));
+
+            // Then, create attribute assignments for each imported name
+            for alias in &import_from.names {
+                let imported_name = alias.name.as_str();
+                let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+                // Create: target = module.imported_name
+                result_stmts.push(Stmt::Assign(StmtAssign {
+                    targets: vec![Expr::Name(ExprName {
+                        id: target_name.as_str().into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Attribute(ExprAttribute {
+                        value: Box::new(Expr::Name(ExprName {
+                            id: module_name.clone().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new(imported_name, TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+            }
+
+            return result_stmts;
+        }
+
+        // For non-wrapped modules, use the standard rewriting logic
+        self.rewrite_import_from(import_from, current_module, symbol_renames)
     }
 
     /// Create a sys.modules assignment for an import

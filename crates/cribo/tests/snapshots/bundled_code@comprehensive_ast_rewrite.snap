@@ -89,8 +89,8 @@ def shadow_test_models_base(validate: Any=None, process: Any=None, Logger: Any=N
     logger = Logger_models_base("shadow_test")
     shadows.update({"global_validate_result": validation_result, "global_process_result": process_result, "global_logger_source": logger.source})
     return shadows
-process_3 = "models_process_string"
-validate_3 = "models_validate_string"
+process_2 = "models_process_string"
+validate_2 = "models_validate_string"
 connection_2 = "models_connection_string"
 """\nUser model with extensive naming conflicts across the project\n"""
 result_3 = {"model": "user"}

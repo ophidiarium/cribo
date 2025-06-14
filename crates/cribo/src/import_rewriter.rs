@@ -435,14 +435,29 @@ impl ImportRewriter {
             }
         }
 
-        // Add imports to each function
+        // Add imports to each function (including methods in classes)
         for stmt in &mut module_ast.body {
-            if let Stmt::FunctionDef(func_def) = stmt {
-                let func_name = func_def.name.to_string();
+            match stmt {
+                Stmt::FunctionDef(func_def) => {
+                    let func_name = func_def.name.to_string();
 
-                if let Some(imports) = imports_by_function.get(&func_name) {
-                    self.add_imports_to_function_body(func_def, imports.as_slice())?;
+                    if let Some(imports) = imports_by_function.get(&func_name) {
+                        self.add_imports_to_function_body(func_def, imports.as_slice())?;
+                    }
                 }
+                Stmt::ClassDef(class_def) => {
+                    // Also check methods inside classes
+                    for class_stmt in &mut class_def.body {
+                        if let Stmt::FunctionDef(method_def) = class_stmt {
+                            let method_name = method_def.name.to_string();
+
+                            if let Some(imports) = imports_by_function.get(&method_name) {
+                                self.add_imports_to_function_body(method_def, imports.as_slice())?;
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
