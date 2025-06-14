@@ -170,9 +170,9 @@ jobs:
             // Sort rows by numeric funcsVal descending
             rows.sort((a, b) => b.funcsVal - a.funcsVal);
             // Build markdown comparison table showing current vs main
-            const commentTitle = '## Rust Code Analysis Summary';
+            const commentTitle = '## [Rust-Code-Analysis](https://mozilla.github.io/rust-code-analysis/) Summary';
             let body = commentTitle + ' (this PR vs `main`)\n\n';
-            body += '| File | Functions | Cyclomatic | Cognitive |\n';
+            body += '| File | Functions | [Cyclomatic](https://en.wikipedia.org/wiki/Cyclomatic_complexity) | [Cognitive](https://www.sonarsource.com/blog/cognitive-complexity-because-testability-understandability/) |\n';
             body += '|---|---:|---:|---:|\n';
             rows.forEach(r => body += `| ${r.file} | ${r.funcs} | ${r.cyclo} | ${r.cog} |\n`);
             // find existing summary comment
