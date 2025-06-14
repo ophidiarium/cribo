@@ -4,10 +4,11 @@ excessive-nesting-threshold = 6
 too-many-arguments-threshold = 5
 too-many-lines-threshold = 80
 min-ident-chars-threshold = 2
+single-char-binding-names-threshold = 3
 allowed-idents-below-min-chars = ["..", "id", "x", "y", "z", "i", "j", "k", "n", "m"] # Added common loop/coord vars
 
 # Keep your type complexity threshold - it's reasonable
-type-complexity-threshold = 400
+type-complexity-threshold = 300
 
 # Keep your 64-bit optimization
 trivial-copy-size-limit = 16
