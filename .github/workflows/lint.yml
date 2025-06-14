@@ -164,10 +164,11 @@ jobs:
               const cogCell = prCog === baseCog
                 ? `${prCog.toFixed(0)} ${emoji(0)}`
                 : `${prCog.toFixed(0)} (main: ${baseCog.toFixed(0)}) ${emoji(diffCog)}`;
-              rows.push({ file: fileLink, funcs: funcsCell, cyclo: cycloCell, cog: cogCell });
+              // Include numeric funcsVal for sorting, and formatted cells for display
+              rows.push({ file: fileLink, funcsVal: prFunc, funcs: funcsCell, cyclo: cycloCell, cog: cogCell });
             });
-            // Sort rows by number of functions descending
-            rows.sort((a, b) => b.funcs - a.funcs);
+            // Sort rows by numeric funcsVal descending
+            rows.sort((a, b) => b.funcsVal - a.funcsVal);
             // Build markdown comparison table showing current vs main
             const commentTitle = '## Rust Code Analysis Summary';
             let body = commentTitle + ' (this PR vs `main`)\n\n';
