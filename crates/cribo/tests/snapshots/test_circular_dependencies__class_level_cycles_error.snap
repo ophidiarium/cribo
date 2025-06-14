@@ -1,9 +1,0 @@
----
-source: crates/cribo/tests/test_circular_dependencies.rs
-expression: error_msg
----
-Circular dependencies detected in the module graph:
-
-Cycle 1: user_class → admin_class
-  Type: ClassLevel
-  Suggestion: Move imports inside functions to enable lazy loading

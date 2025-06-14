@@ -1,0 +1,10 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+expression: error_msg
+input_file: crates/cribo/tests/fixtures/bundling/xfail_unresolvable_patterns/main.py
+---
+Bundling failed as expected: Unresolvable circular dependencies detected:
+
+Cycle 1: constants_b → constants_a
+  Type: ModuleConstants
+  Reason: Module-level constants create temporal paradox - consider moving to a shared configuration module

@@ -1,0 +1,10 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+expression: error_msg
+input_file: crates/cribo/tests/fixtures/bundling/xfail_class_level_cycles/main.py
+---
+Bundling failed as expected: Circular dependencies detected in the module graph:
+
+Cycle 1: user_class → admin_class
+  Type: ClassLevel
+  Suggestion: Move imports inside functions to enable lazy loading

@@ -46,17 +46,6 @@
                 "yaml-language-server",
                 "--stdio"
             ]
-        },
-        "lsp-copilot": {
-            "command": "mcp-language-server",
-            "args": [
-                "--workspace",
-                ".",
-                "--lsp",
-                "bunx",
-                "@github/copilot-language-server",
-                "--stdio"
-            ]
         }
     }
 }

@@ -13,6 +13,7 @@
 /// - Side effect preservation
 use anyhow::{Result, anyhow};
 use indexmap::IndexSet;
+use log::debug;
 use petgraph::algo::{is_cyclic_directed, toposort};
 use petgraph::graph::{DiGraph, NodeIndex};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -1194,7 +1195,12 @@ impl CriboGraph {
         }
 
         if analysis_result.has_class_definitions {
-            // Classes that reference each other
+            // Check if the circular imports are used for inheritance
+            // If all imports in the cycle are only used in functions, it's still FunctionLevel
+            if analysis_result.imports_used_in_functions_only {
+                return CircularDependencyType::FunctionLevel;
+            }
+            // Otherwise, it's a true class-level cycle
             return CircularDependencyType::ClassLevel;
         }
 
@@ -1232,6 +1238,7 @@ impl CriboGraph {
         let mut has_only_constants = true;
         let mut has_class_definitions = false;
         let mut has_module_level_imports = false;
+        let mut imports_used_in_functions_only = true;
 
         for module_name in module_names {
             let Some(&module_id) = self.module_names.get(module_name) else {
@@ -1254,6 +1261,11 @@ impl CriboGraph {
             // Check if imports are at module level
             if self.module_has_module_level_imports(module) {
                 has_module_level_imports = true;
+
+                // Now check if those imports are only used inside functions
+                if !self.are_imports_used_only_in_functions(module) {
+                    imports_used_in_functions_only = false;
+                }
             }
         }
 
@@ -1261,7 +1273,8 @@ impl CriboGraph {
             has_only_constants,
             has_class_definitions,
             has_module_level_imports,
-            imports_used_in_functions_only: !has_module_level_imports,
+            imports_used_in_functions_only: !has_module_level_imports
+                || imports_used_in_functions_only,
         }
     }
 
@@ -1324,6 +1337,89 @@ impl CriboGraph {
                     )
                 })
         })
+    }
+
+    /// Check if imported items are only used inside functions
+    fn are_imports_used_only_in_functions(&self, module: &ModuleDepGraph) -> bool {
+        // Get all imported names from this module
+        let mut imported_names = FxHashSet::default();
+
+        // TODO: This has O(n*m) complexity where n is imported names and m is module items.
+        // For modules with many imports and items, consider building an index of variable
+        // usage upfront to reduce lookup time.
+
+        for item in module.items.values() {
+            match &item.item_type {
+                ItemType::Import { alias, module } => {
+                    let local_name = alias.as_ref().unwrap_or(module).clone();
+                    imported_names.insert(local_name.clone());
+
+                    // For dotted imports like `import xml.etree.ElementTree`,
+                    // also track the root module name (e.g., "xml")
+                    // since that's what appears in read_vars
+                    if alias.is_none() && module.contains('.') {
+                        if let Some(root) = module.split('.').next() {
+                            imported_names.insert(root.to_string());
+                        }
+                    }
+                }
+                ItemType::FromImport { names, .. } => {
+                    for (name, alias) in names {
+                        imported_names.insert(alias.as_ref().unwrap_or(name).clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        debug!(
+            "Module {} has imported names: {:?}",
+            module.module_name, imported_names
+        );
+
+        // For each imported name, check if it's only used inside functions
+        // We need to check if the import appears in any item's read_vars (module level)
+        // vs only appearing in eventual_read_vars (function level)
+        for imported_name in &imported_names {
+            debug!(
+                "Checking usage of imported '{}' in module {}",
+                imported_name, module.module_name
+            );
+
+            // Check all items in the module
+            for (item_id, item_data) in &module.items {
+                // Skip import statements themselves
+                if matches!(
+                    item_data.item_type,
+                    ItemType::Import { .. } | ItemType::FromImport { .. }
+                ) {
+                    continue;
+                }
+
+                // If the import is used in read_vars, it's used at module level
+                if item_data.read_vars.contains(imported_name) {
+                    debug!(
+                        "  -> Import '{}' used at module level in item {:?} (type: {:?})",
+                        imported_name, item_id, item_data.item_type
+                    );
+                    return false;
+                }
+
+                // Note: Usage in eventual_read_vars is OK - that's function-level usage
+                if item_data.eventual_read_vars.contains(imported_name) {
+                    debug!(
+                        "  -> Import '{}' used inside function in item {:?}",
+                        imported_name, item_id
+                    );
+                }
+            }
+        }
+
+        debug!(
+            "All imports in module {} are only used inside functions",
+            module.module_name
+        );
+        true
     }
 
     /// Check if a cycle is a parent-child package relationship

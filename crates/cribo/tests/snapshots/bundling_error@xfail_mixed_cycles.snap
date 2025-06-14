@@ -1,8 +1,9 @@
 ---
-source: crates/cribo/tests/test_circular_dependencies.rs
+source: crates/cribo/tests/test_bundling_snapshots.rs
 expression: error_msg
+input_file: crates/cribo/tests/fixtures/bundling/xfail_mixed_cycles/main.py
 ---
-Unresolvable circular dependencies detected:
+Bundling failed as expected: Unresolvable circular dependencies detected:
 
 Cycle 1: config_constants → constants_module
   Type: ModuleConstants

@@ -1,9 +1,0 @@
----
-source: crates/cribo/tests/test_circular_dependencies.rs
-expression: error_msg
----
-Unresolvable circular dependencies detected:
-
-Cycle 1: constants_b → constants_a
-  Type: ModuleConstants
-  Reason: Module-level constants create temporal paradox - consider moving to a shared configuration module
