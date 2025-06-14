@@ -55,6 +55,7 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          RUSTFLAGS: ''
 
       # Install rust-code-analysis
       - name: Install rust-code-analysis
