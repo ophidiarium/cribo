@@ -154,18 +154,24 @@ jobs:
               const diffCog = (prCog - baseCog).toFixed(1);
               const emoji = d => d>0? '🔴': d<0? '🟢':'⚪';
               // Push row showing PR vs main values with emoji
-              rows.push({
-                file: fileLink,
-                funcs: `${prFunc} (main: ${baseFunc}) ${emoji(diffFunc)}`,
-                cyclo: `${prCyclo.toFixed(1)} (main: ${baseCyclo.toFixed(1)}) ${emoji(diffCyclo)}`,
-                cog: `${prCog.toFixed(1)} (main: ${baseCog.toFixed(1)}) ${emoji(diffCog)}`,
-              });
+              // Determine cell content: only emoji if unchanged, else "current (main) emoji"
+              const funcsCell = prFunc === baseFunc
+                ? `${prFunc.toFixed(0)} ${emoji(0)}`
+                : `${prFunc} (main: ${baseFunc}) ${emoji(diffFunc)}`;
+              const cycloCell = prCyclo === baseCyclo
+                ? `${prCyclo.toFixed(0)} ${emoji(0)}`
+                : `${prCyclo.toFixed(0)} (main: ${baseCyclo.toFixed(0)}) ${emoji(diffCyclo)}`;
+              const cogCell = prCog === baseCog
+                ? `${prCog.toFixed(0)} ${emoji(0)}`
+                : `${prCog.toFixed(0)} (main: ${baseCog.toFixed(0)}) ${emoji(diffCog)}`;
+              rows.push({ file: fileLink, funcs: funcsCell, cyclo: cycloCell, cog: cogCell });
             });
             // Sort rows by number of functions descending
             rows.sort((a, b) => b.funcs - a.funcs);
             // Build markdown comparison table showing current vs main
-            let body = '## Rust Code Analysis Comparison (PR vs Main)\n\n';
-            body += '| File | ΔFunctions | ΔCyclomatic | ΔCognitive |\n';
+            const commentTitle = '## Rust Code Analysis Summary';
+            let body = commentTitle + ' (this PR vs `main`)\n\n';
+            body += '| File | Functions | Cyclomatic | Cognitive |\n';
             body += '|---|---:|---:|---:|\n';
             rows.forEach(r => body += `| ${r.file} | ${r.funcs} | ${r.cyclo} | ${r.cog} |\n`);
             // find existing summary comment
@@ -174,7 +180,7 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            const prev = comments.find(c => c.body.startsWith('## Rust Code Analysis Summary'));
+            const prev = comments.find(c => c.body.startsWith(commentTitle));
             if (prev) {
               // update existing comment
               await github.rest.issues.updateComment({
