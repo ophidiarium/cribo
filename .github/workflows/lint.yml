@@ -89,7 +89,22 @@ jobs:
           name: rca-json-ubuntu
           path: ~/rca-json
 
-      # Comment rust-code-analysis metrics on pull requests
+      # Generate baseline rust-code-analysis metrics from main branch
+      - name: Prepare baseline rust-code-analysis output dir
+        if: ${{ github.event_name == 'pull_request' }}
+        run: mkdir -p $HOME/rca-json-base
+      - name: Checkout main branch for baseline
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+      - name: Run rust-code-analysis on main branch
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          rust-code-analysis-cli --metrics -O json -o "$HOME/rca-json-base" -p main/crates/cribo/src
+
+      # Comment rust-code-analysis metrics on pull requests with comparison
       - name: Comment rust-code-analysis metrics on PR
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/github-script@v7.0.1
@@ -97,38 +112,55 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const dir = `${process.env.HOME}/rca-json`;
-            // Collect JSON files
-            function collectFiles(d) {
-              return fs.readdirSync(d, { withFileTypes: true }).flatMap(dirent => {
-                const full = `${d}/${dirent.name}`;
-                return dirent.isDirectory() ? collectFiles(full) : [full];
-              });
-            }
-            const files = collectFiles(dir).filter(f => f.endsWith('.json'));
-            // Prepare repo context for links
+            const prDir = `${process.env.HOME}/rca-json`;
+            const baseDir = `${process.env.HOME}/rca-json-base`;
+            // Repo context for links
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const ref = context.payload.pull_request.head.sha;
             let rows = [];
-            files.forEach(fullPath => {
-              const rel = fullPath.slice(dir.length + 1).replace(/\.json$/, '');
-              // Build a GitHub link to the file in the PR branch
+            const collectFiles = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap(dirent => {
+              const full = `${d}/${dirent.name}`;
+              return dirent.isDirectory() ? collectFiles(full) : [full];
+            });
+            const prFiles = collectFiles(prDir).filter(f => f.endsWith('.json'));
+            prFiles.forEach(fullPath => {
+              const rel = fullPath.slice(prDir.length + 1).replace(/\.json$/, '');
+              // Build GitHub link for file
               const fileLink = `[${rel}](https://github.com/${owner}/${repo}/blob/${ref}/${rel})`;
-              let itemsRaw = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
-              const items = Array.isArray(itemsRaw) ? itemsRaw : [itemsRaw];
-              const count = items.length || 1;
-              // Sum and average key metrics
-              const totalCyclo = items.reduce((sum, o) => sum + o.metrics.cyclomatic.sum, 0);
-              const totalCog  = items.reduce((sum, o) => sum + o.metrics.cognitive.sum, 0);
-              const totalFunc = items.reduce((sum, o) => sum + o.metrics.nom.functions, 0);
-              rows.push({ file: fileLink, funcs: totalFunc, cyclo: (totalCyclo/count).toFixed(1), cog: (totalCog/count).toFixed(1) });
+              // PR metrics
+              const prRaw = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+              const prItems = Array.isArray(prRaw) ? prRaw : [prRaw];
+              const prCount = prItems.length || 1;
+              const prCyclo = prItems.reduce((s,o)=>s+o.metrics.cyclomatic.sum,0)/prCount;
+              const prCog   = prItems.reduce((s,o)=>s+o.metrics.cognitive.sum,0)/prCount;
+              const prFunc  = prItems.reduce((s,o)=>s+o.metrics.nom.functions,0);
+              // Baseline metrics (if exists)
+              let baseCyclo = prCyclo, baseCog = prCog, baseFunc = prFunc;
+              const basePath = `${baseDir}/${rel}.json`;
+              if (fs.existsSync(basePath)) {
+                const baseRaw = JSON.parse(fs.readFileSync(basePath,'utf8'));
+                const baseItems = Array.isArray(baseRaw)?baseRaw:[baseRaw];
+                const baseCount = baseItems.length||1;
+                baseCyclo = baseItems.reduce((s,o)=>s+o.metrics.cyclomatic.sum,0)/baseCount;
+                baseCog   = baseItems.reduce((s,o)=>s+o.metrics.cognitive.sum,0)/baseCount;
+                baseFunc  = baseItems.reduce((s,o)=>s+o.metrics.nom.functions,0);
+              }
+              // Compute diffs and emojis
+              const diffFunc = prFunc - baseFunc;
+              const diffCyclo = (prCyclo - baseCyclo).toFixed(1);
+              const diffCog = (prCog - baseCog).toFixed(1);
+              const emoji = d => d>0? '🔴': d<0? '🟢':'⚪';
+              rows.push({ file: fileLink,
+                          funcs: `${diffFunc>0?'+':''}${diffFunc} ${emoji(diffFunc)}`,
+                          cyclo: `${diffCyclo} ${emoji(diffCyclo)}`,
+                          cog: `${diffCog} ${emoji(diffCog)}` });
             });
             // Sort rows by number of functions descending
             rows.sort((a, b) => b.funcs - a.funcs);
-            // Build markdown table
-            let body = '## Rust Code Analysis Summary\n\n';
-            body += '| File | Functions | Avg Cyclomatic | Avg Cognitive |\n';
+            // Build markdown comparison table
+            let body = '## Rust Code Analysis Comparison (PR vs Main)\n\n';
+            body += '| File | ΔFunctions | ΔCyclomatic | ΔCognitive |\n';
             body += '|---|---:|---:|---:|\n';
             rows.forEach(r => body += `| ${r.file} | ${r.funcs} | ${r.cyclo} | ${r.cog} |\n`);
             // find existing summary comment
