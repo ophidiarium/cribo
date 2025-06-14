@@ -106,9 +106,15 @@ jobs:
               });
             }
             const files = collectFiles(dir).filter(f => f.endsWith('.json'));
+            // Prepare repo context for links
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const ref = context.payload.pull_request.head.sha;
             let rows = [];
             files.forEach(fullPath => {
               const rel = fullPath.slice(dir.length + 1).replace(/\.json$/, '');
+              // Build a GitHub link to the file in the PR branch
+              const fileLink = `[${rel}](https://github.com/${owner}/${repo}/blob/${ref}/${rel})`;
               let itemsRaw = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
               const items = Array.isArray(itemsRaw) ? itemsRaw : [itemsRaw];
               const count = items.length || 1;
@@ -116,8 +122,10 @@ jobs:
               const totalCyclo = items.reduce((sum, o) => sum + o.metrics.cyclomatic.sum, 0);
               const totalCog  = items.reduce((sum, o) => sum + o.metrics.cognitive.sum, 0);
               const totalFunc = items.reduce((sum, o) => sum + o.metrics.nom.functions, 0);
-              rows.push({ file: rel, funcs: totalFunc, cyclo: (totalCyclo/count).toFixed(1), cog: (totalCog/count).toFixed(1) });
+              rows.push({ file: fileLink, funcs: totalFunc, cyclo: (totalCyclo/count).toFixed(1), cog: (totalCog/count).toFixed(1) });
             });
+            // Sort rows by number of functions descending
+            rows.sort((a, b) => b.funcs - a.funcs);
             // Build markdown table
             let body = '## Rust Code Analysis Summary\n\n';
             body += '| File | Functions | Avg Cyclomatic | Avg Cognitive |\n';
