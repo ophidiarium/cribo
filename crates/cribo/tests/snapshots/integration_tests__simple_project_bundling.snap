@@ -12,8 +12,21 @@ from typing import Optional, Union
 import os
 import sys
 import types
-"""Models package initialization."""
-"""Utils package initialization."""
+def __cribo_init___cribo_8556b6_models():
+    if '__cribo_8556b6_models' in sys.modules:
+        return sys.modules['__cribo_8556b6_models']
+    module = types.ModuleType('__cribo_8556b6_models')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_8556b6_models'] = module
+    sys.modules['models'] = module
+    module.__path__ = []
+    """Models package initialization."""
+    import models.user
+    User = sys.modules['models.user'].User
+    module.User = User
+    __all__ = ["User"]
+    module.__all__ = ['User']
+    return module
 def __cribo_init___cribo_732980_models_user():
     if '__cribo_732980_models_user' in sys.modules:
         return sys.modules['__cribo_732980_models_user']
@@ -41,6 +54,27 @@ def __cribo_init___cribo_732980_models_user():
             return self.name
     module.User = User
     return module
+def __cribo_init___cribo_5c608a_utils():
+    if '__cribo_5c608a_utils' in sys.modules:
+        return sys.modules['__cribo_5c608a_utils']
+    module = types.ModuleType('__cribo_5c608a_utils')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_5c608a_utils'] = module
+    sys.modules['utils'] = module
+    module.__path__ = []
+    """Utils package initialization."""
+    import utils.helpers
+    greet = sys.modules['utils.helpers'].greet
+    import utils.helpers
+    calculate = sys.modules['utils.helpers'].calculate
+    import utils.helpers
+    get_system_info = sys.modules['utils.helpers'].get_system_info
+    module.greet = greet
+    module.calculate = calculate
+    module.get_system_info = get_system_info
+    __all__ = ["greet", "calculate", "get_system_info"]
+    module.__all__ = ['greet', 'calculate', 'get_system_info']
+    return module
 def __cribo_init___cribo_4f6196_utils_helpers():
     if '__cribo_4f6196_utils_helpers' in sys.modules:
         return sys.modules['__cribo_4f6196_utils_helpers']
@@ -65,8 +99,8 @@ def __cribo_init___cribo_4f6196_utils_helpers():
         return {"platform": sys.platform, "python_version": sys.version, "cwd": os.getcwd()}
     module.get_system_info = get_system_info
     return module
-__cribo_modules = {'models.user': '__cribo_732980_models_user', 'utils.helpers': '__cribo_4f6196_utils_helpers'}
-__cribo_init_functions = {'__cribo_732980_models_user': __cribo_init___cribo_732980_models_user, '__cribo_4f6196_utils_helpers': __cribo_init___cribo_4f6196_utils_helpers}
+__cribo_modules = {'models': '__cribo_8556b6_models', 'models.user': '__cribo_732980_models_user', 'utils': '__cribo_5c608a_utils', 'utils.helpers': '__cribo_4f6196_utils_helpers'}
+__cribo_init_functions = {'__cribo_8556b6_models': __cribo_init___cribo_8556b6_models, '__cribo_732980_models_user': __cribo_init___cribo_732980_models_user, '__cribo_5c608a_utils': __cribo_init___cribo_5c608a_utils, '__cribo_4f6196_utils_helpers': __cribo_init___cribo_4f6196_utils_helpers}
 class CriboBundledFinder:
 
     def __init__(self, module_registry, init_functions):

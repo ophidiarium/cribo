@@ -10,56 +10,77 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 import sys
 import types
-"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
-class DatabaseConnection:
-    """Represents a database connection."""
+def __cribo_init___cribo_c3f13c_services():
+    if '__cribo_c3f13c_services' in sys.modules:
+        return sys.modules['__cribo_c3f13c_services']
+    module = types.ModuleType('__cribo_c3f13c_services')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_c3f13c_services'] = module
+    sys.modules['services'] = module
+    module.__path__ = []
+    return module
+def __cribo_init___cribo_f2d8f3_services_database():
+    if '__cribo_f2d8f3_services_database' in sys.modules:
+        return sys.modules['__cribo_f2d8f3_services_database']
+    module = types.ModuleType('__cribo_f2d8f3_services_database')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_f2d8f3_services_database'] = module
+    sys.modules['services.database'] = module
+    """\nDatabase service module.\nContains database-related functionality with unique names.\n"""
 
-    def __init__(self, connection_string: str):
-        self.connection_string = connection_string
-        self.is_connected = False
+    class DatabaseConnection:
+        """Represents a database connection."""
 
-    def connect(self) -> bool:
-        """Connect to the database."""
-        self.is_connected = True
-        return True
+        def __init__(self, connection_string: str):
+            self.connection_string = connection_string
+            self.is_connected = False
 
-    def disconnect(self) -> None:
-        """Disconnect from the database."""
-        self.is_connected = False
-class DatabaseService:
-    """Service for database operations."""
+        def connect(self) -> bool:
+            """Connect to the database."""
+            self.is_connected = True
+            return True
 
-    def __init__(self, database_path: str):
-        self.connection_string = f"sqlite://{database_path}"
-        self.connection = DatabaseConnection(self.connection_string)
-        self.cache: Dict[str, Any] = {}
+        def disconnect(self) -> None:
+            """Disconnect from the database."""
+            self.is_connected = False
+    module.DatabaseConnection = DatabaseConnection
 
-    def connect(self) -> bool:
-        """Connect to the database."""
-        return self.connection.connect()
+    class DatabaseService:
+        """Service for database operations."""
 
-    def query(self, sql: str) -> Optional[Dict[str, Any]]:
-        """Execute a query."""
-        if not self.connection.is_connected:
-            self.connect()
-        return {"result": f"Executed: {sql}"}
+        def __init__(self, database_path: str):
+            self.connection_string = f"sqlite://{database_path}"
+            self.connection = DatabaseConnection(self.connection_string)
+            self.cache: Dict[str, Any] = {}
 
-    def close(self) -> None:
-        """Close the database connection."""
-        self.connection.disconnect()
-DEFAULT_DATABASE_PATH = "app.db"
-MAX_CONNECTIONS = 10
-"""\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
-def format_message(greeting: str, name: str) -> str:
-    """Format a greeting message."""
-    return f"{greeting}, {name}!"
-def calculate_total(values: List[int]) -> int:
-    """Calculate the sum of a list of integers."""
-    return sum(values)
-def get_version() -> str:
-    """Get the version string."""
-    return "1.0.0"
-UTILS_VERSION = "1.0.0"
+        def connect(self) -> bool:
+            """Connect to the database."""
+            return self.connection.connect()
+
+        def query(self, sql: str) -> Optional[Dict[str, Any]]:
+            """Execute a query."""
+            if not self.connection.is_connected:
+                self.connect()
+            return {"result": f"Executed: {sql}"}
+
+        def close(self) -> None:
+            """Close the database connection."""
+            self.connection.disconnect()
+    module.DatabaseService = DatabaseService
+    DEFAULT_DATABASE_PATH = "app.db"
+    module.DEFAULT_DATABASE_PATH = DEFAULT_DATABASE_PATH
+    MAX_CONNECTIONS = 10
+    module.MAX_CONNECTIONS = MAX_CONNECTIONS
+    return module
+def __cribo_init___cribo_ff156a_models():
+    if '__cribo_ff156a_models' in sys.modules:
+        return sys.modules['__cribo_ff156a_models']
+    module = types.ModuleType('__cribo_ff156a_models')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_ff156a_models'] = module
+    sys.modules['models'] = module
+    module.__path__ = []
+    return module
 def __cribo_init___cribo_fddf57_models_user():
     if '__cribo_fddf57_models_user' in sys.modules:
         return sys.modules['__cribo_fddf57_models_user']
@@ -102,8 +123,43 @@ def __cribo_init___cribo_fddf57_models_user():
     DEFAULT_ROLE = UserRole.USER
     module.DEFAULT_ROLE = DEFAULT_ROLE
     return module
-__cribo_modules = {'models.user': '__cribo_fddf57_models_user'}
-__cribo_init_functions = {'__cribo_fddf57_models_user': __cribo_init___cribo_fddf57_models_user}
+def __cribo_init___cribo_ed0dc1_utils():
+    if '__cribo_ed0dc1_utils' in sys.modules:
+        return sys.modules['__cribo_ed0dc1_utils']
+    module = types.ModuleType('__cribo_ed0dc1_utils')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_ed0dc1_utils'] = module
+    sys.modules['utils'] = module
+    module.__path__ = []
+    return module
+def __cribo_init___cribo_bb2bf2_utils_helpers():
+    if '__cribo_bb2bf2_utils_helpers' in sys.modules:
+        return sys.modules['__cribo_bb2bf2_utils_helpers']
+    module = types.ModuleType('__cribo_bb2bf2_utils_helpers')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_bb2bf2_utils_helpers'] = module
+    sys.modules['utils.helpers'] = module
+    """\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
+
+    def format_message(greeting: str, name: str) -> str:
+        """Format a greeting message."""
+        return f"{greeting}, {name}!"
+    module.format_message = format_message
+
+    def calculate_total(values: List[int]) -> int:
+        """Calculate the sum of a list of integers."""
+        return sum(values)
+    module.calculate_total = calculate_total
+
+    def get_version() -> str:
+        """Get the version string."""
+        return "1.0.0"
+    module.get_version = get_version
+    UTILS_VERSION = "1.0.0"
+    module.UTILS_VERSION = UTILS_VERSION
+    return module
+__cribo_modules = {'services': '__cribo_c3f13c_services', 'services.database': '__cribo_f2d8f3_services_database', 'models': '__cribo_ff156a_models', 'models.user': '__cribo_fddf57_models_user', 'utils': '__cribo_ed0dc1_utils', 'utils.helpers': '__cribo_bb2bf2_utils_helpers'}
+__cribo_init_functions = {'__cribo_c3f13c_services': __cribo_init___cribo_c3f13c_services, '__cribo_f2d8f3_services_database': __cribo_init___cribo_f2d8f3_services_database, '__cribo_ff156a_models': __cribo_init___cribo_ff156a_models, '__cribo_fddf57_models_user': __cribo_init___cribo_fddf57_models_user, '__cribo_ed0dc1_utils': __cribo_init___cribo_ed0dc1_utils, '__cribo_bb2bf2_utils_helpers': __cribo_init___cribo_bb2bf2_utils_helpers}
 class CriboBundledFinder:
 
     def __init__(self, module_registry, init_functions):
@@ -118,13 +174,26 @@ class CriboBundledFinder:
                 if init_func:
                     init_func()
             import importlib.util
-            return importlib.util.find_spec(synthetic_name)
+
+            class _DummyLoader:
+
+                def create_module(self, spec):
+                    return sys.modules.get(spec.name)
+
+                def exec_module(self, module):
+                    pass
+            return importlib.util.spec_from_loader(fullname, _DummyLoader())
         return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
-__cribo_init___cribo_fddf57_models_user()
 """\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
-User = sys.modules['models.user'].User
-UserRole = sys.modules['models.user'].UserRole
+import utils.helpers
+format_message = utils.helpers.format_message
+calculate_total = utils.helpers.calculate_total
+import models.user
+User = models.user.User
+UserRole = models.user.UserRole
+import services.database
+DatabaseService = services.database.DatabaseService
 def main():
     user = User("Alice", "alice@example.com", UserRole.ADMIN)
     db = DatabaseService("test.db")

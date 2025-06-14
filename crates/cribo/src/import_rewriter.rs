@@ -448,12 +448,13 @@ impl ImportRewriter {
                 Stmt::ClassDef(class_def) => {
                     // Also check methods inside classes
                     for class_stmt in &mut class_def.body {
-                        if let Stmt::FunctionDef(method_def) = class_stmt {
-                            let method_name = method_def.name.to_string();
+                        let Stmt::FunctionDef(method_def) = class_stmt else {
+                            continue;
+                        };
 
-                            if let Some(imports) = imports_by_function.get(&method_name) {
-                                self.add_imports_to_function_body(method_def, imports.as_slice())?;
-                            }
+                        let method_name = method_def.name.to_string();
+                        if let Some(imports) = imports_by_function.get(&method_name) {
+                            self.add_imports_to_function_body(method_def, imports.as_slice())?;
                         }
                     }
                 }
