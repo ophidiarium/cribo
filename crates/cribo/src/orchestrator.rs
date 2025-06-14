@@ -8,8 +8,10 @@ use std::path::{Path, PathBuf};
 use crate::code_generator::HybridStaticBundler;
 use crate::config::Config;
 use crate::cribo_graph::{
-    CircularDependencyGroup, CircularDependencyType, CriboGraph, ResolutionStrategy,
+    CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType, CriboGraph,
+    ResolutionStrategy,
 };
+use crate::import_rewriter::{ImportDeduplicationStrategy, ImportRewriter};
 use crate::resolver::{ImportType, ModuleResolver};
 use crate::semantic_bundler::SemanticBundler;
 use crate::util::{module_name_from_relative, normalize_line_endings};
@@ -50,6 +52,7 @@ struct StaticBundleParams<'a> {
     _resolver: &'a ModuleResolver,                  // Unused but kept for future use
     entry_module_name: &'a str,
     graph: &'a CriboGraph,
+    circular_dep_analysis: Option<&'a CircularDependencyAnalysis>,
 }
 
 /// Context for dependency building operations
@@ -100,13 +103,17 @@ impl BundleOrchestrator {
     }
 
     /// Core bundling logic shared between file and string output modes
-    /// Returns the entry module name, with graph and resolver populated via mutable references
+    /// Returns the entry module name, parsed modules, and circular dependency analysis, with graph and resolver populated via mutable references
     fn bundle_core(
         &mut self,
         entry_path: &Path,
         graph: &mut CriboGraph,
         resolver_opt: &mut Option<ModuleResolver>,
-    ) -> Result<(String, Vec<ParsedModuleData>)> {
+    ) -> Result<(
+        String,
+        Vec<ParsedModuleData>,
+        Option<CircularDependencyAnalysis>,
+    )> {
         debug!("Entry: {:?}", entry_path);
         debug!(
             "Using target Python version: {} (Python 3.{})",
@@ -150,6 +157,7 @@ impl BundleOrchestrator {
         debug!("Graph has {} modules", graph.modules.len());
 
         // Enhanced circular dependency detection and analysis
+        let mut circular_dep_analysis = None;
         if graph.has_cycles() {
             let analysis = graph.analyze_circular_dependencies();
 
@@ -173,6 +181,7 @@ impl BundleOrchestrator {
                 );
 
                 Self::log_resolvable_cycles(&analysis.resolvable_cycles);
+                circular_dep_analysis = Some(analysis);
             } else {
                 // We have unresolvable cycles or complex resolvable cycles - still fail for now
                 warn!(
@@ -189,16 +198,17 @@ impl BundleOrchestrator {
         // Set the resolver for the caller to use
         *resolver_opt = Some(resolver);
 
-        Ok((entry_module_name, parsed_modules))
+        Ok((entry_module_name, parsed_modules, circular_dep_analysis))
     }
 
     /// Helper to get sorted modules from graph
     fn get_sorted_modules_from_graph(
         &self,
         graph: &CriboGraph,
+        circular_dep_analysis: Option<&CircularDependencyAnalysis>,
     ) -> Result<Vec<(String, PathBuf, Vec<String>)>> {
-        let module_ids = if graph.has_cycles() {
-            let analysis = graph.analyze_circular_dependencies();
+        let module_ids = if let Some(analysis) = circular_dep_analysis {
+            // We already have the analysis from bundle_core
             let all_resolvable = analysis
                 .resolvable_cycles
                 .iter()
@@ -207,7 +217,7 @@ impl BundleOrchestrator {
 
             if all_resolvable {
                 // For resolvable cycles, use a custom ordering that breaks cycles
-                self.get_modules_with_cycle_resolution(graph, &analysis)?
+                self.get_modules_with_cycle_resolution(graph, analysis)?
             } else {
                 // This should have been caught earlier, but be safe
                 return Err(anyhow!("Unresolvable circular dependencies detected"));
@@ -275,13 +285,14 @@ impl BundleOrchestrator {
         let mut resolver_opt = None;
 
         // Perform core bundling logic
-        let (entry_module_name, parsed_modules) =
+        let (entry_module_name, parsed_modules, circular_dep_analysis) =
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
         let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
-        let sorted_modules = self.get_sorted_modules_from_graph(&graph)?;
+        let sorted_modules =
+            self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
 
         // Extract module data from sorted_modules
         let module_data = sorted_modules
@@ -297,6 +308,7 @@ impl BundleOrchestrator {
             _resolver: &resolver,
             entry_module_name: &entry_module_name,
             graph: &graph,
+            circular_dep_analysis: circular_dep_analysis.as_ref(),
         })?;
 
         // Generate requirements.txt if requested
@@ -321,13 +333,14 @@ impl BundleOrchestrator {
         let mut resolver_opt = None;
 
         // Perform core bundling logic
-        let (entry_module_name, parsed_modules) =
+        let (entry_module_name, parsed_modules, circular_dep_analysis) =
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
         let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
-        let sorted_modules = self.get_sorted_modules_from_graph(&graph)?;
+        let sorted_modules =
+            self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
 
         // Generate bundled code
         info!("Using hybrid static bundler");
@@ -337,6 +350,7 @@ impl BundleOrchestrator {
             _resolver: &resolver,
             entry_module_name: &entry_module_name,
             graph: &graph,
+            circular_dep_analysis: circular_dep_analysis.as_ref(),
         })?;
 
         // Generate requirements.txt if requested
@@ -1245,6 +1259,31 @@ impl BundleOrchestrator {
                     module_path.clone(),
                     content_hash,
                 ));
+            }
+        }
+
+        // Apply import rewriting if we have resolvable circular dependencies
+        if let Some(analysis) = params.circular_dep_analysis {
+            if !analysis.resolvable_cycles.is_empty() {
+                info!("Applying function-scoped import rewriting to resolve circular dependencies");
+
+                // Create import rewriter
+                let mut import_rewriter =
+                    ImportRewriter::new(ImportDeduplicationStrategy::FunctionStart);
+
+                // Analyze movable imports
+                let movable_imports = import_rewriter
+                    .analyze_movable_imports(params.graph, &analysis.resolvable_cycles);
+
+                debug!(
+                    "Found {} imports that can be moved to function scope",
+                    movable_imports.len()
+                );
+
+                // Apply rewriting to each module AST
+                for (module_name, ast, _, _) in &mut module_asts {
+                    import_rewriter.rewrite_module(ast, &movable_imports, module_name)?;
+                }
             }
         }
 

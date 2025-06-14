@@ -745,6 +745,9 @@ impl HybridStaticBundler {
         // Second pass: trim unused imports from all modules
         let modules = self.trim_unused_imports_from_modules(params.modules, params.graph)?;
 
+        // Check which modules have function-scoped imports (from import rewriting)
+        let modules_with_function_imports = self.find_modules_with_function_imports(&modules);
+
         // Store entry path for relative path calculation
         if let Some((_, entry_path, _)) = params.sorted_modules.last() {
             self.entry_path = Some(entry_path.to_string_lossy().to_string());
@@ -795,8 +798,10 @@ impl HybridStaticBundler {
             // 1. It has no side effects
             // 2. It's never imported directly (only from X import Y style)
             // 3. It's not imported as a namespace
+            // 4. It doesn't have function-scoped imports (from import rewriting)
             let has_side_effects = Self::has_side_effects(ast);
             let is_directly_imported = directly_imported_modules.contains(module_name);
+            let has_function_imports = modules_with_function_imports.contains(module_name);
 
             if is_namespace_imported {
                 // Module is imported as namespace - use hybrid approach
@@ -810,11 +815,13 @@ impl HybridStaticBundler {
                     module_path.clone(),
                     content_hash.clone(),
                 ));
-            } else if has_side_effects || is_directly_imported {
+            } else if has_side_effects || is_directly_imported || has_function_imports {
                 let reason = if has_side_effects {
                     "has side effects"
-                } else {
+                } else if is_directly_imported {
                     "is imported directly"
+                } else {
+                    "has function-scoped imports"
                 };
                 log::debug!(
                     "Module '{}' {} - using wrapper approach",
@@ -4163,6 +4170,111 @@ impl HybridStaticBundler {
             log::debug!("Not a relative import, resolved to: {:?}", resolved);
             resolved
         }
+    }
+
+    /// Find modules that have function-scoped imports (from import rewriting)
+    fn find_modules_with_function_imports(
+        &self,
+        modules: &[(String, ModModule, PathBuf, String)],
+    ) -> FxIndexSet<String> {
+        let mut modules_with_function_imports = FxIndexSet::default();
+
+        // Check each module for imports inside function bodies
+        for (module_name, ast, _, _) in modules {
+            if self.module_has_function_scoped_imports(ast) {
+                log::info!("Module '{}' has function-scoped imports", module_name);
+                modules_with_function_imports.insert(module_name.clone());
+            }
+        }
+
+        modules_with_function_imports
+    }
+
+    /// Check if a module has imports inside function bodies or class methods
+    fn module_has_function_scoped_imports(&self, ast: &ModModule) -> bool {
+        for stmt in &ast.body {
+            match stmt {
+                // FunctionDef covers both sync and async functions (is_async field)
+                Stmt::FunctionDef(func_def) => {
+                    if Self::function_has_imports(&func_def.body) {
+                        return true;
+                    }
+                }
+                Stmt::ClassDef(class_def) => {
+                    // Check methods inside the class (including async methods)
+                    if self.class_has_method_imports(class_def) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Check if a class has methods with imports
+    fn class_has_method_imports(&self, class_def: &StmtClassDef) -> bool {
+        class_def.body.iter().any(|class_stmt| {
+            matches!(class_stmt, Stmt::FunctionDef(method_def) if Self::function_has_imports(&method_def.body))
+        })
+    }
+
+    /// Check if a function body contains import statements
+    fn function_has_imports(body: &[Stmt]) -> bool {
+        for stmt in body {
+            match stmt {
+                Stmt::Import(_) | Stmt::ImportFrom(_) => return true,
+                Stmt::If(if_stmt) => {
+                    if Self::function_has_imports(&if_stmt.body) {
+                        return true;
+                    }
+                    for clause in &if_stmt.elif_else_clauses {
+                        if Self::function_has_imports(&clause.body) {
+                            return true;
+                        }
+                    }
+                }
+                Stmt::While(while_stmt) => {
+                    if Self::function_has_imports(&while_stmt.body) {
+                        return true;
+                    }
+                }
+                Stmt::For(for_stmt) => {
+                    if Self::function_has_imports(&for_stmt.body) {
+                        return true;
+                    }
+                }
+                Stmt::Try(try_stmt) => {
+                    if Self::function_has_imports(&try_stmt.body) {
+                        return true;
+                    }
+                    for handler in &try_stmt.handlers {
+                        let ExceptHandler::ExceptHandler(except_handler) = handler;
+                        if Self::function_has_imports(&except_handler.body) {
+                            return true;
+                        }
+                    }
+                    if Self::function_has_imports(&try_stmt.orelse) {
+                        return true;
+                    }
+                    if Self::function_has_imports(&try_stmt.finalbody) {
+                        return true;
+                    }
+                }
+                Stmt::With(with_stmt) => {
+                    if Self::function_has_imports(&with_stmt.body) {
+                        return true;
+                    }
+                }
+                Stmt::FunctionDef(nested_func) => {
+                    if Self::function_has_imports(&nested_func.body) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
     }
 
     /// Find which modules are imported directly in all modules

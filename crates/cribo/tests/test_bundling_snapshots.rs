@@ -138,8 +138,9 @@ fn test_bundling_fixtures() {
         // Print which fixture we're running (will only show when not filtered out)
         eprintln!("Running fixture: {}", fixture_name);
 
-        // Check if this is an expected failure fixture
-        let expects_failure = fixture_name.starts_with("xfail_");
+        // Check fixture type based on prefix
+        let expects_bundling_failure = fixture_name.starts_with("xfail_");
+        let expects_python_failure = fixture_name.starts_with("pyfail_");
 
         // First, run the original fixture to ensure it's valid Python code
         let python_cmd = get_python_executable();
@@ -152,22 +153,48 @@ fn test_bundling_fixtures() {
             .and_then(|child| child.wait_with_output())
             .expect("Failed to execute original fixture");
 
-        // If the original fixture doesn't run correctly, skip bundling
-        if !original_output.status.success() && !expects_failure {
-            let stderr = String::from_utf8_lossy(&original_output.stderr);
-            let stdout = String::from_utf8_lossy(&original_output.stdout);
+        // Handle Python execution based on fixture type
+        match (
+            original_output.status.success(),
+            expects_python_failure,
+            expects_bundling_failure,
+        ) {
+            // pyfail_: MUST fail Python direct execution
+            (true, true, _) => {
+                panic!(
+                    "Fixture '{}' with pyfail_ prefix succeeded in direct Python execution, but it MUST fail",
+                    fixture_name
+                );
+            }
+            // pyfail_: Expected to fail, and it did - good!
+            (false, true, _) => {
+                // Continue to bundling
+            }
+            // xfail_: Python execution doesn't matter, will check bundling later
+            (_, false, true) => {
+                // Continue to bundling
+            }
+            // Normal fixture: MUST succeed in Python execution
+            (false, false, false) => {
+                let stderr = String::from_utf8_lossy(&original_output.stderr);
+                let stdout = String::from_utf8_lossy(&original_output.stdout);
 
-            panic!(
-                "Original fixture '{}' failed to execute:\n\
-                Exit code: {}\n\
-                Stdout:\n{}\n\
-                Stderr:\n{}\n\n\
-                Fix the fixture before testing bundling.",
-                fixture_name,
-                original_output.status.code().unwrap_or(-1),
-                stdout.trim(),
-                stderr.trim()
-            );
+                panic!(
+                    "Original fixture '{}' failed to execute:\n\
+                    Exit code: {}\n\
+                    Stdout:\n{}\n\
+                    Stderr:\n{}\n\n\
+                    Fix the fixture before testing bundling.",
+                    fixture_name,
+                    original_output.status.code().unwrap_or(-1),
+                    stdout.trim(),
+                    stderr.trim()
+                );
+            }
+            // Normal fixture: Succeeded as expected
+            (true, false, false) => {
+                // Continue to bundling
+            }
         }
 
         // Store original execution results for comparison
@@ -187,8 +214,8 @@ fn test_bundling_fixtures() {
 
         // Bundle the fixture
         if let Err(e) = bundler.bundle(path, &bundle_path, false) {
-            // For xfail fixtures, bundling failures are expected
-            if expects_failure {
+            // xfail_: bundling failures are expected
+            if expects_bundling_failure {
                 // The fixture is expected to fail, so bundling failure is OK
                 // We'll create a simple error output for the snapshot
                 let error_msg = format!("Bundling failed as expected: {}", e);
@@ -207,6 +234,8 @@ fn test_bundling_fixtures() {
                 panic!("Bundling failed unexpectedly for {}: {}", fixture_name, e);
             }
         }
+
+        // For xfail_, bundling success is OK - we'll check execution later
 
         // Read the bundled code
         let bundled_code = fs::read_to_string(&bundle_path).unwrap();
@@ -254,8 +283,28 @@ fn test_bundling_fixtures() {
             })
             .expect("Failed to execute Python");
 
-        // Check for unexpected Python execution failures
-        if !python_output.status.success() && !expects_failure {
+        // Handle execution results based on fixture type
+        let execution_success = python_output.status.success();
+
+        // pyfail_: MUST succeed after bundling
+        if expects_python_failure && !execution_success {
+            let stderr = String::from_utf8_lossy(&python_output.stderr);
+            let stdout = String::from_utf8_lossy(&python_output.stdout);
+
+            panic!(
+                "Fixture '{}' with pyfail_ prefix failed after bundling, but it MUST pass:\n\
+                Exit code: {}\n\
+                Stdout:\n{}\n\
+                Stderr:\n{}",
+                fixture_name,
+                python_output.status.code().unwrap_or(-1),
+                stdout.trim(),
+                stderr.trim()
+            );
+        }
+
+        // Normal fixtures without pyfail_ or xfail_: execution failure is unexpected
+        if !expects_python_failure && !expects_bundling_failure && !execution_success {
             let stderr = String::from_utf8_lossy(&python_output.stderr);
             let stdout = String::from_utf8_lossy(&python_output.stdout);
 
@@ -263,8 +312,7 @@ fn test_bundling_fixtures() {
                 "Python execution failed unexpectedly for fixture '{}':\n\
                 Exit code: {}\n\
                 Stdout:\n{}\n\
-                Stderr:\n{}\n\n\
-                If this failure is expected, rename the fixture directory with 'xfail_' prefix.",
+                Stderr:\n{}",
                 fixture_name,
                 python_output.status.code().unwrap_or(-1),
                 stdout.trim(),
@@ -279,8 +327,8 @@ fn test_bundling_fixtures() {
             .to_string();
         let bundled_exit_code = python_output.status.code().unwrap_or(-1);
 
-        // For non-xfail tests, stdout should match exactly
-        if !expects_failure {
+        // For normal tests (not pyfail_), stdout should match exactly
+        if !expects_python_failure && !expects_bundling_failure {
             assert_eq!(
                 original_stdout, bundled_stdout,
                 "\nBundled output differs from original for fixture '{}'",
@@ -288,8 +336,8 @@ fn test_bundling_fixtures() {
             );
         }
 
-        // Exit codes should also match for non-xfail tests
-        if !expects_failure {
+        // Exit codes should also match for normal tests
+        if !expects_python_failure && !expects_bundling_failure {
             assert_eq!(
                 original_exit_code, bundled_exit_code,
                 "\nExit code differs for fixture '{}'",
@@ -297,47 +345,49 @@ fn test_bundling_fixtures() {
             );
         }
 
-        // Check for xfail tests that are now passing
-        // Note: Some xfail fixtures may succeed after bundling due to circular dependency resolution
-        // This is actually a success case - the bundler has resolved issues that exist in the original code
-        if python_output.status.success() && expects_failure && !original_output.status.success() {
-            // This is OK - the bundler fixed issues in the original code
+        // Check for pyfail tests that are now passing
+        // Note: pyfail fixtures succeed after bundling due to circular dependency resolution
+        // This is the expected behavior - the bundler has resolved issues that exist in the original code
+        if python_output.status.success()
+            && expects_python_failure
+            && !original_output.status.success()
+        {
+            // This is expected - the bundler fixed issues in the original code
             eprintln!(
                 "Note: Fixture '{}' fails when run directly but succeeds after bundling. \
                 This demonstrates the bundler's ability to resolve circular dependencies.",
                 fixture_name
             );
-        } else if python_output.status.success()
-            && expects_failure
-            && original_output.status.success()
-        {
-            // This means both original and bundled succeed - the xfail is no longer needed
-            let stdout = String::from_utf8_lossy(&python_output.stdout);
-            let stderr = String::from_utf8_lossy(&python_output.stderr);
+        }
 
-            // Truncate long outputs for cleaner CI logs
-            let truncated_stdout = if stdout.len() > 200 {
-                format!("{}... (truncated)", &stdout[..200])
-            } else {
-                stdout.to_string()
-            };
+        // Handle xfail_ validation
+        if expects_bundling_failure {
+            // xfail_ requires:
+            // 1. Original fixture must run successfully
+            if !original_output.status.success() {
+                panic!(
+                    "Fixture '{}' with xfail_ prefix: original fixture failed to run, but it MUST succeed",
+                    fixture_name
+                );
+            }
 
-            let truncated_stderr = if stderr.len() > 200 {
-                format!("{}... (truncated)", &stderr[..200])
-            } else {
-                stderr.to_string()
-            };
+            // 2. Bundled fixture must either:
+            //    a. Fail during execution (different exit code)
+            //    b. Produce different output than original
+            let bundled_success = python_output.status.success();
 
-            panic!(
-                "Expected fixture '{}' to fail (marked with xfail_), but both original and bundled succeeded!\n\
-                This test is now fully passing. Please remove the 'xfail_' prefix from the fixture directory name.\n\
-                Exit code: 0\n\
-                Stdout: {}\n\
-                Stderr: {}",
-                fixture_name,
-                truncated_stdout.trim(),
-                truncated_stderr.trim()
-            );
+            if bundled_success {
+                // Both original and bundled succeeded - check if outputs match
+                if bundled_stdout == original_stdout {
+                    panic!(
+                        "Fixture '{}' with xfail_ prefix: bundled code succeeded and produced same output as original.\n\
+                        This test is now fully passing. Please remove the 'xfail_' prefix from the fixture directory name.",
+                        fixture_name
+                    );
+                }
+                // Outputs differ - this is expected for xfail
+            }
+            // If bundled failed, that's expected for xfail
         }
 
         // Create structured execution results
