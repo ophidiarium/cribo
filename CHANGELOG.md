@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.28](https://github.com/ophidiarium/cribo/compare/v0.4.27...v0.4.28) (2025-06-14)
+
+
+### Features
+
+* enhance circular dependency detection and prepare for import rewriting ([#126](https://github.com/ophidiarium/cribo/issues/126)) ([a46a253](https://github.com/ophidiarium/cribo/commit/a46a25393b6a9186dd7e74c91b9bc7937c4b4296))
+
+
+### Bug Fixes
+
+* implement function-scoped import rewriting for circular dependency resolution ([e5813a8](https://github.com/ophidiarium/cribo/commit/e5813a8b5a531bfe640881c8e0bc60a4df01d704)), closes [#128](https://github.com/ophidiarium/cribo/issues/128)
+
 ## [0.4.27](https://github.com/ophidiarium/cribo/compare/v0.4.26...v0.4.27) (2025-06-13)
 
 
