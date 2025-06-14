@@ -101,8 +101,10 @@ jobs:
           path: main
       - name: Run rust-code-analysis on main branch
         if: ${{ github.event_name == 'pull_request' }}
+        working-directory: main
         run: |
-          rust-code-analysis-cli --metrics -O json -o "$HOME/rca-json-base" -p main/crates/cribo/src
+          # Run baseline scan within main checkout, scanning same relative path as PR
+          rust-code-analysis-cli --metrics -O json -o "$HOME/rca-json-base" -p crates/cribo/src
 
       # Comment rust-code-analysis metrics on pull requests with comparison
       - name: Comment rust-code-analysis metrics on PR
@@ -151,14 +153,17 @@ jobs:
               const diffCyclo = (prCyclo - baseCyclo).toFixed(1);
               const diffCog = (prCog - baseCog).toFixed(1);
               const emoji = d => d>0? '🔴': d<0? '🟢':'⚪';
-              rows.push({ file: fileLink,
-                          funcs: `${diffFunc>0?'+':''}${diffFunc} ${emoji(diffFunc)}`,
-                          cyclo: `${diffCyclo} ${emoji(diffCyclo)}`,
-                          cog: `${diffCog} ${emoji(diffCog)}` });
+              // Push row showing PR vs main values with emoji
+              rows.push({
+                file: fileLink,
+                funcs: `${prFunc} (main: ${baseFunc}) ${emoji(diffFunc)}`,
+                cyclo: `${prCyclo.toFixed(1)} (main: ${baseCyclo.toFixed(1)}) ${emoji(diffCyclo)}`,
+                cog: `${prCog.toFixed(1)} (main: ${baseCog.toFixed(1)}) ${emoji(diffCog)}`,
+              });
             });
             // Sort rows by number of functions descending
             rows.sort((a, b) => b.funcs - a.funcs);
-            // Build markdown comparison table
+            // Build markdown comparison table showing current vs main
             let body = '## Rust Code Analysis Comparison (PR vs Main)\n\n';
             body += '| File | ΔFunctions | ΔCyclomatic | ΔCognitive |\n';
             body += '|---|---:|---:|---:|\n';
