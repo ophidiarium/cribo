@@ -73,5 +73,28 @@ jobs:
           name: rca-json-ubuntu
           path: ~/rca-json
 
+      # Comment rust-code-analysis metrics on pull requests
+      - name: Comment rust-code-analysis metrics on PR
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = `${process.env.HOME}/rca-json`;
+            let commentBody = "## Rust Code Analysis Metrics\n";
+            const files = fs.readdirSync(path);
+            for (const file of files) {
+              const data = fs.readFileSync(`${path}/${file}`, 'utf8');
+              commentBody += '### ' + file + '\n';
+              commentBody += '```json\n' + data + '\n```\n\n';
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: commentBody
+            });
+
       - name: Cargo Machete
         uses: bnjbvr/cargo-machete@v0.8.0
