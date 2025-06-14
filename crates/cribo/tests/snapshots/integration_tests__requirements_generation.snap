@@ -10,27 +10,8 @@ expression: output
 
 from typing import Optional, Union
 import re
-"""Utils package initialization."""
-"""Validation utilities."""
-def validate_email(email: str) -> bool:
-    """Simple email validation."""
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return bool(re.match(pattern, email))
-def sanitize_input(text: str) -> str:
-    """Sanitize input text."""
-    dangerous_chars = ['<', '>', '"', "'", '&']
-    sanitized = text
-    for char in dangerous_chars:
-        sanitized = sanitized.replace(char, '')
-    return sanitized.strip()
-def validate_age(age: Union[int, str]) -> bool:
-    """Validate age value."""
-    try:
-        age_int = int(age)
-        return 0 <= age_int <= 150
-    except (ValueError, TypeError):
-        return False
-"""Schemas package initialization."""
+import sys
+import types
 """User schema definitions using Pydantic."""
 class UserSchema(BaseModel):
     """User model with Pydantic validation."""
@@ -58,8 +39,106 @@ class UserResponse(BaseModel):
     age: int
     is_active: bool
     bio: Optional[str] = None
+def __cribo_init___cribo_68b3fd_utils():
+    if '__cribo_68b3fd_utils' in sys.modules:
+        return sys.modules['__cribo_68b3fd_utils']
+    module = types.ModuleType('__cribo_68b3fd_utils')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_68b3fd_utils'] = module
+    sys.modules['utils'] = module
+    module.__path__ = []
+    """Utils package initialization."""
+    import utils.validation
+    validate_email = sys.modules['utils.validation'].validate_email
+    import utils.validation
+    sanitize_input = sys.modules['utils.validation'].sanitize_input
+    import utils.validation
+    validate_age = sys.modules['utils.validation'].validate_age
+    module.validate_email = validate_email
+    module.sanitize_input = sanitize_input
+    module.validate_age = validate_age
+    __all__ = ["validate_email", "sanitize_input", "validate_age"]
+    module.__all__ = ['validate_email', 'sanitize_input', 'validate_age']
+    return module
+def __cribo_init___cribo_ec022d_utils_validation():
+    if '__cribo_ec022d_utils_validation' in sys.modules:
+        return sys.modules['__cribo_ec022d_utils_validation']
+    module = types.ModuleType('__cribo_ec022d_utils_validation')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_ec022d_utils_validation'] = module
+    sys.modules['utils.validation'] = module
+    """Validation utilities."""
+
+    def validate_email(email: str) -> bool:
+        """Simple email validation."""
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return bool(re.match(pattern, email))
+    module.validate_email = validate_email
+
+    def sanitize_input(text: str) -> str:
+        """Sanitize input text."""
+        dangerous_chars = ['<', '>', '"', "'", '&']
+        sanitized = text
+        for char in dangerous_chars:
+            sanitized = sanitized.replace(char, '')
+        return sanitized.strip()
+    module.sanitize_input = sanitize_input
+
+    def validate_age(age: Union[int, str]) -> bool:
+        """Validate age value."""
+        try:
+            age_int = int(age)
+            return 0 <= age_int <= 150
+        except (ValueError, TypeError):
+            return False
+    module.validate_age = validate_age
+    return module
+def __cribo_init___cribo_e35a1a_schemas():
+    if '__cribo_e35a1a_schemas' in sys.modules:
+        return sys.modules['__cribo_e35a1a_schemas']
+    module = types.ModuleType('__cribo_e35a1a_schemas')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_e35a1a_schemas'] = module
+    sys.modules['schemas'] = module
+    module.__path__ = []
+    """Schemas package initialization."""
+    module.UserSchema = UserSchema
+    module.CreateUserRequest = CreateUserRequest
+    module.UserResponse = UserResponse
+    __all__ = ["UserSchema", "CreateUserRequest", "UserResponse"]
+    module.__all__ = ['UserSchema', 'CreateUserRequest', 'UserResponse']
+    return module
+__cribo_modules = {'utils': '__cribo_68b3fd_utils', 'utils.validation': '__cribo_ec022d_utils_validation', 'schemas': '__cribo_e35a1a_schemas'}
+__cribo_init_functions = {'__cribo_68b3fd_utils': __cribo_init___cribo_68b3fd_utils, '__cribo_ec022d_utils_validation': __cribo_init___cribo_ec022d_utils_validation, '__cribo_e35a1a_schemas': __cribo_init___cribo_e35a1a_schemas}
+class CriboBundledFinder:
+
+    def __init__(self, module_registry, init_functions):
+        self.module_registry = module_registry
+        self.init_functions = init_functions
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname in self.module_registry:
+            synthetic_name = self.module_registry[fullname]
+            if synthetic_name not in sys.modules:
+                init_func = self.init_functions.get(synthetic_name)
+                if init_func:
+                    init_func()
+            import importlib.util
+
+            class _DummyLoader:
+
+                def create_module(self, spec):
+                    return sys.modules.get(spec.name)
+
+                def exec_module(self, module):
+                    pass
+            return importlib.util.spec_from_loader(fullname, _DummyLoader())
+        return None
+sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 """Pydantic test project entry point."""
 from pydantic import ValidationError
+import utils.validation
+validate_email = utils.validation.validate_email
 def main():
     """Main function demonstrating Pydantic usage."""
     user_data = {"name": "John Doe", "email": "john@example.com", "age": 25}

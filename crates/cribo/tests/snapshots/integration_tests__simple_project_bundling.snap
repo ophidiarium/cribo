@@ -11,36 +11,127 @@ from dataclasses import dataclass
 from typing import Optional, Union
 import os
 import sys
-"""Models package initialization."""
-"""User model for the test project."""
-@dataclass
-class User:
-    """A simple user model."""
-    name: str
-    age: int
-    email: Optional[str] = None
+import types
+def __cribo_init___cribo_8556b6_models():
+    if '__cribo_8556b6_models' in sys.modules:
+        return sys.modules['__cribo_8556b6_models']
+    module = types.ModuleType('__cribo_8556b6_models')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_8556b6_models'] = module
+    sys.modules['models'] = module
+    module.__path__ = []
+    """Models package initialization."""
+    import models.user
+    User = sys.modules['models.user'].User
+    module.User = User
+    __all__ = ["User"]
+    module.__all__ = ['User']
+    return module
+def __cribo_init___cribo_732980_models_user():
+    if '__cribo_732980_models_user' in sys.modules:
+        return sys.modules['__cribo_732980_models_user']
+    module = types.ModuleType('__cribo_732980_models_user')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_732980_models_user'] = module
+    sys.modules['models.user'] = module
+    """User model for the test project."""
 
-    def is_adult(self) -> bool:
-        """Check if the user is an adult."""
-        return self.age >= 18
+    @dataclass
+    class User:
+        """A simple user model."""
+        name: str
+        age: int
+        email: Optional[str] = None
 
-    def get_display_name(self) -> str:
-        """Get a display name for the user."""
-        if self.email:
-            return f"{self.name} <{self.email}>"
-        return self.name
-"""Utils package initialization."""
-"""Utility functions for the test project."""
-def greet(name: str) -> str:
-    """Greet a person by name."""
-    return f"Hello, {name}!"
-def calculate(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
-    """Calculate the sum of two numbers."""
-    return a + b
-def get_system_info() -> dict:
-    """Get basic system information."""
-    return {"platform": sys.platform, "python_version": sys.version, "cwd": os.getcwd()}
+        def is_adult(self) -> bool:
+            """Check if the user is an adult."""
+            return self.age >= 18
+
+        def get_display_name(self) -> str:
+            """Get a display name for the user."""
+            if self.email:
+                return f"{self.name} <{self.email}>"
+            return self.name
+    module.User = User
+    return module
+def __cribo_init___cribo_5c608a_utils():
+    if '__cribo_5c608a_utils' in sys.modules:
+        return sys.modules['__cribo_5c608a_utils']
+    module = types.ModuleType('__cribo_5c608a_utils')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_5c608a_utils'] = module
+    sys.modules['utils'] = module
+    module.__path__ = []
+    """Utils package initialization."""
+    import utils.helpers
+    greet = sys.modules['utils.helpers'].greet
+    import utils.helpers
+    calculate = sys.modules['utils.helpers'].calculate
+    import utils.helpers
+    get_system_info = sys.modules['utils.helpers'].get_system_info
+    module.greet = greet
+    module.calculate = calculate
+    module.get_system_info = get_system_info
+    __all__ = ["greet", "calculate", "get_system_info"]
+    module.__all__ = ['greet', 'calculate', 'get_system_info']
+    return module
+def __cribo_init___cribo_4f6196_utils_helpers():
+    if '__cribo_4f6196_utils_helpers' in sys.modules:
+        return sys.modules['__cribo_4f6196_utils_helpers']
+    module = types.ModuleType('__cribo_4f6196_utils_helpers')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_4f6196_utils_helpers'] = module
+    sys.modules['utils.helpers'] = module
+    """Utility functions for the test project."""
+
+    def greet(name: str) -> str:
+        """Greet a person by name."""
+        return f"Hello, {name}!"
+    module.greet = greet
+
+    def calculate(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
+        """Calculate the sum of two numbers."""
+        return a + b
+    module.calculate = calculate
+
+    def get_system_info() -> dict:
+        """Get basic system information."""
+        return {"platform": sys.platform, "python_version": sys.version, "cwd": os.getcwd()}
+    module.get_system_info = get_system_info
+    return module
+__cribo_modules = {'models': '__cribo_8556b6_models', 'models.user': '__cribo_732980_models_user', 'utils': '__cribo_5c608a_utils', 'utils.helpers': '__cribo_4f6196_utils_helpers'}
+__cribo_init_functions = {'__cribo_8556b6_models': __cribo_init___cribo_8556b6_models, '__cribo_732980_models_user': __cribo_init___cribo_732980_models_user, '__cribo_5c608a_utils': __cribo_init___cribo_5c608a_utils, '__cribo_4f6196_utils_helpers': __cribo_init___cribo_4f6196_utils_helpers}
+class CriboBundledFinder:
+
+    def __init__(self, module_registry, init_functions):
+        self.module_registry = module_registry
+        self.init_functions = init_functions
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname in self.module_registry:
+            synthetic_name = self.module_registry[fullname]
+            if synthetic_name not in sys.modules:
+                init_func = self.init_functions.get(synthetic_name)
+                if init_func:
+                    init_func()
+            import importlib.util
+
+            class _DummyLoader:
+
+                def create_module(self, spec):
+                    return sys.modules.get(spec.name)
+
+                def exec_module(self, module):
+                    pass
+            return importlib.util.spec_from_loader(fullname, _DummyLoader())
+        return None
+sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 """Simple test project entry point."""
+import utils.helpers
+greet = utils.helpers.greet
+calculate = utils.helpers.calculate
+import models.user
+User = models.user.User
 def main():
     """Main function."""
     user = User("Alice", 30)

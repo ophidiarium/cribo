@@ -9,6 +9,7 @@ pub mod orchestrator;
 pub mod resolver;
 pub mod semantic_bundler;
 pub mod util;
+pub mod visitors;
 
 pub use config::Config;
 pub use orchestrator::BundleOrchestrator;
