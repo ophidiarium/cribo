@@ -151,7 +151,7 @@ To ensure backward compatibility and a smooth rollout:
 
 ## Testing and Validation
 
-- **Snapshot Tests**: Add new fixtures under `crates/cribo/tests/fixtures/bundling/exec_free/` showing identical behavior with no exec loader.
+- **Snapshot Tests**: Add new fixtures under `crates/cribo/tests/fixtures/exec_free/` showing identical behavior with no exec loader.
 - **Unit Tests**: Cover AST flattening, import rewriting, and prefixing logic in `flatten.rs`.
 - **Performance Benchmarks**: Measure startup latency and bundle generation time before and after exec-free migration.
 - **Backwards Compatibility**: Ensure existing fixture suite passes under both legacy and exec-free modes.

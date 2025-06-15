@@ -138,7 +138,7 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
 /// This discovers and tests all fixtures automatically
 #[test]
 fn test_bundling_fixtures() {
-    insta::glob!("fixtures/bundling", "*/main.py", |path| {
+    insta::glob!("fixtures/", "*/main.py", |path| {
         // Extract fixture name from the path
         let fixture_dir = path.parent().unwrap();
         let fixture_name = fixture_dir.file_name().unwrap().to_str().unwrap();

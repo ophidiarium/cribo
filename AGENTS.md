@@ -126,7 +126,7 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
 
 **How It Works**:
 
-- **Automatic Discovery**: Scans `crates/cribo/tests/fixtures/bundling/` for test directories
+- **Automatic Discovery**: Scans `crates/cribo/tests/fixtures/` for test directories
 - **Convention-Based**: Each directory with `main.py` becomes a test case automatically
 - **Dual Snapshots**: Generates both bundled code and execution result snapshots
 - **Deterministic**: All output is sorted and reproducible across runs
@@ -135,10 +135,10 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
 
 ```bash
 # 1. Create fixture directory
-mkdir crates/cribo/tests/fixtures/bundling/my_new_feature
+mkdir crates/cribo/tests/fixtures/my_new_feature
 
 # 2. Add test files (main.py + any supporting modules)
-echo "print('Hello Feature')" > crates/cribo/tests/fixtures/bundling/my_new_feature/main.py
+echo "print('Hello Feature')" > crates/cribo/tests/fixtures/my_new_feature/main.py
 
 # 3. Run tests - automatically discovered and tested
 cargo test test_all_bundling_fixtures
@@ -183,7 +183,7 @@ cargo insta accept
 **Example Fixture Structure**:
 
 ```text
-crates/cribo/tests/fixtures/bundling/
+crates/cribo/tests/fixtures/
 ├── future_imports_basic/          # Complex nested packages + future imports
 │   ├── main.py
 │   └── mypackage/
