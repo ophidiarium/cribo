@@ -74,7 +74,7 @@ jobs:
             --log-file=${{ github.workspace }}/valgrind.log
             --suppressions=${{ github.workspace }}/valgrind.supp
         run: |
-          cargo valgrind run -- --entry crates/cribo/tests/fixtures/bundling/comprehensive_ast_rewrite/main.py --stdout 9>>valgrind.log
+          cargo valgrind run -- --entry crates/cribo/tests/fixtures/comprehensive_ast_rewrite/main.py --stdout 9>>valgrind.log
 
       - name: Upload valgrind.log
         if: always()

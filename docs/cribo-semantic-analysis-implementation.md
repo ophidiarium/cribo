@@ -354,7 +354,7 @@ The implementation is thoroughly tested with:
 Key test fixture that validates the implementation:
 
 ```
-crates/cribo/tests/fixtures/bundling/comprehensive_ast_rewrite/
+crates/cribo/tests/fixtures/comprehensive_ast_rewrite/
 ├── main.py                    # Entry point with conflicts
 ├── models/
 │   ├── base.py               # Base model with relative imports

@@ -447,15 +447,6 @@ node scripts/generate-npm-packages.js
 ```bash
 # Run all tests
 cargo test --workspace
-
-# Run specific test file
-cargo test --package cribo --test integration_tests
-
-# Run tests matching a pattern
-cargo test --package cribo unused_imports
-
-# Run a specific named test
-cargo test --package cribo test_simple_project_bundling
 ```
 
 #### Running Specific Bundling Fixtures with Insta Glob
@@ -479,7 +470,7 @@ INSTA_GLOB_FILTER="**/future_imports_*/main.py" cargo test test_bundling_fixture
 INSTA_GLOB_FILTER="**/stickytape_single_file/main.py" cargo test test_bundling_fixtures -- --nocapture
 
 # List available fixtures (useful for finding fixture names)
-find crates/cribo/tests/fixtures/bundling -name "main.py" -type f | sed 's|.*/bundling/||' | sed 's|/main.py||' | sort
+find crates/cribo/tests/fixtures -name "main.py" -type f | sed 's|.*/fixtures/||' | sed 's|/main.py||' | sort
 ```
 
 **Common fixture patterns:**
@@ -580,19 +571,6 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
 - `RUST_LOG` - Controls logging level (e.g., `RUST_LOG=debug`)
 - `VIRTUAL_ENV` - Used for virtual environment support
 
-### Configuration
-
-cribo can be configured via a `cribo.toml` file:
-
-```toml
-# Example configuration
-[bundler]
-source_dirs = ["src"]
-first_party_modules = ["my_module"]
-preserve_comments = true
-preserve_type_hints = true
-```
-
 ### CLI Usage
 
 ```bash
@@ -629,9 +607,6 @@ cribo --entry main.py --stdout > /path/to/bundle.py
 
 # Combine with verbose logging (logs go to stderr, code to stdout)
 cribo --entry main.py --stdout -vv
-
-# Use in CI/CD pipelines where file creation is not desired
-cribo --entry main.py --stdout | docker exec -i container python -
 ```
 
 **Key Benefits:**
@@ -714,7 +689,7 @@ for import in sorted_imports { ... }
 
 **How It Works**:
 
-- **Automatic Discovery**: Scans `crates/cribo/tests/fixtures/bundling/` for test directories
+- **Automatic Discovery**: Scans `crates/cribo/tests/fixtures/` for test directories
 - **Convention-Based**: Each directory with `main.py` becomes a test case automatically
 - **Dual Snapshots**: Generates both bundled code and execution result snapshots
 - **Deterministic**: All output is sorted and reproducible across runs
@@ -723,10 +698,10 @@ for import in sorted_imports { ... }
 
 ```bash
 # 1. Create fixture directory
-mkdir crates/cribo/tests/fixtures/bundling/my_new_feature
+mkdir crates/cribo/tests/fixtures/my_new_feature
 
 # 2. Add test files (main.py + any supporting modules)
-echo "print('Hello Feature')" > crates/cribo/tests/fixtures/bundling/my_new_feature/main.py
+echo "print('Hello Feature')" > crates/cribo/tests/fixtures/my_new_feature/main.py
 
 # 3. Run tests - automatically discovered and tested
 cargo test test_all_bundling_fixtures
@@ -771,7 +746,7 @@ cargo insta accept
 **Example Fixture Structure**:
 
 ```text
-crates/cribo/tests/fixtures/bundling/
+crates/cribo/tests/fixtures/
 ├── future_imports_basic/          # Complex nested packages + future imports
 │   ├── main.py
 │   └── mypackage/
