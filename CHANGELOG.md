@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.30](https://github.com/ophidiarium/cribo/compare/v0.4.29...v0.4.30) (2025-06-15)
+
+
+### Features
+
+* **ci:** only show rust analyzer for changed files ([#132](https://github.com/ophidiarium/cribo/issues/132)) ([5fca806](https://github.com/ophidiarium/cribo/commit/5fca8064d3491fc2fb227fbc28e4356c66bc5d57))
+* **test:** enhance snapshot framework with YAML requirements and third-party import support ([#134](https://github.com/ophidiarium/cribo/issues/134)) ([5f9aba7](https://github.com/ophidiarium/cribo/commit/5f9aba7e210c2095c60a96aecc427c2728ae923c))
+
 ## [0.4.29](https://github.com/ophidiarium/cribo/compare/v0.4.28...v0.4.29) (2025-06-15)
 
 
