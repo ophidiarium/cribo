@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.29](https://github.com/ophidiarium/cribo/compare/v0.4.28...v0.4.29) (2025-06-15)
+
+
+### Features
+
+* **ci:** add rust-code-analysis-cli ([c40aff3](https://github.com/ophidiarium/cribo/commit/c40aff371307c65d71ac780795167e1c864932a7))
+* implement AST visitor pattern for comprehensive import discovery ([#130](https://github.com/ophidiarium/cribo/issues/130)) ([b73df7d](https://github.com/ophidiarium/cribo/commit/b73df7dcd286f8ced2bfee77eb2e11c022946235))
+
 ## [0.4.28](https://github.com/ophidiarium/cribo/compare/v0.4.27...v0.4.28) (2025-06-14)
 
 
