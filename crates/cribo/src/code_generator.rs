@@ -3816,19 +3816,20 @@ impl HybridStaticBundler {
                     let module_name = alias.name.as_str();
                     // Check stdlib imports
                     if self.is_safe_stdlib_module(module_name) {
-                        return self.stdlib_import_statements.iter().any(|hoisted| {
+                        self.stdlib_import_statements.iter().any(|hoisted| {
                             matches!(hoisted, Stmt::Import(hoisted_import)
                                 if hoisted_import.names.iter().any(|h| h.name == alias.name))
-                        });
+                        })
                     }
                     // Check third-party imports
-                    if !self.is_bundled_module_or_package(module_name) {
-                        return self.third_party_import_statements.iter().any(|hoisted| {
+                    else if !self.is_bundled_module_or_package(module_name) {
+                        self.third_party_import_statements.iter().any(|hoisted| {
                             matches!(hoisted, Stmt::Import(hoisted_import)
                                 if hoisted_import.names.iter().any(|h| h.name == alias.name))
-                        });
+                        })
+                    } else {
+                        false
                     }
-                    false
                 })
             }
             _ => false,
