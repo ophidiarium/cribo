@@ -2560,13 +2560,13 @@ impl HybridStaticBundler {
                 continue;
             }
             seen_modules.insert(module_name.to_string());
-            // Create canonical import statement
+            // Create import statement preserving the original alias
             unique_imports.push((
                 module_name.to_string(),
                 Stmt::Import(StmtImport {
                     names: vec![ruff_python_ast::Alias {
                         name: Identifier::new(module_name, TextRange::default()),
-                        asname: None,
+                        asname: alias.asname.clone(),
                         range: TextRange::default(),
                     }],
                     range: TextRange::default(),
@@ -3803,17 +3803,32 @@ impl HybridStaticBundler {
                         // Check if this exact import is in our hoisted stdlib imports
                         return self.is_import_in_hoisted_stdlib(module_name);
                     }
+                    // Check if this is a third-party import that we've hoisted
+                    if !self.is_bundled_module_or_package(module_name) {
+                        return self.third_party_import_from_map.contains_key(module_name);
+                    }
                 }
                 false
             }
             Stmt::Import(import_stmt) => {
-                // Check if any of the imported modules are stdlib modules we've hoisted
+                // Check if any of the imported modules are hoisted (stdlib or third-party)
                 import_stmt.names.iter().any(|alias| {
-                    self.is_safe_stdlib_module(alias.name.as_str())
-                        && self.stdlib_import_statements.iter().any(|hoisted| {
+                    let module_name = alias.name.as_str();
+                    // Check stdlib imports
+                    if self.is_safe_stdlib_module(module_name) {
+                        return self.stdlib_import_statements.iter().any(|hoisted| {
                             matches!(hoisted, Stmt::Import(hoisted_import)
                                 if hoisted_import.names.iter().any(|h| h.name == alias.name))
-                        })
+                        });
+                    }
+                    // Check third-party imports
+                    if !self.is_bundled_module_or_package(module_name) {
+                        return self.third_party_import_statements.iter().any(|hoisted| {
+                            matches!(hoisted, Stmt::Import(hoisted_import)
+                                if hoisted_import.names.iter().any(|h| h.name == alias.name))
+                        });
+                    }
+                    false
                 })
             }
             _ => false,
