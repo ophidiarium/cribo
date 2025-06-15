@@ -39,6 +39,16 @@ jobs:
             ${{ runner.os }}-cargo-target-bench-
             ${{ runner.os }}-cargo-target-
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+          python-version: 3.12
+
+      - name: Install Python dependencies
+        run: uv sync --all-groups
+
       - name: Install Bencher CLI
         uses: bencherdev/bencher@main
 

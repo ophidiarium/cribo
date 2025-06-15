@@ -296,6 +296,11 @@ pub struct HybridStaticBundler {
     stdlib_import_from_map: FxIndexMap<String, FxIndexSet<String>>,
     /// Regular import statements (import module)
     stdlib_import_statements: Vec<Stmt>,
+    /// Collected third-party imports (not stdlib, not bundled)
+    /// Maps module name to set of imported names for deduplication
+    third_party_import_from_map: FxIndexMap<String, FxIndexSet<String>>,
+    /// Third-party regular import statements (import module)
+    third_party_import_statements: Vec<Stmt>,
     /// Track which modules have been bundled
     bundled_modules: FxIndexSet<String>,
     /// Modules that were inlined (not wrapper modules)
@@ -328,6 +333,8 @@ impl HybridStaticBundler {
             future_imports: FxIndexSet::default(),
             stdlib_import_from_map: FxIndexMap::default(),
             stdlib_import_statements: Vec::new(),
+            third_party_import_from_map: FxIndexMap::default(),
+            third_party_import_statements: Vec::new(),
             bundled_modules: FxIndexSet::default(),
             inlined_modules: FxIndexSet::default(),
             entry_path: None,
@@ -867,8 +874,8 @@ impl HybridStaticBundler {
         }
 
         // Second pass: collect imports from ALL modules (for hoisting)
-        for (_module_name, ast, _, _) in &modules_normalized {
-            self.collect_imports_from_module(ast);
+        for (module_name, ast, module_path, _) in &modules_normalized {
+            self.collect_imports_from_module(ast, module_name, module_path);
         }
 
         // If we have wrapper modules, inject sys and types as stdlib dependencies
@@ -2359,7 +2366,34 @@ impl HybridStaticBundler {
             }));
         }
 
-        // Finally, regular import statements - deduplicated and sorted by module name
+        // Third-party from imports - deduplicated and sorted by module name
+        let mut sorted_third_party_modules: Vec<_> =
+            self.third_party_import_from_map.iter().collect();
+        sorted_third_party_modules.sort_by_key(|(module_name, _)| *module_name);
+
+        for (module_name, imported_names) in sorted_third_party_modules {
+            // Sort the imported names for deterministic output
+            let mut sorted_names: Vec<String> = imported_names.iter().cloned().collect();
+            sorted_names.sort();
+
+            let aliases: Vec<ruff_python_ast::Alias> = sorted_names
+                .into_iter()
+                .map(|name| ruff_python_ast::Alias {
+                    name: Identifier::new(&name, TextRange::default()),
+                    asname: None,
+                    range: TextRange::default(),
+                })
+                .collect();
+
+            final_body.push(Stmt::ImportFrom(StmtImportFrom {
+                module: Some(Identifier::new(module_name, TextRange::default())),
+                names: aliases,
+                level: 0,
+                range: TextRange::default(),
+            }));
+        }
+
+        // Regular stdlib import statements - deduplicated and sorted by module name
         let mut seen_modules = FxIndexSet::default();
         let mut unique_imports = Vec::new();
 
@@ -2375,14 +2409,40 @@ impl HybridStaticBundler {
         for (_, import_stmt) in unique_imports {
             final_body.push(import_stmt);
         }
+
+        // Finally, third-party regular import statements - deduplicated and sorted
+        let mut seen_third_party_modules = FxIndexSet::default();
+        let mut unique_third_party_imports = Vec::new();
+
+        for stmt in &self.third_party_import_statements {
+            if let Stmt::Import(import_stmt) = stmt {
+                self.collect_unique_imports(
+                    import_stmt,
+                    &mut seen_third_party_modules,
+                    &mut unique_third_party_imports,
+                );
+            }
+        }
+
+        // Sort by module name for deterministic output
+        unique_third_party_imports.sort_by_key(|(module_name, _)| module_name.clone());
+
+        for (_, import_stmt) in unique_third_party_imports {
+            final_body.push(import_stmt);
+        }
     }
 
     /// Collect imports from a module for hoisting
-    fn collect_imports_from_module(&mut self, ast: &ModModule) {
+    fn collect_imports_from_module(
+        &mut self,
+        ast: &ModModule,
+        current_module: &str,
+        module_path: &Path,
+    ) {
         for stmt in &ast.body {
             match stmt {
                 Stmt::ImportFrom(import_from) => {
-                    self.collect_import_from(import_from, stmt);
+                    self.collect_import_from(import_from, stmt, current_module, module_path);
                 }
                 Stmt::Import(import_stmt) => {
                     self.collect_import(import_stmt, stmt);
@@ -2393,12 +2453,53 @@ impl HybridStaticBundler {
     }
 
     /// Collect ImportFrom statements
-    fn collect_import_from(&mut self, import_from: &StmtImportFrom, _stmt: &Stmt) {
-        let Some(ref module) = import_from.module else {
+    fn collect_import_from(
+        &mut self,
+        import_from: &StmtImportFrom,
+        _stmt: &Stmt,
+        current_module: &str,
+        module_path: &Path,
+    ) {
+        // Skip relative imports from bundled modules - they will be handled during transformation
+        if import_from.level > 0 {
+            // This is a relative import - we need to check if it resolves to a bundled module
+            if let Some(resolved) = self.resolve_relative_import_with_context(
+                import_from,
+                current_module,
+                Some(module_path),
+            ) {
+                if self.bundled_modules.contains(&resolved) {
+                    // This is a relative import that resolves to a bundled module
+                    // It will be handled during module transformation, not hoisted
+                    log::debug!(
+                        "Skipping relative import that resolves to bundled module: {} -> {}",
+                        import_from
+                            .module
+                            .as_ref()
+                            .map(|m| m.as_str())
+                            .unwrap_or(""),
+                        resolved
+                    );
+                    return;
+                }
+            }
+        }
+
+        // Resolve relative imports to absolute module names
+        let resolved_module_name = self.resolve_relative_import_with_context(
+            import_from,
+            current_module,
+            Some(module_path),
+        );
+
+        let module_name = if let Some(ref resolved) = resolved_module_name {
+            resolved.as_str()
+        } else if let Some(ref module) = import_from.module {
+            module.as_str()
+        } else {
             return;
         };
 
-        let module_name = module.as_str();
         if module_name == "__future__" {
             for alias in &import_from.names {
                 self.future_imports.insert(alias.name.to_string());
@@ -2414,7 +2515,36 @@ impl HybridStaticBundler {
             for alias in &import_from.names {
                 imported_names.insert(alias.name.to_string());
             }
+        } else if !self.is_bundled_module_or_package(module_name) {
+            // This is a third-party import (not stdlib, not bundled)
+            log::debug!("Collecting third-party import from module: {}", module_name);
+
+            // Get or create the set of imported names for this module
+            let imported_names = self
+                .third_party_import_from_map
+                .entry(module_name.to_string())
+                .or_default();
+
+            // Add all imported names to the set (this automatically deduplicates)
+            for alias in &import_from.names {
+                imported_names.insert(alias.name.to_string());
+            }
         }
+    }
+
+    /// Check if a module is bundled directly or is a package containing bundled modules
+    fn is_bundled_module_or_package(&self, module_name: &str) -> bool {
+        // Direct check
+        if self.bundled_modules.contains(module_name) {
+            return true;
+        }
+
+        // Check if it's a package containing bundled modules
+        // e.g., if "greetings.greeting" is bundled, then "greetings" is a package
+        let package_prefix = format!("{}.", module_name);
+        self.bundled_modules
+            .iter()
+            .any(|bundled| bundled.starts_with(&package_prefix))
     }
 
     /// Collect unique imports from an import statement
@@ -3409,8 +3539,14 @@ impl HybridStaticBundler {
     /// Collect Import statements
     fn collect_import(&mut self, import_stmt: &StmtImport, stmt: &Stmt) {
         for alias in &import_stmt.names {
-            if self.is_safe_stdlib_module(alias.name.as_str()) {
+            let module_name = alias.name.as_str();
+            if self.is_safe_stdlib_module(module_name) {
                 self.stdlib_import_statements.push(stmt.clone());
+                break;
+            } else if !self.is_bundled_module_or_package(module_name) {
+                // This is a third-party import (not stdlib, not bundled)
+                log::debug!("Collecting third-party import: {}", module_name);
+                self.third_party_import_statements.push(stmt.clone());
                 break;
             }
         }

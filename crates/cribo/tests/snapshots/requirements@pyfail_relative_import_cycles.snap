@@ -1,0 +1,6 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/bundling/pyfail_relative_import_cycles/main.py
+---
+packages: []
+count: 0
