@@ -10,6 +10,7 @@ use cribo::config::Config;
 use cribo::orchestrator::BundleOrchestrator;
 use cribo::util::get_python_executable;
 use pretty_assertions::assert_eq;
+use serde::Serialize;
 
 // Ruff linting integration for cross-validation
 use ruff_linter::linter::{ParseSource, lint_only};
@@ -70,6 +71,13 @@ struct RuffLintResults {
     f404_violations: Vec<String>, // Late future imports
     other_violations: Vec<String>,
     total_violations: usize,
+}
+
+/// Structured requirements data for YAML snapshots
+#[derive(Debug, Serialize)]
+struct RequirementsData {
+    packages: Vec<String>,
+    count: usize,
 }
 
 /// Run ruff linting on bundled code to cross-validate import handling
@@ -212,8 +220,8 @@ fn test_bundling_fixtures() {
         let config = Config::default();
         let mut bundler = BundleOrchestrator::new(config);
 
-        // Bundle the fixture
-        if let Err(e) = bundler.bundle(path, &bundle_path, false) {
+        // Bundle the fixture with requirements generation
+        if let Err(e) = bundler.bundle(path, &bundle_path, true) {
             // xfail_: bundling failures are expected
             if expects_bundling_failure {
                 // The fixture is expected to fail, so bundling failure is OK
@@ -239,6 +247,24 @@ fn test_bundling_fixtures() {
 
         // Read the bundled code
         let bundled_code = fs::read_to_string(&bundle_path).unwrap();
+
+        // Read and parse the requirements.txt if it was generated
+        let requirements_path = temp_dir.path().join("requirements.txt");
+        let requirements_data = if requirements_path.exists() {
+            let content = fs::read_to_string(&requirements_path).unwrap_or_else(|_| String::new());
+            let packages: Vec<String> = content
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(|line| line.trim().to_string())
+                .collect();
+            let count = packages.len();
+            RequirementsData { packages, count }
+        } else {
+            RequirementsData {
+                packages: vec![],
+                count: 0,
+            }
+        };
 
         // Optionally validate Python syntax before execution
         let python_cmd = get_python_executable();
@@ -427,6 +453,9 @@ fn test_bundling_fixtures() {
 
             // Snapshot ruff linting results
             insta::assert_debug_snapshot!("ruff_lint_results", ruff_results);
+
+            // Snapshot requirements data as YAML
+            insta::assert_yaml_snapshot!("requirements", requirements_data);
         });
     });
 }

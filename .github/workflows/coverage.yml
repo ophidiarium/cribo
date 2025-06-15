@@ -24,6 +24,16 @@ jobs:
           shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
           cache-on-failure: true
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+          python-version: 3.12
+
+      - name: Install Python dependencies
+        run: uv sync --all-groups
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 

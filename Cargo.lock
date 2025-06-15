@@ -975,6 +975,7 @@ dependencies = [
  "globset",
  "once_cell",
  "regex",
+ "serde",
  "similar",
  "walkdir",
 ]

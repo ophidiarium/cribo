@@ -47,16 +47,19 @@ jobs:
           cache-on-failure: true
 
       - name: 'Install cargo insta'
-        uses: taiki-e/install-action@7b20dfd705618832f20d29066e34aa2f2f6194c2 # v2.52.8
+        uses: taiki-e/install-action@v2
         with:
           tool: cargo-insta
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@f0ec1fc3b38f5e7cd731bb6ce540c5af426746bb # v6
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           activate-environment: true
           python-version: ${{ matrix.python-version }}
+
+      - name: Install Python dependencies
+        run: uv sync --all-groups
 
       - name: Run Rust tests
         run: cargo test --workspace
