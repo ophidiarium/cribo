@@ -63,4 +63,5 @@ __cribo_init___cribo_e3b0c4_greetings()
 __cribo_init___cribo_cf5a45_greetings_greeting()
 greetings = sys.modules['greetings']
 greetings.greeting = sys.modules['greetings.greeting']
+greetings.messages = sys.modules['greetings.messages']
 print(greetings.greeting.message)

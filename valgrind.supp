@@ -1,0 +1,58 @@
+# Valgrind suppression file for cribo
+# 
+# env_logger creates global static structures that persist for the lifetime
+# of the program. These are not real memory leaks but are reported by valgrind
+# because the memory is not explicitly freed before program exit.
+
+{
+   env_logger_init_ConfigurableFormat
+   Memcheck:Leak
+   match-leak-kinds: all
+   fun:malloc
+   fun:alloc
+   fun:alloc_impl
+   fun:allocate
+   fun:exchange_malloc
+   fun:new<env_logger::fmt::ConfigurableFormat>
+   fun:env_logger::fmt::Builder::build
+   fun:env_logger::logger::Builder::build
+   fun:env_logger::logger::Builder::try_init
+   fun:env_logger::logger::Builder::init
+   fun:cribo::main
+   ...
+}
+
+{
+   env_logger_init_Logger
+   Memcheck:Leak
+   match-leak-kinds: all
+   fun:malloc
+   fun:alloc
+   fun:alloc_impl
+   fun:allocate
+   fun:exchange_malloc
+   fun:new<env_logger::logger::Logger>
+   fun:env_logger::logger::Builder::try_init
+   fun:env_logger::logger::Builder::init
+   fun:cribo::main
+   ...
+}
+
+{
+   env_logger_init_directives
+   Memcheck:Leak
+   match-leak-kinds: all
+   fun:malloc
+   fun:alloc::raw_vec::finish_grow
+   fun:alloc::raw_vec::RawVecInner<A>::grow_amortized
+   fun:grow_one<alloc::alloc::Global>
+   fun:alloc::raw_vec::RawVec<T,A>::grow_one
+   fun:push<env_filter::directive::Directive,*>
+   fun:env_filter::filter::Builder::insert_directive
+   fun:env_filter::filter::Builder::parse
+   fun:env_logger::logger::Builder::parse_filters
+   fun:parse_env<env_logger::logger::Env>
+   fun:env_logger::logger::Builder::from_env
+   fun:cribo::main
+   ...
+}

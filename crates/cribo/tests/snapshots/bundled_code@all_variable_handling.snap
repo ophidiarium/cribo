@@ -109,6 +109,8 @@ sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functio
 __cribo_init___cribo_8010fb_simple_module()
 __cribo_init___cribo_11029d_nested_package_submodule()
 __cribo_init___cribo_c56070_nested_package()
+nested_package = sys.modules['nested_package']
+nested_package.submodule = sys.modules['nested_package.submodule']
 public_func = sys.modules['simple_module'].public_func
 CONSTANT = sys.modules['simple_module'].CONSTANT
 exported_from_init = sys.modules['nested_package'].exported_from_init
@@ -124,6 +126,5 @@ print("\nTesting conflict resolution:")
 print(f"message = {message}")
 simple_module = sys.modules['simple_module']
 print(f"\nsimple_module.__all__ = {simple_module.__all__}")
-nested_package = sys.modules['nested_package']
 sub = sys.modules['nested_package.submodule']
 print(f"submodule.__all__ = {sub.__all__}")

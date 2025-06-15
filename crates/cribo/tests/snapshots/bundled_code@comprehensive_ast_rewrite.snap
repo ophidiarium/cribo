@@ -505,6 +505,9 @@ class CriboBundledFinder:
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_49b92c_services_auth_manager()
 __cribo_init___cribo_62c387_core()
+services = types.ModuleType('services')
+services.auth = types.ModuleType('services.auth')
+services.auth.manager = sys.modules['services.auth.manager']
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
 process = process_6

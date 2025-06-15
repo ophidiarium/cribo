@@ -77,6 +77,10 @@ class CriboBundledFinder:
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_609581_mypackage_core()
 __cribo_init___cribo_c3d681_mypackage_submodule_utils()
+mypackage = types.ModuleType('mypackage')
+mypackage.core = sys.modules['mypackage.core']
+mypackage.submodule = types.ModuleType('mypackage.submodule')
+mypackage.submodule.utils = sys.modules['mypackage.submodule.utils']
 process_data = sys.modules['mypackage.core'].process_data
 validate_input = sys.modules['mypackage.submodule.utils'].validate_input
 def main() -> None:

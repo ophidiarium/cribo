@@ -1,9 +1,0 @@
----
-source: crates/cribo/tests/test_bundling_snapshots.rs
-input_file: crates/cribo/tests/fixtures/bundling/xfail_relative_import_cycles/main.py
----
-ExecutionResults {
-    status: Success,
-    stdout: "Relative import cycle result: auth(test_user, conn=db_connection(context=user_context_from_auth))",
-    stderr: "",
-}

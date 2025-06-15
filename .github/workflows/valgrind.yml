@@ -1,0 +1,84 @@
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+name: Memory Leak Detection
+
+env:
+  CLICOLOR: 1
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: '-D warnings'
+  RUSTDOCFLAGS: '-D warnings'
+  RUST_BACKTRACE: 1
+  RUST_LIB_BACKTRACE: 0
+
+jobs:
+  valgrind:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_VALGRIND_VERSION: '2.3.1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache build artifacts
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo-valgrind binary
+        id: cache-cargo-valgrind
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-valgrind
+          key: ${{ runner.os }}-cargo-valgrind-${{ env.CARGO_VALGRIND_VERSION }}
+
+      - name: Install valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libc6-dbg valgrind
+
+      - name: Install cargo-valgrind
+        if: steps.cache-cargo-valgrind.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-valgrind --version ${{ env.CARGO_VALGRIND_VERSION }}
+
+      - name: Run cargo-valgrind
+        continue-on-error: true
+        env:
+          VALGRINDFLAGS: >-
+            --verbose
+            --show-reachable=no
+            --error-exitcode=1
+            --errors-for-leak-kinds=definite
+            --show-possibly-lost=no
+            --fair-sched=yes
+            --leak-check=full
+            --show-leak-kinds=all
+            --trace-children=yes
+            --track-fds=yes
+            --track-origins=yes
+            --log-file=${{ github.workspace }}/valgrind.log
+            --suppressions=${{ github.workspace }}/valgrind.supp
+        run: |
+          cargo valgrind run -- --entry crates/cribo/tests/fixtures/bundling/comprehensive_ast_rewrite/main.py --stdout 9>>valgrind.log
+
+      - name: Upload valgrind.log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: valgrind.log
+          path: valgrind.log

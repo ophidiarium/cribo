@@ -53,4 +53,6 @@ sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functio
 __cribo_init___cribo_e6b571_greetings_greeting()
 __cribo_init___cribo_b4af24_greetings()
 greetings = sys.modules['greetings']
+greetings.greeting = sys.modules['greetings.greeting']
+greetings = sys.modules['greetings']
 print(greetings.message)

@@ -6,6 +6,6 @@ ExecutionResults {
     status: Failed(
         1,
     ),
-    stdout: ">>> === Application Starting === <<<",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 24, in <module>",
+    stdout: "",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 144, in <module>",
 }

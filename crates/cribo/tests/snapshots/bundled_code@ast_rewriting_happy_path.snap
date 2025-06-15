@@ -122,6 +122,8 @@ class CriboBundledFinder:
         return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_fddf57_models_user()
+models = types.ModuleType('models')
+models.user = sys.modules['models.user']
 """\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
 User = sys.modules['models.user'].User
 UserRole = sys.modules['models.user'].UserRole

@@ -1069,8 +1069,9 @@ impl HybridStaticBundler {
                 }
             }
 
-            // Note: Post-init attribute generation is disabled because wrapper modules
-            // already handle their own imports correctly in their init functions
+            // After all modules are initialized, ensure sub-modules are attached to parent modules
+            // This is necessary for relative imports like "from . import messages" to work correctly
+            self.generate_submodule_attributes(params.sorted_modules, &mut final_body);
         }
 
         // Finally, add entry module code (it's always last in topological order)
@@ -2223,6 +2224,87 @@ impl HybridStaticBundler {
             Stmt::Pass(ruff_python_ast::StmtPass {
                 range: TextRange::default(),
             })
+        }
+    }
+
+    /// Generate statements to attach sub-modules to their parent modules
+    fn generate_submodule_attributes(
+        &self,
+        sorted_modules: &[(String, PathBuf, Vec<String>)],
+        final_body: &mut Vec<Stmt>,
+    ) {
+        // First, collect all modules that need to be assigned
+        let mut modules_to_assign: Vec<String> = Vec::new();
+        let mut parent_child_pairs: Vec<(String, String, String)> = Vec::new(); // (parent, attr_name, full_child)
+
+        for (module_name, _, _) in sorted_modules {
+            if module_name.contains('.') {
+                let parts: Vec<&str> = module_name.split('.').collect();
+                for i in 1..parts.len() {
+                    let parent = parts[..i].join(".");
+                    let child = parts[..i + 1].join(".");
+                    let attr_name = parts[i];
+
+                    // Skip if not both parent and child are bundled modules AND child is a wrapper module
+                    if !self.bundled_modules.contains(&parent)
+                        || !self.bundled_modules.contains(&child)
+                        || !self.module_registry.contains_key(&child)
+                    {
+                        continue;
+                    }
+
+                    // Ensure parent module is assigned first
+                    if !modules_to_assign.contains(&parent) {
+                        modules_to_assign.push(parent.clone());
+                    }
+                    parent_child_pairs.push((parent, attr_name.to_string(), child));
+                }
+            }
+        }
+
+        // Sort to ensure deterministic output
+        modules_to_assign.sort();
+        parent_child_pairs.sort();
+
+        // First, ensure all parent modules are assigned from sys.modules
+        for module in modules_to_assign {
+            // Only assign if it's a wrapper module (exists in module_registry)
+            if self.module_registry.contains_key(&module) {
+                // Check if this module has already been assigned in final_body
+                let already_assigned = self.is_module_already_assigned(final_body, &module);
+
+                if !already_assigned {
+                    self.create_module_assignment(final_body, &module);
+                }
+            }
+        }
+
+        // Create a set to track which namespaces we've already created
+        let mut created_namespaces = FxIndexSet::default();
+
+        // Then, assign all sub-modules as attributes of their parents
+        for (parent, attr_name, child) in parent_child_pairs {
+            // Ensure parent namespace exists before setting attributes on it
+            // If parent is not a wrapper module, create it as a namespace
+            if !self.module_registry.contains_key(&parent) && self.bundled_modules.contains(&parent)
+            {
+                // For nested namespaces, ensure all parent levels exist
+                let parts: Vec<&str> = parent.split('.').collect();
+                for i in 1..=parts.len() {
+                    let namespace = parts[..i].join(".");
+                    if !self.module_registry.contains_key(&namespace)
+                        && self.bundled_modules.contains(&namespace)
+                        && !created_namespaces.contains(&namespace)
+                    {
+                        // Create a simple namespace module if it doesn't exist
+                        final_body.push(self.create_namespace_module(&namespace));
+                        created_namespaces.insert(namespace);
+                    }
+                }
+            }
+
+            // Generate: parent.attr = sys.modules['child']
+            final_body.push(self.create_dotted_attribute_assignment(&parent, &attr_name, &child));
         }
     }
 
@@ -5953,8 +6035,9 @@ impl HybridStaticBundler {
 
                     // If there's no alias, we need to handle the dotted name specially
                     if alias.asname.is_none() && module_name.contains('.') {
-                        // Create assignments for each level of nesting
-                        self.create_dotted_assignments(&parts, &mut result_stmts);
+                        // For dotted imports without alias, we need to ensure the parent has the child as an attribute
+                        // e.g., for "import greetings.greeting", we need "greetings.greeting = sys.modules['greetings.greeting']"
+                        self.handle_dotted_import_attribute(&parts, module_name, &mut result_stmts);
                     } else {
                         // For aliased imports or non-dotted imports, just assign to the target
                         result_stmts.push(
@@ -5998,6 +6081,28 @@ impl HybridStaticBundler {
         }
     }
 
+    /// Handle dotted import attribute assignment
+    fn handle_dotted_import_attribute(
+        &self,
+        parts: &[&str],
+        module_name: &str,
+        result_stmts: &mut Vec<Stmt>,
+    ) {
+        if parts.len() > 1 {
+            let parent = parts[..parts.len() - 1].join(".");
+            let attr = parts[parts.len() - 1];
+
+            // Only add the attribute assignment if the parent is a namespace (not a real module)
+            if !parent.is_empty() && !self.module_registry.contains_key(&parent) {
+                result_stmts.push(self.create_dotted_attribute_assignment(
+                    &parent,
+                    attr,
+                    module_name,
+                ));
+            }
+        }
+    }
+
     /// Create parent namespaces for dotted imports in entry module
     fn create_parent_namespaces_entry_module(
         &mut self,
@@ -6008,8 +6113,8 @@ impl HybridStaticBundler {
             let parent_path = parts[..i].join(".");
 
             if self.module_registry.contains_key(&parent_path) {
-                // Parent is a wrapper module, get it from sys.modules
-                result_stmts.push(self.create_sys_modules_assignment(&parent_path, &parent_path));
+                // Parent is a wrapper module - don't create assignment here
+                // generate_submodule_attributes will handle all necessary parent assignments
             } else if !self.bundled_modules.contains(&parent_path) {
                 // Check if we haven't already created this namespace globally or in result_stmts
                 let already_created = self.created_namespace_modules.contains(&parent_path)
@@ -6183,6 +6288,95 @@ impl HybridStaticBundler {
             })),
             range: TextRange::default(),
         })
+    }
+
+    /// Create a module assignment, handling dotted names properly
+    fn create_module_assignment(&self, final_body: &mut Vec<Stmt>, module: &str) {
+        if module.contains('.') {
+            // For dotted module names, we need to create proper attribute assignments
+            // e.g., for "a.b.c", create: a.b.c = sys.modules['a.b.c']
+            // But this needs to be done as: parent.attr = sys.modules['a.b.c']
+            let parts: Vec<&str> = module.split('.').collect();
+            if parts.len() > 1 {
+                let parent = parts[..parts.len() - 1].join(".");
+                let attr = parts[parts.len() - 1];
+                final_body.push(self.create_dotted_attribute_assignment(&parent, attr, module));
+            }
+        } else {
+            // Simple module name without dots
+            final_body.push(self.create_sys_modules_assignment(module, module));
+        }
+    }
+
+    /// Check if an assignment statement has a dotted target matching parent.attr
+    fn assignment_has_dotted_target(&self, assign: &StmtAssign, parent: &str, attr: &str) -> bool {
+        assign.targets.iter().any(|target| {
+            if let Expr::Attribute(attr_expr) = target {
+                attr_expr.attr.as_str() == attr && self.is_name_chain(&attr_expr.value, parent)
+            } else {
+                false
+            }
+        })
+    }
+
+    /// Check if a module has already been assigned in the final body
+    fn is_module_already_assigned(&self, final_body: &[Stmt], module: &str) -> bool {
+        if module.contains('.') {
+            // For dotted names, check if there's already an attribute assignment
+            let parts: Vec<&str> = module.split('.').collect();
+            if parts.len() > 1 {
+                let parent = parts[..parts.len() - 1].join(".");
+                let attr = parts[parts.len() - 1];
+                final_body.iter().any(|stmt| {
+                    matches!(stmt, Stmt::Assign(assign) if
+                        self.assignment_has_dotted_target(assign, &parent, attr)
+                    )
+                })
+            } else {
+                false
+            }
+        } else {
+            // For simple names, check for name assignment
+            final_body.iter().any(|stmt| {
+                matches!(stmt, Stmt::Assign(assign) if
+                    assign.targets.iter().any(|target|
+                        matches!(target, Expr::Name(name) if name.id.as_str() == module)
+                    )
+                )
+            })
+        }
+    }
+
+    /// Check if an expression represents a dotted name chain (e.g., "a.b.c")
+    fn is_name_chain(&self, expr: &Expr, expected_chain: &str) -> bool {
+        let parts: Vec<&str> = expected_chain.split('.').collect();
+        if parts.is_empty() {
+            return false;
+        }
+
+        let mut current_expr = expr;
+        let mut index = parts.len() - 1;
+
+        loop {
+            match current_expr {
+                Expr::Attribute(attr) => {
+                    // Check if this part matches
+                    if index < parts.len() && attr.attr.as_str() != parts[index] {
+                        return false;
+                    }
+                    if index == 0 {
+                        return false; // Still have attribute but no more parts
+                    }
+                    index -= 1;
+                    current_expr = &attr.value;
+                }
+                Expr::Name(name) => {
+                    // This should be the base name
+                    return index == 0 && name.id.as_str() == parts[0];
+                }
+                _ => return false,
+            }
+        }
     }
 
     /// Inline a class definition
