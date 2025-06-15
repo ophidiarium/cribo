@@ -155,6 +155,8 @@ fn test_bundling_fixtures() {
         let original_output = Command::new(&python_cmd)
             .arg(path)
             .current_dir(fixture_dir)
+            .env("PYTHONIOENCODING", "utf-8")
+            .env("PYTHONLEGACYWINDOWSSTDIO", "utf-8")
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
@@ -300,6 +302,8 @@ fn test_bundling_fixtures() {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .current_dir(temp_dir.path())
+            .env("PYTHONIOENCODING", "utf-8")
+            .env("PYTHONLEGACYWINDOWSSTDIO", "utf-8")
             .spawn()
             .and_then(|mut child| {
                 if let Some(mut stdin) = child.stdin.take() {
