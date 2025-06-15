@@ -122,12 +122,23 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const ref = context.payload.pull_request.head.sha;
+            // Fetch list of changed files in this PR
+            const changedFilesList = await github.paginate(
+              github.rest.pulls.listFiles,
+              { owner, repo, pull_number: context.issue.number }
+            );
+            const changedFiles = new Set(changedFilesList.map(f => f.filename));
             let rows = [];
             const collectFiles = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap(dirent => {
               const full = `${d}/${dirent.name}`;
               return dirent.isDirectory() ? collectFiles(full) : [full];
             });
-            const prFiles = collectFiles(prDir).filter(f => f.endsWith('.json'));
+            // Only include metrics for files changed in this PR
+            let prFiles = collectFiles(prDir).filter(f => f.endsWith('.json'));
+            prFiles = prFiles.filter(fullPath => {
+              const rel = fullPath.slice(prDir.length + 1).replace(/\.json$/, '');
+              return changedFiles.has(rel);
+            });
             prFiles.forEach(fullPath => {
               const rel = fullPath.slice(prDir.length + 1).replace(/\.json$/, '');
               // Build GitHub link for file

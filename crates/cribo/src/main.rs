@@ -87,7 +87,6 @@ fn main() -> anyhow::Result<()> {
         ));
     }
 
-    // Create bundler and run
     let mut bundler = BundleOrchestrator::new(config);
 
     if cli.stdout {
