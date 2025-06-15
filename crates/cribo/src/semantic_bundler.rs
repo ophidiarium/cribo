@@ -4,6 +4,7 @@
 //! to detect symbol conflicts across modules during bundling.
 
 use anyhow::Result;
+use log;
 use ruff_linter::source_kind::SourceKind;
 use ruff_python_ast::{Expr, ModModule, PySourceType, Stmt};
 use ruff_python_parser::parse_unchecked_source;
@@ -79,7 +80,7 @@ impl<'a> SemanticModelBuilder<'a> {
 
     /// Traverse AST and create bindings for module-level definitions
     fn traverse_and_bind(&mut self, statements: &'a [Stmt]) -> Result<()> {
-        eprintln!("DEBUG: Traversing {} statements", statements.len());
+        log::trace!("Traversing {} statements", statements.len());
 
         for stmt in statements {
             self.visit_stmt(stmt)?;
@@ -92,7 +93,7 @@ impl<'a> SemanticModelBuilder<'a> {
     fn visit_stmt(&mut self, stmt: &'a Stmt) -> Result<()> {
         match stmt {
             Stmt::ClassDef(class_def) => {
-                eprintln!("DEBUG: Processing class definition: {}", class_def.name.id);
+                log::trace!("Processing class definition: {}", class_def.name.id);
                 self.add_binding(
                     class_def.name.id.as_str(),
                     class_def.name.range,
@@ -101,10 +102,7 @@ impl<'a> SemanticModelBuilder<'a> {
                 )?;
             }
             Stmt::FunctionDef(func_def) => {
-                eprintln!(
-                    "DEBUG: Processing function definition: {}",
-                    func_def.name.id
-                );
+                log::trace!("Processing function definition: {}", func_def.name.id);
                 self.add_binding(
                     func_def.name.id.as_str(),
                     func_def.name.range,
@@ -116,7 +114,7 @@ impl<'a> SemanticModelBuilder<'a> {
                 // Handle assignments to create variable bindings
                 for target in &assign.targets {
                     if let ruff_python_ast::Expr::Name(name_expr) = target {
-                        eprintln!("DEBUG: Processing assignment: {}", name_expr.id);
+                        log::trace!("Processing assignment: {}", name_expr.id);
                         self.add_binding(
                             name_expr.id.as_str(),
                             name_expr.range(),
@@ -206,7 +204,7 @@ impl<'a> SemanticModelBuilder<'a> {
         let scope = self.semantic.current_scope_mut();
         scope.add(name, binding_id);
 
-        eprintln!("DEBUG: Added binding '{}' with ID {:?}", name, binding_id);
+        log::trace!("Added binding '{}' with ID {:?}", name, binding_id);
         Ok(binding_id)
     }
 
@@ -217,8 +215,8 @@ impl<'a> SemanticModelBuilder<'a> {
         // Get the global scope (module scope)
         let global_scope = semantic.global_scope();
 
-        eprintln!(
-            "DEBUG: Extracting from global scope with {} bindings",
+        log::trace!(
+            "Extracting from global scope with {} bindings",
             global_scope.bindings().count()
         );
 
@@ -231,37 +229,38 @@ impl<'a> SemanticModelBuilder<'a> {
             match &binding.kind {
                 BindingKind::ClassDefinition(_) => {
                     if !name.starts_with('_') || name.starts_with("__") {
-                        eprintln!("DEBUG: Adding class symbol: {}", name);
+                        log::trace!("Adding class symbol: {}", name);
                         symbols.insert(name.to_string());
                     }
                 }
                 BindingKind::FunctionDefinition(_) => {
                     if !name.starts_with('_') || name.starts_with("__") {
-                        eprintln!("DEBUG: Adding function symbol: {}", name);
+                        log::trace!("Adding function symbol: {}", name);
                         symbols.insert(name.to_string());
                     }
                 }
                 BindingKind::Assignment => {
                     // Include module-level assignments (variables)
                     if !name.starts_with('_') {
-                        eprintln!("DEBUG: Adding assignment symbol: {}", name);
+                        log::trace!("Adding assignment symbol: {}", name);
                         symbols.insert(name.to_string());
                     }
                 }
                 // Skip imports, builtins, and other binding types for symbol extraction
                 BindingKind::Builtin | BindingKind::Import(_) | BindingKind::FromImport(_) => {
-                    eprintln!("DEBUG: Skipping import/builtin binding: {}", name);
+                    log::trace!("Skipping import/builtin binding: {}", name);
                 }
                 _ => {
-                    eprintln!(
-                        "DEBUG: Skipping other binding '{}' of kind {:?}",
-                        name, binding.kind
+                    log::trace!(
+                        "Skipping other binding '{}' of kind {:?}",
+                        name,
+                        binding.kind
                     );
                 }
             }
         }
 
-        eprintln!("DEBUG: Final extracted symbols: {:?}", symbols);
+        log::trace!("Final extracted symbols: {:?}", symbols);
         Ok(symbols)
     }
 }
@@ -463,16 +462,16 @@ impl SemanticBundler {
         source: &str,
         path: &Path,
     ) -> Result<()> {
-        eprintln!(
-            "SEMANTIC: Starting semantic analysis for module {}",
+        log::debug!(
+            "Starting semantic analysis for module {}",
             module_id.as_u32()
         );
 
         // Extract module-level symbols using semantic analysis
         let exported_symbols =
             ModuleSemanticAnalyzer::extract_symbols_from_module(source, path, ast)?;
-        eprintln!(
-            "SEMANTIC: Module {} has symbols: {:?}",
+        log::debug!(
+            "Module {} has symbols: {:?}",
             module_id.as_u32(),
             exported_symbols
         );

@@ -780,7 +780,7 @@ impl HybridStaticBundler {
         let mut module_exports_map = FxIndexMap::default();
 
         for (module_name, ast, module_path, content_hash) in &modules {
-            log::info!("Processing module: '{}'", module_name);
+            log::debug!("Processing module: '{}'", module_name);
             if module_name == params.entry_module_name {
                 continue;
             }
@@ -793,7 +793,7 @@ impl HybridStaticBundler {
             let is_namespace_imported = self.namespace_imported_modules.contains_key(module_name);
 
             if is_namespace_imported {
-                log::info!(
+                log::debug!(
                     "Module '{}' is imported as namespace by: {:?}",
                     module_name,
                     self.namespace_imported_modules.get(module_name)
@@ -3430,7 +3430,7 @@ impl HybridStaticBundler {
         semantic_ctx: &SemanticContext,
         symbol_renames: &mut FxIndexMap<String, FxIndexMap<String, String>>,
     ) {
-        log::info!(
+        log::debug!(
             "collect_module_renames: Processing module '{}'",
             module_name
         );
@@ -3451,7 +3451,7 @@ impl HybridStaticBundler {
 
         // Use ModuleSemanticInfo to get ALL exported symbols from the module
         if let Some(module_info) = semantic_ctx.semantic_bundler.get_module_info(&module_id) {
-            log::info!(
+            log::debug!(
                 "Module '{}' exports {} symbols: {:?}",
                 module_name,
                 module_info.exported_symbols.len(),
@@ -3488,7 +3488,7 @@ impl HybridStaticBundler {
         }
 
         if !module_renames.is_empty() {
-            log::info!(
+            log::debug!(
                 "Inserting {} renames for module '{}' with key '{}': {:?}",
                 module_renames.len(),
                 module_name,
@@ -3497,7 +3497,7 @@ impl HybridStaticBundler {
             );
             symbol_renames.insert(module_name.to_string(), module_renames);
         } else {
-            log::info!("No renames to insert for module '{}'", module_name);
+            log::debug!("No renames to insert for module '{}'", module_name);
         }
     }
 
@@ -4416,7 +4416,7 @@ impl HybridStaticBundler {
         // Check each module for imports inside function bodies
         for (module_name, ast, _, _) in modules {
             if self.module_has_function_scoped_imports(ast) {
-                log::info!("Module '{}' has function-scoped imports", module_name);
+                log::debug!("Module '{}' has function-scoped imports", module_name);
                 modules_with_function_imports.insert(module_name.clone());
             }
         }
@@ -4532,7 +4532,7 @@ impl HybridStaticBundler {
             }
         }
 
-        log::info!(
+        log::debug!(
             "Found {} directly imported modules: {:?}",
             directly_imported.len(),
             directly_imported
@@ -4593,7 +4593,7 @@ impl HybridStaticBundler {
                             .any(|(name, _, _, _)| name == &full_module_path)
                         {
                             // This is importing a submodule directly
-                            log::info!(
+                            log::debug!(
                                 "Found direct submodule import: from {} import {} -> {}",
                                 module_name,
                                 imported_name,
@@ -4651,7 +4651,7 @@ impl HybridStaticBundler {
 
             if is_bundled_module {
                 // This is importing a submodule directly
-                log::info!(
+                log::debug!(
                     "Found direct submodule import via relative import: from . import {} -> {}",
                     imported_name,
                     full_module_path
@@ -4679,7 +4679,7 @@ impl HybridStaticBundler {
 
             // Only add if it's a bundled module (skip the last part as it's already added)
             if i < parts.len() - 1 && modules.iter().any(|(name, _, _, _)| name == &parent) {
-                log::info!(
+                log::debug!(
                     "Marking parent package '{}' as directly imported (implicit import via '{}')",
                     parent,
                     imported_module
@@ -4706,7 +4706,7 @@ impl HybridStaticBundler {
             }
         }
 
-        log::info!(
+        log::debug!(
             "Found {} namespace imported modules: {:?}",
             self.namespace_imported_modules.len(),
             self.namespace_imported_modules
@@ -4746,7 +4746,7 @@ impl HybridStaticBundler {
                             Self::find_matching_module_name_namespace(modules, &full_module_path);
 
                         // This is importing a submodule as a namespace
-                        log::info!(
+                        log::debug!(
                             "Found namespace import: from {} import {} -> {} (actual: {}) in module {}",
                             module_name,
                             imported_name,
