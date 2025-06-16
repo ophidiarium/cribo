@@ -393,7 +393,7 @@ impl<'a> GraphBuilder<'a> {
             eventual_read_vars: reexported_names.clone(), // Names in __all__ are "eventually read"
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
-            has_side_effects: self.expression_has_side_effects(&assign.value),
+            has_side_effects: Self::expression_has_side_effects(&assign.value),
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names,
@@ -433,7 +433,7 @@ impl<'a> GraphBuilder<'a> {
             has_side_effects: ann_assign
                 .value
                 .as_ref()
-                .map(|v| self.expression_has_side_effects(v))
+                .map(|v| Self::expression_has_side_effects(v))
                 .unwrap_or(false),
             span: None,
             imported_names: FxHashSet::default(),
@@ -898,8 +898,8 @@ impl<'a> GraphBuilder<'a> {
     }
 
     /// Check if an expression has side effects
-    fn expression_has_side_effects(&self, expr: &Expr) -> bool {
-        // Use static method to avoid allocation
+    fn expression_has_side_effects(expr: &Expr) -> bool {
+        // Delegates to visitor-based detector
         ExpressionSideEffectDetector::check(expr)
     }
 
