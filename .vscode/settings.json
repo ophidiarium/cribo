@@ -27,12 +27,29 @@
     "rust-analyzer.imports.group.enable": true,
     "rust-analyzer.debug.engine": "llvm-vs-code-extensions.lldb-dap",
     "python.languageServer": "None",
-    "[json][jsonc][yaml][github-actions-workflow][python][toml][markdown]": {
+    "[json][jsonc][yaml][github-actions-workflow][python][markdown]": {
         "editor.defaultFormatter": "dprint.dprint",
         "editor.formatOnSave": true
     },
-    "ruff.enable": false,
+    "[markdown]": {
+        "editor.quickSuggestions": {
+            "comments": "off",
+            "strings": "off",
+            "other": "off"
+        },
+        "editor.codeActionsOnSave": {
+            "source.fixAll.markdownlint": "explicit"
+        }
+    },
+    "[toml]": {
+        "editor.quickSuggestions": {
+            "strings": "on"
+        },
+        "editor.defaultFormatter": "tamasfe.even-better-toml",
+        "editor.formatOnSave": true
+    },
     "evenBetterToml.schema.enabled": true,
+    "ruff.enable": false,
     "cSpell.enabled": false,
     "chat.agent.enabled": true,
     "chat.promptFiles": true,
