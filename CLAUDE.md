@@ -1033,3 +1033,4 @@ NOTE: if asked to attend all comments use `mcp__github__get_pull_request_comment
 - use `bun` to manage Node.js dependencies and `bunx` to run npm packages
 - use ast-grep if needed
 - NEVER drop stashes!
+- There are NEVER pre-existing test failures. Every feature development starts from the `main` branch, which is always in a clean state with all tests passing. If any test fails during or after a change, immediately investigate the root cause—do not assume the failure was present before your work. Never waste time considering the possibility of a pre-existing broken test.
