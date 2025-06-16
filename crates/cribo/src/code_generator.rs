@@ -4,12 +4,12 @@ use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use ruff_python_ast::{
-    Arguments, CmpOp, Comprehension, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprCompare,
-    ExprContext, ExprFString, ExprIf, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral,
-    FString, FStringFlags, FStringValue, Identifier, InterpolatedElement,
-    InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign,
-    StmtClassDef, StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StringLiteral,
-    StringLiteralFlags, StringLiteralValue,
+    Arguments, CmpOp, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprCompare, ExprContext,
+    ExprFString, ExprIf, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, FString,
+    FStringFlags, FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
+    InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef,
+    StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
+    StringLiteralValue,
 };
 use ruff_text_size::TextRange;
 use rustc_hash::FxHasher;
@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cribo_graph::CriboGraph as DependencyGraph;
 use crate::semantic_bundler::{ModuleGlobalInfo, SemanticBundler, SymbolRegistry};
+use crate::visitors::SideEffectDetector;
 
 /// Type alias for IndexMap with FxHasher for better performance
 type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
@@ -360,237 +361,8 @@ impl HybridStaticBundler {
     /// Check if a module AST has side effects (executable code at top level)
     /// Returns true if the module has side effects beyond simple definitions
     pub fn has_side_effects(ast: &ModModule) -> bool {
-        // First, collect all imported names
-        let mut imported_names = FxIndexSet::default();
-        for stmt in &ast.body {
-            match stmt {
-                Stmt::Import(import_stmt) => {
-                    for alias in &import_stmt.names {
-                        let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                        imported_names.insert(name.to_string());
-                    }
-                }
-                Stmt::ImportFrom(import_from) => {
-                    for alias in &import_from.names {
-                        let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                        imported_names.insert(name.to_string());
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        for stmt in &ast.body {
-            match stmt {
-                // These statements are pure definitions, no side effects
-                Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::AnnAssign(_) => continue,
-
-                // Simple variable assignments are generally safe
-                Stmt::Assign(assign) => {
-                    // Special case: __all__ assignments are metadata, not side effects
-                    if Self::is_all_assignment(assign) {
-                        continue;
-                    }
-                    // Check if the assignment has function calls or other complex expressions
-                    if Self::expression_has_side_effects(&assign.value) {
-                        return true;
-                    }
-                    // Check if the assignment uses imported names
-                    if Self::expression_uses_imported_names(&assign.value, &imported_names) {
-                        return true;
-                    }
-                }
-
-                // Import statements are handled separately by the bundler
-                Stmt::Import(_) | Stmt::ImportFrom(_) => continue,
-
-                // Type alias statements are safe
-                Stmt::TypeAlias(_) => continue,
-
-                // Pass statements are no-ops and safe
-                Stmt::Pass(_) => continue,
-
-                // Expression statements - check if they're docstrings
-                Stmt::Expr(expr_stmt) => {
-                    if matches!(expr_stmt.value.as_ref(), Expr::StringLiteral(_)) {
-                        // Docstring - safe
-                        continue;
-                    } else {
-                        // Other expression statements have side effects
-                        return true;
-                    }
-                }
-
-                // These are definitely side effects
-                Stmt::If(_)
-                | Stmt::While(_)
-                | Stmt::For(_)
-                | Stmt::With(_)
-                | Stmt::Match(_)
-                | Stmt::Raise(_)
-                | Stmt::Try(_)
-                | Stmt::Assert(_)
-                | Stmt::Global(_)
-                | Stmt::Nonlocal(_)
-                | Stmt::Delete(_) => return true,
-
-                // Any other statement type is considered a side effect
-                _ => return true,
-            }
-        }
-        false
-    }
-
-    /// Check if an expression uses any imported names
-    fn expression_uses_imported_names(expr: &Expr, imported_names: &FxIndexSet<String>) -> bool {
-        match expr {
-            Expr::Name(name) => imported_names.contains(name.id.as_str()),
-
-            // Recursively check compound expressions
-            Expr::List(list) => list
-                .elts
-                .iter()
-                .any(|e| Self::expression_uses_imported_names(e, imported_names)),
-            Expr::Tuple(tuple) => tuple
-                .elts
-                .iter()
-                .any(|e| Self::expression_uses_imported_names(e, imported_names)),
-            Expr::Dict(dict) => dict.items.iter().any(|item| {
-                item.key
-                    .as_ref()
-                    .is_some_and(|k| Self::expression_uses_imported_names(k, imported_names))
-                    || Self::expression_uses_imported_names(&item.value, imported_names)
-            }),
-            Expr::Set(set) => set
-                .elts
-                .iter()
-                .any(|e| Self::expression_uses_imported_names(e, imported_names)),
-
-            Expr::BinOp(binop) => {
-                Self::expression_uses_imported_names(&binop.left, imported_names)
-                    || Self::expression_uses_imported_names(&binop.right, imported_names)
-            }
-
-            Expr::UnaryOp(unaryop) => {
-                Self::expression_uses_imported_names(&unaryop.operand, imported_names)
-            }
-
-            Expr::Call(call) => {
-                Self::expression_uses_imported_names(&call.func, imported_names)
-                    || call
-                        .arguments
-                        .args
-                        .iter()
-                        .any(|arg| Self::expression_uses_imported_names(arg, imported_names))
-                    || call
-                        .arguments
-                        .keywords
-                        .iter()
-                        .any(|kw| Self::expression_uses_imported_names(&kw.value, imported_names))
-            }
-
-            Expr::Attribute(attr) => {
-                Self::expression_uses_imported_names(&attr.value, imported_names)
-            }
-
-            Expr::Subscript(sub) => {
-                Self::expression_uses_imported_names(&sub.value, imported_names)
-                    || Self::expression_uses_imported_names(&sub.slice, imported_names)
-            }
-
-            // Literals don't use imported names
-            _ => false,
-        }
-    }
-
-    /// Check if an expression has side effects
-    fn expression_has_side_effects(expr: &Expr) -> bool {
-        match expr {
-            // Literals and simple names are safe
-            Expr::NumberLiteral(_)
-            | Expr::StringLiteral(_)
-            | Expr::BytesLiteral(_)
-            | Expr::BooleanLiteral(_)
-            | Expr::NoneLiteral(_)
-            | Expr::EllipsisLiteral(_)
-            | Expr::Name(_) => false,
-
-            // List/tuple/dict/set literals are safe if their elements are
-            Expr::List(list) => list.elts.iter().any(Self::expression_has_side_effects),
-            Expr::Tuple(tuple) => tuple.elts.iter().any(Self::expression_has_side_effects),
-            Expr::Dict(dict) => dict.items.iter().any(|item| {
-                item.key
-                    .as_ref()
-                    .is_some_and(Self::expression_has_side_effects)
-                    || Self::expression_has_side_effects(&item.value)
-            }),
-            Expr::Set(set) => set.elts.iter().any(Self::expression_has_side_effects),
-
-            // Binary operations on literals are safe
-            Expr::BinOp(binop) => {
-                Self::expression_has_side_effects(&binop.left)
-                    || Self::expression_has_side_effects(&binop.right)
-            }
-
-            // Unary operations are safe if the operand is
-            Expr::UnaryOp(unaryop) => Self::expression_has_side_effects(&unaryop.operand),
-
-            // Function calls always have potential side effects
-            Expr::Call(_) => true,
-
-            // Attribute access might trigger __getattr__, so it's a side effect
-            Expr::Attribute(_) => true,
-
-            // Subscripts might trigger __getitem__, so it's a side effect
-            Expr::Subscript(_) => true,
-
-            // Comprehensions need recursive checking of their parts
-            Expr::ListComp(comp) => {
-                Self::expression_has_side_effects(&comp.elt)
-                    || Self::generators_have_side_effects(&comp.generators)
-            }
-            Expr::SetComp(comp) => {
-                Self::expression_has_side_effects(&comp.elt)
-                    || Self::generators_have_side_effects(&comp.generators)
-            }
-            Expr::DictComp(comp) => {
-                Self::expression_has_side_effects(&comp.key)
-                    || Self::expression_has_side_effects(&comp.value)
-                    || Self::generators_have_side_effects(&comp.generators)
-            }
-            Expr::Generator(comp) => {
-                Self::expression_has_side_effects(&comp.elt)
-                    || Self::generators_have_side_effects(&comp.generators)
-            }
-
-            // Any other expression type is considered to have side effects
-            _ => true,
-        }
-    }
-
-    /// Check if an assignment is to __all__
-    fn is_all_assignment(assign: &StmtAssign) -> bool {
-        if assign.targets.len() != 1 {
-            return false;
-        }
-        matches!(&assign.targets[0], Expr::Name(name) if name.id.as_str() == "__all__")
-    }
-
-    /// Check if comprehension generators have side effects
-    fn generators_have_side_effects(generators: &[Comprehension]) -> bool {
-        for generator in generators {
-            // Check the iterator expression
-            if Self::expression_has_side_effects(&generator.iter) {
-                return true;
-            }
-            // Check all condition expressions
-            for condition in &generator.ifs {
-                if Self::expression_has_side_effects(condition) {
-                    return true;
-                }
-            }
-        }
-        false
+        // Use static method to avoid allocation in this hot path
+        SideEffectDetector::check_module(ast)
     }
 
     /// Generate synthetic module name using content hash
