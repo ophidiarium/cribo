@@ -19,7 +19,7 @@ pre-commit:
       run: markdownlint-cli2 --fix --no-globs {staged_files} || true
       stage_fixed: true
     dprint:
-      glob: '*.{json,jsonc,yaml,yml,md,toml,py}'
+      glob: '*.{json,jsonc,yaml,yml,md,py}'
       run: bunx dprint fmt {staged_files}
       stage_fixed: true
     lint:

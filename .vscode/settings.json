@@ -49,6 +49,7 @@
         "editor.formatOnSave": true
     },
     "evenBetterToml.schema.enabled": true,
+    "evenBetterToml.taplo.configFile.path": ".taplo.toml",
     "ruff.enable": false,
     "cSpell.enabled": false,
     "chat.agent.enabled": true,
