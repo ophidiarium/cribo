@@ -262,7 +262,8 @@ impl<'a> Visitor<'a> for SideEffectDetector {
                 }
 
                 // These expressions have side effects
-                Expr::Call(_) | Expr::Attribute(_) | Expr::Subscript(_) => {
+                // Lambda expressions are considered to have side effects to match old behavior
+                Expr::Call(_) | Expr::Attribute(_) | Expr::Subscript(_) | Expr::Lambda(_) => {
                     self.has_side_effects = true;
                     return;
                 }
@@ -502,6 +503,17 @@ True  # Bare boolean
         let source = r#"
 import xml.etree.ElementTree
 x = xml  # Using the root binding should be detected as side effect
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        assert!(SideEffectDetector::check_module(&module));
+    }
+
+    #[test]
+    fn test_lambda_assignment_has_side_effects() {
+        let source = r#"
+# Lambda assignments are considered to have side effects
+validate = lambda x: f"validate: {x}"
+process = lambda data: data.upper()
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(SideEffectDetector::check_module(&module));
