@@ -4,6 +4,7 @@ use anyhow::Result;
 use log::{debug, trace};
 use ruff_python_ast::{
     self as ast, Identifier, ModModule, Stmt, StmtFunctionDef, StmtImport, StmtImportFrom,
+    visitor::Visitor,
 };
 use ruff_text_size::TextRange;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -11,7 +12,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::{
     cribo_graph::{CriboGraph, ItemType, ModuleDepGraph},
     semantic_bundler::SemanticBundler,
-    semantic_import_context::{SemanticImportAnalyzer, SemanticImportInfo},
+    visitors::{DiscoveredImport, ImportDiscoveryVisitor},
 };
 
 /// Strategy for deduplicating imports within functions
@@ -135,14 +136,19 @@ impl ImportRewriter {
                     // Find the AST for this module
                     if let Some((_, ast)) = module_asts.iter().find(|(name, _)| name == module_name)
                     {
-                        // Perform semantic analysis
-                        let mut analyzer =
-                            SemanticImportAnalyzer::new(semantic_bundler, *module_id);
-                        let semantic_imports = analyzer.analyze_module(ast)?;
+                        // Perform semantic analysis using enhanced ImportDiscoveryVisitor
+                        let mut visitor = ImportDiscoveryVisitor::with_semantic_bundler(
+                            semantic_bundler,
+                            *module_id,
+                        );
+                        for stmt in &ast.body {
+                            visitor.visit_stmt(stmt);
+                        }
+                        let discovered_imports = visitor.into_imports();
 
                         // Find movable imports based on semantic analysis
-                        let candidates = self.find_movable_imports_semantic(
-                            &semantic_imports,
+                        let candidates = self.find_movable_imports_from_discovered(
+                            &discovered_imports,
                             module_name,
                             &cycle.modules,
                         );
@@ -159,66 +165,56 @@ impl ImportRewriter {
         Ok(movable_imports)
     }
 
-    /// Find movable imports based on semantic analysis
-    fn find_movable_imports_semantic(
+    /// Find movable imports based on discovered imports with semantic analysis
+    fn find_movable_imports_from_discovered(
         &self,
-        semantic_imports: &[SemanticImportInfo],
+        discovered_imports: &[DiscoveredImport],
         module_name: &str,
         cycle_modules: &[String],
     ) -> Vec<MovableImport> {
         let mut movable = Vec::new();
 
-        for import_info in semantic_imports {
+        for import_info in discovered_imports {
             // Check if this import is part of the cycle
             if let Some(imported_module) = &import_info.module_name {
                 if !self.is_import_in_cycle(imported_module, cycle_modules) {
                     continue;
                 }
 
-                // Check if import has side effects
-                if import_info.has_side_effects {
+                // Skip if not movable based on semantic analysis
+                if !import_info.is_movable {
                     trace!(
                         "Import {imported_module} in {module_name} has side effects, cannot move"
                     );
                     continue;
                 }
 
-                // Check if import is only used in deferred contexts
-                if import_info.is_deferred_only() {
-                    let target_functions: Vec<String> =
-                        import_info.get_using_functions().into_iter().collect();
+                // Import is movable, now determine target functions
+                // For now, we'll move to all functions (could be enhanced later)
+                let target_functions = vec!["*".to_string()]; // Move to all functions
 
-                    trace!(
-                        "Import {imported_module} in {module_name} can be moved to functions: \
-                         {target_functions:?}"
-                    );
+                trace!("Import {imported_module} in {module_name} can be moved to functions");
 
-                    // Convert to ImportStatement
-                    let import_stmt = if import_info.imported_names.is_empty() {
-                        ImportStatement::Import {
-                            module: imported_module.clone(),
-                            alias: None,
-                        }
-                    } else {
-                        ImportStatement::FromImport {
-                            module: Some(imported_module.clone()),
-                            names: import_info.imported_names.clone(),
-                            level: import_info.level,
-                        }
-                    };
-
-                    movable.push(MovableImport {
-                        import_stmt,
-                        target_functions,
-                        source_module: module_name.to_string(),
-                        line_number: 0, // TODO: Extract from import_info.import_location
-                    });
+                // Convert to ImportStatement
+                let import_stmt = if import_info.names.is_empty() {
+                    ImportStatement::Import {
+                        module: imported_module.clone(),
+                        alias: None, // TODO: handle aliases properly
+                    }
                 } else {
-                    trace!(
-                        "Import {imported_module} in {module_name} requires module-level \
-                         availability"
-                    );
-                }
+                    ImportStatement::FromImport {
+                        module: import_info.module_name.clone(),
+                        names: import_info.names.clone(),
+                        level: import_info.level,
+                    }
+                };
+
+                movable.push(MovableImport {
+                    import_stmt,
+                    target_functions,
+                    source_module: module_name.to_string(),
+                    line_number: 0, // TODO: Extract line number from range
+                });
             }
         }
 

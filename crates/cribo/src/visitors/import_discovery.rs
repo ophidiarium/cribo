@@ -1,11 +1,45 @@
 //! Import discovery visitor that finds all imports in a Python module,
 //! including those nested within functions, classes, and other scopes.
+//! Also performs semantic analysis to determine import usage patterns.
 
 use ruff_python_ast::{
-    ModModule, Stmt, StmtImport, StmtImportFrom,
-    visitor::{Visitor, walk_stmt},
+    Expr, ExprName, Stmt, StmtImport, StmtImportFrom,
+    visitor::{Visitor, walk_expr, walk_stmt},
 };
 use ruff_text_size::TextRange;
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+
+use crate::{cribo_graph::ModuleId, semantic_bundler::SemanticBundler};
+
+/// Execution context for code - determines when code runs relative to module import
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExecutionContext {
+    /// Code at module level - executes when module is imported
+    ModuleLevel,
+    /// Inside a function body - executes when function is called
+    FunctionBody,
+    /// Inside a class body - executes when class is defined (at module import time)
+    ClassBody,
+    /// Inside a class method - executes when method is called
+    ClassMethod { is_init: bool },
+    /// Inside a decorator - executes at decoration time (usually module level)
+    Decorator,
+    /// Default parameter value - evaluated at function definition time
+    DefaultParameter,
+    /// Type annotation context - may not execute at runtime
+    TypeAnnotation,
+}
+
+/// Usage information for an imported name
+#[derive(Debug, Clone)]
+pub struct ImportUsage {
+    /// Where the name was used
+    pub location: TextRange,
+    /// In what execution context
+    pub context: ExecutionContext,
+    /// The actual name used (might be aliased)
+    pub name_used: String,
+}
 
 /// An import discovered during AST traversal
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +54,14 @@ pub struct DiscoveredImport {
     pub range: TextRange,
     /// Import level for relative imports
     pub level: u32,
+    /// Execution contexts where this import is used
+    pub execution_contexts: HashSet<ExecutionContext>,
+    /// Whether this import is used in a class __init__ method
+    pub is_used_in_init: bool,
+    /// Whether this import can be moved to function scope
+    pub is_movable: bool,
+    /// Whether this import is only used within TYPE_CHECKING blocks
+    pub is_type_checking_only: bool,
 }
 
 /// Where an import was discovered in the AST
@@ -50,23 +92,77 @@ pub enum ScopeElement {
     Try,
 }
 
-/// Visitor that discovers all imports in a Python module
-#[derive(Default)]
-pub struct ImportDiscoveryVisitor {
+/// Visitor that discovers all imports in a Python module and analyzes their usage
+pub struct ImportDiscoveryVisitor<'a> {
     /// All discovered imports
     imports: Vec<DiscoveredImport>,
     /// Current scope stack
     scope_stack: Vec<ScopeElement>,
+    /// Map from imported names to their module sources
+    imported_names: HashMap<String, String>,
+    /// Track usage of each imported name
+    name_usage: HashMap<String, Vec<ImportUsage>>,
+    /// Optional reference to semantic bundler for enhanced analysis
+    semantic_bundler: Option<&'a SemanticBundler>,
+    /// Current module ID if available
+    module_id: Option<ModuleId>,
+    /// Current execution context
+    current_context: ExecutionContext,
+    /// Whether we're in a type checking block
+    in_type_checking: bool,
 }
 
-impl ImportDiscoveryVisitor {
+impl<'a> Default for ImportDiscoveryVisitor<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a> ImportDiscoveryVisitor<'a> {
     /// Create a new import discovery visitor
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            imports: Vec::new(),
+            scope_stack: Vec::new(),
+            imported_names: HashMap::default(),
+            name_usage: HashMap::default(),
+            semantic_bundler: None,
+            module_id: None,
+            current_context: ExecutionContext::ModuleLevel,
+            in_type_checking: false,
+        }
+    }
+
+    /// Create a new visitor with semantic bundler for enhanced analysis
+    pub fn with_semantic_bundler(
+        semantic_bundler: &'a SemanticBundler,
+        module_id: ModuleId,
+    ) -> Self {
+        Self {
+            imports: Vec::new(),
+            scope_stack: Vec::new(),
+            imported_names: HashMap::default(),
+            name_usage: HashMap::default(),
+            semantic_bundler: Some(semantic_bundler),
+            module_id: Some(module_id),
+            current_context: ExecutionContext::ModuleLevel,
+            in_type_checking: false,
+        }
     }
 
     /// Get all discovered imports
-    pub fn into_imports(self) -> Vec<DiscoveredImport> {
+    pub fn into_imports(mut self) -> Vec<DiscoveredImport> {
+        // Post-process imports to determine movability based on usage
+        for i in 0..self.imports.len() {
+            let import = &self.imports[i];
+            let is_movable = self.is_import_movable(import);
+            self.imports[i].is_movable = is_movable;
+
+            // An import is type-checking-only if it was imported in a TYPE_CHECKING block
+            // AND is not used anywhere outside of TYPE_CHECKING blocks
+            // We already set is_type_checking_only when the import was discovered
+            // No need to update it here since we track usage contexts separately
+        }
         self.imports
     }
 
@@ -110,11 +206,118 @@ impl ImportDiscoveryVisitor {
         }
     }
 
+    /// Get current execution context based on scope stack
+    fn get_current_execution_context(&self) -> ExecutionContext {
+        if self.in_type_checking {
+            return ExecutionContext::TypeAnnotation;
+        }
+
+        // Analyze scope stack to determine context
+        for (i, scope) in self.scope_stack.iter().enumerate() {
+            match scope {
+                ScopeElement::Class(_) => {
+                    // Check if we're in a method within this class
+                    if i + 1 < self.scope_stack.len()
+                        && let ScopeElement::Function(method_name) = &self.scope_stack[i + 1] {
+                            return ExecutionContext::ClassMethod {
+                                is_init: method_name == "__init__",
+                            };
+                        }
+                    return ExecutionContext::ClassBody;
+                }
+                ScopeElement::Function(_) => {
+                    // If we're in a function at module level, it's a function body
+                    if i == 0 {
+                        return ExecutionContext::FunctionBody;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        self.current_context
+    }
+
+    /// Analyze whether an import can be moved to function scope
+    fn is_import_movable(&self, import: &DiscoveredImport) -> bool {
+        // Check if import has side effects
+        if let Some(module_name) = &import.module_name
+            && self.is_side_effect_import(module_name) {
+                return false;
+            }
+
+        // Check execution contexts where import is used
+        let requires_module_level = import.execution_contexts.iter().any(|ctx| match ctx {
+            ExecutionContext::ModuleLevel
+            | ExecutionContext::ClassBody
+            | ExecutionContext::Decorator
+            | ExecutionContext::DefaultParameter => true,
+            ExecutionContext::ClassMethod { is_init } => *is_init,
+            ExecutionContext::FunctionBody | ExecutionContext::TypeAnnotation => false,
+        });
+
+        !requires_module_level && !import.is_used_in_init
+    }
+
+    /// Check if a condition is a TYPE_CHECKING check
+    fn is_type_checking_condition(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Name(name) => name.id.as_str() == "TYPE_CHECKING",
+            Expr::Attribute(attr) => {
+                if attr.attr.as_str() == "TYPE_CHECKING"
+                    && let Expr::Name(name) = &*attr.value {
+                        return name.id.as_str() == "typing";
+                    }
+                false
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if a module import has side effects
+    fn is_side_effect_import(&self, module_name: &str) -> bool {
+        matches!(
+            module_name,
+            "antigravity"
+                | "this"
+                | "__hello__"
+                | "__phello__"
+                | "site"
+                | "sitecustomize"
+                | "usercustomize"
+                | "readline"
+                | "rlcompleter"
+                | "turtle"
+                | "tkinter"
+                | "webbrowser"
+                | "platform"
+                | "locale"
+                | "os"
+                | "sys"
+                | "logging"
+                | "warnings"
+                | "encodings"
+                | "pygame"
+                | "matplotlib"
+        ) || module_name.starts_with('_')
+    }
+
     /// Record an import statement
     fn record_import(&mut self, stmt: &StmtImport) {
         for alias in &stmt.names {
+            let module_name = alias.name.to_string();
+            let imported_as = alias
+                .asname
+                .as_ref()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| module_name.clone());
+
+            // Track the import mapping
+            self.imported_names
+                .insert(imported_as.clone(), module_name.clone());
+
             let import = DiscoveredImport {
-                module_name: Some(alias.name.to_string()),
+                module_name: Some(module_name),
                 names: vec![(
                     alias.name.to_string(),
                     alias.asname.as_ref().map(|n| n.to_string()),
@@ -122,6 +325,10 @@ impl ImportDiscoveryVisitor {
                 location: self.current_location(),
                 range: stmt.range,
                 level: 0,
+                execution_contexts: HashSet::default(),
+                is_used_in_init: false,
+                is_movable: false,
+                is_type_checking_only: self.in_type_checking,
             };
             self.imports.push(import);
         }
@@ -129,36 +336,42 @@ impl ImportDiscoveryVisitor {
 
     /// Record a from import statement
     fn record_import_from(&mut self, stmt: &StmtImportFrom) {
+        let module_name = stmt.module.as_ref().map(|m| m.to_string());
+
         let names: Vec<(String, Option<String>)> = stmt
             .names
             .iter()
             .map(|alias| {
-                (
-                    alias.name.to_string(),
-                    alias.asname.as_ref().map(|n| n.to_string()),
-                )
+                let name = alias.name.to_string();
+                let asname = alias.asname.as_ref().map(|n| n.to_string());
+
+                // Track import mappings
+                let imported_as = asname.as_ref().unwrap_or(&name).clone();
+                if let Some(mod_name) = &module_name {
+                    self.imported_names
+                        .insert(imported_as, format!("{mod_name}.{name}"));
+                }
+
+                (name, asname)
             })
             .collect();
 
         let import = DiscoveredImport {
-            module_name: stmt.module.as_ref().map(|m| m.to_string()),
+            module_name,
             names,
             location: self.current_location(),
             range: stmt.range,
             level: stmt.level,
+            execution_contexts: HashSet::default(),
+            is_used_in_init: false,
+            is_movable: false,
+            is_type_checking_only: self.in_type_checking,
         };
         self.imports.push(import);
     }
-
-    /// Visit a module and discover all imports
-    pub fn visit_module(&mut self, module: &ModModule) {
-        for stmt in &module.body {
-            self.visit_stmt(stmt);
-        }
-    }
 }
 
-impl<'a> Visitor<'a> for ImportDiscoveryVisitor {
+impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
             Stmt::Import(import_stmt) => {
@@ -183,10 +396,19 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor {
                 self.scope_stack.pop();
                 return;
             }
-            Stmt::If(_) => {
+            Stmt::If(if_stmt) => {
+                // Check if this is a TYPE_CHECKING block
+                let was_type_checking = self.in_type_checking;
+                if self.is_type_checking_condition(&if_stmt.test) {
+                    self.in_type_checking = true;
+                }
+
                 self.scope_stack.push(ScopeElement::If);
                 walk_stmt(self, stmt);
                 self.scope_stack.pop();
+
+                // Restore the previous type checking state
+                self.in_type_checking = was_type_checking;
                 return;
             }
             Stmt::While(_) => {
@@ -219,10 +441,56 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor {
         // For other statement types, use default traversal
         walk_stmt(self, stmt);
     }
+
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        if let Expr::Name(ExprName { id, range, .. }) = expr {
+            let name = id.to_string();
+
+            // Check if this is an imported name
+            if self.imported_names.contains_key(&name) {
+                let context = self.get_current_execution_context();
+
+                // Record usage
+                self.name_usage
+                    .entry(name.clone())
+                    .or_default()
+                    .push(ImportUsage {
+                        location: *range,
+                        context,
+                        name_used: name.clone(),
+                    });
+
+                // Update the import's execution contexts
+                if let Some(module_source) = self.imported_names.get(&name) {
+                    // Find the corresponding import and update its contexts
+                    for import in &mut self.imports {
+                        if import.module_name.as_ref() == Some(module_source)
+                            || import
+                                .names
+                                .iter()
+                                .any(|(n, alias)| alias.as_ref().unwrap_or(n) == &name)
+                        {
+                            import.execution_contexts.insert(context);
+                            if matches!(
+                                context,
+                                ExecutionContext::ClassMethod { is_init: true }
+                            ) {
+                                import.is_used_in_init = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Continue traversal
+        walk_expr(self, expr);
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use ruff_python_ast::visitor::Visitor;
     use ruff_python_parser::parse_module;
 
     use super::*;
@@ -235,7 +503,9 @@ from sys import path
 "#;
         let parsed = parse_module(source).expect("Failed to parse test module");
         let mut visitor = ImportDiscoveryVisitor::new();
-        visitor.visit_module(parsed.syntax());
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
         let imports = visitor.into_imports();
 
         assert_eq!(imports.len(), 2);
@@ -255,7 +525,9 @@ def my_function():
 "#;
         let parsed = parse_module(source).expect("Failed to parse test module");
         let mut visitor = ImportDiscoveryVisitor::new();
-        visitor.visit_module(parsed.syntax());
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
         let imports = visitor.into_imports();
 
         assert_eq!(imports.len(), 2);
@@ -278,7 +550,9 @@ class MyClass:
 "#;
         let parsed = parse_module(source).expect("Failed to parse test module");
         let mut visitor = ImportDiscoveryVisitor::new();
-        visitor.visit_module(parsed.syntax());
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
         let imports = visitor.into_imports();
 
         assert_eq!(imports.len(), 1);
@@ -298,7 +572,9 @@ if True:
 "#;
         let parsed = parse_module(source).expect("Failed to parse test module");
         let mut visitor = ImportDiscoveryVisitor::new();
-        visitor.visit_module(parsed.syntax());
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
         let imports = visitor.into_imports();
 
         assert_eq!(imports.len(), 2);
@@ -324,7 +600,9 @@ class MyClass:
 "#;
         let parsed = parse_module(source).expect("Failed to parse test module");
         let mut visitor = ImportDiscoveryVisitor::new();
-        visitor.visit_module(parsed.syntax());
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
         let imports = visitor.into_imports();
 
         assert_eq!(imports.len(), 1);

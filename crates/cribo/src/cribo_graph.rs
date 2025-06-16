@@ -95,6 +95,13 @@ pub struct Dep {
     pub dep_type: DepType,
 }
 
+/// Information about a module-level dependency edge
+#[derive(Debug, Clone, Default)]
+pub struct ModuleDependencyInfo {
+    /// Whether this dependency is only used in TYPE_CHECKING blocks
+    pub is_type_checking_only: bool,
+}
+
 /// Variable state tracking
 #[derive(Debug, Clone)]
 pub struct VarState {
@@ -613,7 +620,7 @@ pub struct CriboGraph {
     /// Module metadata
     pub module_metadata: FxHashMap<ModuleId, ModuleMetadata>,
     /// Petgraph for efficient algorithms (inspired by Mako)
-    graph: DiGraph<ModuleId, ()>,
+    graph: DiGraph<ModuleId, ModuleDependencyInfo>,
     /// Node index mapping
     node_indices: FxHashMap<ModuleId, NodeIndex>,
     /// Next module ID to allocate
@@ -629,19 +636,19 @@ impl CriboGraph {
             module_name,
             // Modules that modify global state - DO NOT HOIST
             "antigravity" // Opens web browser to xkcd comic
-                | "this" // Prints "The Zen of Python" to stdout
-                | "__hello__" // Prints "Hello world!" to stdout
-                | "__phello__" // Frozen version of __hello__ that prints to stdout
-                | "site" // Modifies sys.path and sets up site packages
-                | "sitecustomize" // User-specific site customization
-                | "usercustomize" // User-specific customization
-                | "readline" // Initializes readline library and terminal settings
-                | "rlcompleter" // Configures readline tab completion
-                | "turtle"      // Initializes Tk graphics window
-                | "tkinter"     // Initializes Tk GUI framework
-                | "webbrowser"  // May launch web browser
-                | "platform"    // May execute external commands for system info
-                | "locale" // Modifies global locale settings
+            | "this"    // Prints "The Zen of Python" to stdout
+            | "__hello__"   // Prints "Hello world!" to stdout
+            | "__phello__"  // Frozen version of __hello__ that prints to stdout
+            | "site"    // Modifies sys.path and sets up site packages
+            | "sitecustomize"   // User-specific site customization
+            | "usercustomize"   // User-specific customization
+            | "readline"    // Initializes readline library and terminal settings
+            | "rlcompleter"  // Configures readline tab completion
+            | "turtle"        // Initializes Tk graphics window
+            | "tkinter"       // Initializes Tk GUI framework
+            | "webbrowser"    // May launch web browser
+            | "platform"     // May execute external commands for system info
+            | "locale" // Modifies global locale settings
         )
     }
 
@@ -723,6 +730,16 @@ impl CriboGraph {
 
     /// Add a dependency between modules (from depends on to)
     pub fn add_module_dependency(&mut self, from: ModuleId, to: ModuleId) {
+        self.add_module_dependency_with_info(from, to, ModuleDependencyInfo::default());
+    }
+
+    /// Add a dependency between modules with additional information
+    pub fn add_module_dependency_with_info(
+        &mut self,
+        from: ModuleId,
+        to: ModuleId,
+        info: ModuleDependencyInfo,
+    ) {
         if let (Some(&from_idx), Some(&to_idx)) =
             (self.node_indices.get(&from), self.node_indices.get(&to))
         {
@@ -732,7 +749,7 @@ impl CriboGraph {
 
             // Check if edge already exists to avoid duplicates
             if !self.graph.contains_edge(to_idx, from_idx) {
-                self.graph.add_edge(to_idx, from_idx, ());
+                self.graph.add_edge(to_idx, from_idx, info);
 
                 // Queue update
                 self.pending_updates.push(GraphUpdate {
@@ -836,6 +853,17 @@ impl CriboGraph {
         } else {
             vec![]
         }
+    }
+
+    /// Check if a module dependency is type-checking-only
+    pub fn is_type_checking_only_dependency(&self, from: ModuleId, to: ModuleId) -> bool {
+        if let (Some(&from_idx), Some(&to_idx)) =
+            (self.node_indices.get(&from), self.node_indices.get(&to))
+            && let Some(edge) = self.graph.find_edge(to_idx, from_idx)
+                && let Some(weight) = self.graph.edge_weight(edge) {
+                    return weight.is_type_checking_only;
+                }
+        false
     }
 
     /// Get all modules that a given module depends on

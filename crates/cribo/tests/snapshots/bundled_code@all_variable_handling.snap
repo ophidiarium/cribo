@@ -111,6 +111,7 @@ __cribo_init___cribo_8010fb_simple_module()
 __cribo_init___cribo_11029d_nested_package_submodule()
 __cribo_init___cribo_c56070_nested_package()
 nested_package = sys.modules['nested_package']
+simple_module = sys.modules['simple_module']
 nested_package.submodule = sys.modules['nested_package.submodule']
 __cribo_init___cribo_8010fb_simple_module()
 public_func = sys.modules['simple_module'].public_func

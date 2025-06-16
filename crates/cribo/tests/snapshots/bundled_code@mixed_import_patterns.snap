@@ -173,6 +173,9 @@ sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functio
 __cribo_init___cribo_94bd20_app()
 __cribo_init___cribo_f96d2c_config()
 __cribo_init___cribo_0639af_logger()
+app = sys.modules['app']
+config = sys.modules['config']
+logger = sys.modules['logger']
 """\nSimulates a software architecture with:\n- A logger that needs configuration\n- A configuration system that logs its initialization\n- An application that uses both\n- Utilities that are used everywhere (no circular deps)\n"""
 def main():
     print(format_message("=== Application Starting ==="))

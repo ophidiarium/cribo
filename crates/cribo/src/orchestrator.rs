@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use indexmap::IndexSet;
 use log::{debug, info, warn};
-use ruff_python_ast::{ModModule, Stmt, StmtImportFrom};
+use ruff_python_ast::{ModModule, Stmt, StmtImportFrom, visitor::Visitor};
 
 use crate::{
     code_generator::HybridStaticBundler,
@@ -672,8 +672,11 @@ impl BundleOrchestrator {
             .with_context(|| format!("Failed to parse Python file: {file_path:?}"))?;
 
         // Use the visitor to discover all imports
+        // Note: For simple import discovery, we don't need semantic analysis
         let mut visitor = ImportDiscoveryVisitor::new();
-        visitor.visit_module(parsed.syntax());
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
 
         let discovered_imports = visitor.into_imports();
         let mut imports_set = IndexSet::new();
@@ -1120,6 +1123,10 @@ impl BundleOrchestrator {
                         "Adding dependency edge: {} -> {}",
                         import, context.current_module
                     );
+                    // TODO: Properly track TYPE_CHECKING information from ImportDiscoveryVisitor
+                    // For now, we use the default (is_type_checking_only = false)
+                    // This should be updated to use the actual is_type_checking_only flag from
+                    // the DiscoveredImport when we refactor to preserve that information
                     context
                         .graph
                         .add_module_dependency(context.from_module_id, to_module_id);
@@ -1171,6 +1178,7 @@ impl BundleOrchestrator {
                 "Adding parent package dependency edge: {} -> {}",
                 parent_module, context.current_module
             );
+            // TODO: Inherit TYPE_CHECKING information from child import
             context
                 .graph
                 .add_module_dependency(context.from_module_id, parent_module_id);
@@ -1493,6 +1501,10 @@ impl BundleOrchestrator {
     ) -> Result<String> {
         let mut third_party_imports = IndexSet::new();
 
+        // TODO: Use TYPE_CHECKING information from the dependency graph to filter out
+        // dependencies that are only used for type checking. These could be placed
+        // in a separate section or excluded entirely based on configuration.
+        // For now, all third-party imports are included.
         for (_module_name, _module_path, imports) in modules {
             for import in imports {
                 debug!("Checking import '{import}' for requirements");

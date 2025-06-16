@@ -9,7 +9,6 @@ pub mod orchestrator;
 pub mod resolver;
 pub mod semantic_analysis;
 pub mod semantic_bundler;
-pub mod semantic_import_context;
 pub mod util;
 pub mod visitors;
 

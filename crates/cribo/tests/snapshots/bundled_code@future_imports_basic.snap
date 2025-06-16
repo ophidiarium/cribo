@@ -81,7 +81,9 @@ mypackage = types.ModuleType('mypackage')
 mypackage.core = sys.modules['mypackage.core']
 mypackage.submodule = types.ModuleType('mypackage.submodule')
 mypackage.submodule.utils = sys.modules['mypackage.submodule.utils']
+__cribo_init___cribo_609581_mypackage_core()
 process_data = sys.modules['mypackage.core'].process_data
+__cribo_init___cribo_c3d681_mypackage_submodule_utils()
 validate_input = sys.modules['mypackage.submodule.utils'].validate_input
 def main() -> None:
     """Main function with type annotations that require future import."""

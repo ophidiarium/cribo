@@ -6,12 +6,10 @@ min-ident-chars-threshold           = 2
 single-char-binding-names-threshold = 3
 too-many-arguments-threshold        = 5
 too-many-lines-threshold            = 80
+trivial-copy-size-limit             = 16
+type-complexity-threshold           = 300
 
-# Keep your type complexity threshold - it's reasonable
-type-complexity-threshold = 300
-
-# Keep your 64-bit optimization
-trivial-copy-size-limit = 16
+avoid-breaking-exported-api = false
 
 # Testing allowances
 allow-dbg-in-tests                 = true
@@ -114,10 +112,10 @@ disallowed-methods = [
     { path = "tokio::task::spawn_blocking", reason = "document why blocking is necessary - consider async alternatives" },
 ]
 
-disallowed-macros = [
-    # Prevent inefficient string operations that AI often generates
-    # { path = "std::format", reason = "use write! for repeated formatting, format! allocates each time" },
-]
+# disallowed-macros = [
+#     # Prevent inefficient string operations that AI often generates
+#     # { path = "std::format", reason = "use write! for repeated formatting, format! allocates each time" },
+# ]
 
 # Keep your interior mutability allowlist
 ignore-interior-mutability = ["ruff_formatter::format_element::Interned", "ruff_python_ast::hashable::HashableExpr"]
