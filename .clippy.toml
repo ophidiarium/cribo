@@ -1,11 +1,11 @@
 # Complexity thresholds
+allowed-idents-below-min-chars = ["..", "id", "x", "y", "z", "i", "j", "k", "n", "m"] # Added common loop/coord vars
 cognitive-complexity-threshold = 10
 excessive-nesting-threshold = 6
-too-many-arguments-threshold = 5
-too-many-lines-threshold = 80
 min-ident-chars-threshold = 2
 single-char-binding-names-threshold = 3
-allowed-idents-below-min-chars = ["..", "id", "x", "y", "z", "i", "j", "k", "n", "m"] # Added common loop/coord vars
+too-many-arguments-threshold = 5
+too-many-lines-threshold = 80
 
 # Keep your type complexity threshold - it's reasonable
 type-complexity-threshold = 300
@@ -14,9 +14,9 @@ type-complexity-threshold = 300
 trivial-copy-size-limit = 16
 
 # Testing allowances
+allow-dbg-in-tests = true
 allow-expect-in-tests = true
 allow-print-in-tests = true
-allow-dbg-in-tests = true
 allow-unwrap-in-tests = true
 suppress-restriction-lint-in-const = true
 
@@ -65,6 +65,9 @@ disallowed-types = [
     { path = "std::collections::HashSet", reason = "Non-deterministic iter - use indexmap::IndexSet instead" },
     # Add more problematic types
     { path = "std::sync::Once", reason = "Use std::sync::OnceLock for lazy initialization (available since 1.70)" },
+
+    { path = "std::sync::Mutex", reason = "use tokio::sync::Mutex in async code" },
+    { path = "std::sync::RwLock", reason = "use tokio::sync::RwLock in async code" },
 ]
 
 # Methods - merging your excellent list with modern practices
@@ -103,7 +106,6 @@ disallowed-methods = [
     # Add modern Rust best practices that AI often misses
     { path = "std::option::Option::unwrap", reason = "use `expect` with descriptive message or handle None case" },
     { path = "std::result::Result::unwrap", reason = "use `expect` with descriptive message or handle error case" },
-    { path = "std::vec::Vec::clone", reason = "avoid cloning vectors - use references, slices, or Arc<[T]>" },
     { path = "std::panic::catch_unwind", reason = "panics are not for control flow - use Result" },
     { path = "std::process::exit", reason = "return Result from main() instead of exiting" },
     { path = "std::thread::sleep", reason = "use async sleep in async contexts, or document why blocking is needed" },
@@ -111,18 +113,14 @@ disallowed-methods = [
     { path = "std::mem::uninitialized", reason = "deprecated - use MaybeUninit" },
     { path = "std::mem::zeroed", reason = "use MaybeUninit::zeroed or Default::default" },
 
-    # Prevent inefficient string operations that AI often generates
-    { path = "std::string::String::from", reason = "use String::from() only for &str, use to_string() for Display types" },
-    { path = "std::format", reason = "use write! for repeated formatting, format! allocates each time" },
-
     # Async footguns
     { path = "tokio::task::spawn_blocking", reason = "document why blocking is necessary - consider async alternatives" },
-    { path = "std::sync::Mutex", reason = "use tokio::sync::Mutex in async code" },
-    { path = "std::sync::RwLock", reason = "use tokio::sync::RwLock in async code" },
+]
+
+disallowed-macros = [
+    # Prevent inefficient string operations that AI often generates
+    { path = "std::format", reason = "use write! for repeated formatting, format! allocates each time" },
 ]
 
 # Keep your interior mutability allowlist
-ignore-interior-mutability = [
-    "ruff_formatter::format_element::Interned",
-    "ruff_python_ast::hashable::HashableExpr",
-]
+ignore-interior-mutability = ["ruff_formatter::format_element::Interned", "ruff_python_ast::hashable::HashableExpr"]
