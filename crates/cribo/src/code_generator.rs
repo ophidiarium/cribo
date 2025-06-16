@@ -5699,9 +5699,20 @@ impl HybridStaticBundler {
 
         if !self.bundled_modules.contains(&module_name) {
             log::debug!(
-                "Module '{}' not found in bundled modules, checking if importing submodules",
+                "Module '{}' not found in bundled modules, checking if inlined or importing submodules",
                 module_name
             );
+
+            // Check if this module is inlined
+            if self.inlined_modules.contains(&module_name) {
+                log::debug!("Module '{}' is an inlined module", module_name);
+                // Handle imports from inlined modules
+                return self.handle_imports_from_inlined_module(
+                    &import_from,
+                    &module_name,
+                    symbol_renames,
+                );
+            }
 
             // Check if we're importing submodules from a namespace package
             // e.g., from greetings import greeting where greeting is actually greetings.greeting
@@ -6003,6 +6014,54 @@ impl HybridStaticBundler {
             // Keep original import for non-bundled modules
             vec![Stmt::Import(import_stmt)]
         }
+    }
+
+    /// Handle imports from inlined modules
+    fn handle_imports_from_inlined_module(
+        &self,
+        import_from: &StmtImportFrom,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Vec<Stmt> {
+        let mut result_stmts = Vec::new();
+
+        // Get the rename map for this module
+        let module_renames = symbol_renames.get(module_name);
+
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+            // Find the renamed symbol name
+            let renamed_symbol = if let Some(renames) = module_renames {
+                renames.get(imported_name).cloned().unwrap_or_else(|| {
+                    // If no rename found, use the default pattern
+                    let module_suffix = module_name.cow_replace('.', "_").into_owned();
+                    format!("{}_{}", imported_name, module_suffix)
+                })
+            } else {
+                // If no rename map, use the default pattern
+                let module_suffix = module_name.cow_replace('.', "_").into_owned();
+                format!("{}_{}", imported_name, module_suffix)
+            };
+
+            // Create assignment: local_name = renamed_symbol
+            result_stmts.push(Stmt::Assign(StmtAssign {
+                targets: vec![Expr::Name(ExprName {
+                    id: local_name.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::Name(ExprName {
+                    id: renamed_symbol.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            }));
+        }
+
+        result_stmts
     }
 
     /// Handle dotted import attribute assignment
