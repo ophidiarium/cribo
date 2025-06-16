@@ -1031,3 +1031,4 @@ NOTE: if asked to attend all comments use `mcp__github__get_pull_request_comment
 - Remember you have full ruff repository cloned locally at references/type-strip/ruff so you may search in files easier
 - lefhook (git hooks) config is at .lefthook.yaml
 - use `bun` to manage Node.js dependencies and `bunx` to run npm packages
+- NEVER drop stashes!
