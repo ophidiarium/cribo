@@ -899,8 +899,8 @@ impl<'a> GraphBuilder<'a> {
 
     /// Check if an expression has side effects
     fn expression_has_side_effects(&self, expr: &Expr) -> bool {
-        let detector = ExpressionSideEffectDetector::new();
-        detector.expression_has_side_effects(expr)
+        // Use static method to avoid allocation
+        ExpressionSideEffectDetector::check(expr)
     }
 
     /// Check if an import is for side effects

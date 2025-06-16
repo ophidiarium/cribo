@@ -32,8 +32,14 @@ impl SideEffectDetector {
         }
     }
 
-    /// Check if a module has side effects
-    pub fn module_has_side_effects(mut self, module: &ModModule) -> bool {
+    /// Check if a module has side effects (static method to avoid allocation in caller)
+    pub fn check_module(module: &ModModule) -> bool {
+        let mut detector = Self::new();
+        detector.module_has_side_effects(module)
+    }
+
+    /// Check if a module has side effects (instance method)
+    fn module_has_side_effects(&mut self, module: &ModModule) -> bool {
         // First pass: collect imported names
         self.collect_imported_names(module);
 
@@ -279,8 +285,14 @@ impl ExpressionSideEffectDetector {
         }
     }
 
-    /// Check if an expression has side effects
-    pub fn expression_has_side_effects(mut self, expr: &Expr) -> bool {
+    /// Check if an expression has side effects (static method to avoid allocation in caller)
+    pub fn check(expr: &Expr) -> bool {
+        let mut detector = Self::new();
+        detector.expression_has_side_effects(expr)
+    }
+
+    /// Check if an expression has side effects (instance method)
+    fn expression_has_side_effects(&mut self, expr: &Expr) -> bool {
         self.visit_expr(expr);
         self.has_side_effects
     }
@@ -338,8 +350,7 @@ y = "hello"
 z = [1, 2, 3]
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(!detector.module_has_side_effects(&module));
+        assert!(!SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -351,8 +362,7 @@ def foo():
 foo()  # This is a side effect
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(detector.module_has_side_effects(&module));
+        assert!(SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -362,8 +372,7 @@ import os
 x = os  # Using imported name is a potential side effect
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(detector.module_has_side_effects(&module));
+        assert!(SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -372,8 +381,7 @@ x = os  # Using imported name is a potential side effect
 __all__ = ["foo", "bar"]
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(!detector.module_has_side_effects(&module));
+        assert!(!SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -386,8 +394,7 @@ def foo():
     pass
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(!detector.module_has_side_effects(&module));
+        assert!(!SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -397,8 +404,7 @@ if True:
     x = 1
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(detector.module_has_side_effects(&module));
+        assert!(SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -410,8 +416,7 @@ def get_value():
 x = get_value()  # Function call in assignment is a side effect
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(detector.module_has_side_effects(&module));
+        assert!(SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -425,8 +430,7 @@ x = {
 y = [(i, i * 2) for i in [1, 2, 3]]
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(!detector.module_has_side_effects(&module));
+        assert!(!SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -438,8 +442,7 @@ def get_value():
 x: int = get_value()  # Function call in annotation assignment is a side effect
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(detector.module_has_side_effects(&module));
+        assert!(SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -448,8 +451,7 @@ x: int = get_value()  # Function call in annotation assignment is a side effect
 x: int  # Just annotation, no value, no side effect
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(!detector.module_has_side_effects(&module));
+        assert!(!SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -460,8 +462,7 @@ __all__ += ["bar"]  # Augmented assignment to __all__ is safe
 __all__ |= {"baz"}  # Set union is also safe
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(!detector.module_has_side_effects(&module));
+        assert!(!SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -472,8 +473,7 @@ __all__.extend(["foo", "bar"])  # Method call on __all__ is safe
 __all__.append("baz")  # Also safe
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(!detector.module_has_side_effects(&module));
+        assert!(!SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -483,8 +483,7 @@ x = 0
 x += 1  # Regular augmented assignment is a side effect
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(detector.module_has_side_effects(&module));
+        assert!(SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -495,8 +494,7 @@ x += 1  # Regular augmented assignment is a side effect
 True  # Bare boolean
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(!detector.module_has_side_effects(&module));
+        assert!(!SideEffectDetector::check_module(&module));
     }
 
     #[test]
@@ -506,7 +504,6 @@ import xml.etree.ElementTree
 x = xml  # Using the root binding should be detected as side effect
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        let detector = SideEffectDetector::new();
-        assert!(detector.module_has_side_effects(&module));
+        assert!(SideEffectDetector::check_module(&module));
     }
 }
