@@ -8,6 +8,9 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::semantic_bundler::SemanticBundler;
+use crate::semantic_import_context::{SemanticImportAnalyzer, SemanticImportInfo};
+
 use crate::cribo_graph::{CriboGraph, ItemType, ModuleDepGraph};
 
 /// Strategy for deduplicating imports within functions
@@ -98,6 +101,128 @@ impl ImportRewriter {
 
         debug!("Found {} movable imports", movable_imports.len());
         movable_imports
+    }
+
+    /// Analyze movable imports using semantic analysis for accurate context detection
+    pub fn analyze_movable_imports_semantic(
+        &mut self,
+        graph: &CriboGraph,
+        resolvable_cycles: &[crate::cribo_graph::CircularDependencyGroup],
+        semantic_bundler: &SemanticBundler,
+        module_asts: &[(String, ModModule)],
+    ) -> Result<Vec<MovableImport>> {
+        let mut movable_imports = Vec::new();
+
+        for cycle in resolvable_cycles {
+            debug!(
+                "Analyzing cycle of type {:?} with {} modules using semantic analysis",
+                cycle.cycle_type,
+                cycle.modules.len()
+            );
+
+            // Only handle function-level cycles
+            if !matches!(
+                cycle.cycle_type,
+                crate::cribo_graph::CircularDependencyType::FunctionLevel
+            ) {
+                continue;
+            }
+
+            // For each module in the cycle, find imports that can be moved
+            for module_name in &cycle.modules {
+                if let Some(module_id) = graph.module_names.get(module_name) {
+                    // Find the AST for this module
+                    if let Some((_, ast)) = module_asts.iter().find(|(name, _)| name == module_name)
+                    {
+                        // Perform semantic analysis
+                        let mut analyzer =
+                            SemanticImportAnalyzer::new(semantic_bundler, *module_id);
+                        let semantic_imports = analyzer.analyze_module(ast)?;
+
+                        // Find movable imports based on semantic analysis
+                        let candidates = self.find_movable_imports_semantic(
+                            &semantic_imports,
+                            module_name,
+                            &cycle.modules,
+                        );
+                        movable_imports.extend(candidates);
+                    }
+                }
+            }
+        }
+
+        debug!(
+            "Found {} movable imports using semantic analysis",
+            movable_imports.len()
+        );
+        Ok(movable_imports)
+    }
+
+    /// Find movable imports based on semantic analysis
+    fn find_movable_imports_semantic(
+        &self,
+        semantic_imports: &[SemanticImportInfo],
+        module_name: &str,
+        cycle_modules: &[String],
+    ) -> Vec<MovableImport> {
+        let mut movable = Vec::new();
+
+        for import_info in semantic_imports {
+            // Check if this import is part of the cycle
+            if let Some(imported_module) = &import_info.module_name {
+                if !self.is_import_in_cycle(imported_module, cycle_modules) {
+                    continue;
+                }
+
+                // Check if import has side effects
+                if import_info.has_side_effects {
+                    trace!(
+                        "Import {} in {} has side effects, cannot move",
+                        imported_module, module_name
+                    );
+                    continue;
+                }
+
+                // Check if import is only used in deferred contexts
+                if import_info.is_deferred_only() {
+                    let target_functions: Vec<String> =
+                        import_info.get_using_functions().into_iter().collect();
+
+                    trace!(
+                        "Import {} in {} can be moved to functions: {:?}",
+                        imported_module, module_name, target_functions
+                    );
+
+                    // Convert to ImportStatement
+                    let import_stmt = if import_info.imported_names.is_empty() {
+                        ImportStatement::Import {
+                            module: imported_module.clone(),
+                            alias: None,
+                        }
+                    } else {
+                        ImportStatement::FromImport {
+                            module: Some(imported_module.clone()),
+                            names: import_info.imported_names.clone(),
+                            level: import_info.level,
+                        }
+                    };
+
+                    movable.push(MovableImport {
+                        import_stmt,
+                        target_functions,
+                        source_module: module_name.to_string(),
+                        line_number: 0, // TODO: Extract from import_info.import_location
+                    });
+                } else {
+                    trace!(
+                        "Import {} in {} requires module-level availability",
+                        imported_module, module_name
+                    );
+                }
+            }
+        }
+
+        movable
     }
 
     /// Find imports in a module that can be moved to function scope

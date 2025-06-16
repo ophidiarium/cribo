@@ -1421,12 +1421,22 @@ impl BundleOrchestrator {
                 let mut import_rewriter =
                     ImportRewriter::new(ImportDeduplicationStrategy::FunctionStart);
 
-                // Analyze movable imports
-                let movable_imports = import_rewriter
-                    .analyze_movable_imports(params.graph, &analysis.resolvable_cycles);
+                // Prepare module ASTs for semantic analysis
+                let module_ast_pairs: Vec<(String, ModModule)> = module_asts
+                    .iter()
+                    .map(|(name, ast, _, _)| (name.clone(), ast.clone()))
+                    .collect();
+
+                // Analyze movable imports using semantic analysis
+                let movable_imports = import_rewriter.analyze_movable_imports_semantic(
+                    params.graph,
+                    &analysis.resolvable_cycles,
+                    &self.semantic_bundler,
+                    &module_ast_pairs,
+                )?;
 
                 debug!(
-                    "Found {} imports that can be moved to function scope",
+                    "Found {} imports that can be moved to function scope using semantic analysis",
                     movable_imports.len()
                 );
 
