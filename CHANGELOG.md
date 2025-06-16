@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.30](https://github.com/ophidiarium/cribo/compare/v0.4.29...v0.4.30) (2025-06-16)
+
+
+### Features
+
+* **ci:** only show rust analyzer for changed files ([#132](https://github.com/ophidiarium/cribo/issues/132)) ([5fca806](https://github.com/ophidiarium/cribo/commit/5fca8064d3491fc2fb227fbc28e4356c66bc5d57))
+* **test:** enhance snapshot framework with YAML requirements and third-party import support ([#134](https://github.com/ophidiarium/cribo/issues/134)) ([5f9aba7](https://github.com/ophidiarium/cribo/commit/5f9aba7e210c2095c60a96aecc427c2728ae923c))
+
+
+### Bug Fixes
+
+* **bundler:** preserve import aliases and prevent duplication in hoisted imports ([#135](https://github.com/ophidiarium/cribo/issues/135)) ([95d28ad](https://github.com/ophidiarium/cribo/commit/95d28adc87ac903a5b09d5c441353b23fbcf3282))
+* **test:** enforce correct fixture naming for Python execution failures ([#139](https://github.com/ophidiarium/cribo/issues/139)) ([0353e9b](https://github.com/ophidiarium/cribo/commit/0353e9b3199f4f213b4e84ceced6e583e4adcd50))
+
 ## [0.4.29](https://github.com/ophidiarium/cribo/compare/v0.4.28...v0.4.29) (2025-06-15)
 
 
