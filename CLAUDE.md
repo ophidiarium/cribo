@@ -1011,4 +1011,4 @@ If tests fail or clippy reports issues, the implementation is NOT complete until
 - Remember you have full ruff repository cloned locally at references/type-strip/ruff so you may search in files easier
 - lefhook (git hooks) config is at .lefthook.yaml
 - use bun to manage Node.js dependencies
-- CRITICAL: When asked to "resolve PR comments that you attended" - DO NOT create a new review. Instead, reply directly to the original comment threads and mark them as resolved. Creating a new review adds duplicate comments instead of resolving the existing ones.
+- CRITICAL: When asked to "resolve PR comments that you attended" - DO NOT create a new review. Instead, reply directly to the original comment threads and mark them as resolved (`gh api repos/ophidiarium/cribo/pulls/<PR#>/comments/<COMMENT_ID>/replies -X POST -f body="Addressed!..."`). Creating a new review adds duplicate comments instead of resolving the existing ones.
