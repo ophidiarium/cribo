@@ -48,18 +48,46 @@ impl SideEffectDetector {
         for stmt in &module.body {
             match stmt {
                 Stmt::Import(import_stmt) => {
-                    for alias in &import_stmt.names {
-                        let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                        self.imported_names.insert(name.to_string());
-                    }
+                    self.collect_import_names(import_stmt);
                 }
                 Stmt::ImportFrom(import_from) => {
-                    for alias in &import_from.names {
-                        let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                        self.imported_names.insert(name.to_string());
-                    }
+                    self.collect_import_from_names(import_from);
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// Helper to collect names from import statements
+    fn collect_import_names(&mut self, import_stmt: &ruff_python_ast::StmtImport) {
+        for alias in &import_stmt.names {
+            let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+            // For imports like "import xml.etree.ElementTree",
+            // we need to track both the full path and the root binding
+            self.imported_names.insert(name.to_string());
+
+            // Also track the root module name (e.g., "xml" from "xml.etree.ElementTree")
+            if let Some(root) = name.split('.').next() {
+                self.imported_names.insert(root.to_string());
+            }
+        }
+    }
+
+    /// Helper to collect names from import-from statements
+    fn collect_import_from_names(&mut self, import_from: &ruff_python_ast::StmtImportFrom) {
+        for alias in &import_from.names {
+            let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+            // Track the imported name
+            self.imported_names.insert(name.to_string());
+
+            // For "from x import y", the binding is just "y", but
+            // if it's a dotted name, also track the root
+            if name.contains('.') {
+                if let Some(root) = name.split('.').next() {
+                    self.imported_names.insert(root.to_string());
+                }
             }
         }
     }
@@ -70,6 +98,28 @@ impl SideEffectDetector {
             return false;
         }
         matches!(&assign.targets[0], Expr::Name(name) if name.id.as_str() == "__all__")
+    }
+
+    /// Check if a statement is an augmented assignment to __all__
+    fn is_all_augmented_assignment(&self, stmt: &Stmt) -> bool {
+        if let Stmt::AugAssign(aug_assign) = stmt {
+            matches!(&*aug_assign.target, Expr::Name(name) if name.id.as_str() == "__all__")
+        } else {
+            false
+        }
+    }
+
+    /// Check if an expression is a method call on __all__
+    fn is_all_method_call(&self, expr: &Expr) -> bool {
+        if let Expr::Call(call) = expr {
+            if let Expr::Attribute(attr) = &*call.func {
+                if let Expr::Name(name) = &*attr.value {
+                    // Check for __all__.extend(), __all__.append(), etc.
+                    return name.id.as_str() == "__all__";
+                }
+            }
+        }
+        false
     }
 }
 
@@ -88,10 +138,21 @@ impl<'a> Visitor<'a> for SideEffectDetector {
 
         match stmt {
             // These statements are pure definitions, no side effects
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::AnnAssign(_) => {
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
                 // Don't recurse into function/class bodies
                 // Their execution is deferred
                 return; // Important: don't call walk_stmt
+            }
+
+            // Annotated assignments need checking if they have a value
+            Stmt::AnnAssign(ann_assign) => {
+                if let Some(value) = &ann_assign.value {
+                    // Check if the assignment value has side effects
+                    self.in_expression_context = true;
+                    self.visit_expr(value);
+                    self.in_expression_context = false;
+                }
+                return; // Don't call walk_stmt
             }
 
             // Assignments need checking
@@ -122,12 +183,32 @@ impl<'a> Visitor<'a> for SideEffectDetector {
 
             // Expression statements
             Stmt::Expr(expr_stmt) => {
-                // Docstrings are safe
-                if !matches!(expr_stmt.value.as_ref(), Expr::StringLiteral(_)) {
-                    // Other expression statements have side effects
-                    self.has_side_effects = true;
-                    return;
+                // Docstrings and constant expressions are safe
+                if matches!(
+                    expr_stmt.value.as_ref(),
+                    Expr::StringLiteral(_) | Expr::NumberLiteral(_) | Expr::BooleanLiteral(_)
+                ) {
+                    return; // Safe, no side effects
                 }
+
+                // Method calls on __all__ are also safe (e.g., __all__.extend([...]))
+                if self.is_all_method_call(&expr_stmt.value) {
+                    return; // Safe metadata operation
+                }
+
+                // Other expression statements have side effects
+                self.has_side_effects = true;
+                return;
+            }
+
+            // Augmented assignments need special handling
+            Stmt::AugAssign(_) => {
+                // Check if this is an augmented assignment to __all__
+                if !self.is_all_augmented_assignment(stmt) {
+                    // Regular augmented assignments have side effects
+                    self.has_side_effects = true;
+                }
+                return; // Don't walk further
             }
 
             // These are definitely side effects
@@ -346,5 +427,86 @@ y = [(i, i * 2) for i in [1, 2, 3]]
         let module = parse_python(source).expect("Failed to parse test Python code");
         let detector = SideEffectDetector::new();
         assert!(!detector.module_has_side_effects(&module));
+    }
+
+    #[test]
+    fn test_side_effects_annotated_assignment() {
+        let source = r#"
+def get_value():
+    return 42
+
+x: int = get_value()  # Function call in annotation assignment is a side effect
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        let detector = SideEffectDetector::new();
+        assert!(detector.module_has_side_effects(&module));
+    }
+
+    #[test]
+    fn test_no_side_effects_annotated_assignment_without_value() {
+        let source = r#"
+x: int  # Just annotation, no value, no side effect
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        let detector = SideEffectDetector::new();
+        assert!(!detector.module_has_side_effects(&module));
+    }
+
+    #[test]
+    fn test_no_side_effects_all_augmented_assignment() {
+        let source = r#"
+__all__ = ["foo"]
+__all__ += ["bar"]  # Augmented assignment to __all__ is safe
+__all__ |= {"baz"}  # Set union is also safe
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        let detector = SideEffectDetector::new();
+        assert!(!detector.module_has_side_effects(&module));
+    }
+
+    #[test]
+    fn test_no_side_effects_all_method_calls() {
+        let source = r#"
+__all__ = []
+__all__.extend(["foo", "bar"])  # Method call on __all__ is safe
+__all__.append("baz")  # Also safe
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        let detector = SideEffectDetector::new();
+        assert!(!detector.module_has_side_effects(&module));
+    }
+
+    #[test]
+    fn test_side_effects_regular_augmented_assignment() {
+        let source = r#"
+x = 0
+x += 1  # Regular augmented assignment is a side effect
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        let detector = SideEffectDetector::new();
+        assert!(detector.module_has_side_effects(&module));
+    }
+
+    #[test]
+    fn test_no_side_effects_constant_expressions() {
+        let source = r#"
+42  # Bare number
+"hello"  # Bare string
+True  # Bare boolean
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        let detector = SideEffectDetector::new();
+        assert!(!detector.module_has_side_effects(&module));
+    }
+
+    #[test]
+    fn test_imported_name_root_binding() {
+        let source = r#"
+import xml.etree.ElementTree
+x = xml  # Using the root binding should be detected as side effect
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        let detector = SideEffectDetector::new();
+        assert!(detector.module_has_side_effects(&module));
     }
 }

@@ -361,8 +361,9 @@ impl HybridStaticBundler {
     /// Check if a module AST has side effects (executable code at top level)
     /// Returns true if the module has side effects beyond simple definitions
     pub fn has_side_effects(ast: &ModModule) -> bool {
-        let detector = SideEffectDetector::new();
-        detector.module_has_side_effects(ast)
+        // Create detector inline to check for side effects
+        // The detector needs to maintain state during traversal, so we can't make it fully static
+        SideEffectDetector::new().module_has_side_effects(ast)
     }
 
     /// Generate synthetic module name using content hash
