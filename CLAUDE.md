@@ -2,19 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Important: Continuous Knowledge Updates
-
-**ALWAYS update this CLAUDE.md file during development tasks when you learn:**
-
-- New project-specific patterns or conventions
-- Solutions to common problems or edge cases
-- Debugging techniques specific to this codebase
-- Tool usage patterns that improve efficiency
-- Review feedback patterns that could help future development
-- Architecture decisions and their rationale
-
-**When to update:** Don't wait until task completion - update immediately when you discover useful knowledge that would benefit future development sessions. This ensures knowledge continuity across different coding sessions.
-
 ## 🚨 LEVEL 0: PRIME DIRECTIVES (ALWAYS ACTIVE)
 
 ### 1. DESTRUCTION REQUIRES VERIFICATION
