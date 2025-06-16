@@ -602,9 +602,6 @@ cribo --entry main.py --stdout
 # Pipe to tools for analysis
 cribo --entry main.py --stdout | python -m py_compile -
 
-# Save to custom location with shell redirection
-cribo --entry main.py --stdout > /path/to/bundle.py
-
 # Combine with verbose logging (logs go to stderr, code to stdout)
 cribo --entry main.py --stdout -vv
 ```
@@ -715,27 +712,7 @@ cargo insta accept
 - **`bundled_code@my_new_feature.snap`**: Clean Python code showing bundling structure
 - **`execution_results@my_new_feature.snap`**: Structured execution results with status/output
 
-**When to Use This Framework**:
-
-- ✅ **New bundling features** (import handling, transformations, etc.)
-- ✅ **Regression testing** for existing functionality
-- ✅ **Integration testing** requiring end-to-end bundling + execution
-- ✅ **Cross-platform validation** (consistent Python output)
-
-**When NOT to Use**:
-
-- ❌ **Unit tests** for individual functions (use direct unit tests)
-- ❌ **Parser-only testing** (use AST unit tests)
-- ❌ **Error condition testing** (use targeted error tests)
-
-**Framework Benefits**:
-
-- 🎯 **Zero Code Required**: Add fixture directory → get comprehensive tests
-- 📸 **Dual Verification**: Both bundling correctness AND runtime behavior
-- 🔄 **Automatic Maintenance**: New fixtures auto-discovered, no test code updates
-- 🐛 **Excellent Debugging**: Separate snapshots pinpoint bundling vs execution issues
-- 📊 **Great Diffs**: insta provides excellent change visualization
-- 🚀 **Scales Infinitely**: Supports unlimited test cases with no code growth
+**ALWAYS** prefer this framework when creating a new functionality or fixing a newly discovered regression.
 
 **Snapshot Technology**:
 
@@ -946,15 +923,6 @@ cargo insta test --unreferenced=warn
   - Example: `mcp__docs-manager__edit_document --path=doc.md --edits=[...]`
   - Provides git-style diff output showing changes
 
-**Functions with Token Limitations** (WORKS BUT LARGE OUTPUT):
-
-- ⚠️ **`mcp__docs-manager__generate_documentation_navigation`** - Works but may exceed 25k token limit
-  - Use for: Generating navigation structure for large doc sets
-  - May need filtering or pagination for large repositories
-- ⚠️ **`mcp__docs-manager__check_documentation_health`** - Works but may exceed 25k token limit
-  - Use for: Analyzing documentation quality and finding issues
-  - May need path-specific targeting for large repositories
-
 **Docs-Manager Recommendations**:
 
 - **Use for core documentation workflows**: Reading, writing, editing, listing, and searching work excellently
@@ -986,6 +954,58 @@ cargo clippy --workspace --all-targets
 
 If tests fail or clippy reports issues, the implementation is NOT complete until these are resolved.
 
+## 📑 MANDATORY: Handling GitHub PR Review Comment(s)
+
+1. When given an URL - parse the incoming URL
+
+```text
+https://github.com/ophidiarium/cribo/pull/<PR#>#discussion_r<COMMENT_ID>
+```
+
+- `<PR#>` → digits between `/pull/` and `#`.
+- `<COMMENT_ID>` → digits after `discussion_r`.
+
+2. Fetch the comment body
+
+```bash
+GH_PAGER=cat gh api repos/ophidiarium/cribo/pulls/comments/<COMMENT_ID> \
+  --template '
+id:          {{ printf "%.0f" .id }}
+author:      {{ .user.login }}
+created_at:  {{ .created_at }}
+--- BEGIN_BODY ---
+{{ .body }}
+--- END_BODY ---'
+```
+
+The text between BEGIN_BODY/END_BODY is what you must act on.
+
+3. Apply every suggestion immediately
+
+- Treat even “nitpick” remarks as mandatory.
+- Do not leave TODOs, placeholders, or defer fixes.
+
+4. Commit & push
+
+Use `mcp__git__git_add`, `mcp__git__git_commit` and `mcp__git__git_push` MCP tools.
+
+5.Reply directly to that comment
+
+- DO NOT create a new review
+- DO NOT add a top level issue comment
+- REPLY DIRECTLY AND SPECIFICALLY to the original comment:
+
+```bash
+gh api repos/ophidiarium/cribo/pulls/<PR#>/comments/<COMMENT_ID>/replies \
+  -X POST -f body="✅ Addressed in <hash>. Thanks!"
+```
+
+*Replace `<hash>` with the short commit SHA.*
+
+**Follow these five steps exactly to process a GitHub review comment.**
+
+NOTE: if asked to attend all comments use `mcp__github__get_pull_request_comments` to fetch comments, organized them, but then attend each one systematically following this workflow.
+
 ## 🧠 WORKFLOW MEMORY AIDS
 
 ### Recovery Procedures
@@ -1010,5 +1030,4 @@ If tests fail or clippy reports issues, the implementation is NOT complete until
 - MANDATORY: When addressing a clippy issue, never treat `#[allow]` annotations as a solution—perform actual refactoring to resolve the issue
 - Remember you have full ruff repository cloned locally at references/type-strip/ruff so you may search in files easier
 - lefhook (git hooks) config is at .lefthook.yaml
-- use bun to manage Node.js dependencies
-- CRITICAL: When asked to "resolve PR comments that you attended" - DO NOT create a new review. Instead, reply directly to the original comment threads and mark them as resolved (`gh api repos/ophidiarium/cribo/pulls/<PR#>/comments/<COMMENT_ID>/replies -X POST -f body="Addressed!..."`). Creating a new review adds duplicate comments instead of resolving the existing ones.
+- use `bun` to manage Node.js dependencies and `bunx` to run npm packages
