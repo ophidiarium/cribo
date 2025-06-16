@@ -12,7 +12,7 @@ import types
 """\nBase model functionality with relative import conflicts\n"""
 result_2 = "base_result"
 process_2 = "base_process_string"
-class BaseModel_models_base:
+class BaseModel:
     """Base model class with method name conflicts"""
 
     def __init__(self, model_type: str):
@@ -40,10 +40,10 @@ class BaseModel_models_base:
         self.initialized = True
         result_2 = f"base_initialized_{self.model_type}"
         return result_2
-def initialize_models_base() -> str:
+def initialize() -> str:
     """Module initialization function"""
     global result_2
-    base = BaseModel_models_base("default")
+    base = BaseModel("default")
     init_result = base.initialize()
     logger = Logger_2("base_init")
     logger._log_process("Base module initialized")
@@ -79,9 +79,9 @@ class Logger_1:
 def connect_1() -> str:
     """Base connect function"""
     return "base_connected"
-def shadow_test_models_base(validate: Any=None, process: Any=None, Logger: Any=None, result: Any=None, initialize: Any=None) -> Dict[str, Any]:
+def shadow_test(validate: Any=None, process: Any=None, Logger: Any=None, result: Any=None, initialize: Any=None) -> Dict[str, Any]:
     """Function that shadows all major conflict names with parameters"""
-    shadows = {"validate_param": validate_2, "process_param": process_2, "Logger_param": Logger_1, "result_param": result_2, "initialize_param": initialize_models_base}
+    shadows = {"validate_param": validate_2, "process_param": process_2, "Logger_param": Logger_1, "result_param": result_2, "initialize_param": initialize}
     validate_2 = globals()["validate"]
     process_2 = globals()["process"]
     Logger_1 = globals()["Logger"]
@@ -93,7 +93,7 @@ def shadow_test_models_base(validate: Any=None, process: Any=None, Logger: Any=N
 validate_2 = validate_2
 process_2 = process_2
 Logger_1 = Logger_1
-initialize_models_base_1 = initialize_models_base
+initialize_models_base = initialize
 process_3 = "models_process_string"
 validate_3 = "models_validate_string"
 connection_2 = "models_connection_string"
@@ -165,7 +165,7 @@ class User_2:
         global connection_3
         connection_3 = f"user_model_connection_{self.name}"
         return connection_3
-def process_user_models_user(data: Any) -> str:
+def process_user(data: Any) -> str:
     """Module function with naming conflicts"""
     global result_3
     Logger_2 = globals()["Logger"]
@@ -186,7 +186,7 @@ def validate_4(user_data: Dict[str, Any]) -> bool:
 def process_4(data: Any) -> str:
     """Module process function - major conflict"""
     if isinstance(data, dict):
-        return process_user_models_user(data)
+        return process_user(data)
     else:
         return f"model_process_generic: {data}"
 class Connection_2:
@@ -206,7 +206,7 @@ class Connection_2:
 def connect_2(User: "User") -> Connection_2:
     """Module connect function with parameter conflicts"""
     return Connection_2(User_2)
-def complex_operation_models_user(User: Any=None, Logger: Any=None, process: Any=None, validate: Any=None, result: Any=None, connection: Any=None) -> Dict[str, Any]:
+def complex_operation(User: Any=None, Logger: Any=None, process: Any=None, validate: Any=None, result: Any=None, connection: Any=None) -> Dict[str, Any]:
     """Function with all parameter names conflicting with globals/classes"""
     operation_result = {"user_param": User_2, "logger_param": Logger_2, "process_param": process_4, "validate_param": validate_4, "result_param": result_3, "connection_param": connection_3}
     User_2 = globals()["User"]
@@ -282,7 +282,7 @@ class Connection_5:
 def connect_4() -> Connection_5:
     """Utility connect function"""
     return Connection_5("helper")
-def process_with_conflicts_core_utils_helpers(data: Any, User: str="param_user", result: int=100, Logger: Any=None) -> Dict[str, Any]:
+def process_with_conflicts(data: Any, User: str="param_user", result: int=100, Logger: Any=None) -> Dict[str, Any]:
     """Function with parameter names that conflict with globals and imports"""
     connection = connect_4()
     validate_result = validate_6(data)
@@ -316,7 +316,7 @@ def process_7(data):
     """Database process function - conflicts with other process functions"""
     global result_8
     validated = validate_6(data)
-    user_result = process_user_models_user(data)
+    user_result = process_user(data)
     processed = {"db_process": True, "data": validated, "user_processing": user_result, "timestamp": "2024-01-01"}
     result_8.append(processed)
     return f"db_processed: {data}"
@@ -346,12 +346,12 @@ def __cribo_init___cribo_49b92c_services_auth_manager():
     base = types.SimpleNamespace()
     base.result = result_2
     base.process = process_2
-    base.BaseModel = BaseModel_models_base
-    base.initialize = initialize_models_base_1
+    base.BaseModel = BaseModel
+    base.initialize = initialize_models_base
     base.validate = validate_2
     base.Logger = Logger_1
     base.connect = connect_1
-    base.shadow_test = shadow_test_models_base
+    base.shadow_test = shadow_test
     result = "auth_result"
     module.result = result
     validate = lambda x: f"auth_lambda_validate: {x}"
@@ -524,17 +524,16 @@ auth_process = sys.modules['services.auth.manager'].process
 User = sys.modules['services.auth.manager'].User
 auth_validate = sys.modules['services.auth.manager'].validate
 UserModel = User_2
-process_user = process_user_models_user
 Logger = Logger_2
 base = types.SimpleNamespace()
 base.result = result_2
 base.process = process_2
-base.BaseModel = BaseModel_models_base
-base.initialize = initialize_models_base_1
+base.BaseModel = BaseModel
+base.initialize = initialize_models_base
 base.validate = validate_2
 base.Logger = Logger_1
 base.connect = connect_1
-base.shadow_test = shadow_test_models_base
+base.shadow_test = shadow_test
 result_1 = 42
 result = result_1
 connection_1 = None

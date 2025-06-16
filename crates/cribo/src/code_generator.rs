@@ -4040,23 +4040,10 @@ impl HybridStaticBundler {
             }
         }) {
             // Add each symbol from the module to the namespace
-            let module_suffix = params.inlined_module_key.cow_replace('.', "_");
             for (original_name, renamed_name) in module_renames {
-                // Check if this is an identity mapping (no semantic rename)
-                let actual_renamed_name = if renamed_name == original_name {
-                    // No semantic rename, apply module suffix pattern
-                    
-                    self.get_unique_name_with_module_suffix(original_name, &module_suffix)
-                } else {
-                    // Use the semantic rename
-                    renamed_name.clone()
-                };
-                self.add_symbol_to_namespace(
-                    params.local_name,
-                    original_name,
-                    &actual_renamed_name,
-                    body,
-                );
+                // The renamed_name here is what was actually used when inlining the module
+                // We should use it as-is since conflict checking was already done during inlining
+                self.add_symbol_to_namespace(params.local_name, original_name, renamed_name, body);
             }
         } else {
             log::warn!(
@@ -4743,27 +4730,46 @@ impl HybridStaticBundler {
                                 );
                                 new_name.clone()
                             } else {
-                                // Semantic rename is same as original, use module suffix pattern
+                                // Semantic rename is same as original, check if there's a conflict
+                                if ctx.global_symbols.contains(&func_name) {
+                                    // There's a conflict, apply module suffix pattern
+                                    let base_name = self.get_unique_name_with_module_suffix(
+                                        &func_name,
+                                        module_name,
+                                    );
+                                    self.get_unique_name(&base_name, ctx.global_symbols)
+                                } else {
+                                    // No conflict, use original name
+                                    func_name.clone()
+                                }
+                            }
+                        } else {
+                            // No semantic rename, check if there's a conflict
+                            if ctx.global_symbols.contains(&func_name) {
+                                // There's a conflict, apply module suffix pattern
                                 let base_name = self
                                     .get_unique_name_with_module_suffix(&func_name, module_name);
                                 self.get_unique_name(&base_name, ctx.global_symbols)
+                            } else {
+                                // No conflict, use original name
+                                func_name.clone()
                             }
-                        } else {
-                            // No semantic rename, use module suffix pattern
+                        }
+                    } else {
+                        // No semantic rename, check if there's a conflict
+                        if ctx.global_symbols.contains(&func_name) {
+                            // There's a conflict, apply module suffix pattern
                             let base_name =
                                 self.get_unique_name_with_module_suffix(&func_name, module_name);
                             self.get_unique_name(&base_name, ctx.global_symbols)
+                        } else {
+                            // No conflict, use original name
+                            func_name.clone()
                         }
-                    } else {
-                        // No semantic rename, use module suffix pattern
-                        let base_name =
-                            self.get_unique_name_with_module_suffix(&func_name, module_name);
-                        self.get_unique_name(&base_name, ctx.global_symbols)
                     };
 
-                    if renamed_name != func_name {
-                        module_renames.insert(func_name.clone(), renamed_name.clone());
-                    }
+                    // Always track the symbol mapping, even if not renamed
+                    module_renames.insert(func_name.clone(), renamed_name.clone());
                     ctx.global_symbols.insert(renamed_name.clone());
 
                     // Clone and rename the function
@@ -5061,29 +5067,30 @@ impl HybridStaticBundler {
                 {
                     // This is a globals()["..."] access
                     if let Expr::StringLiteral(string_lit) = subscript.slice.as_ref()
-                        && let Some(first_lit) = string_lit.value.iter().next() {
-                            let symbol_name = &*first_lit.value;
-                            if let Some(renamed) = module_renames.get(symbol_name) {
-                                // Replace the string literal with the renamed symbol
-                                log::debug!(
-                                    "Rewriting globals()[{symbol_name:?}] to globals()[{renamed:?}]"
-                                );
-                                *expr = Expr::Subscript(ExprSubscript {
-                                    value: subscript.value.clone(),
-                                    slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
-                                        value: StringLiteralValue::single(StringLiteral {
-                                            value: renamed.clone().into_boxed_str(),
-                                            range: TextRange::default(),
-                                            flags: StringLiteralFlags::empty(),
-                                        }),
+                        && let Some(first_lit) = string_lit.value.iter().next()
+                    {
+                        let symbol_name = &*first_lit.value;
+                        if let Some(renamed) = module_renames.get(symbol_name) {
+                            // Replace the string literal with the renamed symbol
+                            log::debug!(
+                                "Rewriting globals()[{symbol_name:?}] to globals()[{renamed:?}]"
+                            );
+                            *expr = Expr::Subscript(ExprSubscript {
+                                value: subscript.value.clone(),
+                                slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                                    value: StringLiteralValue::single(StringLiteral {
+                                        value: renamed.clone().into_boxed_str(),
                                         range: TextRange::default(),
-                                    })),
-                                    ctx: subscript.ctx,
-                                    range: subscript.range,
-                                });
-                                return;
-                            }
+                                        flags: StringLiteralFlags::empty(),
+                                    }),
+                                    range: TextRange::default(),
+                                })),
+                                ctx: subscript.ctx,
+                                range: subscript.range,
+                            });
+                            return;
                         }
+                    }
                 }
 
                 // Default handling
@@ -5398,7 +5405,8 @@ impl HybridStaticBundler {
             // These need to be stored for later generation
             if self.module_registry.contains_key(&resolved) {
                 log::debug!(
-                    "Found import from wrapper module '{resolved}' in namespace hybrid module '{module_name}'"
+                    "Found import from wrapper module '{resolved}' in namespace hybrid module \
+                     '{module_name}'"
                 );
 
                 // Store wrapper imports for later generation
@@ -5411,8 +5419,8 @@ impl HybridStaticBundler {
                         .unwrap_or(imported_name);
 
                     log::debug!(
-                        "Skipping wrapper import: {local_name} = sys.modules['{resolved}'].{imported_name} (not using namespace \
-                         approach)"
+                        "Skipping wrapper import: {local_name} = \
+                         sys.modules['{resolved}'].{imported_name} (not using namespace approach)"
                     );
                 }
                 return;
@@ -5796,7 +5804,7 @@ impl HybridStaticBundler {
                             // Check if this is an identity mapping (no semantic rename)
                             let actual_renamed_name = if renamed_name == original_name {
                                 // No semantic rename, apply module suffix pattern
-                                
+
                                 self.get_unique_name_with_module_suffix(
                                     original_name,
                                     &module_suffix,
@@ -5829,8 +5837,8 @@ impl HybridStaticBundler {
                     } else {
                         // Fallback: try to guess the renamed symbols based on module suffix
                         log::warn!(
-                            "No symbol renames found for inlined module '{full_module_path}', namespace will be \
-                             empty"
+                            "No symbol renames found for inlined module '{full_module_path}', \
+                             namespace will be empty"
                         );
                     }
                 }
@@ -6377,25 +6385,43 @@ impl HybridStaticBundler {
                     );
                     new_name.clone()
                 } else {
-                    // Semantic rename is same as original, use module suffix pattern
+                    // Semantic rename is same as original, check if there's a conflict
+                    if ctx.global_symbols.contains(&class_name) {
+                        // There's a conflict, apply module suffix pattern
+                        let base_name =
+                            self.get_unique_name_with_module_suffix(&class_name, module_name);
+                        self.get_unique_name(&base_name, ctx.global_symbols)
+                    } else {
+                        // No conflict, use original name
+                        class_name.clone()
+                    }
+                }
+            } else {
+                // No semantic rename, check if there's a conflict
+                if ctx.global_symbols.contains(&class_name) {
+                    // There's a conflict, apply module suffix pattern
                     let base_name =
                         self.get_unique_name_with_module_suffix(&class_name, module_name);
                     self.get_unique_name(&base_name, ctx.global_symbols)
+                } else {
+                    // No conflict, use original name
+                    class_name.clone()
                 }
-            } else {
-                // No semantic rename, use module suffix pattern
-                let base_name = self.get_unique_name_with_module_suffix(&class_name, module_name);
-                self.get_unique_name(&base_name, ctx.global_symbols)
             }
         } else {
-            // No semantic rename, use module suffix pattern
-            let base_name = self.get_unique_name_with_module_suffix(&class_name, module_name);
-            self.get_unique_name(&base_name, ctx.global_symbols)
+            // No semantic rename, check if there's a conflict
+            if ctx.global_symbols.contains(&class_name) {
+                // There's a conflict, apply module suffix pattern
+                let base_name = self.get_unique_name_with_module_suffix(&class_name, module_name);
+                self.get_unique_name(&base_name, ctx.global_symbols)
+            } else {
+                // No conflict, use original name
+                class_name.clone()
+            }
         };
 
-        if renamed_name != class_name {
-            module_renames.insert(class_name.clone(), renamed_name.clone());
-        }
+        // Always track the symbol mapping, even if not renamed
+        module_renames.insert(class_name.clone(), renamed_name.clone());
         ctx.global_symbols.insert(renamed_name.clone());
 
         // Clone and rename the class
@@ -6447,24 +6473,41 @@ impl HybridStaticBundler {
                     );
                     new_name.clone()
                 } else {
-                    // Semantic rename is same as original, use module suffix pattern
-                    let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                    self.get_unique_name(&base_name, ctx.global_symbols)
+                    // Semantic rename is same as original, check if there's a conflict
+                    if ctx.global_symbols.contains(&name) {
+                        // There's a conflict, apply module suffix pattern
+                        let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
+                        self.get_unique_name(&base_name, ctx.global_symbols)
+                    } else {
+                        // No conflict, use original name
+                        name.clone()
+                    }
                 }
             } else {
-                // No semantic rename, use module suffix pattern
-                let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                self.get_unique_name(&base_name, ctx.global_symbols)
+                // No semantic rename, check if there's a conflict
+                if ctx.global_symbols.contains(&name) {
+                    // There's a conflict, apply module suffix pattern
+                    let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
+                    self.get_unique_name(&base_name, ctx.global_symbols)
+                } else {
+                    // No conflict, use original name
+                    name.clone()
+                }
             }
         } else {
-            // No semantic rename, use module suffix pattern
-            let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-            self.get_unique_name(&base_name, ctx.global_symbols)
+            // No semantic rename, check if there's a conflict
+            if ctx.global_symbols.contains(&name) {
+                // There's a conflict, apply module suffix pattern
+                let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
+                self.get_unique_name(&base_name, ctx.global_symbols)
+            } else {
+                // No conflict, use original name
+                name.clone()
+            }
         };
 
-        if renamed_name != name {
-            module_renames.insert(name.clone(), renamed_name.clone());
-        }
+        // Always track the symbol mapping, even if not renamed
+        module_renames.insert(name.clone(), renamed_name.clone());
         ctx.global_symbols.insert(renamed_name.clone());
 
         // Apply the rename to the LHS
@@ -6493,11 +6536,54 @@ impl HybridStaticBundler {
             return;
         }
 
-        // Use module suffix pattern for consistency
-        let base_name = self.get_unique_name_with_module_suffix(&var_name, module_name);
-        let renamed_name = self.get_unique_name(&base_name, ctx.global_symbols);
+        // Check if this symbol was renamed by semantic analysis
+        let renamed_name = if let Some(module_rename_map) = ctx.module_renames.get(module_name) {
+            if let Some(new_name) = module_rename_map.get(&var_name) {
+                // Only use semantic rename if it's actually different
+                if new_name != &var_name {
+                    log::debug!(
+                        "Using semantic rename for annotated variable '{var_name}' to \
+                         '{new_name}' in module '{module_name}'"
+                    );
+                    new_name.clone()
+                } else {
+                    // Semantic rename is same as original, check if there's a conflict
+                    if ctx.global_symbols.contains(&var_name) {
+                        // There's a conflict, apply module suffix pattern
+                        let base_name =
+                            self.get_unique_name_with_module_suffix(&var_name, module_name);
+                        self.get_unique_name(&base_name, ctx.global_symbols)
+                    } else {
+                        // No conflict, use original name
+                        var_name.clone()
+                    }
+                }
+            } else {
+                // No semantic rename, check if there's a conflict
+                if ctx.global_symbols.contains(&var_name) {
+                    // There's a conflict, apply module suffix pattern
+                    let base_name = self.get_unique_name_with_module_suffix(&var_name, module_name);
+                    self.get_unique_name(&base_name, ctx.global_symbols)
+                } else {
+                    // No conflict, use original name
+                    var_name.clone()
+                }
+            }
+        } else {
+            // No semantic rename, check if there's a conflict
+            if ctx.global_symbols.contains(&var_name) {
+                // There's a conflict, apply module suffix pattern
+                let base_name = self.get_unique_name_with_module_suffix(&var_name, module_name);
+                self.get_unique_name(&base_name, ctx.global_symbols)
+            } else {
+                // No conflict, use original name
+                var_name.clone()
+            }
+        };
+
+        // Always track the symbol mapping, even if not renamed
+        module_renames.insert(var_name.clone(), renamed_name.clone());
         if renamed_name != var_name {
-            module_renames.insert(var_name.clone(), renamed_name.clone());
             log::debug!(
                 "Renaming annotated variable '{var_name}' to '{renamed_name}' in module \
                  '{module_name}'"
