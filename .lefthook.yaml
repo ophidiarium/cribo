@@ -41,6 +41,9 @@ pre-commit:
     renovate:
       glob: 'renovate.json'
       run: npx -y --package renovate renovate-config-validator renovate.json
+    actionlint:
+      glob: '.github/workflows/*.{yaml,yml}'
+      run: actionlint {staged_files}
     release-please:
       glob: release-please-config.json
       run: uvx check-jsonschema --schemafile https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json release-please-config.json
