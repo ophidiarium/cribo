@@ -2,6 +2,72 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important: Continuous Knowledge Updates
+
+**ALWAYS update this CLAUDE.md file during development tasks when you learn:**
+
+- New project-specific patterns or conventions
+- Solutions to common problems or edge cases
+- Debugging techniques specific to this codebase
+- Tool usage patterns that improve efficiency
+- Review feedback patterns that could help future development
+- Architecture decisions and their rationale
+
+**When to update:** Don't wait until task completion - update immediately when you discover useful knowledge that would benefit future development sessions. This ensures knowledge continuity across different coding sessions.
+
+## 🚨 LEVEL 0: PRIME DIRECTIVES (ALWAYS ACTIVE)
+
+### 1. DESTRUCTION REQUIRES VERIFICATION
+
+**After ANY deletion:** STOP → Test impact → Show proof
+
+- Deleted tests/? → Run test suite and show output
+- Deleted docs/? → Build docs and show result
+- Deleted ANY directory? → Prove system still works
+
+### 2. CLAIMS REQUIRE EVIDENCE
+
+**Never say "it works" without showing:**
+
+- Actual command executed
+- Actual output produced
+- Actual files verified to exist
+
+### 3. USER CONTEXT SUPREMACY
+
+- User's environment truth > Your assumptions
+- User's "this doesn't work" > Your "it should work"
+- Local reality > Theoretical correctness
+
+### 4. PATH PORTABILITY
+
+- No hardcoded user paths ("/Users/john/", "C:\Users\jane\")
+- Use: $HOME, ~, relative paths, environment variables
+- Universal code works in any environment
+
+---
+
+## 🧠 LEVEL 0.5: SEQUENTIAL THINKING REQUIREMENT (AUTO-ACTIVATED)
+
+### FOR ANY MULTI-STEP OPERATION:
+
+**MUST use Sequential Thinking tool BEFORE execution:**
+
+1. Problem Definition → What exactly am I trying to solve?
+2. Sub-task Decomposition → Break into atomic steps
+3. Dependency Analysis → What depends on what?
+4. Alternative Paths → What if this approach fails?
+5. Risk Assessment → What could go wrong?
+
+**Triggers:**
+
+- Any operation involving 3+ steps
+- Any deletion operation
+- Any "cleanup" or "organization" task
+- Any operation modifying 5+ files
+
+---
+
 ## 🚨 CRITICAL: MANDATORY WORKFLOWS (NEVER SKIP)
 
 ### Workflow Discipline Requirements
