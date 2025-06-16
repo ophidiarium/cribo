@@ -32,13 +32,15 @@ Documentation = "https://github.com/ophidiarium/cribo#readme"
 Issues = "https://github.com/ophidiarium/cribo/issues"
 
 [dependency-groups]
-test = ["pytest", "pytest-cov"]
 dev = [
     "lefthook>=1.11.13",
     "maturin",
+    "vale>=3.11.2.0",
+]
+# dependencies used for fixtures testing
+fixtures = [
     "pandera[io,polars,pyspark]>=0.22.1",
     "pydantic[email,timezone]>=2.5.3",
-    "vale>=3.11.2.0",
 ]
 
 [tool.maturin]
@@ -48,4 +50,10 @@ manifest-path = "crates/cribo/Cargo.toml"
 
 [tool.uv]
 link-mode = "symlink"
-default-groups = ["test", "dev"]
+prerelease = "if-necessary-or-explicit"
+default-groups = ["dev", "fixtures"]
+required-environments = [
+    "sys_platform == 'linux'",
+    "sys_platform == 'win32'",
+    "sys_platform == 'darwin'",
+]
