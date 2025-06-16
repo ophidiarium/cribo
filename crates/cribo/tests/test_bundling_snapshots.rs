@@ -180,8 +180,25 @@ fn test_bundling_fixtures() {
             (false, true, _) => {
                 // Continue to bundling
             }
-            // xfail_: Python execution doesn't matter, will check bundling later
-            (_, false, true) => {
+            // xfail_: Python execution MUST succeed (only bundling should fail)
+            (false, false, true) => {
+                let stderr = String::from_utf8_lossy(&original_output.stderr);
+                let stdout = String::from_utf8_lossy(&original_output.stdout);
+
+                panic!(
+                    "Fixture '{}' with xfail_ prefix failed Python execution, but it should only fail bundling.\n\
+                    If the original Python code has errors, use pyfail_ prefix instead.\n\
+                    Exit code: {}\n\
+                    Stdout:\n{}\n\
+                    Stderr:\n{}\n",
+                    fixture_name,
+                    original_output.status.code().unwrap_or(-1),
+                    stdout.trim(),
+                    stderr.trim()
+                );
+            }
+            // xfail_: Python succeeded, will check bundling failure later
+            (true, false, true) => {
                 // Continue to bundling
             }
             // Normal fixture: MUST succeed in Python execution
@@ -225,8 +242,9 @@ fn test_bundling_fixtures() {
         // Bundle the fixture with requirements generation
         if let Err(e) = bundler.bundle(path, &bundle_path, true) {
             // xfail_: bundling failures are expected
-            if expects_bundling_failure {
-                // The fixture is expected to fail, so bundling failure is OK
+            // pyfail_: bundling failures are allowed (but not required)
+            if expects_bundling_failure || expects_python_failure {
+                // The fixture is expected to fail bundling (xfail_) or allowed to fail bundling (pyfail_)
                 // We'll create a simple error output for the snapshot
                 let error_msg = format!("Bundling failed as expected: {}", e);
 
