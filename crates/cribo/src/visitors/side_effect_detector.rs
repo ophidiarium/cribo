@@ -314,7 +314,13 @@ impl<'a> Visitor<'a> for ExpressionSideEffectDetector {
 
         match expr {
             // These expressions have side effects
-            Expr::Call(_) | Expr::Attribute(_) | Expr::Subscript(_) => {
+            Expr::Call(_)
+            | Expr::Attribute(_)
+            | Expr::Subscript(_)
+            | Expr::Await(_)
+            | Expr::Yield(_)
+            | Expr::YieldFrom(_)
+            | Expr::Lambda(_) => {
                 self.has_side_effects = true;
                 return;
             }
