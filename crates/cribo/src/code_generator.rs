@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cribo_graph::CriboGraph as DependencyGraph;
 use crate::semantic_bundler::{ModuleGlobalInfo, SemanticBundler, SymbolRegistry};
-use crate::visitors::SideEffectDetector;
+use crate::visitors::{ImportDiscoveryVisitor, SideEffectDetector};
 
 /// Type alias for IndexMap with FxHasher for better performance
 type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
@@ -521,6 +521,36 @@ impl HybridStaticBundler {
             self.collect_future_imports_from_ast(ast);
         }
 
+        // Check which modules import from other first-party modules BEFORE trimming imports
+        let mut modules_importing_firstparty = FxIndexSet::default();
+        let all_module_names: FxIndexSet<String> = params
+            .modules
+            .iter()
+            .map(|(name, _, _, _)| name.clone())
+            .collect();
+
+        for (module_name, ast, _, _) in &params.modules {
+            let mut import_visitor = ImportDiscoveryVisitor::new();
+            import_visitor.visit_module(ast);
+            let discovered_imports = import_visitor.into_imports();
+
+            for import in discovered_imports {
+                if let Some(imported_module) = &import.module_name {
+                    // Check if this is a first-party module (excluding self)
+                    if imported_module != module_name && all_module_names.contains(imported_module)
+                    {
+                        log::debug!(
+                            "Module '{}' imports first-party module '{}' - cannot be inlined",
+                            module_name,
+                            imported_module
+                        );
+                        modules_importing_firstparty.insert(module_name.clone());
+                        break;
+                    }
+                }
+            }
+        }
+
         // Second pass: trim unused imports from all modules
         let modules = self.trim_unused_imports_from_modules(params.modules, params.graph)?;
 
@@ -578,9 +608,11 @@ impl HybridStaticBundler {
             // 2. It's never imported directly (only from X import Y style)
             // 3. It's not imported as a namespace
             // 4. It doesn't have function-scoped imports (from import rewriting)
+            // 5. It doesn't import from other first-party modules
             let has_side_effects = Self::has_side_effects(ast);
             let is_directly_imported = directly_imported_modules.contains(module_name);
             let has_function_imports = modules_with_function_imports.contains(module_name);
+            let imports_firstparty = modules_importing_firstparty.contains(module_name);
 
             if is_namespace_imported {
                 // Module is imported as namespace - use hybrid approach
@@ -594,13 +626,19 @@ impl HybridStaticBundler {
                     module_path.clone(),
                     content_hash.clone(),
                 ));
-            } else if has_side_effects || is_directly_imported || has_function_imports {
+            } else if has_side_effects
+                || is_directly_imported
+                || has_function_imports
+                || imports_firstparty
+            {
                 let reason = if has_side_effects {
                     "has side effects"
                 } else if is_directly_imported {
                     "is imported directly"
-                } else {
+                } else if has_function_imports {
                     "has function-scoped imports"
+                } else {
+                    "imports from other first-party modules"
                 };
                 log::debug!(
                     "Module '{}' {} - using wrapper approach",
@@ -3627,6 +3665,28 @@ impl HybridStaticBundler {
 
             if importing_submodule {
                 // We're importing a submodule, not an attribute
+                // First, ensure the submodule is initialized if it's a wrapper module
+                if let Some(synthetic_name) = self.module_registry.get(&full_module_path) {
+                    // Add initialization call: __cribo_init_<synthetic>()
+                    let init_func_name = format!("__cribo_init_{}", synthetic_name);
+                    assignments.push(Stmt::Expr(ruff_python_ast::StmtExpr {
+                        value: Box::new(Expr::Call(ExprCall {
+                            func: Box::new(Expr::Name(ExprName {
+                                id: init_func_name.into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            arguments: Arguments {
+                                args: Box::from([]),
+                                keywords: Box::from([]),
+                                range: TextRange::default(),
+                            },
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    }));
+                }
+
                 // Create: target = sys.modules['module.submodule']
                 log::debug!(
                     "Importing submodule '{}' from '{}' via from import",
@@ -3658,6 +3718,28 @@ impl HybridStaticBundler {
                 }));
             } else {
                 // Regular attribute import
+                // First, ensure the module is initialized if it's a wrapper module
+                if let Some(synthetic_name) = self.module_registry.get(module_name) {
+                    // Add initialization call: __cribo_init_<synthetic>()
+                    let init_func_name = format!("__cribo_init_{}", synthetic_name);
+                    assignments.push(Stmt::Expr(ruff_python_ast::StmtExpr {
+                        value: Box::new(Expr::Call(ExprCall {
+                            func: Box::new(Expr::Name(ExprName {
+                                id: init_func_name.into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            arguments: Arguments {
+                                args: Box::from([]),
+                                keywords: Box::from([]),
+                                range: TextRange::default(),
+                            },
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    }));
+                }
+
                 // Create: target = sys.modules['module'].imported_name
                 assignments.push(Stmt::Assign(StmtAssign {
                     targets: vec![Expr::Name(ExprName {

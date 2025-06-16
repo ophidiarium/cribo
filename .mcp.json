@@ -46,6 +46,19 @@
                 "yaml-language-server",
                 "--stdio"
             ]
+        },
+        "lsp-ast-grep": {
+            "command": "mcp-language-server",
+            "args": [
+                "--workspace",
+                ".",
+                "--lsp",
+                "uvx",
+                "--from",
+                "ast-grep-cli",
+                "ast-grep",
+                "lsp"
+            ]
         }
     }
 }

@@ -143,11 +143,42 @@ impl<'a> Visitor<'a> for SideEffectDetector {
         }
 
         match stmt {
-            // These statements are pure definitions, no side effects
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
-                // Don't recurse into function/class bodies
+            // Function definitions are pure, no side effects
+            Stmt::FunctionDef(_) => {
+                // Don't recurse into function bodies
                 // Their execution is deferred
                 return; // Important: don't call walk_stmt
+            }
+
+            // Class definitions need special handling
+            Stmt::ClassDef(class_def) => {
+                // Check class body for module-level side effects
+                // (but not method bodies - those are only executed when called)
+                for stmt in &class_def.body {
+                    match stmt {
+                        // Method definitions are not side effects
+                        Stmt::FunctionDef(_) => continue,
+
+                        // Assignments in class body could be side effects if they call functions
+                        Stmt::Assign(assign) => {
+                            self.in_expression_context = true;
+                            self.visit_expr(&assign.value);
+                            self.in_expression_context = false;
+                            if self.has_side_effects {
+                                return;
+                            }
+                        }
+
+                        // Other statements in class body
+                        _ => {
+                            self.visit_stmt(stmt);
+                            if self.has_side_effects {
+                                return;
+                            }
+                        }
+                    }
+                }
+                return; // Don't call walk_stmt
             }
 
             // Annotated assignments need checking if they have a value
