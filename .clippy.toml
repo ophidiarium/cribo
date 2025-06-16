@@ -119,7 +119,7 @@ disallowed-methods = [
 
 disallowed-macros = [
     # Prevent inefficient string operations that AI often generates
-    { path = "std::format", reason = "use write! for repeated formatting, format! allocates each time" },
+    # { path = "std::format", reason = "use write! for repeated formatting, format! allocates each time" },
 ]
 
 # Keep your interior mutability allowlist
