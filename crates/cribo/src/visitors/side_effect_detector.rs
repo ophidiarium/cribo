@@ -192,7 +192,12 @@ impl<'a> Visitor<'a> for SideEffectDetector {
                 // Docstrings and constant expressions are safe
                 if matches!(
                     expr_stmt.value.as_ref(),
-                    Expr::StringLiteral(_) | Expr::NumberLiteral(_) | Expr::BooleanLiteral(_)
+                    Expr::StringLiteral(_)
+                        | Expr::NumberLiteral(_)
+                        | Expr::BooleanLiteral(_)
+                        | Expr::NoneLiteral(_)
+                        | Expr::BytesLiteral(_)
+                        | Expr::EllipsisLiteral(_)
                 ) {
                     return; // Safe, no side effects
                 }
@@ -499,6 +504,9 @@ x += 1  # Regular augmented assignment is a side effect
 42  # Bare number
 "hello"  # Bare string
 True  # Bare boolean
+None  # Bare None
+b"bytes"  # Bare bytes
+...  # Bare ellipsis
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(!SideEffectDetector::check_module(&module));
