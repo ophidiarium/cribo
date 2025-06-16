@@ -1,7 +1,7 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
 expression: error_msg
-input_file: crates/cribo/tests/fixtures/bundling/xfail_class_level_cycles/main.py
+input_file: crates/cribo/tests/fixtures/pyfail_class_level_cycles/main.py
 ---
 Bundling failed as expected: Circular dependencies detected in the module graph:
 
