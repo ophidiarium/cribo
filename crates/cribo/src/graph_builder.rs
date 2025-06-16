@@ -5,6 +5,7 @@ use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use rustc_hash::FxHashSet;
 
 use crate::cribo_graph::{ItemData, ItemType, ModuleDepGraph};
+use crate::visitors::ExpressionSideEffectDetector;
 
 /// Context for for statement variable collection
 struct ForStmtContext<'a, 'b> {
@@ -898,58 +899,8 @@ impl<'a> GraphBuilder<'a> {
 
     /// Check if an expression has side effects
     fn expression_has_side_effects(&self, expr: &Expr) -> bool {
-        let mut stack = vec![expr];
-
-        while let Some(current_expr) = stack.pop() {
-            match current_expr {
-                // Literals and names are safe
-                Expr::NumberLiteral(_)
-                | Expr::StringLiteral(_)
-                | Expr::BytesLiteral(_)
-                | Expr::BooleanLiteral(_)
-                | Expr::NoneLiteral(_)
-                | Expr::EllipsisLiteral(_)
-                | Expr::Name(_) => continue,
-
-                // Container literals - check their elements
-                Expr::List(list) => {
-                    stack.extend(list.elts.iter());
-                }
-                Expr::Tuple(tuple) => {
-                    stack.extend(tuple.elts.iter());
-                }
-                Expr::Set(set) => {
-                    stack.extend(set.elts.iter());
-                }
-                Expr::Dict(dict) => {
-                    self.handle_dict_expr(dict, &mut stack);
-                }
-
-                // Binary/unary ops - check their operands
-                Expr::BinOp(binop) => {
-                    stack.push(&binop.left);
-                    stack.push(&binop.right);
-                }
-                Expr::UnaryOp(unaryop) => {
-                    stack.push(&unaryop.operand);
-                }
-
-                // Function calls have side effects
-                Expr::Call(_) => return true,
-
-                // Attribute access might trigger __getattr__
-                Expr::Attribute(_) => return true,
-
-                // Subscripts might trigger __getitem__
-                Expr::Subscript(_) => return true,
-
-                // Other expressions are considered to have side effects
-                _ => return true,
-            }
-        }
-
-        // If we got through all expressions without finding side effects
-        false
+        let detector = ExpressionSideEffectDetector::new();
+        detector.expression_has_side_effects(expr)
     }
 
     /// Check if an import is for side effects
@@ -1057,15 +1008,5 @@ impl<'a> GraphBuilder<'a> {
             self.collect_vars_in_expr(&item.context_expr, read_vars);
         }
         stack.push(&with_stmt.body);
-    }
-
-    /// Handle dictionary expression in side effects check
-    fn handle_dict_expr<'b>(&self, dict: &'b ast::ExprDict, stack: &mut Vec<&'b Expr>) {
-        for item in &dict.items {
-            if let Some(key) = &item.key {
-                stack.push(key);
-            }
-            stack.push(&item.value);
-        }
     }
 }
