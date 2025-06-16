@@ -10,6 +10,7 @@
         "RUSTC_BOOTSTRAP": "1",
         "RUSTFLAGS": "--cfg proc_macro_span --cfg verus_keep_ghost"
     },
+    "markdownlint.configFile": ".markdownlint-cli2.yaml",
     "rust-analyzer.runnableEnv": {
         "RUSTC_BOOTSTRAP": "1"
     },
