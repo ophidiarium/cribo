@@ -12,8 +12,7 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-use crate::cribo_graph::ModuleId;
-use crate::semantic_bundler::SemanticBundler;
+use crate::{cribo_graph::ModuleId, semantic_bundler::SemanticBundler};
 
 /// Execution context for code - determines when code runs relative to module import
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -208,10 +207,7 @@ impl<'a> SemanticImportAnalyzer<'a> {
                     scope_path,
                 });
 
-                trace!(
-                    "Recorded usage of '{}' from '{}' in context {:?}",
-                    name, module, context
-                );
+                trace!("Recorded usage of '{name}' from '{module}' in context {context:?}");
             }
         }
     }
@@ -462,8 +458,9 @@ impl<'a> SemanticImportAnalyzer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ruff_python_parser::parse_module;
+
+    use super::*;
 
     #[test]
     fn test_class_init_usage_detection() {

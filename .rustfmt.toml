@@ -25,4 +25,4 @@ group_imports = "StdExternalCrate" # Default: "Preserve"
 imports_granularity = "Crate" # Default: "Preserve"
 
 # Diagnostics
-error_on_unformatted = true # Default: false
+# error_on_unformatted = true # Default: false

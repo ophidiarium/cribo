@@ -1,12 +1,15 @@
+use std::{
+    cell::RefCell,
+    path::{Path, PathBuf},
+};
+
 use anyhow::Result;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
-use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use ruff_python_stdlib::sys;
 use walkdir::WalkDir;
 
 use crate::config::Config;
-use ruff_python_stdlib::sys;
 
 /// Check if a module is part of the Python standard library using ruff_python_stdlib
 fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
@@ -246,7 +249,8 @@ impl ModuleResolver {
 
     /// Get all directories to scan for modules with optional PYTHONPATH override
     /// Returns deduplicated, canonicalized paths
-    /// NOTE: VIRTUAL_ENV is NOT included here as it's used for third-party classification, not first-party discovery
+    /// NOTE: VIRTUAL_ENV is NOT included here as it's used for third-party classification, not
+    /// first-party discovery
     pub fn get_scan_directories_with_overrides(
         &self,
         pythonpath_override: Option<&str>,
@@ -426,10 +430,10 @@ impl ModuleResolver {
     /// Used for improving import classification accuracy
     fn get_virtualenv_packages(&self, virtualenv_override: Option<&str>) -> IndexSet<String> {
         // If we have a cached result and no override is specified, return it
-        if virtualenv_override.is_none() {
-            if let Some(cached_packages) = self.get_cached_virtualenv_packages() {
-                return cached_packages;
-            }
+        if virtualenv_override.is_none()
+            && let Some(cached_packages) = self.get_cached_virtualenv_packages()
+        {
+            return cached_packages;
         }
 
         // Compute the packages
@@ -470,10 +474,10 @@ impl ModuleResolver {
         }
 
         // Cache the result if no override was specified (for subsequent calls)
-        if virtualenv_override.is_none() {
-            if let Ok(mut cache_ref) = self.virtualenv_packages_cache.try_borrow_mut() {
-                *cache_ref = Some(packages.clone());
-            }
+        if virtualenv_override.is_none()
+            && let Ok(mut cache_ref) = self.virtualenv_packages_cache.try_borrow_mut()
+        {
+            *cache_ref = Some(packages.clone());
         }
 
         packages
@@ -523,10 +527,10 @@ impl ModuleResolver {
 
         // Check if this is a submodule of a virtual environment package
         // e.g., for "requests.auth", check if "requests" is in virtualenv
-        if let Some(root_module) = module_name.split('.').next() {
-            if virtualenv_packages.contains(root_module) {
-                return true;
-            }
+        if let Some(root_module) = module_name.split('.').next()
+            && virtualenv_packages.contains(root_module)
+        {
+            return true;
         }
 
         false
@@ -570,7 +574,7 @@ impl ModuleResolver {
             return Ok(());
         }
 
-        debug!("Scanning source directory: {:?}", src_dir);
+        debug!("Scanning source directory: {src_dir:?}");
 
         let entries = WalkDir::new(src_dir)
             .follow_links(false)
@@ -591,7 +595,7 @@ impl ModuleResolver {
         }
 
         if let Some(module_name) = self.path_to_module_name(src_dir, path) {
-            debug!("Found first-party module: {}", module_name);
+            debug!("Found first-party module: {module_name}");
             self.first_party_modules.insert(module_name.clone());
 
             // Also add parent packages to support namespace packages
@@ -600,7 +604,7 @@ impl ModuleResolver {
             for i in 1..parts.len() {
                 let parent_module = parts[..i].join(".");
                 if !self.first_party_modules.contains(&parent_module) {
-                    debug!("Adding parent package: {}", parent_module);
+                    debug!("Adding parent package: {parent_module}");
                     self.first_party_modules.insert(parent_module.clone());
                     // Cache the absence of a physical file to avoid repeated scans later
                     self.module_cache.entry(parent_module).or_insert(None);
@@ -623,15 +627,14 @@ impl ModuleResolver {
     /// Convert a file path to a Python module name
     fn path_to_module_name(&self, src_dir: &Path, file_path: &Path) -> Option<String> {
         // Handle root __init__.py specially
-        if let Ok(relative) = file_path.strip_prefix(src_dir) {
-            if relative.components().count() == 1
-                && relative.file_name().and_then(|n| n.to_str()) == Some("__init__.py")
-            {
-                return src_dir
-                    .file_name()
-                    .and_then(|os| os.to_str())
-                    .map(|s| s.to_owned());
-            }
+        if let Ok(relative) = file_path.strip_prefix(src_dir)
+            && relative.components().count() == 1
+            && relative.file_name().and_then(|n| n.to_str()) == Some("__init__.py")
+        {
+            return src_dir
+                .file_name()
+                .and_then(|os| os.to_str())
+                .map(|s| s.to_owned());
         }
         crate::util::path_to_module_name(src_dir, file_path)
     }
@@ -644,10 +647,10 @@ impl ModuleResolver {
         }
 
         // Check if it's a standard library module
-        if let Ok(python_version) = self.config.python_version() {
-            if is_stdlib_module(module_name, python_version) {
-                return ImportType::StandardLibrary;
-            }
+        if let Ok(python_version) = self.config.python_version()
+            && is_stdlib_module(module_name, python_version)
+        {
+            return ImportType::StandardLibrary;
         }
 
         // Check if it's explicitly configured as third-party
@@ -679,7 +682,7 @@ impl ModuleResolver {
 
         // Check if any discovered module starts with this name (submodule)
         for first_party_module in &self.first_party_modules {
-            if first_party_module.starts_with(&format!("{}.", module_name)) {
+            if first_party_module.starts_with(&format!("{module_name}.")) {
                 return true;
             }
         }
@@ -734,10 +737,10 @@ impl ModuleResolver {
         }
 
         // Try to resolve the final part as either a file or package
-        if let Some(final_part) = parts.last() {
-            if let Some(found_path) = self.try_resolve_final_part(&mut file_path, final_part) {
-                return Ok(Some(found_path));
-            }
+        if let Some(final_part) = parts.last()
+            && let Some(found_path) = self.try_resolve_final_part(&mut file_path, final_part)
+        {
+            return Ok(Some(found_path));
         }
 
         Ok(None)
@@ -746,7 +749,7 @@ impl ModuleResolver {
     /// Try to resolve the final part of a module path as either a file or package
     fn try_resolve_final_part(&self, file_path: &mut PathBuf, part: &str) -> Option<PathBuf> {
         // Try as a .py file
-        file_path.push(format!("{}.py", part));
+        file_path.push(format!("{part}.py"));
         if file_path.exists() {
             return Some(file_path.clone());
         }
@@ -775,9 +778,10 @@ impl ModuleResolver {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
     use crate::config::Config;
-    use std::path::Path;
 
     #[test]
     fn test_root_init_py_module_name() {
@@ -811,10 +815,8 @@ mod tests {
 
         // Use scope guard to safely set PYTHONPATH for testing
         let separator = if cfg!(windows) { ';' } else { ':' };
-        let pythonpath_value = format!(
-            "/pythonpath1{}/pythonpath2{}/nonexistent",
-            separator, separator
-        );
+        let pythonpath_value =
+            format!("/pythonpath1{separator}/pythonpath2{separator}/nonexistent");
         let _guard = PythonPathGuard::new(&pythonpath_value);
 
         let scan_dirs = resolver.get_scan_directories();

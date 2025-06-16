@@ -1,23 +1,19 @@
 #![allow(clippy::disallowed_methods)] // insta macros use unwrap internally
 
-use std::fs;
-use std::io::Write;
-use std::path::Path;
-use std::process::Command;
-use tempfile::TempDir;
+use std::{fs, io::Write, path::Path, process::Command};
 
-use cribo::config::Config;
-use cribo::orchestrator::BundleOrchestrator;
-use cribo::util::get_python_executable;
+use cribo::{config::Config, orchestrator::BundleOrchestrator, util::get_python_executable};
 use pretty_assertions::assert_eq;
-use serde::Serialize;
-
 // Ruff linting integration for cross-validation
 use ruff_linter::linter::{ParseSource, lint_only};
-use ruff_linter::registry::Rule;
-use ruff_linter::settings::{LinterSettings, flags};
-use ruff_linter::source_kind::SourceKind;
+use ruff_linter::{
+    registry::Rule,
+    settings::{LinterSettings, flags},
+    source_kind::SourceKind,
+};
 use ruff_python_ast::PySourceType;
+use serde::Serialize;
+use tempfile::TempDir;
 
 /// Structured execution results for better snapshot formatting
 #[derive(Debug)]
@@ -144,7 +140,7 @@ fn test_bundling_fixtures() {
         let fixture_name = fixture_dir.file_name().unwrap().to_str().unwrap();
 
         // Print which fixture we're running (will only show when not filtered out)
-        eprintln!("Running fixture: {}", fixture_name);
+        eprintln!("Running fixture: {fixture_name}");
 
         // Check fixture type based on prefix
         let expects_bundling_failure = fixture_name.starts_with("xfail_");
@@ -172,8 +168,8 @@ fn test_bundling_fixtures() {
             // pyfail_: MUST fail Python direct execution
             (true, true, _) => {
                 panic!(
-                    "Fixture '{}' with pyfail_ prefix succeeded in direct Python execution, but it MUST fail",
-                    fixture_name
+                    "Fixture '{fixture_name}' with pyfail_ prefix succeeded in direct Python \
+                     execution, but it MUST fail"
                 );
             }
             // pyfail_: Expected to fail, and it did - good!
@@ -186,11 +182,9 @@ fn test_bundling_fixtures() {
                 let stdout = String::from_utf8_lossy(&original_output.stdout);
 
                 panic!(
-                    "Fixture '{}' with xfail_ prefix failed Python execution, but it should only fail bundling.\n\
-                    If the original Python code has errors, use pyfail_ prefix instead.\n\
-                    Exit code: {}\n\
-                    Stdout:\n{}\n\
-                    Stderr:\n{}\n",
+                    "Fixture '{}' with xfail_ prefix failed Python execution, but it should only \
+                     fail bundling.\nIf the original Python code has errors, use pyfail_ prefix \
+                     instead.\nExit code: {}\nStdout:\n{}\nStderr:\n{}\n",
                     fixture_name,
                     original_output.status.code().unwrap_or(-1),
                     stdout.trim(),
@@ -207,11 +201,8 @@ fn test_bundling_fixtures() {
                 let stdout = String::from_utf8_lossy(&original_output.stdout);
 
                 panic!(
-                    "Original fixture '{}' failed to execute:\n\
-                    Exit code: {}\n\
-                    Stdout:\n{}\n\
-                    Stderr:\n{}\n\n\
-                    Fix the fixture before testing bundling.",
+                    "Original fixture '{}' failed to execute:\nExit code: \
+                     {}\nStdout:\n{}\nStderr:\n{}\n\nFix the fixture before testing bundling.",
                     fixture_name,
                     original_output.status.code().unwrap_or(-1),
                     stdout.trim(),
@@ -244,9 +235,9 @@ fn test_bundling_fixtures() {
             // xfail_: bundling failures are expected
             // pyfail_: bundling failures are allowed (but not required)
             if expects_bundling_failure || expects_python_failure {
-                // The fixture is expected to fail bundling (xfail_) or allowed to fail bundling (pyfail_)
-                // We'll create a simple error output for the snapshot
-                let error_msg = format!("Bundling failed as expected: {}", e);
+                // The fixture is expected to fail bundling (xfail_) or allowed to fail bundling
+                // (pyfail_) We'll create a simple error output for the snapshot
+                let error_msg = format!("Bundling failed as expected: {e}");
 
                 // Create error snapshot
                 insta::with_settings!({
@@ -259,7 +250,7 @@ fn test_bundling_fixtures() {
                 return;
             } else {
                 // Unexpected bundling failure
-                panic!("Bundling failed unexpectedly for {}: {}", fixture_name, e);
+                panic!("Bundling failed unexpectedly for {fixture_name}: {e}");
             }
         }
 
@@ -299,14 +290,12 @@ fn test_bundling_fixtures() {
             if let Some(mut stdin) = child.stdin.take() {
                 let _ = stdin.write_all(bundled_code.as_bytes());
             }
-            if let Ok(output) = child.wait_with_output() {
-                if !output.status.success() && std::env::var("RUST_TEST_VERBOSE").is_ok() {
-                    eprintln!(
-                        "Warning: Bundled code has syntax errors for fixture {}",
-                        fixture_name
-                    );
-                    eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
-                }
+            if let Ok(output) = child.wait_with_output()
+                && !output.status.success()
+                && std::env::var("RUST_TEST_VERBOSE").is_ok()
+            {
+                eprintln!("Warning: Bundled code has syntax errors for fixture {fixture_name}");
+                eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
             }
         }
 
@@ -340,10 +329,8 @@ fn test_bundling_fixtures() {
             let stdout = String::from_utf8_lossy(&python_output.stdout);
 
             panic!(
-                "Fixture '{}' with pyfail_ prefix failed after bundling, but it MUST pass:\n\
-                Exit code: {}\n\
-                Stdout:\n{}\n\
-                Stderr:\n{}",
+                "Fixture '{}' with pyfail_ prefix failed after bundling, but it MUST pass:\nExit \
+                 code: {}\nStdout:\n{}\nStderr:\n{}",
                 fixture_name,
                 python_output.status.code().unwrap_or(-1),
                 stdout.trim(),
@@ -357,10 +344,8 @@ fn test_bundling_fixtures() {
             let stdout = String::from_utf8_lossy(&python_output.stdout);
 
             panic!(
-                "Python execution failed unexpectedly for fixture '{}':\n\
-                Exit code: {}\n\
-                Stdout:\n{}\n\
-                Stderr:\n{}",
+                "Python execution failed unexpectedly for fixture '{}':\nExit code: \
+                 {}\nStdout:\n{}\nStderr:\n{}",
                 fixture_name,
                 python_output.status.code().unwrap_or(-1),
                 stdout.trim(),
@@ -395,16 +380,17 @@ fn test_bundling_fixtures() {
 
         // Check for pyfail tests that are now passing
         // Note: pyfail fixtures succeed after bundling due to circular dependency resolution
-        // This is the expected behavior - the bundler has resolved issues that exist in the original code
+        // This is the expected behavior - the bundler has resolved issues that exist in the
+        // original code
         if python_output.status.success()
             && expects_python_failure
             && !original_output.status.success()
         {
             // This is expected - the bundler fixed issues in the original code
             eprintln!(
-                "Note: Fixture '{}' fails when run directly but succeeds after bundling. \
-                This demonstrates the bundler's ability to resolve circular dependencies.",
-                fixture_name
+                "Note: Fixture '{fixture_name}' fails when run directly but succeeds after \
+                 bundling. This demonstrates the bundler's ability to resolve circular \
+                 dependencies."
             );
         }
 
@@ -414,23 +400,22 @@ fn test_bundling_fixtures() {
             // 1. Original fixture must run successfully
             if !original_output.status.success() {
                 panic!(
-                    "Fixture '{}' with xfail_ prefix: original fixture failed to run, but it MUST succeed",
-                    fixture_name
+                    "Fixture '{fixture_name}' with xfail_ prefix: original fixture failed to run, \
+                     but it MUST succeed"
                 );
             }
 
-            // 2. Bundled fixture must either:
-            //    a. Fail during execution (different exit code)
-            //    b. Produce different output than original
+            // 2. Bundled fixture must either: a. Fail during execution (different exit code) b.
+            //    Produce different output than original
             let bundled_success = python_output.status.success();
 
             if bundled_success {
                 // Both original and bundled succeeded - check if outputs match
                 if bundled_stdout == original_stdout {
                     panic!(
-                        "Fixture '{}' with xfail_ prefix: bundled code succeeded and produced same output as original.\n\
-                        This test is now fully passing. Please remove the 'xfail_' prefix from the fixture directory name.",
-                        fixture_name
+                        "Fixture '{fixture_name}' with xfail_ prefix: bundled code succeeded and \
+                         produced same output as original.\nThis test is now fully passing. \
+                         Please remove the 'xfail_' prefix from the fixture directory name."
                     );
                 }
                 // Outputs differ - this is expected for xfail

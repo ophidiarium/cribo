@@ -155,19 +155,19 @@ impl SemanticImportVisitor {
 
     fn track_name_usage(&mut self, name: &str, location: TextRange) {
         // Check if this name is an imported name
-        if self.imported_names.contains(name) {
-            if let Some(module_name) = self.import_to_module.get(name).cloned() {
-                let usage = ImportUsage {
-                    name: name.to_string(),
-                    import_name: name.to_string(),
-                    usage_context: self.current_context,
-                    location,
-                };
-                self.module_usages
-                    .entry(module_name)
-                    .or_default()
-                    .push(usage);
-            }
+        if self.imported_names.contains(name)
+            && let Some(module_name) = self.import_to_module.get(name).cloned()
+        {
+            let usage = ImportUsage {
+                name: name.to_string(),
+                import_name: name.to_string(),
+                usage_context: self.current_context,
+                location,
+            };
+            self.module_usages
+                .entry(module_name)
+                .or_default()
+                .push(usage);
         }
     }
 

@@ -1,9 +1,7 @@
-use cribo::config::Config;
-use cribo::orchestrator::BundleOrchestrator;
+use std::{fs, hint::black_box, path::Path};
+
+use cribo::{config::Config, orchestrator::BundleOrchestrator};
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::fs;
-use std::hint::black_box;
-use std::path::Path;
 use tempfile::TempDir;
 
 /// Create a simple test project structure for benchmarking
@@ -60,13 +58,13 @@ from typing import Dict, Any
 class User:
     name: str
     email: str
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "name": self.name,
             "email": self.email
         }
-    
+
     def __str__(self) -> str:
         return f"User(name={self.name}, email={self.email})"
 "#,
@@ -143,7 +141,7 @@ from dataclasses import dataclass
 class Config:
     name: str
     value: Optional[str] = None
-    
+
     def validate(self) -> bool:
         return bool(self.name)
 
@@ -160,7 +158,7 @@ def main():
         Config("verbose"),
         Config("output", "/tmp/out.txt")
     ]
-    
+
     processed = process_configs(configs)
     for name, value in processed.items():
         print(f"{name} = {value}")
@@ -229,8 +227,9 @@ from urllib.parse import urlparse, urljoin
 
 /// Benchmark dependency graph construction
 fn benchmark_dependency_graph(c: &mut Criterion) {
-    use cribo::cribo_graph::CriboGraph;
     use std::path::PathBuf;
+
+    use cribo::cribo_graph::CriboGraph;
 
     c.bench_function("build_dependency_graph", |b| {
         b.iter(|| {

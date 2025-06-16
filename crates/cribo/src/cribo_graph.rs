@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 /// CriboGraph: Advanced dependency graph implementation for Python bundling
 ///
 /// This module provides a sophisticated dependency tracking system that combines:
@@ -14,10 +16,11 @@
 use anyhow::{Result, anyhow};
 use indexmap::IndexSet;
 use log::debug;
-use petgraph::algo::{is_cyclic_directed, toposort};
-use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::{
+    algo::{is_cyclic_directed, toposort},
+    graph::{DiGraph, NodeIndex},
+};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::path::PathBuf;
 
 /// Unique identifier for a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -378,12 +381,12 @@ impl ModuleDepGraph {
     fn is_in_module_exports(&self, name: &str) -> bool {
         // Look for __all__ assignment
         for item_data in self.items.values() {
-            if let ItemType::Assignment { targets } = &item_data.item_type {
-                if targets.contains(&"__all__".to_string()) {
-                    // Check if the name is in the reexported_names set
-                    // which contains the parsed __all__ list values
-                    return item_data.reexported_names.contains(name);
-                }
+            if let ItemType::Assignment { targets } = &item_data.item_type
+                && targets.contains(&"__all__".to_string())
+            {
+                // Check if the name is in the reexported_names set
+                // which contains the parsed __all__ list values
+                return item_data.reexported_names.contains(name);
             }
         }
         false
@@ -625,14 +628,14 @@ impl CriboGraph {
         matches!(
             module_name,
             // Modules that modify global state - DO NOT HOIST
-            "antigravity"       // Opens web browser to xkcd comic
-                | "this"        // Prints "The Zen of Python" to stdout
-                | "__hello__"   // Prints "Hello world!" to stdout
-                | "__phello__"  // Frozen version of __hello__ that prints to stdout
-                | "site"        // Modifies sys.path and sets up site packages
-                | "sitecustomize"   // User-specific site customization
-                | "usercustomize"   // User-specific customization
-                | "readline"    // Initializes readline library and terminal settings
+            "antigravity" // Opens web browser to xkcd comic
+                | "this" // Prints "The Zen of Python" to stdout
+                | "__hello__" // Prints "Hello world!" to stdout
+                | "__phello__" // Frozen version of __hello__ that prints to stdout
+                | "site" // Modifies sys.path and sets up site packages
+                | "sitecustomize" // User-specific site customization
+                | "usercustomize" // User-specific customization
+                | "readline" // Initializes readline library and terminal settings
                 | "rlcompleter" // Configures readline tab completion
                 | "turtle"      // Initializes Tk graphics window
                 | "tkinter"     // Initializes Tk GUI framework
@@ -784,10 +787,9 @@ impl CriboGraph {
     fn remove_dependency_edge(&mut self, from: ModuleId, to: ModuleId) {
         if let (Some(&from_idx), Some(&to_idx)) =
             (self.node_indices.get(&from), self.node_indices.get(&to))
+            && let Some(edge) = self.graph.find_edge(from_idx, to_idx)
         {
-            if let Some(edge) = self.graph.find_edge(from_idx, to_idx) {
-                self.graph.remove_edge(edge);
-            }
+            self.graph.remove_edge(edge);
         }
     }
 
@@ -959,10 +961,10 @@ impl CriboGraph {
 
         // DFS from each unvisited node
         for &module_id in self.modules.keys() {
-            if let Some(&node_idx) = self.node_indices.get(&module_id) {
-                if state.visited[&node_idx] == Color::White {
-                    self.dfs_find_cycles(node_idx, &mut state);
-                }
+            if let Some(&node_idx) = self.node_indices.get(&module_id)
+                && state.visited[&node_idx] == Color::White
+            {
+                self.dfs_find_cycles(node_idx, &mut state);
             }
         }
 
@@ -1082,10 +1084,7 @@ impl CriboGraph {
 
         for &from_module_id in scc {
             let Some(from_module) = self.modules.get(&from_module_id) else {
-                log::warn!(
-                    "Module {:?} not found in build_import_chain_for_scc",
-                    from_module_id
-                );
+                log::warn!("Module {from_module_id:?} not found in build_import_chain_for_scc");
                 continue;
             };
             let from_name = &from_module.module_name;
@@ -1098,10 +1097,7 @@ impl CriboGraph {
                 }
 
                 let Some(to_module) = self.modules.get(&to_module_id) else {
-                    log::warn!(
-                        "Module {:?} not found in build_import_chain_for_scc",
-                        to_module_id
-                    );
+                    log::warn!("Module {to_module_id:?} not found in build_import_chain_for_scc");
                     continue;
                 };
                 let to_name = &to_module.module_name;
@@ -1176,7 +1172,8 @@ impl CriboGraph {
         import_chain: &[ImportEdge],
     ) -> CircularDependencyType {
         // Check if this is a parent-child package cycle
-        // These occur when a package imports from its subpackage (e.g., pkg/__init__.py imports from pkg.submodule)
+        // These occur when a package imports from its subpackage (e.g., pkg/__init__.py imports
+        // from pkg.submodule)
         if self.is_parent_child_package_cycle(module_names) {
             // This is a normal Python pattern, not a problematic cycle
             return CircularDependencyType::FunctionLevel; // Most permissive type
@@ -1357,10 +1354,11 @@ impl CriboGraph {
                     // For dotted imports like `import xml.etree.ElementTree`,
                     // also track the root module name (e.g., "xml")
                     // since that's what appears in read_vars
-                    if alias.is_none() && module.contains('.') {
-                        if let Some(root) = module.split('.').next() {
-                            imported_names.insert(root.to_string());
-                        }
+                    if alias.is_none()
+                        && module.contains('.')
+                        && let Some(root) = module.split('.').next()
+                    {
+                        imported_names.insert(root.to_string());
                     }
                 }
                 ItemType::FromImport { names, .. } => {
@@ -1408,8 +1406,7 @@ impl CriboGraph {
                 // Note: Usage in eventual_read_vars is OK - that's function-level usage
                 if item_data.eventual_read_vars.contains(imported_name) {
                     debug!(
-                        "  -> Import '{}' used inside function in item {:?}",
-                        imported_name, item_id
+                        "  -> Import '{imported_name}' used inside function in item {item_id:?}"
                     );
                 }
             }
@@ -1435,7 +1432,7 @@ impl CriboGraph {
         let mod2 = &module_names[1];
 
         // Check if mod1 is parent of mod2 or vice versa
-        mod2.starts_with(&format!("{}.", mod1)) || mod1.starts_with(&format!("{}.", mod2))
+        mod2.starts_with(&format!("{mod1}.")) || mod1.starts_with(&format!("{mod2}."))
     }
 
     /// Suggest resolution strategy for a circular dependency
@@ -1445,33 +1442,27 @@ impl CriboGraph {
         module_names: &[String],
     ) -> ResolutionStrategy {
         match cycle_type {
-            CircularDependencyType::FunctionLevel => {
-                ResolutionStrategy::FunctionScopedImport {
-                    import_statements: module_names
-                        .iter()
-                        .map(|name| format!("Move 'import {}' inside functions that use it", name))
-                        .collect(),
-                }
-            }
-            CircularDependencyType::ClassLevel => {
-                ResolutionStrategy::LazyImport {
-                    modules: module_names.to_vec(),
-                }
-            }
-            CircularDependencyType::ModuleConstants => {
-                ResolutionStrategy::Unresolvable {
-                    reason: "Module-level constants create temporal paradox - consider moving to a shared configuration module".into(),
-                }
-            }
-            CircularDependencyType::ImportTime => {
-                ResolutionStrategy::ModuleSplit {
-                    suggestions: vec![
-                        "Extract shared interfaces to a separate module".into(),
-                        "Use dependency injection pattern".into(),
-                        "Reorganize module structure to eliminate circular dependencies".into(),
-                    ],
-                }
-            }
+            CircularDependencyType::FunctionLevel => ResolutionStrategy::FunctionScopedImport {
+                import_statements: module_names
+                    .iter()
+                    .map(|name| format!("Move 'import {name}' inside functions that use it"))
+                    .collect(),
+            },
+            CircularDependencyType::ClassLevel => ResolutionStrategy::LazyImport {
+                modules: module_names.to_vec(),
+            },
+            CircularDependencyType::ModuleConstants => ResolutionStrategy::Unresolvable {
+                reason: "Module-level constants create temporal paradox - consider moving to a \
+                         shared configuration module"
+                    .into(),
+            },
+            CircularDependencyType::ImportTime => ResolutionStrategy::ModuleSplit {
+                suggestions: vec![
+                    "Extract shared interfaces to a separate module".into(),
+                    "Use dependency injection pattern".into(),
+                    "Reorganize module structure to eliminate circular dependencies".into(),
+                ],
+            },
         }
     }
 }

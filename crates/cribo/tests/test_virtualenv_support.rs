@@ -1,11 +1,13 @@
 #![allow(clippy::disallowed_methods)]
 
-use serial_test::serial;
 use std::fs;
-use tempfile::TempDir;
 
-use cribo::config::Config;
-use cribo::resolver::{ImportType, ModuleResolver, VirtualEnvGuard};
+use cribo::{
+    config::Config,
+    resolver::{ImportType, ModuleResolver, VirtualEnvGuard},
+};
+use serial_test::serial;
+use tempfile::TempDir;
 
 #[test]
 fn test_virtualenv_import_classification() {
@@ -202,9 +204,9 @@ fn test_virtualenv_guard() {
                 // Log the restoration failure but don't fail the test
                 // The core functionality (unset working) was already verified
                 eprintln!(
-                    "Warning: VIRTUAL_ENV restoration may have failed. Expected '{}', got {:?}. \
-                     This is a known flaky behavior in environment variable cleanup.",
-                    expected_value, restored_value
+                    "Warning: VIRTUAL_ENV restoration may have failed. Expected \
+                     '{expected_value}', got {restored_value:?}. This is a known flaky behavior \
+                     in environment variable cleanup."
                 );
             }
         }
@@ -424,11 +426,13 @@ fn test_module_shadowing_priority() {
         ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), Some(&virtualenv_str))
             .unwrap();
 
-    // Test shadowing cases - first-party modules should take priority over virtual environment packages
+    // Test shadowing cases - first-party modules should take priority over virtual environment
+    // packages
     assert_eq!(
         resolver.classify_import("requests"),
         ImportType::FirstParty,
-        "Local src/requests.py should shadow virtual environment requests package (first-party wins)"
+        "Local src/requests.py should shadow virtual environment requests package (first-party \
+         wins)"
     );
 
     assert_eq!(
@@ -628,10 +632,10 @@ fn test_venv_fallback_detection() {
     );
 
     // Restore original directory (do this before temp_dir is dropped)
-    if let Some(dir) = original_dir {
-        if dir.exists() {
-            let _ = std::env::set_current_dir(&dir);
-        }
+    if let Some(dir) = original_dir
+        && dir.exists()
+    {
+        let _ = std::env::set_current_dir(&dir);
     }
 }
 
@@ -703,10 +707,10 @@ fn test_venv_fallback_priority_order() {
     );
 
     // Restore original directory - handle case where it might not exist
-    if let Some(dir) = original_dir {
-        if dir.exists() {
-            let _ = std::env::set_current_dir(&dir);
-        }
+    if let Some(dir) = original_dir
+        && dir.exists()
+    {
+        let _ = std::env::set_current_dir(&dir);
     }
 }
 
@@ -774,10 +778,10 @@ fn test_explicit_virtualenv_overrides_fallback() {
     );
 
     // Restore original directory
-    if let Some(dir) = original_dir {
-        if dir.exists() {
-            let _ = std::env::set_current_dir(dir);
-        }
+    if let Some(dir) = original_dir
+        && dir.exists()
+    {
+        let _ = std::env::set_current_dir(dir);
     }
 }
 
@@ -827,10 +831,10 @@ fn test_no_virtualenv_fallback_when_none_exist() {
     );
 
     // Restore original directory
-    if let Some(dir) = original_dir {
-        if dir.exists() {
-            let _ = std::env::set_current_dir(dir);
-        }
+    if let Some(dir) = original_dir
+        && dir.exists()
+    {
+        let _ = std::env::set_current_dir(dir);
     }
 }
 
@@ -892,9 +896,9 @@ fn test_invalid_venv_directories_ignored() {
     );
 
     // Restore original directory
-    if let Some(dir) = original_dir {
-        if dir.exists() {
-            let _ = std::env::set_current_dir(dir);
-        }
+    if let Some(dir) = original_dir
+        && dir.exists()
+    {
+        let _ = std::env::set_current_dir(dir);
     }
 }

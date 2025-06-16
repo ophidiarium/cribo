@@ -1,8 +1,8 @@
 #![allow(clippy::disallowed_methods)] // insta macros use unwrap internally
 
+use std::{env, process::Command};
+
 use insta::{assert_snapshot, with_settings};
-use std::env;
-use std::process::Command;
 
 /// Helper function to get the path to a fixture file
 fn get_fixture_path(relative_path: &str) -> String {
@@ -133,7 +133,7 @@ fn test_stdout_bundling_functionality() {
     ]);
 
     // Should succeed
-    assert_eq!(exit_code, 0, "Command failed with stderr: {}", stderr);
+    assert_eq!(exit_code, 0, "Command failed with stderr: {stderr}");
 
     with_settings!({
         filters => get_cli_filters(),

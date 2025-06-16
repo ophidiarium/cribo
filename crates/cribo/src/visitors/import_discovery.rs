@@ -1,8 +1,10 @@
 //! Import discovery visitor that finds all imports in a Python module,
 //! including those nested within functions, classes, and other scopes.
 
-use ruff_python_ast::visitor::{Visitor, walk_stmt};
-use ruff_python_ast::{ModModule, Stmt, StmtImport, StmtImportFrom};
+use ruff_python_ast::{
+    ModModule, Stmt, StmtImport, StmtImportFrom,
+    visitor::{Visitor, walk_stmt},
+};
 use ruff_text_size::TextRange;
 
 /// An import discovered during AST traversal
@@ -221,8 +223,9 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ruff_python_parser::parse_module;
+
+    use super::*;
 
     #[test]
     fn test_module_level_import() {

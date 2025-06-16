@@ -1,11 +1,9 @@
 #![allow(clippy::disallowed_methods)]
 
-use std::fs;
-use std::path::PathBuf;
-use tempfile::TempDir;
+use std::{fs, path::PathBuf};
 
-use cribo::config::Config;
-use cribo::resolver::ModuleResolver;
+use cribo::{config::Config, resolver::ModuleResolver};
+use tempfile::TempDir;
 
 #[test]
 fn test_pythonpath_module_discovery() {
@@ -135,7 +133,8 @@ fn test_pythonpath_multiple_directories() {
         ..Default::default()
     };
 
-    // Create resolver with PYTHONPATH override (multiple directories separated by platform-appropriate separator)
+    // Create resolver with PYTHONPATH override (multiple directories separated by
+    // platform-appropriate separator)
     let separator = if cfg!(windows) { ';' } else { ':' };
     let pythonpath_str = format!(
         "{}{}{}",
@@ -175,9 +174,7 @@ fn test_pythonpath_empty_or_nonexistent() {
     let expected_path = src_path.canonicalize().unwrap_or(src_path.clone());
     assert!(
         scan_dirs1.contains(&expected_path),
-        "Expected {:?} in {:?}",
-        expected_path,
-        scan_dirs1
+        "Expected {expected_path:?} in {scan_dirs1:?}"
     );
 
     // Test with no PYTHONPATH
@@ -188,14 +185,12 @@ fn test_pythonpath_empty_or_nonexistent() {
     assert_eq!(scan_dirs2.len(), 1);
     assert!(
         scan_dirs2.contains(&expected_path),
-        "Expected {:?} in {:?}",
-        expected_path,
-        scan_dirs2
+        "Expected {expected_path:?} in {scan_dirs2:?}"
     );
 
     // Test with nonexistent directories in PYTHONPATH
     let separator = if cfg!(windows) { ';' } else { ':' };
-    let nonexistent_pythonpath = format!("/nonexistent1{}/nonexistent2", separator);
+    let nonexistent_pythonpath = format!("/nonexistent1{separator}/nonexistent2");
     let resolver3 =
         ModuleResolver::new_with_pythonpath(config, Some(&nonexistent_pythonpath)).unwrap();
     let scan_dirs3 = resolver3.get_scan_directories_with_pythonpath(Some(&nonexistent_pythonpath));
@@ -204,9 +199,7 @@ fn test_pythonpath_empty_or_nonexistent() {
     assert_eq!(scan_dirs3.len(), 1);
     assert!(
         scan_dirs3.contains(&expected_path),
-        "Expected {:?} in {:?}",
-        expected_path,
-        scan_dirs3
+        "Expected {expected_path:?} in {scan_dirs3:?}"
     );
 }
 
@@ -233,7 +226,8 @@ fn test_directory_deduplication() {
         ..Default::default()
     };
 
-    // Create resolver with PYTHONPATH override that includes the same src directory plus another directory
+    // Create resolver with PYTHONPATH override that includes the same src directory plus another
+    // directory
     let separator = if cfg!(windows) { ';' } else { ':' };
     let pythonpath_str = format!(
         "{}{}{}",
@@ -244,12 +238,12 @@ fn test_directory_deduplication() {
     let resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str)).unwrap();
     let scan_dirs = resolver.get_scan_directories_with_pythonpath(Some(&pythonpath_str));
 
-    // Should only have 2 unique directories, even though src_dir appears in both config.src and PYTHONPATH
+    // Should only have 2 unique directories, even though src_dir appears in both config.src and
+    // PYTHONPATH
     assert_eq!(
         scan_dirs.len(),
         2,
-        "Should deduplicate directories: got {:?}",
-        scan_dirs
+        "Should deduplicate directories: got {scan_dirs:?}"
     );
 
     // Convert to canonical paths for comparison
@@ -306,16 +300,13 @@ fn test_path_canonicalization() {
     assert_eq!(
         scan_dirs.len(),
         1,
-        "Should deduplicate paths even with different representations: got {:?}",
-        scan_dirs
+        "Should deduplicate paths even with different representations: got {scan_dirs:?}"
     );
 
     // The path should be canonicalized
     let canonical_src = src_dir.canonicalize().unwrap_or(src_dir);
     assert!(
         scan_dirs.contains(&canonical_src),
-        "Should contain canonicalized src directory: expected {:?} in {:?}",
-        canonical_src,
-        scan_dirs
+        "Should contain canonicalized src directory: expected {canonical_src:?} in {scan_dirs:?}"
     );
 }

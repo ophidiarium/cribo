@@ -4,8 +4,10 @@ use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use rustc_hash::FxHashSet;
 
-use crate::cribo_graph::{ItemData, ItemType, ModuleDepGraph};
-use crate::visitors::ExpressionSideEffectDetector;
+use crate::{
+    cribo_graph::{ItemData, ItemType, ModuleDepGraph},
+    visitors::ExpressionSideEffectDetector,
+};
 
 /// Context for for statement variable collection
 struct ForStmtContext<'a, 'b> {
@@ -90,7 +92,7 @@ impl<'a> GraphBuilder<'a> {
                 .map(|n| n.as_str())
                 .unwrap_or(module_name);
 
-            log::trace!("Processing import: {} as {}", module_name, local_name);
+            log::trace!("Processing import: {module_name} as {local_name}");
 
             let mut imported_names = FxHashSet::default();
             let mut var_decls = FxHashSet::default();
@@ -165,7 +167,7 @@ impl<'a> GraphBuilder<'a> {
             if module_name.is_empty() {
                 dots
             } else {
-                format!("{}{}", dots, module_name)
+                format!("{dots}{module_name}")
             }
         } else {
             module_name.to_string()
@@ -208,7 +210,8 @@ impl<'a> GraphBuilder<'a> {
                 level: import_from.level,
                 is_star,
             },
-            var_decls: imported_names.clone(), // FromImport declares the imported names as variables
+            var_decls: imported_names.clone(), /* FromImport declares the imported names as
+                                                * variables */
             read_vars: FxHashSet::default(),
             eventual_read_vars: FxHashSet::default(),
             write_vars: FxHashSet::default(),
@@ -251,15 +254,15 @@ impl<'a> GraphBuilder<'a> {
                 self.collect_vars_in_expr(annotation, &mut read_vars);
             }
         }
-        if let Some(vararg) = &func_def.parameters.vararg {
-            if let Some(annotation) = &vararg.annotation {
-                self.collect_vars_in_expr(annotation, &mut read_vars);
-            }
+        if let Some(vararg) = &func_def.parameters.vararg
+            && let Some(annotation) = &vararg.annotation
+        {
+            self.collect_vars_in_expr(annotation, &mut read_vars);
         }
-        if let Some(kwarg) = &func_def.parameters.kwarg {
-            if let Some(annotation) = &kwarg.annotation {
-                self.collect_vars_in_expr(annotation, &mut read_vars);
-            }
+        if let Some(kwarg) = &func_def.parameters.kwarg
+            && let Some(annotation) = &kwarg.annotation
+        {
+            self.collect_vars_in_expr(annotation, &mut read_vars);
         }
 
         // Process return type annotation

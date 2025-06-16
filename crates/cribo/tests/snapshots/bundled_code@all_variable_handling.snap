@@ -46,6 +46,7 @@ def __cribo_init___cribo_c56070_nested_package():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_c56070_nested_package'] = module
     sys.modules['nested_package'] = module
+    __cribo_init___cribo_11029d_nested_package_submodule()
     sub_function = sys.modules['nested_package.submodule'].sub_function
     module.sub_function = sub_function
     module.helper_func = helper_func
@@ -111,9 +112,12 @@ __cribo_init___cribo_11029d_nested_package_submodule()
 __cribo_init___cribo_c56070_nested_package()
 nested_package = sys.modules['nested_package']
 nested_package.submodule = sys.modules['nested_package.submodule']
+__cribo_init___cribo_8010fb_simple_module()
 public_func = sys.modules['simple_module'].public_func
 CONSTANT = sys.modules['simple_module'].CONSTANT
+__cribo_init___cribo_c56070_nested_package()
 exported_from_init = sys.modules['nested_package'].exported_from_init
+__cribo_init___cribo_11029d_nested_package_submodule()
 sub_function = sys.modules['nested_package.submodule'].sub_function
 message = message_1
 print("Testing simple module exports:")

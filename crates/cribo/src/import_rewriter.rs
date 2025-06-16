@@ -8,10 +8,11 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::semantic_bundler::SemanticBundler;
-use crate::semantic_import_context::{SemanticImportAnalyzer, SemanticImportInfo};
-
-use crate::cribo_graph::{CriboGraph, ItemType, ModuleDepGraph};
+use crate::{
+    cribo_graph::{CriboGraph, ItemType, ModuleDepGraph},
+    semantic_bundler::SemanticBundler,
+    semantic_import_context::{SemanticImportAnalyzer, SemanticImportInfo},
+};
 
 /// Strategy for deduplicating imports within functions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,8 +178,7 @@ impl ImportRewriter {
                 // Check if import has side effects
                 if import_info.has_side_effects {
                     trace!(
-                        "Import {} in {} has side effects, cannot move",
-                        imported_module, module_name
+                        "Import {imported_module} in {module_name} has side effects, cannot move"
                     );
                     continue;
                 }
@@ -189,8 +189,8 @@ impl ImportRewriter {
                         import_info.get_using_functions().into_iter().collect();
 
                     trace!(
-                        "Import {} in {} can be moved to functions: {:?}",
-                        imported_module, module_name, target_functions
+                        "Import {imported_module} in {module_name} can be moved to functions: \
+                         {target_functions:?}"
                     );
 
                     // Convert to ImportStatement
@@ -215,8 +215,8 @@ impl ImportRewriter {
                     });
                 } else {
                     trace!(
-                        "Import {} in {} requires module-level availability",
-                        imported_module, module_name
+                        "Import {imported_module} in {module_name} requires module-level \
+                         availability"
                     );
                 }
             }
@@ -301,7 +301,7 @@ impl ImportRewriter {
 
         // Check if it's a submodule of any cycle module
         for cycle_module in cycle_modules {
-            if imported_module.starts_with(&format!("{}.", cycle_module)) {
+            if imported_module.starts_with(&format!("{cycle_module}.")) {
                 return true;
             }
         }
@@ -354,10 +354,10 @@ impl ImportRewriter {
                     continue;
                 }
 
-                if let ItemType::FunctionDef { name } = &item_data.item_type {
-                    if !analysis.used_in_functions.contains(name) {
-                        analysis.used_in_functions.push(name.clone());
-                    }
+                if let ItemType::FunctionDef { name } = &item_data.item_type
+                    && !analysis.used_in_functions.contains(name)
+                {
+                    analysis.used_in_functions.push(name.clone());
                 }
             }
         }
@@ -371,15 +371,28 @@ impl ImportRewriter {
         matches!(
             name,
             // From is_safe_stdlib_module's exclusion list
-            "antigravity" | "this" | "__hello__" | "__phello__" |
-            "site" | "sitecustomize" | "usercustomize" |
-            "readline" | "rlcompleter" | 
-            "turtle" | "tkinter" |
-            "webbrowser" |
-            "platform" | "locale" |
-            // Additional modules with common side effects
-            "os" | "sys" | "logging" | "warnings" | "encodings" |
-            "pygame" | "matplotlib"
+            "antigravity"
+                | "this"
+                | "__hello__"
+                | "__phello__"
+                | "site"
+                | "sitecustomize"
+                | "usercustomize"
+                | "readline"
+                | "rlcompleter"
+                | "turtle"
+                | "tkinter"
+                | "webbrowser"
+                | "platform"
+                | "locale"
+                // Additional modules with common side effects
+                | "os"
+                | "sys"
+                | "logging"
+                | "warnings"
+                | "encodings"
+                | "pygame"
+                | "matplotlib"
         ) || name.starts_with("_") // Private modules often have initialization side effects
     }
 
@@ -604,8 +617,8 @@ impl ImportRewriter {
                 // and inserting imports just before their first use.
                 // For now, we fall back to FunctionStart behavior.
                 unimplemented!(
-                    "BeforeFirstUse import placement strategy is not yet implemented. \
-                     Use FunctionStart strategy instead."
+                    "BeforeFirstUse import placement strategy is not yet implemented. Use \
+                     FunctionStart strategy instead."
                 );
             }
         }
