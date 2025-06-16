@@ -218,11 +218,12 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 ScopeElement::Class(_) => {
                     // Check if we're in a method within this class
                     if i + 1 < self.scope_stack.len()
-                        && let ScopeElement::Function(method_name) = &self.scope_stack[i + 1] {
-                            return ExecutionContext::ClassMethod {
-                                is_init: method_name == "__init__",
-                            };
-                        }
+                        && let ScopeElement::Function(method_name) = &self.scope_stack[i + 1]
+                    {
+                        return ExecutionContext::ClassMethod {
+                            is_init: method_name == "__init__",
+                        };
+                    }
                     return ExecutionContext::ClassBody;
                 }
                 ScopeElement::Function(_) => {
@@ -242,9 +243,10 @@ impl<'a> ImportDiscoveryVisitor<'a> {
     fn is_import_movable(&self, import: &DiscoveredImport) -> bool {
         // Check if import has side effects
         if let Some(module_name) = &import.module_name
-            && self.is_side_effect_import(module_name) {
-                return false;
-            }
+            && self.is_side_effect_import(module_name)
+        {
+            return false;
+        }
 
         // Check execution contexts where import is used
         let requires_module_level = import.execution_contexts.iter().any(|ctx| match ctx {
@@ -265,9 +267,10 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             Expr::Name(name) => name.id.as_str() == "TYPE_CHECKING",
             Expr::Attribute(attr) => {
                 if attr.attr.as_str() == "TYPE_CHECKING"
-                    && let Expr::Name(name) = &*attr.value {
-                        return name.id.as_str() == "typing";
-                    }
+                    && let Expr::Name(name) = &*attr.value
+                {
+                    return name.id.as_str() == "typing";
+                }
                 false
             }
             _ => false,
@@ -471,10 +474,7 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                                 .any(|(n, alias)| alias.as_ref().unwrap_or(n) == &name)
                         {
                             import.execution_contexts.insert(context);
-                            if matches!(
-                                context,
-                                ExecutionContext::ClassMethod { is_init: true }
-                            ) {
+                            if matches!(context, ExecutionContext::ClassMethod { is_init: true }) {
                                 import.is_used_in_init = true;
                             }
                         }

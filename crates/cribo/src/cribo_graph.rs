@@ -860,9 +860,10 @@ impl CriboGraph {
         if let (Some(&from_idx), Some(&to_idx)) =
             (self.node_indices.get(&from), self.node_indices.get(&to))
             && let Some(edge) = self.graph.find_edge(to_idx, from_idx)
-                && let Some(weight) = self.graph.edge_weight(edge) {
-                    return weight.is_type_checking_only;
-                }
+            && let Some(weight) = self.graph.edge_weight(edge)
+        {
+            return weight.is_type_checking_only;
+        }
         false
     }
 

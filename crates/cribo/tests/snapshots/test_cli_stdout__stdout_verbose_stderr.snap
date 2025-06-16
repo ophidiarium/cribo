@@ -2,4 +2,75 @@
 source: crates/cribo/tests/test_cli_stdout.rs
 expression: stderr
 ---
+warning: field `entry_created_namespaces` is never read
+   --> crates/cribo/src/code_generator.rs:322:5
+    |
+291 | pub struct HybridStaticBundler {
+    |            ------------------- field in this struct
+...
+322 |     entry_created_namespaces: FxIndexSet<String>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
 
+warning: multiple associated items are never used
+    --> crates/cribo/src/code_generator.rs:3383:8
+     |
+3351 | impl HybridStaticBundler {
+     | ------------------------ associated items in this implementation
+...
+3383 |     fn collect_module_symbol(&self, stmt: &Stmt, symbols: &mut Vec<String>) {
+     |        ^^^^^^^^^^^^^^^^^^^^^
+...
+4858 |     fn transform_function_body_for_renames(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+4869 |     fn transform_stmt_for_renames(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+4951 |     fn rename_references_in_expr(expr: &mut Expr, module_renames: &FxIndexMap<String, String>) {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6182 |     fn create_namespace_keywords(&self, full_module_path: &str, inlined_key: &str) -> Vec<Keyword> {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6275 |     fn create_module_assignment(&self, final_body: &mut Vec<Stmt>, module: &str) {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6293 |     fn assignment_has_dotted_target(&self, assign: &StmtAssign, parent: &str, attr: &str) -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6304 |     fn is_module_already_assigned(&self, final_body: &[Stmt], module: &str) -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6332 |     fn is_name_chain(&self, expr: &Expr, expected_chain: &str) -> bool {
+     |        ^^^^^^^^^^^^^
+
+warning: fields `location`, `context`, and `name_used` are never read
+  --> crates/cribo/src/visitors/import_discovery.rs:37:9
+   |
+35 | pub struct ImportUsage {
+   |            ----------- fields in this struct
+36 |     /// Where the name was used
+37 |     pub location: TextRange,
+   |         ^^^^^^^^
+38 |     /// In what execution context
+39 |     pub context: ExecutionContext,
+   |         ^^^^^^^
+40 |     /// The actual name used (might be aliased)
+41 |     pub name_used: String,
+   |         ^^^^^^^^^
+   |
+   = note: `ImportUsage` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `semantic_bundler` and `module_id` are never read
+   --> crates/cribo/src/visitors/import_discovery.rs:106:5
+    |
+96  | pub struct ImportDiscoveryVisitor<'a> {
+    |            ---------------------- fields in this struct
+...
+106 |     semantic_bundler: Option<&'a SemanticBundler>,
+    |     ^^^^^^^^^^^^^^^^
+107 |     /// Current module ID if available
+108 |     module_id: Option<ModuleId>,
+    |     ^^^^^^^^^

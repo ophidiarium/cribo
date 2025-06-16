@@ -619,6 +619,11 @@ impl HybridStaticBundler {
         // Track which modules will be inlined (before wrapper module generation)
         for (module_name, _, _, _) in &inlinable_modules {
             self.inlined_modules.insert(module_name.clone());
+            // Also store module exports for inlined modules
+            self.module_exports.insert(
+                module_name.clone(),
+                module_exports_map.get(module_name).cloned().flatten(),
+            );
         }
 
         // First pass: normalize stdlib import aliases in ALL modules before collecting imports
@@ -2096,13 +2101,33 @@ impl HybridStaticBundler {
             }
 
             if self.module_registry.contains_key(&module_name) {
-                // This is a wrapper module - assign from sys.modules
-                debug!("Assigning wrapper module: {parent}.{attr} = sys.modules['{module_name}']");
-                final_body.push(self.create_dotted_attribute_assignment(
-                    &parent,
-                    &attr,
-                    &module_name,
-                ));
+                // Check if parent module has this attribute in __all__ (indicating a re-export)
+                let skip_assignment =
+                    if let Some(Some(parent_exports)) = self.module_exports.get(&parent) {
+                        if parent_exports.contains(&attr) {
+                            debug!(
+                                "Skipping submodule assignment for {parent}.{attr} - it's a re-exported \
+                                 attribute"
+                            );
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                if !skip_assignment {
+                    // This is a wrapper module - assign from sys.modules
+                    debug!(
+                        "Assigning wrapper module: {parent}.{attr} = sys.modules['{module_name}']"
+                    );
+                    final_body.push(self.create_dotted_attribute_assignment(
+                        &parent,
+                        &attr,
+                        &module_name,
+                    ));
+                }
             } else {
                 // This is an intermediate namespace - create as types.ModuleType
                 debug!(
@@ -3300,6 +3325,36 @@ impl HybridStaticBundler {
             log::warn!("No semantic info found for module '{module_name}' with ID {module_id:?}");
         }
 
+        // For inlined modules with __all__, we need to also include symbols from __all__
+        // even if they're not defined in this module (they might be re-exports)
+        if self.inlined_modules.contains(module_name) {
+            log::debug!(
+                "Module '{module_name}' is inlined, checking for __all__ exports"
+            );
+            if let Some(export_info) = self.module_exports.get(module_name) {
+                log::debug!("Module '{module_name}' export info: {export_info:?}");
+                if let Some(all_exports) = export_info {
+                    log::debug!(
+                        "Module '{}' has __all__ with {} exports: {:?}",
+                        module_name,
+                        all_exports.len(),
+                        all_exports
+                    );
+
+                    // Add any symbols from __all__ that aren't already in module_renames
+                    for export in all_exports {
+                        if !module_renames.contains_key(export) {
+                            // This is a re-exported symbol - use the original name
+                            module_renames.insert(export.clone(), export.clone());
+                            log::debug!(
+                                "Module '{module_name}': adding re-exported symbol '{export}' from __all__"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         if !module_renames.is_empty() {
             log::debug!(
                 "Inserting {} renames for module '{}' with key '{}': {:?}",
@@ -3663,8 +3718,35 @@ impl HybridStaticBundler {
 
             // Check if we're importing a submodule (e.g., from greetings import greeting)
             let full_module_path = format!("{module_name}.{imported_name}");
-            let importing_submodule = self.bundled_modules.contains(&full_module_path)
+
+            // First check if the parent module has an __init__.py (is a wrapper module)
+            // and might re-export this name
+            let parent_is_wrapper = self.module_registry.contains_key(module_name);
+            let submodule_exists = self.bundled_modules.contains(&full_module_path)
                 && self.module_registry.contains_key(&full_module_path);
+
+            // If both the parent is a wrapper and a submodule exists, we need to decide
+            // In Python, attributes from __init__.py take precedence over submodules
+            // So we should prefer the attribute unless we have evidence it's not re-exported
+            let importing_submodule = if parent_is_wrapper && submodule_exists {
+                // Check if the parent module explicitly exports this name
+                if let Some(exports) = self.module_exports.get(module_name) {
+                    if let Some(export_list) = exports {
+                        // If __all__ is defined and doesn't include this name, it's the submodule
+                        !export_list.contains(&imported_name.to_string())
+                    } else {
+                        // No __all__ defined - we can't know for sure
+                        // For now, assume it's an attribute (matches Python behavior)
+                        false
+                    }
+                } else {
+                    // No export info - assume it's an attribute (safer default)
+                    false
+                }
+            } else {
+                // Simple case: just check if it's a submodule
+                submodule_exists
+            };
 
             if importing_submodule {
                 // We're importing a submodule, not an attribute

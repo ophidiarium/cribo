@@ -9,13 +9,6 @@ input_file: crates/cribo/tests/fixtures/init_reexports/main.py
 import os
 import sys
 import types
-class Config_mypackage_config:
-    """Configuration class."""
-
-    def __init__(self):
-        self.DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
-        self.LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
-config_mypackage_config = Config_mypackage_config()
 """Utils subpackage with re-exports."""
 """Constants module."""
 MAX_ITEMS = 100
@@ -34,6 +27,25 @@ def process_data(data):
     processed = data.copy()
     processed["processed"] = True
     return processed
+def __cribo_init___cribo_de6c46_mypackage_config():
+    if '__cribo_de6c46_mypackage_config' in sys.modules:
+        return sys.modules['__cribo_de6c46_mypackage_config']
+    module = types.ModuleType('__cribo_de6c46_mypackage_config')
+    module.__file__ = __file__ if '__file__' in globals() else None
+    sys.modules['__cribo_de6c46_mypackage_config'] = module
+    sys.modules['mypackage.config'] = module
+    """Configuration module."""
+
+    class Config:
+        """Configuration class."""
+
+        def __init__(self):
+            self.DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
+            self.LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+    module.Config = Config
+    config = Config()
+    module.config = config
+    return module
 def __cribo_init___cribo_a81151_mypackage():
     if '__cribo_a81151_mypackage' in sys.modules:
         return sys.modules['__cribo_a81151_mypackage']
@@ -44,7 +56,8 @@ def __cribo_init___cribo_a81151_mypackage():
     """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
     module.process_data = process_data
     module.format_data = format_data
-    config = config_mypackage_config
+    __cribo_init___cribo_de6c46_mypackage_config()
+    config = sys.modules['mypackage.config'].config
     module.config = config
     module.helper_function = helper_function
     __version__ = "1.0.0"
@@ -53,8 +66,8 @@ def __cribo_init___cribo_a81151_mypackage():
     DEBUG_MODE = config.DEBUG
     module.__all__ = ['process_data', 'format_data', 'config', 'helper_function', '__version__']
     return module
-__cribo_modules = {'mypackage': '__cribo_a81151_mypackage'}
-__cribo_init_functions = {'__cribo_a81151_mypackage': __cribo_init___cribo_a81151_mypackage}
+__cribo_modules = {'mypackage.config': '__cribo_de6c46_mypackage_config', 'mypackage': '__cribo_a81151_mypackage'}
+__cribo_init_functions = {'__cribo_de6c46_mypackage_config': __cribo_init___cribo_de6c46_mypackage_config, '__cribo_a81151_mypackage': __cribo_init___cribo_a81151_mypackage}
 class CriboBundledFinder:
 
     def __init__(self, module_registry, init_functions):
@@ -72,6 +85,7 @@ class CriboBundledFinder:
             return importlib.util.find_spec(synthetic_name)
         return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
+__cribo_init___cribo_de6c46_mypackage_config()
 __cribo_init___cribo_a81151_mypackage()
 mypackage = sys.modules['mypackage']
 '''\nTest script demonstrating __init__.py re-export preservation.\n\nThis fixture tests that imports in __init__.py files are preserved even if they\nappear "unused" within that file, as they are typically re-exports for the package interface.\n'''
