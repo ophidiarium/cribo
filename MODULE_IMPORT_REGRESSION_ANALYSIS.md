@@ -114,6 +114,40 @@ Based on the investigation prompted by the question about initialization order a
 
 This investigation revealed that **Regression 1 might be a false positive** - the bundled code actually executes successfully when run directly, suggesting the issue may be with the test framework rather than the bundler itself.
 
+## Semantic Analysis Investigation
+
+Investigation into whether semantic analysis from `ruff_python_semantic` is being used to distinguish module imports from value imports:
+
+### Current State
+
+1. **Semantic analysis IS collecting import information**:
+   - `semantic_bundler.rs` creates bindings with `BindingKind::Import` and `BindingKind::FromImport`
+   - These track the type and qualified name of imports
+   - The semantic model knows what's being imported
+
+2. **The information is NOT being used for module vs value detection**:
+   - The code generator's decision to inline or wrap is based on:
+     - Side effects detection
+     - Direct imports (`import module`)
+     - Function-scoped imports
+     - Modules with function-scoped imports
+   - It does NOT check whether `from module import X` is importing a submodule or a value
+
+3. **The missing connection**:
+   - When processing `from greetings import greeting`, the bundler doesn't check if `greeting` is:
+     - A submodule (file `greetings/greeting.py` exists) → should wrap
+     - A value defined in `greetings/__init__.py` → can inline
+   - This semantic information exists but isn't passed to the decision-making code
+
+### Why This Matters
+
+The semantic analysis has the capability to distinguish between:
+
+- `from module import submodule` (importing a module)
+- `from module import function` (importing a value)
+
+But this distinction is not being used when deciding whether to inline or wrap, leading to all three regressions.
+
 ## Common Thread
 
 All three regressions stem from the bundler's failure to correctly identify when an import is importing a **module** versus a **value** (function, class, or variable). This leads to:
@@ -142,6 +176,13 @@ All three regressions stem from the bundler's failure to correctly identify when
   - Either wrap it properly OR create appropriate module references
 - [ ] Fix the variable naming logic to ensure consistency when inlining is (incorrectly) applied
 - [ ] Add safeguards to prevent module inlining entirely
+
+**Recommended Implementation Approach**:
+
+- Leverage the existing semantic analysis infrastructure
+- Pass module file existence information to the code generator
+- In `find_namespace_imported_modules`, check if imported names are submodules
+- Add this check to the inlining decision logic in lines 585-619 of `code_generator.rs`
 
 ### Fix 3: Function-Scoped Module Import Handling ✓
 
