@@ -15,6 +15,7 @@ def __cribo_init___cribo_b4af24_greetings():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_b4af24_greetings'] = module
     sys.modules['greetings'] = module
+    __cribo_init___cribo_e6b571_greetings_greeting()
     greeting = sys.modules['greetings.greeting']
     __all__ = ["message"]
     message = greeting.message
