@@ -113,6 +113,7 @@ pub struct BundleParams<'a> {
     pub entry_module_name: &'a str,
     pub graph: &'a DependencyGraph, // Dependency graph for unused import detection
     pub semantic_bundler: &'a SemanticBundler, // Semantic analysis results
+    pub circular_dep_analysis: Option<&'a crate::cribo_graph::CircularDependencyAnalysis>, /* Circular dependency analysis */
 }
 
 /// Transformer that lifts module-level globals to true global scope
@@ -246,7 +247,7 @@ impl GlobalsLifter {
             if global_info.global_declarations.contains_key(var_name) {
                 let module_name_sanitized = global_info.module_name.cow_replace(".", "_");
                 let module_name_sanitized = module_name_sanitized.cow_replace("-", "_");
-                let lifted_name = format!("__cribo_{module_name_sanitized}_{var_name}");
+                let lifted_name = format!("_cribo_{module_name_sanitized}_{var_name}");
 
                 debug!("Creating lifted declaration for {var_name} -> {lifted_name}");
 
@@ -369,6 +370,107 @@ impl HybridStaticBundler {
     pub fn has_side_effects(ast: &ModModule) -> bool {
         // Use static method to avoid allocation in this hot path
         SideEffectDetector::check_module(ast)
+    }
+
+    /// Check if a module is part of any circular dependency
+    fn is_in_circular_dependency(
+        module_name: &str,
+        circular_dep_analysis: Option<&crate::cribo_graph::CircularDependencyAnalysis>,
+    ) -> bool {
+        if let Some(analysis) = circular_dep_analysis {
+            // Check if module is in any resolvable cycle
+            for cycle in &analysis.resolvable_cycles {
+                if cycle.modules.contains(&module_name.to_string()) {
+                    return true;
+                }
+            }
+            // Check if module is in any unresolvable cycle
+            for cycle in &analysis.unresolvable_cycles {
+                if cycle.modules.contains(&module_name.to_string()) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Sort wrapped modules by their dependencies to ensure correct initialization order
+    fn sort_wrapped_modules_by_dependencies(
+        &self,
+        wrapped_modules: &[String],
+        all_modules: &[(String, PathBuf, Vec<String>)],
+    ) -> Vec<String> {
+        // Build a dependency map for wrapped modules only
+        let mut deps_map: FxIndexMap<String, Vec<String>> = FxIndexMap::default();
+
+        for module_name in wrapped_modules {
+            deps_map.insert(module_name.clone(), Vec::new());
+
+            // Find this module's dependencies from all_modules
+            if let Some((_, _, deps)) = all_modules.iter().find(|(name, _, _)| name == module_name)
+            {
+                debug!("Module {module_name} has dependencies: {deps:?}");
+                for dep in deps {
+                    // Check if this dependency or any of its submodules are wrapped
+                    for wrapped in wrapped_modules {
+                        // Check exact match or if wrapped module is a submodule of dep
+                        if wrapped == dep
+                            || (wrapped.starts_with(dep) && wrapped[dep.len()..].starts_with('.'))
+                        {
+                            debug!("  - {module_name} depends on wrapped module {wrapped}");
+                            if let Some(module_deps) = deps_map.get_mut(module_name)
+                                && !module_deps.contains(wrapped) {
+                                    module_deps.push(wrapped.clone());
+                                }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Dependency map for wrapped modules: {deps_map:?}");
+
+        // Perform a simple topological sort on wrapped modules
+        let mut sorted = Vec::new();
+        let mut visited = FxIndexSet::default();
+        let mut visiting = FxIndexSet::default();
+
+        fn visit(
+            module: &str,
+            deps_map: &FxIndexMap<String, Vec<String>>,
+            visited: &mut FxIndexSet<String>,
+            visiting: &mut FxIndexSet<String>,
+            sorted: &mut Vec<String>,
+        ) -> bool {
+            if visited.contains(module) {
+                return true;
+            }
+            if visiting.contains(module) {
+                // Circular dependency among wrapped modules
+                return false;
+            }
+
+            visiting.insert(module.to_string());
+
+            if let Some(deps) = deps_map.get(module) {
+                for dep in deps {
+                    if !visit(dep, deps_map, visited, visiting, sorted) {
+                        return false;
+                    }
+                }
+            }
+
+            visiting.shift_remove(module);
+            visited.insert(module.to_string());
+            sorted.push(module.to_string());
+            true
+        }
+
+        for module in wrapped_modules {
+            visit(module, &deps_map, &mut visited, &mut visiting, &mut sorted);
+        }
+
+        sorted
     }
 
     /// Generate synthetic module name using content hash
@@ -588,16 +690,23 @@ impl HybridStaticBundler {
             // 3. It's not imported as a namespace (from X import module_name)
             // 4. It doesn't have function-scoped imports (from import rewriting)
             // 5. It's not imported at function scope
+            // 6. It's not part of a circular dependency (unless namespace imported)
             let has_side_effects = Self::has_side_effects(ast);
             let is_directly_imported = directly_imported_modules.contains(module_name);
             let has_function_imports = modules_with_function_imports.contains(module_name);
             let is_function_imported = function_imported_modules.contains(module_name);
+            let is_in_cycle =
+                Self::is_in_circular_dependency(module_name, params.circular_dep_analysis);
+
+            // For circular dependencies, only force wrapping if the module is namespace imported
+            // This allows simple value imports from circular dependency modules to still be inlined
+            let needs_wrapping_for_cycle = is_in_cycle && is_namespace_imported;
 
             if has_side_effects
                 || is_directly_imported
                 || has_function_imports
                 || is_function_imported
-                || is_namespace_imported
+                || needs_wrapping_for_cycle
             {
                 let reason = if has_side_effects {
                     "has side effects"
@@ -607,6 +716,8 @@ impl HybridStaticBundler {
                     "has function-scoped imports"
                 } else if is_function_imported {
                     "is imported at function scope"
+                } else if needs_wrapping_for_cycle {
+                    "is part of circular dependency and imported as namespace"
                 } else {
                     "is imported as a namespace (module import)"
                 };
@@ -792,12 +903,31 @@ impl HybridStaticBundler {
         // Initialize wrapper modules in dependency order AFTER inlined modules are defined
         if need_sys_import {
             debug!("Initializing modules in order:");
+
+            // First, collect all wrapped modules that need initialization
+            let mut wrapped_modules_to_init = Vec::new();
             for (module_name, _, _) in params.sorted_modules {
-                debug!("  - {module_name}");
                 if module_name == params.entry_module_name {
                     continue;
                 }
+                if self.module_registry.contains_key(module_name) {
+                    wrapped_modules_to_init.push(module_name.clone());
+                }
+            }
 
+            // Sort wrapped modules by their dependencies to ensure correct initialization order
+            // This is critical for namespace imports in circular dependencies
+            debug!(
+                "Wrapped modules before sorting: {wrapped_modules_to_init:?}"
+            );
+            let sorted_wrapped = self.sort_wrapped_modules_by_dependencies(
+                &wrapped_modules_to_init,
+                params.sorted_modules,
+            );
+            debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
+
+            for module_name in &sorted_wrapped {
+                debug!("  - {module_name}");
                 if let Some(synthetic_name) = self.module_registry.get(module_name) {
                     let init_call = self.generate_module_init_call(synthetic_name);
                     let prev_len = final_body.len();
@@ -3252,6 +3382,17 @@ impl HybridStaticBundler {
                     );
                 }
             }
+            Stmt::ClassDef(class_def) => {
+                // Transform methods in the class that use globals
+                for stmt in &mut class_def.body {
+                    self.transform_stmt_for_lifted_globals(
+                        stmt,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
+                }
+            }
             _ => {
                 // Other statement types handled as needed
             }
@@ -4085,11 +4226,33 @@ impl HybridStaticBundler {
             if importing_module {
                 // Check if this module is actually a wrapper module (not inlined)
                 if self.module_registry.contains_key(&full_module_path) {
-                    // It's a wrapper module, create a sys.modules access instead
+                    // It's a wrapper module, we need to use the synthetic name
+                    let synthetic_name = &self.module_registry[&full_module_path];
                     log::debug!(
-                        "Module '{full_module_path}' is a wrapper module, creating sys.modules \
-                         access"
+                        "Module '{full_module_path}' is a wrapper module with synthetic name \
+                         '{synthetic_name}'"
                     );
+
+                    // First ensure the module is initialized by calling its init function
+                    let init_func_name = &self.init_functions[synthetic_name];
+                    body.push(Stmt::Expr(ruff_python_ast::StmtExpr {
+                        value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
+                            func: Box::new(Expr::Name(ExprName {
+                                id: init_func_name.into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            arguments: Arguments {
+                                args: Box::new([]),
+                                keywords: Box::new([]),
+                                range: TextRange::default(),
+                            },
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    }));
+
+                    // Then access it via sys.modules using the real module name
                     body.push(Stmt::Assign(StmtAssign {
                         targets: vec![Expr::Name(ExprName {
                             id: local_name.into(),
@@ -5851,10 +6014,60 @@ impl HybridStaticBundler {
             let full_module_path = format!("{module_name}.{imported_name}");
 
             // Check if this is a module import
-            let importing_module = self.inlined_modules.contains(&full_module_path)
-                || self.bundled_modules.contains(&full_module_path);
+            // First check if it's a wrapped module
+            if self.module_registry.contains_key(&full_module_path) {
+                // It's a wrapped module, just assign it from sys.modules
+                log::debug!(
+                    "Module '{full_module_path}' is a wrapped module, creating sys.modules access"
+                );
 
-            if importing_module {
+                // First ensure the module is initialized
+                let synthetic_name = &self.module_registry[&full_module_path];
+                let init_func_name = &self.init_functions[synthetic_name];
+                assignments.push(Stmt::Expr(ruff_python_ast::StmtExpr {
+                    value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
+                        func: Box::new(Expr::Name(ExprName {
+                            id: init_func_name.into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        arguments: Arguments {
+                            args: Box::new([]),
+                            keywords: Box::new([]),
+                            range: TextRange::default(),
+                        },
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+
+                // Then assign it: base = sys.modules['models.base']
+                assignments.push(Stmt::Assign(StmtAssign {
+                    targets: vec![Expr::Name(ExprName {
+                        id: local_name.as_str().into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
+                        value: Box::new(Expr::Attribute(ExprAttribute {
+                            value: Box::new(Expr::Name(ExprName {
+                                id: "sys".into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            attr: Identifier::new("modules", TextRange::default()),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        slice: Box::new(self.create_string_literal(&full_module_path)),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+            } else if self.inlined_modules.contains(&full_module_path)
+                || self.bundled_modules.contains(&full_module_path)
+            {
                 // Create a namespace object for the inlined module
                 log::debug!(
                     "Creating namespace object for module '{imported_name}' imported from \

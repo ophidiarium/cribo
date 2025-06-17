@@ -1468,6 +1468,7 @@ impl BundleOrchestrator {
             entry_module_name: params.entry_module_name,
             graph: params.graph,
             semantic_bundler: &self.semantic_bundler,
+            circular_dep_analysis: params.circular_dep_analysis,
         })?;
 
         // Generate Python code from AST
