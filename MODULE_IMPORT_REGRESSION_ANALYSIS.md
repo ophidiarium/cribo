@@ -4,6 +4,12 @@
 
 During the implementation of circular dependency handling on the `fix/mixed-import-patterns` branch, three distinct regressions were introduced affecting how modules are imported from packages. All three issues share a common theme: **the bundler is not correctly distinguishing between module imports and value imports**.
 
+### Key Investigation Findings
+
+1. **The dependency graph is functioning correctly** - Dependencies are properly detected and modules are topologically sorted in the correct order
+2. **Semantic analysis infrastructure exists but is underutilized** - `ruff_python_semantic` collects detailed import information but it's not used for module vs value detection
+3. **The root cause is a missing check** - When processing `from X import Y`, the bundler doesn't verify if `Y` is a submodule (`.py` file) or a value defined in `X`
+
 ## Affected Test Fixtures
 
 1. `stickytape_explicit_relative_import_single_dot`
@@ -183,6 +189,7 @@ All three regressions stem from the bundler's failure to correctly identify when
 - Pass module file existence information to the code generator
 - In `find_namespace_imported_modules`, check if imported names are submodules
 - Add this check to the inlining decision logic in lines 585-619 of `code_generator.rs`
+- Key location: Where the bundler decides between `inlinable_modules` and `wrapper_modules`
 
 ### Fix 3: Function-Scoped Module Import Handling ✓
 
@@ -206,9 +213,32 @@ All three regressions stem from the bundler's failure to correctly identify when
 ## Recommended Implementation Order
 
 1. **First**: Fix the module vs value detection logic (addresses root cause)
-2. **Second**: Fix module initialization order for relative imports
+   - Add a check in the inlining decision logic to verify if imported names are submodules
+   - This single fix should resolve all three regressions
+2. **Second**: Fix module initialization order for relative imports (if still needed)
 3. **Third**: Ensure all module imports create proper module registrations
 4. **Finally**: Run full test suite and fix any additional edge cases
+
+## Technical Implementation Details
+
+### Current Decision Flow (Incorrect)
+
+```
+from X import Y → Is X directly imported? → No → Can inline Y
+```
+
+### Correct Decision Flow
+
+```
+from X import Y → Is Y a submodule of X? → Yes → Must wrap Y
+                                         → No  → Can inline Y (if no side effects)
+```
+
+### Code Locations to Modify
+
+1. **`code_generator.rs:585-619`** - Main inlining decision logic
+2. **`code_generator.rs:find_namespace_imported_modules`** - Add submodule detection
+3. **`orchestrator.rs:765-768`** - Already identifies potential submodules from relative imports
 
 ## Impact Assessment
 
@@ -220,3 +250,14 @@ These regressions affect a fundamental aspect of Python imports - distinguishing
 - Namespace packages
 
 The fixes should restore proper Python import semantics while maintaining the circular dependency improvements.
+
+## Investigation Summary
+
+Through systematic investigation, we discovered:
+
+1. **Regression 1 (Module Init Order)**: Potentially a false positive - the bundled code runs successfully outside the test framework
+2. **Regression 2 & 3 (Module Inlining)**: Real issues caused by treating modules as values
+
+The investigation revealed that while the codebase has sophisticated semantic analysis capabilities through `ruff_python_semantic`, these are not being utilized for the critical decision of whether an import is importing a module or a value. This gap between available information and its usage is the root cause of the regressions.
+
+**The solution is straightforward**: Before deciding to inline something imported via `from X import Y`, check if `Y` corresponds to a submodule file (`X/Y.py`). This single check would prevent modules from being incorrectly inlined and resolve all three regressions.
