@@ -54,11 +54,11 @@ class Product_2:
 def create_user(name: str, email: str) -> User_2:
     """Factory function for creating users."""
     return User_2(name, email)
-"""\nClass name collision test.\nBoth modules define classes with the same names.\n"""
 ModelUser = User_2
 ModelProduct = Product_2
 EntityUser = User_1
 EntityProduct = Product_1
+"""\nClass name collision test.\nBoth modules define classes with the same names.\n"""
 def main():
     model_user = ModelUser("Alice", "alice@example.com")
     entity_user = EntityUser("Bob", 25)

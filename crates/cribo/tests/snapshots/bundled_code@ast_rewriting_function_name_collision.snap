@@ -22,9 +22,9 @@ def helper_function() -> str:
     """A helper function unique to module A."""
     return "Module A helper"
 MODULE_NAME_2 = "module_a"
-"""\nFunction name collision test.\nBoth modules define a function with the same name.\n"""
 process_a = process_data_2
 process_b = process_data_1
+"""\nFunction name collision test.\nBoth modules define a function with the same name.\n"""
 def main():
     result_a = process_a("input from A")
     result_b = process_b("input from B")

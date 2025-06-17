@@ -12,9 +12,9 @@ CONSTANT = 42
 def greet(name: str) -> str:
     """Greet someone"""
     return f"Hello, {name}!"
-"""Test namespace imports with simple module"""
 utils = types.SimpleNamespace()
 utils.CONSTANT = CONSTANT
 utils.greet = greet
+"""Test namespace imports with simple module"""
 print(utils.greet("World"))
 print(f"Constant: {utils.CONSTANT}")

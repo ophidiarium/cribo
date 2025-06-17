@@ -17,11 +17,11 @@ VERSION_2 = "1.0.0"
 DEFAULT_TIMEOUT = 30
 MAX_CONNECTIONS = 100
 RETRY_DELAY = 5
-"""\nVariable name collision test.\nBoth modules define variables with the same names.\n"""
 API_URL = API_URL_2
 VERSION = VERSION_2
 CONFIG_API_URL = API_URL_1
 CONFIG_VERSION = VERSION_1
+"""\nVariable name collision test.\nBoth modules define variables with the same names.\n"""
 def main():
     print(f"Constants API URL: {API_URL}")
     print(f"Config API URL: {CONFIG_API_URL}")

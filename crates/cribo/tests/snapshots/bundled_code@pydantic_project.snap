@@ -95,10 +95,10 @@ sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functio
 __cribo_init___cribo_d0d3a1_schemas_user()
 schemas = types.ModuleType('schemas')
 schemas.user = sys.modules['schemas.user']
+"""Pydantic test project entry point."""
+__cribo_init___cribo_d0d3a1_schemas_user()
 UserSchema = sys.modules['schemas.user'].UserSchema
 CreateUserRequest = sys.modules['schemas.user'].CreateUserRequest
-UserResponse = sys.modules['schemas.user'].UserResponse
-"""Pydantic test project entry point."""
 def main():
     """Main function demonstrating Pydantic usage."""
     user_data = {"name": "John Doe", "email": "john@example.com", "age": 25}

@@ -836,33 +836,18 @@ impl HybridStaticBundler {
 
             log::debug!("Entry module '{module_name}' renames: {entry_module_renames:?}");
 
-            // First pass: process imports to ensure they're available for the rest of the code
-            let mut entry_imports = Vec::new();
-            let mut other_statements = Vec::new();
-
-            for stmt in ast.body.clone() {
-                let is_hoisted = self.is_hoisted_import(&stmt);
+            // Process statements in order
+            for stmt in &ast.body {
+                let is_hoisted = self.is_hoisted_import(stmt);
                 if is_hoisted {
                     continue;
                 }
 
-                match &stmt {
-                    Stmt::ImportFrom(_) | Stmt::Import(_) => {
-                        entry_imports.push(stmt);
-                    }
-                    _ => {
-                        other_statements.push(stmt);
-                    }
-                }
-            }
-
-            // Process imports first
-            for mut stmt in entry_imports {
-                match &mut stmt {
+                match stmt {
                     Stmt::ImportFrom(_) => {
                         // Handle from imports with renaming
                         let rewritten_stmts = self.rewrite_import_in_stmt_multiple_with_context(
-                            stmt,
+                            stmt.clone(),
                             module_name,
                             &symbol_renames,
                         );
@@ -873,17 +858,15 @@ impl HybridStaticBundler {
                         let rewritten_stmts = self.rewrite_import_entry_module(import_stmt.clone());
                         final_body.extend(rewritten_stmts);
                     }
-                    _ => unreachable!("Should only have import statements here"),
+                    _ => {
+                        let mut stmt_clone = stmt.clone();
+                        self.process_entry_module_statement(
+                            &mut stmt_clone,
+                            &entry_module_renames,
+                            &mut final_body,
+                        );
+                    }
                 }
-            }
-
-            // Then process other statements
-            for mut stmt in other_statements {
-                self.process_entry_module_statement(
-                    &mut stmt,
-                    &entry_module_renames,
-                    &mut final_body,
-                );
             }
         }
 

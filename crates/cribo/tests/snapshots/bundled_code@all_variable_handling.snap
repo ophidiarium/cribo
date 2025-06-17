@@ -121,6 +121,8 @@ exported_from_init = sys.modules['nested_package'].exported_from_init
 __cribo_init___cribo_11029d_nested_package_submodule()
 sub_function = sys.modules['nested_package.submodule'].sub_function
 message = message_1
+simple_module = sys.modules['simple_module']
+sub = sys.modules['nested_package.submodule']
 print("Testing simple module exports:")
 print(f"public_func() = {public_func()}")
 print(f"CONSTANT = {CONSTANT}")
@@ -129,7 +131,5 @@ print(f"exported_from_init() = {exported_from_init()}")
 print(f"sub_function() = {sub_function()}")
 print("\nTesting conflict resolution:")
 print(f"message = {message}")
-simple_module = sys.modules['simple_module']
 print(f"\nsimple_module.__all__ = {simple_module.__all__}")
-sub = sys.modules['nested_package.submodule']
 print(f"submodule.__all__ = {sub.__all__}")

@@ -514,7 +514,6 @@ core = sys.modules['core']
 services = types.ModuleType('services')
 services.auth = types.ModuleType('services.auth')
 services.auth.manager = sys.modules['services.auth.manager']
-"""\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
 process = process_6
 UtilLogger = Logger_4
@@ -534,6 +533,7 @@ base.validate = validate_2
 base.Logger = Logger_1
 base.connect = connect_1
 base.shadow_test = shadow_test
+"""\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 result_1 = 42
 result = result_1
 connection_1 = None
