@@ -293,6 +293,9 @@ struct RecursiveImportTransformer<'a> {
     module_name: &'a str,
     module_path: Option<&'a Path>,
     symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
+    /// Maps import aliases to their actual module names
+    /// e.g., "helper_utils" -> "utils.helpers"
+    import_aliases: FxIndexMap<String, String>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -307,11 +310,12 @@ impl<'a> RecursiveImportTransformer<'a> {
             module_name,
             module_path,
             symbol_renames,
+            import_aliases: FxIndexMap::default(),
         }
     }
 
     /// Transform a module recursively, handling all imports at any depth
-    fn transform_module(&self, module: &mut ModModule) {
+    fn transform_module(&mut self, module: &mut ModModule) {
         log::debug!(
             "RecursiveImportTransformer::transform_module for '{}'",
             self.module_name
@@ -321,7 +325,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     }
 
     /// Transform a list of statements recursively
-    fn transform_statements(&self, stmts: &mut Vec<Stmt>) {
+    fn transform_statements(&mut self, stmts: &mut Vec<Stmt>) {
         log::debug!(
             "RecursiveImportTransformer::transform_statements: Processing {} statements",
             stmts.len()
@@ -348,7 +352,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                 // Skip past the inserted statements
                 i += num_inserted;
             } else {
-                // For non-import statements, recurse into nested structures
+                // For non-import statements, recurse into nested structures and transform
+                // expressions
                 match &mut stmts[i] {
                     Stmt::FunctionDef(func_def) => {
                         log::debug!(
@@ -361,20 +366,30 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.transform_statements(&mut class_def.body);
                     }
                     Stmt::If(if_stmt) => {
+                        self.transform_expr(&mut if_stmt.test);
                         self.transform_statements(&mut if_stmt.body);
                         for clause in &mut if_stmt.elif_else_clauses {
+                            if let Some(test) = &mut clause.test {
+                                self.transform_expr(test);
+                            }
                             self.transform_statements(&mut clause.body);
                         }
                     }
                     Stmt::While(while_stmt) => {
+                        self.transform_expr(&mut while_stmt.test);
                         self.transform_statements(&mut while_stmt.body);
                         self.transform_statements(&mut while_stmt.orelse);
                     }
                     Stmt::For(for_stmt) => {
+                        self.transform_expr(&mut for_stmt.target);
+                        self.transform_expr(&mut for_stmt.iter);
                         self.transform_statements(&mut for_stmt.body);
                         self.transform_statements(&mut for_stmt.orelse);
                     }
                     Stmt::With(with_stmt) => {
+                        for item in &mut with_stmt.items {
+                            self.transform_expr(&mut item.context_expr);
+                        }
                         self.transform_statements(&mut with_stmt.body);
                     }
                     Stmt::Try(try_stmt) => {
@@ -386,6 +401,38 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.transform_statements(&mut try_stmt.orelse);
                         self.transform_statements(&mut try_stmt.finalbody);
                     }
+                    Stmt::Assign(assign) => {
+                        for target in &mut assign.targets {
+                            self.transform_expr(target);
+                        }
+                        self.transform_expr(&mut assign.value);
+                    }
+                    Stmt::AugAssign(aug_assign) => {
+                        self.transform_expr(&mut aug_assign.target);
+                        self.transform_expr(&mut aug_assign.value);
+                    }
+                    Stmt::Expr(expr_stmt) => {
+                        self.transform_expr(&mut expr_stmt.value);
+                    }
+                    Stmt::Return(ret_stmt) => {
+                        if let Some(value) = &mut ret_stmt.value {
+                            self.transform_expr(value);
+                        }
+                    }
+                    Stmt::Raise(raise_stmt) => {
+                        if let Some(exc) = &mut raise_stmt.exc {
+                            self.transform_expr(exc);
+                        }
+                        if let Some(cause) = &mut raise_stmt.cause {
+                            self.transform_expr(cause);
+                        }
+                    }
+                    Stmt::Assert(assert_stmt) => {
+                        self.transform_expr(&mut assert_stmt.test);
+                        if let Some(msg) = &mut assert_stmt.msg {
+                            self.transform_expr(msg);
+                        }
+                    }
                     _ => {}
                 }
                 i += 1;
@@ -394,7 +441,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     }
 
     /// Transform a single statement
-    fn transform_statement(&self, stmt: &mut Stmt) -> Vec<Stmt> {
+    fn transform_statement(&mut self, stmt: &mut Stmt) -> Vec<Stmt> {
         // Check if it's a hoisted import before matching
         let is_hoisted = self.bundler.is_hoisted_import(stmt);
 
@@ -406,6 +453,21 @@ impl<'a> RecursiveImportTransformer<'a> {
                 if is_hoisted {
                     vec![stmt.clone()]
                 } else {
+                    // Track import aliases before rewriting
+                    for alias in &import_stmt.names {
+                        let module_name = alias.name.as_str();
+                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                        // Only track if it's an aliased import of an inlined module
+                        if alias.asname.is_some()
+                            && self.bundler.inlined_modules.contains(module_name)
+                        {
+                            log::debug!("Tracking import alias: {local_name} -> {module_name}");
+                            self.import_aliases
+                                .insert(local_name.to_string(), module_name.to_string());
+                        }
+                    }
+
                     self.bundler.rewrite_import(import_stmt.clone())
                 }
             }
@@ -464,9 +526,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                 let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
                 let full_module_path = format!("{}.{}", module_name.as_str(), imported_name);
 
-                log::debug!(
-                    "  Checking if '{full_module_path}' is an inlined namespace module"
-                );
+                log::debug!("  Checking if '{full_module_path}' is an inlined namespace module");
                 log::debug!(
                     "  inlined_modules contains '{}': {}",
                     full_module_path,
@@ -489,9 +549,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                 {
                     // Create assignment: local_name = full_module_path_with_underscores
                     let namespace_var = full_module_path.replace('.', "_");
-                    log::debug!(
-                        "  Creating namespace assignment: {local_name} = {namespace_var}"
-                    );
+                    log::debug!("  Creating namespace assignment: {local_name} = {namespace_var}");
                     result_stmts.push(Stmt::Assign(StmtAssign {
                         targets: vec![Expr::Name(ExprName {
                             id: local_name.into(),
@@ -535,6 +593,216 @@ impl<'a> RecursiveImportTransformer<'a> {
             self.module_name,
             &empty_renames,
         )
+    }
+
+    /// Transform an expression, rewriting module attribute access to direct references
+    fn transform_expr(&self, expr: &mut Expr) {
+        match expr {
+            Expr::Attribute(attr_expr) => {
+                // First transform the value expression
+                self.transform_expr(&mut attr_expr.value);
+
+                // Check if this is accessing an attribute on a module alias
+                if let Expr::Name(name_expr) = attr_expr.value.as_ref() {
+                    let module_alias = name_expr.id.as_str();
+                    let attr_name = attr_expr.attr.as_str();
+
+                    // Check if this module alias refers to an inlined module
+                    // We need to find what module this alias refers to
+                    if let Some(actual_module) = self.find_module_for_alias(module_alias)
+                        && self.bundler.inlined_modules.contains(&actual_module) {
+                            // This is accessing an attribute on an inlined module
+                            // Replace with direct reference to the symbol
+
+                            // Check if this symbol was renamed during inlining
+                            let new_expr = if let Some(module_renames) =
+                                self.symbol_renames.get(&actual_module)
+                            {
+                                if let Some(renamed) = module_renames.get(attr_name) {
+                                    // Use the renamed symbol
+                                    let renamed_str = renamed.clone();
+                                    log::debug!(
+                                        "Rewrote {module_alias}.{attr_name} to {renamed_str}"
+                                    );
+                                    Some(Expr::Name(ExprName {
+                                        id: renamed_str.into(),
+                                        ctx: attr_expr.ctx,
+                                        range: attr_expr.range,
+                                    }))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
+
+                            if let Some(new_expr) = new_expr {
+                                *expr = new_expr;
+                            } else {
+                                // No rename, use the original name with module prefix
+                                let direct_name =
+                                    format!("{attr_name}_{}", actual_module.replace('.', "_"));
+                                log::debug!("Rewrote {module_alias}.{attr_name} to {direct_name}");
+                                *expr = Expr::Name(ExprName {
+                                    id: direct_name.into(),
+                                    ctx: attr_expr.ctx,
+                                    range: attr_expr.range,
+                                });
+                            }
+                        }
+                }
+            }
+            Expr::Call(call_expr) => {
+                self.transform_expr(&mut call_expr.func);
+                for arg in &mut call_expr.arguments.args {
+                    self.transform_expr(arg);
+                }
+                for keyword in &mut call_expr.arguments.keywords {
+                    self.transform_expr(&mut keyword.value);
+                }
+            }
+            Expr::BinOp(binop_expr) => {
+                self.transform_expr(&mut binop_expr.left);
+                self.transform_expr(&mut binop_expr.right);
+            }
+            Expr::UnaryOp(unaryop_expr) => {
+                self.transform_expr(&mut unaryop_expr.operand);
+            }
+            Expr::BoolOp(boolop_expr) => {
+                for value in &mut boolop_expr.values {
+                    self.transform_expr(value);
+                }
+            }
+            Expr::Compare(compare_expr) => {
+                self.transform_expr(&mut compare_expr.left);
+                for comparator in &mut compare_expr.comparators {
+                    self.transform_expr(comparator);
+                }
+            }
+            Expr::If(if_expr) => {
+                self.transform_expr(&mut if_expr.test);
+                self.transform_expr(&mut if_expr.body);
+                self.transform_expr(&mut if_expr.orelse);
+            }
+            Expr::List(list_expr) => {
+                for elem in &mut list_expr.elts {
+                    self.transform_expr(elem);
+                }
+            }
+            Expr::Tuple(tuple_expr) => {
+                for elem in &mut tuple_expr.elts {
+                    self.transform_expr(elem);
+                }
+            }
+            Expr::Dict(dict_expr) => {
+                for item in &mut dict_expr.items {
+                    if let Some(key) = &mut item.key {
+                        self.transform_expr(key);
+                    }
+                    self.transform_expr(&mut item.value);
+                }
+            }
+            Expr::Set(set_expr) => {
+                for elem in &mut set_expr.elts {
+                    self.transform_expr(elem);
+                }
+            }
+            Expr::ListComp(listcomp_expr) => {
+                self.transform_expr(&mut listcomp_expr.elt);
+                for generator in &mut listcomp_expr.generators {
+                    self.transform_expr(&mut generator.iter);
+                    for if_clause in &mut generator.ifs {
+                        self.transform_expr(if_clause);
+                    }
+                }
+            }
+            Expr::DictComp(dictcomp_expr) => {
+                self.transform_expr(&mut dictcomp_expr.key);
+                self.transform_expr(&mut dictcomp_expr.value);
+                for generator in &mut dictcomp_expr.generators {
+                    self.transform_expr(&mut generator.iter);
+                    for if_clause in &mut generator.ifs {
+                        self.transform_expr(if_clause);
+                    }
+                }
+            }
+            Expr::SetComp(setcomp_expr) => {
+                self.transform_expr(&mut setcomp_expr.elt);
+                for generator in &mut setcomp_expr.generators {
+                    self.transform_expr(&mut generator.iter);
+                    for if_clause in &mut generator.ifs {
+                        self.transform_expr(if_clause);
+                    }
+                }
+            }
+            Expr::Generator(genexp_expr) => {
+                self.transform_expr(&mut genexp_expr.elt);
+                for generator in &mut genexp_expr.generators {
+                    self.transform_expr(&mut generator.iter);
+                    for if_clause in &mut generator.ifs {
+                        self.transform_expr(if_clause);
+                    }
+                }
+            }
+            Expr::Subscript(subscript_expr) => {
+                self.transform_expr(&mut subscript_expr.value);
+                self.transform_expr(&mut subscript_expr.slice);
+            }
+            Expr::Slice(slice_expr) => {
+                if let Some(lower) = &mut slice_expr.lower {
+                    self.transform_expr(lower);
+                }
+                if let Some(upper) = &mut slice_expr.upper {
+                    self.transform_expr(upper);
+                }
+                if let Some(step) = &mut slice_expr.step {
+                    self.transform_expr(step);
+                }
+            }
+            Expr::Lambda(lambda_expr) => {
+                self.transform_expr(&mut lambda_expr.body);
+            }
+            Expr::Yield(yield_expr) => {
+                if let Some(value) = &mut yield_expr.value {
+                    self.transform_expr(value);
+                }
+            }
+            Expr::YieldFrom(yieldfrom_expr) => {
+                self.transform_expr(&mut yieldfrom_expr.value);
+            }
+            Expr::Await(await_expr) => {
+                self.transform_expr(&mut await_expr.value);
+            }
+            Expr::Starred(starred_expr) => {
+                self.transform_expr(&mut starred_expr.value);
+            }
+            // Name, Constants, etc. don't need transformation
+            _ => {}
+        }
+    }
+
+    /// Find the actual module name for a given alias
+    fn find_module_for_alias(&self, alias: &str) -> Option<String> {
+        // First check our tracked import aliases
+        if let Some(module_name) = self.import_aliases.get(alias) {
+            return Some(module_name.clone());
+        }
+
+        // Then check if the alias directly matches a module name
+        if self.bundler.inlined_modules.contains(alias) {
+            Some(alias.to_string())
+        } else {
+            // Check common patterns like "import utils.helpers as helper_utils"
+            // where alias is "helper_utils" and module is "utils.helpers"
+            for module in &self.bundler.inlined_modules {
+                if let Some(last_part) = module.split('.').next_back()
+                    && (alias == format!("{last_part}_utils") || alias == format!("{last_part}s"))
+                    {
+                        return Some(module.clone());
+                    }
+            }
+            None
+        }
     }
 }
 
@@ -1214,10 +1482,8 @@ impl HybridStaticBundler {
             log::debug!("Entry module '{module_name}' renames: {entry_module_renames:?}");
 
             // Apply recursive import transformation to the entry module
-            log::debug!(
-                "Creating RecursiveImportTransformer for entry module '{module_name}'"
-            );
-            let transformer = RecursiveImportTransformer::new(
+            log::debug!("Creating RecursiveImportTransformer for entry module '{module_name}'");
+            let mut transformer = RecursiveImportTransformer::new(
                 self,
                 &module_name,
                 Some(&module_path),
@@ -1511,7 +1777,7 @@ impl HybridStaticBundler {
         };
 
         // First, recursively transform all imports in the AST
-        let transformer = RecursiveImportTransformer::new(
+        let mut transformer = RecursiveImportTransformer::new(
             self,
             ctx.module_name,
             Some(ctx.module_path),
@@ -5817,7 +6083,7 @@ impl HybridStaticBundler {
         let mut module_renames = FxIndexMap::default();
 
         // First, apply recursive import transformation to the module
-        let transformer = RecursiveImportTransformer::new(
+        let mut transformer = RecursiveImportTransformer::new(
             self,
             module_name,
             Some(module_path),
@@ -8164,22 +8430,23 @@ impl HybridStaticBundler {
 
         // Also check if module has module-level variables that weren't renamed
         if let Some(exports) = self.module_exports.get(module_name)
-            && let Some(export_list) = exports {
-                for export in export_list {
-                    if !module_renames.contains_key(export) {
-                        // This export wasn't renamed, add it directly
-                        keywords.push(Keyword {
-                            arg: Some(Identifier::new(export, TextRange::default())),
-                            value: Expr::Name(ExprName {
-                                id: export.clone().into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            }),
+            && let Some(export_list) = exports
+        {
+            for export in export_list {
+                if !module_renames.contains_key(export) {
+                    // This export wasn't renamed, add it directly
+                    keywords.push(Keyword {
+                        arg: Some(Identifier::new(export, TextRange::default())),
+                        value: Expr::Name(ExprName {
+                            id: export.clone().into(),
+                            ctx: ExprContext::Load,
                             range: TextRange::default(),
-                        });
-                    }
+                        }),
+                        range: TextRange::default(),
+                    });
                 }
             }
+        }
 
         // Create the namespace variable name
         let namespace_var = module_name.replace('.', "_");
