@@ -894,6 +894,27 @@ impl<'a> GraphBuilder<'a> {
                     Stmt::With(with_stmt) => {
                         self.handle_with_stmt(with_stmt, read_vars, &mut stack);
                     }
+                    Stmt::Try(try_stmt) => {
+                        // Process the try body
+                        stack.push(&try_stmt.body);
+                        // Process exception handlers
+                        for handler in &try_stmt.handlers {
+                            match handler {
+                                ast::ExceptHandler::ExceptHandler(except_handler) => {
+                                    // Process the test expression if present
+                                    if let Some(test) = &except_handler.type_ {
+                                        self.collect_vars_in_expr(test, read_vars);
+                                    }
+                                    // Process the handler body
+                                    stack.push(&except_handler.body);
+                                }
+                            }
+                        }
+                        // Process else clause
+                        stack.push(&try_stmt.orelse);
+                        // Process finally clause
+                        stack.push(&try_stmt.finalbody);
+                    }
                     _ => {} // Other statements
                 }
             }

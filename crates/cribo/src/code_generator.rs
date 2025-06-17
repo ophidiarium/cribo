@@ -827,18 +827,37 @@ impl HybridStaticBundler {
                 continue;
             }
 
+            log::debug!("Processing entry module: '{module_name}'");
+            log::debug!("Entry module has {} statements", ast.body.len());
+
             // Entry module - add its code directly at the end
             // The entry module needs special handling for symbol conflicts
             let entry_module_renames = symbol_renames.get(module_name).cloned().unwrap_or_default();
 
             log::debug!("Entry module '{module_name}' renames: {entry_module_renames:?}");
 
-            for mut stmt in ast.body.clone() {
-                if self.is_hoisted_import(&stmt) {
+            // First pass: process imports to ensure they're available for the rest of the code
+            let mut entry_imports = Vec::new();
+            let mut other_statements = Vec::new();
+
+            for stmt in ast.body.clone() {
+                let is_hoisted = self.is_hoisted_import(&stmt);
+                if is_hoisted {
                     continue;
                 }
 
-                // For the entry module, we need to handle both imports and symbol references
+                match &stmt {
+                    Stmt::ImportFrom(_) | Stmt::Import(_) => {
+                        entry_imports.push(stmt);
+                    }
+                    _ => {
+                        other_statements.push(stmt);
+                    }
+                }
+            }
+
+            // Process imports first
+            for mut stmt in entry_imports {
                 match &mut stmt {
                     Stmt::ImportFrom(_) => {
                         // Handle from imports with renaming
@@ -854,14 +873,17 @@ impl HybridStaticBundler {
                         let rewritten_stmts = self.rewrite_import_entry_module(import_stmt.clone());
                         final_body.extend(rewritten_stmts);
                     }
-                    _ => {
-                        self.process_entry_module_statement(
-                            &mut stmt,
-                            &entry_module_renames,
-                            &mut final_body,
-                        );
-                    }
+                    _ => unreachable!("Should only have import statements here"),
                 }
+            }
+
+            // Then process other statements
+            for mut stmt in other_statements {
+                self.process_entry_module_statement(
+                    &mut stmt,
+                    &entry_module_renames,
+                    &mut final_body,
+                );
             }
         }
 
@@ -2429,9 +2451,22 @@ impl HybridStaticBundler {
         // Check if it's a package containing bundled modules
         // e.g., if "greetings.greeting" is bundled, then "greetings" is a package
         let package_prefix = format!("{module_name}.");
-        self.bundled_modules
+        let has_submodules = self
+            .bundled_modules
             .iter()
-            .any(|bundled| bundled.starts_with(&package_prefix))
+            .any(|bundled| bundled.starts_with(&package_prefix));
+
+        if module_name.starts_with("schemas") || module_name.starts_with("utils") {
+            log::info!(
+                "is_bundled_module_or_package('{}') -> {} (direct: {}, has_submodules: {})",
+                module_name,
+                self.bundled_modules.contains(module_name) || has_submodules,
+                self.bundled_modules.contains(module_name),
+                has_submodules
+            );
+        }
+
+        has_submodules
     }
 
     /// Collect unique imports from an import statement
@@ -3703,7 +3738,8 @@ impl HybridStaticBundler {
                         return self.is_import_in_hoisted_stdlib(module_name);
                     }
                     // Check if this is a third-party import that we've hoisted
-                    if !self.is_bundled_module_or_package(module_name) {
+                    let is_bundled = self.is_bundled_module_or_package(module_name);
+                    if !is_bundled {
                         return self.third_party_import_from_map.contains_key(module_name);
                     }
                 }
@@ -5871,14 +5907,12 @@ impl HybridStaticBundler {
 
         let Some(module_name) = resolved_module_name else {
             // If we can't resolve the module, return the original import
+            log::warn!(
+                "Could not resolve module name for import {:?}, keeping original import",
+                import_from.module.as_ref().map(|m| m.as_str())
+            );
             return vec![Stmt::ImportFrom(import_from)];
         };
-
-        log::debug!(
-            "Checking if resolved module '{}' is in bundled modules: {:?}",
-            module_name,
-            self.bundled_modules.contains(&module_name)
-        );
 
         if !self.bundled_modules.contains(&module_name) {
             log::debug!(
