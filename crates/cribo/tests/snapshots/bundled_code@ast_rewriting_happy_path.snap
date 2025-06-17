@@ -67,6 +67,8 @@ def __cribo_init___cribo_fddf57_models_user():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_fddf57_models_user'] = module
     sys.modules['models.user'] = module
+    if 'models' in sys.modules:
+        setattr(sys.modules['models'], 'user', module)
     """\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 
     class UserRole(Enum):

@@ -24,6 +24,8 @@ def __cribo_init___cribo_11029d_nested_package_submodule():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_11029d_nested_package_submodule'] = module
     sys.modules['nested_package.submodule'] = module
+    if 'nested_package' in sys.modules:
+        setattr(sys.modules['nested_package'], 'submodule', module)
     __all__ = ["sub_function", "SUB_CONSTANT"]
 
     def sub_function():

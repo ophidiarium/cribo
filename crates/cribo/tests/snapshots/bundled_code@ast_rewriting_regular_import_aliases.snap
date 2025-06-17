@@ -21,6 +21,8 @@ def __cribo_init___cribo_508050_utils_config():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_508050_utils_config'] = module
     sys.modules['utils.config'] = module
+    if 'utils' in sys.modules:
+        setattr(sys.modules['utils'], 'config', module)
     """Configuration module for testing regular import aliases."""
     DEFAULT_CONFIG = {"debug": True, "timeout": 30}
     module.DEFAULT_CONFIG = DEFAULT_CONFIG
@@ -37,6 +39,8 @@ def __cribo_init___cribo_17db52_utils_helpers():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_17db52_utils_helpers'] = module
     sys.modules['utils.helpers'] = module
+    if 'utils' in sys.modules:
+        setattr(sys.modules['utils'], 'helpers', module)
     """Utility module for testing regular import aliases."""
 
     def helper_function():

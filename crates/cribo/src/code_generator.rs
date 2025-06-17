@@ -585,8 +585,9 @@ impl HybridStaticBundler {
             // A module can only be inlined if:
             // 1. It has no side effects
             // 2. It's never imported directly (only from X import Y style)
-            // 3. It's not imported as a namespace
+            // 3. It's not imported as a namespace (from X import module_name)
             // 4. It doesn't have function-scoped imports (from import rewriting)
+            // 5. It's not imported at function scope
             let has_side_effects = Self::has_side_effects(ast);
             let is_directly_imported = directly_imported_modules.contains(module_name);
             let has_function_imports = modules_with_function_imports.contains(module_name);
@@ -596,6 +597,7 @@ impl HybridStaticBundler {
                 || is_directly_imported
                 || has_function_imports
                 || is_function_imported
+                || is_namespace_imported
             {
                 let reason = if has_side_effects {
                     "has side effects"
@@ -603,8 +605,10 @@ impl HybridStaticBundler {
                     "is imported directly"
                 } else if has_function_imports {
                     "has function-scoped imports"
-                } else {
+                } else if is_function_imported {
                     "is imported at function scope"
+                } else {
+                    "is imported as a namespace (module import)"
                 };
                 log::debug!("Module '{module_name}' {reason} - using wrapper approach");
                 wrapper_modules.push((
@@ -1025,6 +1029,86 @@ impl HybridStaticBundler {
         // Register in sys.modules with both synthetic and original names
         body.push(self.create_sys_modules_registration(ctx.synthetic_name));
         body.push(self.create_sys_modules_registration_alias(ctx.synthetic_name, ctx.module_name));
+
+        // If this is a submodule, set it as an attribute on its parent module
+        // This is necessary for relative imports like "from . import submodule" to work
+        if ctx.module_name.contains('.') {
+            let parts: Vec<&str> = ctx.module_name.split('.').collect();
+            if parts.len() >= 2 {
+                let parent_module = parts[..parts.len() - 1].join(".");
+                let attr_name = parts[parts.len() - 1];
+
+                // Check if parent module exists in sys.modules
+                let parent_check = Stmt::If(ruff_python_ast::StmtIf {
+                    test: Box::new(Expr::Compare(ruff_python_ast::ExprCompare {
+                        left: Box::new(self.create_string_literal(&parent_module)),
+                        ops: vec![CmpOp::In].into(),
+                        comparators: vec![Expr::Attribute(ExprAttribute {
+                            value: Box::new(Expr::Name(ExprName {
+                                id: "sys".into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            attr: Identifier::new("modules", TextRange::default()),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })]
+                        .into(),
+                        range: TextRange::default(),
+                    })),
+                    body: vec![
+                        // setattr(sys.modules[parent_module], attr_name, module)
+                        Stmt::Expr(ruff_python_ast::StmtExpr {
+                            value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
+                                func: Box::new(Expr::Name(ExprName {
+                                    id: "setattr".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                arguments: Arguments {
+                                    args: vec![
+                                        Expr::Subscript(ruff_python_ast::ExprSubscript {
+                                            value: Box::new(Expr::Attribute(ExprAttribute {
+                                                value: Box::new(Expr::Name(ExprName {
+                                                    id: "sys".into(),
+                                                    ctx: ExprContext::Load,
+                                                    range: TextRange::default(),
+                                                })),
+                                                attr: Identifier::new(
+                                                    "modules",
+                                                    TextRange::default(),
+                                                ),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            slice: Box::new(
+                                                self.create_string_literal(&parent_module),
+                                            ),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        }),
+                                        self.create_string_literal(attr_name),
+                                        Expr::Name(ExprName {
+                                            id: "module".into(),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        }),
+                                    ]
+                                    .into(),
+                                    keywords: vec![].into(),
+                                    range: TextRange::default(),
+                                },
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        }),
+                    ],
+                    elif_else_clauses: vec![],
+                    range: TextRange::default(),
+                });
+                body.push(parent_check);
+            }
+        }
 
         // Apply globals lifting if needed
         let lifted_names = if let Some(ref global_info) = ctx.global_info {
