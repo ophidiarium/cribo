@@ -548,6 +548,10 @@ impl HybridStaticBundler {
             self.find_directly_imported_modules(&modules, params.entry_module_name);
         log::debug!("Directly imported modules: {directly_imported_modules:?}");
 
+        // Also check which modules are imported at function scope (need to be wrapped)
+        let function_imported_modules = self.find_function_imported_modules(&modules);
+        log::debug!("Function-scoped imported modules: {function_imported_modules:?}");
+
         // Find modules that are imported as namespaces (e.g., from models import base)
         self.find_namespace_imported_modules(&modules);
 
@@ -586,14 +590,21 @@ impl HybridStaticBundler {
             let has_side_effects = Self::has_side_effects(ast);
             let is_directly_imported = directly_imported_modules.contains(module_name);
             let has_function_imports = modules_with_function_imports.contains(module_name);
+            let is_function_imported = function_imported_modules.contains(module_name);
 
-            if has_side_effects || is_directly_imported || has_function_imports {
+            if has_side_effects
+                || is_directly_imported
+                || has_function_imports
+                || is_function_imported
+            {
                 let reason = if has_side_effects {
                     "has side effects"
                 } else if is_directly_imported {
                     "is imported directly"
-                } else {
+                } else if has_function_imports {
                     "has function-scoped imports"
+                } else {
+                    "is imported at function scope"
                 };
                 log::debug!("Module '{module_name}' {reason} - using wrapper approach");
                 wrapper_modules.push((
@@ -4484,7 +4495,7 @@ impl HybridStaticBundler {
     ) -> FxIndexSet<String> {
         let mut directly_imported = FxIndexSet::default();
 
-        // Check all modules for direct imports
+        // Check all modules for direct imports (both module-level and function-scoped)
         for (module_name, ast, module_path, _) in modules {
             log::debug!("Checking module '{module_name}' for direct imports");
             let ctx = DirectImportContext {
@@ -4494,6 +4505,8 @@ impl HybridStaticBundler {
             };
             for stmt in &ast.body {
                 self.collect_direct_imports(stmt, &ctx, &mut directly_imported);
+                // Also check for imports inside functions, classes, etc.
+                self.collect_direct_imports_recursive(stmt, &ctx, &mut directly_imported);
             }
         }
 
@@ -4644,6 +4657,131 @@ impl HybridStaticBundler {
                 directly_imported.insert(parent.clone());
             }
         }
+    }
+
+    /// Recursively collect direct imports from inside functions, classes, etc.
+    fn collect_direct_imports_recursive(
+        &self,
+        stmt: &Stmt,
+        ctx: &DirectImportContext<'_>,
+        directly_imported: &mut FxIndexSet<String>,
+    ) {
+        match stmt {
+            Stmt::FunctionDef(func_def) => {
+                // Check imports inside function body
+                for stmt in &func_def.body {
+                    self.collect_direct_imports(stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(stmt, ctx, directly_imported);
+                }
+            }
+            Stmt::ClassDef(class_def) => {
+                // Check imports inside class body
+                for stmt in &class_def.body {
+                    self.collect_direct_imports(stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(stmt, ctx, directly_imported);
+                }
+            }
+            Stmt::If(if_stmt) => {
+                // Check imports inside if/elif/else blocks
+                for stmt in &if_stmt.body {
+                    self.collect_direct_imports(stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(stmt, ctx, directly_imported);
+                }
+                for clause in &if_stmt.elif_else_clauses {
+                    for stmt in &clause.body {
+                        self.collect_direct_imports(stmt, ctx, directly_imported);
+                        self.collect_direct_imports_recursive(stmt, ctx, directly_imported);
+                    }
+                }
+            }
+            Stmt::While(while_stmt) => {
+                // Check imports inside while body
+                for stmt in &while_stmt.body {
+                    self.collect_direct_imports(stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(stmt, ctx, directly_imported);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                // Check imports inside for body
+                for stmt in &for_stmt.body {
+                    self.collect_direct_imports(stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(stmt, ctx, directly_imported);
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                // Check imports inside try/except/else/finally blocks
+                for stmt in &try_stmt.body {
+                    self.collect_direct_imports(stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(stmt, ctx, directly_imported);
+                }
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(except_handler) = handler;
+                    for stmt in &except_handler.body {
+                        self.collect_direct_imports(stmt, ctx, directly_imported);
+                        self.collect_direct_imports_recursive(stmt, ctx, directly_imported);
+                    }
+                }
+                for stmt in &try_stmt.orelse {
+                    self.collect_direct_imports(stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(stmt, ctx, directly_imported);
+                }
+                for stmt in &try_stmt.finalbody {
+                    self.collect_direct_imports(stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(stmt, ctx, directly_imported);
+                }
+            }
+            Stmt::With(with_stmt) => {
+                // Check imports inside with body
+                for stmt in &with_stmt.body {
+                    self.collect_direct_imports(stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(stmt, ctx, directly_imported);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Find modules that are imported at function scope
+    fn find_function_imported_modules(
+        &self,
+        modules: &[(String, ModModule, PathBuf, String)],
+    ) -> FxIndexSet<String> {
+        let mut function_imported = FxIndexSet::default();
+
+        // Use the ImportDiscoveryVisitor to find function-scoped imports
+        for (_module_name, ast, _, _) in modules {
+            use crate::visitors::{ImportDiscoveryVisitor, ImportLocation};
+
+            let mut visitor = ImportDiscoveryVisitor::new();
+            // Visit all statements in the module
+            for stmt in &ast.body {
+                use ruff_python_ast::visitor::Visitor;
+                visitor.visit_stmt(stmt);
+            }
+
+            for import in visitor.into_imports() {
+                // Check if this import is inside a function
+                if matches!(
+                    import.location,
+                    ImportLocation::Function(_) | ImportLocation::Method { .. }
+                ) {
+                    // Get the module name from the import
+                    if let Some(module_name) = &import.module_name {
+                        // Check if this is a bundled module
+                        if modules.iter().any(|(name, _, _, _)| name == module_name) {
+                            log::debug!(
+                                "Found function-scoped import of module '{}' at {:?}",
+                                module_name,
+                                import.location
+                            );
+                            function_imported.insert(module_name.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        function_imported
     }
 
     /// Find modules that are imported as namespaces (e.g., from models import base)
