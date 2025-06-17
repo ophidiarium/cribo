@@ -7,6 +7,7 @@ input_file: crates/cribo/tests/fixtures/function_level_module_import/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
+import types
 """Calculator module with simple operations"""
 description = "A simple calculator module"
 def add(a, b):

@@ -46,6 +46,8 @@ struct InlineContext<'a> {
     inlined_stmts: &'a mut Vec<Stmt>,
     /// Import aliases in the current module being inlined (alias -> actual_name)
     import_aliases: FxIndexMap<String, String>,
+    /// Deferred import assignments that need to be placed after all modules are inlined
+    deferred_imports: &'a mut Vec<Stmt>,
 }
 
 /// Context for semantic analysis operations
@@ -122,6 +124,105 @@ struct GlobalsLifter {
     lifted_names: FxIndexMap<String, String>,
     /// Statements to add at module top level
     lifted_declarations: Vec<Stmt>,
+}
+
+/// Symbol dependency tracking for circular modules
+#[derive(Debug, Default)]
+struct SymbolDependencyGraph {
+    /// Map from (module, symbol) to list of (module, symbol) dependencies
+    dependencies: FxIndexMap<(String, String), Vec<(String, String)>>,
+    /// Track which symbols are defined in which modules
+    symbol_definitions: FxIndexMap<(String, String), SymbolDefinition>,
+}
+
+#[derive(Debug, Clone)]
+struct SymbolDefinition {
+    /// Whether this is a function definition
+    is_function: bool,
+    /// Whether this is a class definition
+    is_class: bool,
+    /// Whether this is an assignment
+    is_assignment: bool,
+    /// Dependencies this symbol has on other symbols
+    depends_on: Vec<(String, String)>,
+}
+
+impl SymbolDependencyGraph {
+    /// Perform topological sort on symbols within circular modules
+    /// Returns symbols in reverse topological order (dependencies first)
+    fn topological_sort_symbols(
+        &self,
+        circular_modules: &FxIndexSet<String>,
+    ) -> Result<Vec<(String, String)>> {
+        use petgraph::{
+            algo::toposort,
+            graph::{DiGraph, NodeIndex},
+        };
+        use rustc_hash::FxHashMap;
+
+        // Build a directed graph of symbol dependencies
+        let mut graph = DiGraph::new();
+        let mut node_map: FxHashMap<(String, String), NodeIndex> = FxHashMap::default();
+
+        // Add nodes for all symbols in circular modules
+        for (module_symbol, _) in &self.symbol_definitions {
+            if circular_modules.contains(&module_symbol.0) {
+                let node = graph.add_node(module_symbol.clone());
+                node_map.insert(module_symbol.clone(), node);
+            }
+        }
+
+        // Add edges for dependencies
+        for (module_symbol, deps) in &self.dependencies {
+            if let Some(&from_node) = node_map.get(module_symbol) {
+                for dep in deps {
+                    if let Some(&to_node) = node_map.get(dep) {
+                        // Edge from symbol to its dependency
+                        graph.add_edge(from_node, to_node, ());
+                    }
+                }
+            }
+        }
+
+        // Perform topological sort
+        match toposort(&graph, None) {
+            Ok(sorted_nodes) => {
+                // Return in reverse order (dependencies first)
+                let mut result = Vec::new();
+                for node_idx in sorted_nodes.into_iter().rev() {
+                    result.push(graph[node_idx].clone());
+                }
+                Ok(result)
+            }
+            Err(_) => {
+                // If topological sort fails, there's a cycle within symbols
+                // Fall back to module order
+                let mut result = Vec::new();
+                for (module_symbol, _) in &self.symbol_definitions {
+                    if circular_modules.contains(&module_symbol.0) {
+                        result.push(module_symbol.clone());
+                    }
+                }
+                Ok(result)
+            }
+        }
+    }
+
+    /// Get symbols for a specific module in dependency order
+    fn get_module_symbols_ordered(&self, module_name: &str) -> Vec<String> {
+        let mut module_symbols = Vec::new();
+
+        // Collect all symbols from this module
+        for ((module, symbol), _) in &self.symbol_definitions {
+            if module == module_name {
+                module_symbols.push(symbol.clone());
+            }
+        }
+
+        // Sort by dependency order within the module
+        // For now, return in definition order
+        module_symbols
+    }
 }
 
 /// Transform globals() calls to module.__dict__ when inside module functions
@@ -296,6 +397,10 @@ struct RecursiveImportTransformer<'a> {
     /// Maps import aliases to their actual module names
     /// e.g., "helper_utils" -> "utils.helpers"
     import_aliases: FxIndexMap<String, String>,
+    /// Deferred import assignments for cross-module imports
+    deferred_imports: &'a mut Vec<Stmt>,
+    /// Flag indicating if this is the entry module
+    is_entry_module: bool,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -304,6 +409,8 @@ impl<'a> RecursiveImportTransformer<'a> {
         module_name: &'a str,
         module_path: Option<&'a Path>,
         symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
+        deferred_imports: &'a mut Vec<Stmt>,
+        is_entry_module: bool,
     ) -> Self {
         Self {
             bundler,
@@ -311,6 +418,8 @@ impl<'a> RecursiveImportTransformer<'a> {
             module_path,
             symbol_renames,
             import_aliases: FxIndexMap::default(),
+            deferred_imports,
+            is_entry_module,
         }
     }
 
@@ -478,6 +587,42 @@ impl<'a> RecursiveImportTransformer<'a> {
                 if is_hoisted {
                     vec![stmt.clone()]
                 } else {
+                    // Track import aliases before handling the import
+                    if let Some(module) = &import_from.module {
+                        let _module_str = module.as_str();
+
+                        // Resolve relative imports first
+                        let resolved_module = if let Some(module_path) = self.module_path {
+                            self.bundler.resolve_relative_import_with_context(
+                                import_from,
+                                self.module_name,
+                                Some(module_path),
+                            )
+                        } else {
+                            self.bundler
+                                .resolve_relative_import(import_from, self.module_name)
+                        };
+
+                        if let Some(resolved) = &resolved_module
+                            && self.bundler.inlined_modules.contains(resolved) {
+                                // Track aliases for imported symbols
+                                for alias in &import_from.names {
+                                    let imported_name = alias.name.as_str();
+                                    let local_name =
+                                        alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                                    if alias.asname.is_some() || imported_name != local_name {
+                                        log::debug!(
+                                            "Tracking ImportFrom alias: {local_name} -> {resolved}.{imported_name}"
+                                        );
+                                        // For ImportFrom, we need to track the symbol path
+                                        self.import_aliases
+                                            .insert(local_name.to_string(), resolved.clone());
+                                    }
+                                }
+                            }
+                    }
+
                     self.handle_import_from(import_from)
                 }
             }
@@ -486,7 +631,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     }
 
     /// Handle ImportFrom statements
-    fn handle_import_from(&self, import_from: &StmtImportFrom) -> Vec<Stmt> {
+    fn handle_import_from(&mut self, import_from: &StmtImportFrom) -> Vec<Stmt> {
         log::debug!(
             "RecursiveImportTransformer::handle_import_from: from {:?} import {:?}",
             import_from.module.as_ref().map(|m| m.as_str()),
@@ -575,14 +720,35 @@ impl<'a> RecursiveImportTransformer<'a> {
         if let Some(ref resolved) = resolved_module {
             // Check if this is an inlined module
             if self.bundler.inlined_modules.contains(resolved) {
-                log::debug!(
-                    "  Module '{resolved}' is inlined, calling handle_imports_from_inlined_module"
-                );
-                return self.bundler.handle_imports_from_inlined_module(
-                    import_from,
-                    resolved,
-                    self.symbol_renames,
-                );
+                // Check if this is a circular module with pre-declarations
+                if self.bundler.circular_modules.contains(resolved) {
+                    log::debug!("  Module '{resolved}' is a circular module with pre-declarations");
+                    // Return import assignments immediately - symbols are pre-declared
+                    return self.bundler.handle_imports_from_inlined_module(
+                        import_from,
+                        resolved,
+                        self.symbol_renames,
+                    );
+                } else {
+                    log::debug!("  Module '{resolved}' is inlined, handling import assignments");
+                    // For the entry module, we should not defer these imports
+                    // because they need to be available when the entry module's code runs
+                    let import_stmts = self.bundler.handle_imports_from_inlined_module(
+                        import_from,
+                        resolved,
+                        self.symbol_renames,
+                    );
+
+                    // Only defer if we're not in the entry module
+                    if !self.is_entry_module {
+                        self.deferred_imports.extend(import_stmts);
+                        // Return empty - these imports will be added after all modules are inlined
+                        return vec![];
+                    } else {
+                        // For entry module, return the imports immediately
+                        return import_stmts;
+                    }
+                }
             }
         }
 
@@ -610,46 +776,45 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // Check if this module alias refers to an inlined module
                     // We need to find what module this alias refers to
                     if let Some(actual_module) = self.find_module_for_alias(module_alias)
-                        && self.bundler.inlined_modules.contains(&actual_module) {
-                            // This is accessing an attribute on an inlined module
-                            // Replace with direct reference to the symbol
+                        && self.bundler.inlined_modules.contains(&actual_module)
+                    {
+                        // This is accessing an attribute on an inlined module
+                        // Replace with direct reference to the symbol
 
-                            // Check if this symbol was renamed during inlining
-                            let new_expr = if let Some(module_renames) =
-                                self.symbol_renames.get(&actual_module)
-                            {
-                                if let Some(renamed) = module_renames.get(attr_name) {
-                                    // Use the renamed symbol
-                                    let renamed_str = renamed.clone();
-                                    log::debug!(
-                                        "Rewrote {module_alias}.{attr_name} to {renamed_str}"
-                                    );
-                                    Some(Expr::Name(ExprName {
-                                        id: renamed_str.into(),
-                                        ctx: attr_expr.ctx,
-                                        range: attr_expr.range,
-                                    }))
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            };
-
-                            if let Some(new_expr) = new_expr {
-                                *expr = new_expr;
-                            } else {
-                                // No rename, use the original name with module prefix
-                                let direct_name =
-                                    format!("{attr_name}_{}", actual_module.replace('.', "_"));
-                                log::debug!("Rewrote {module_alias}.{attr_name} to {direct_name}");
-                                *expr = Expr::Name(ExprName {
-                                    id: direct_name.into(),
+                        // Check if this symbol was renamed during inlining
+                        let new_expr = if let Some(module_renames) =
+                            self.symbol_renames.get(&actual_module)
+                        {
+                            if let Some(renamed) = module_renames.get(attr_name) {
+                                // Use the renamed symbol
+                                let renamed_str = renamed.clone();
+                                log::debug!("Rewrote {module_alias}.{attr_name} to {renamed_str}");
+                                Some(Expr::Name(ExprName {
+                                    id: renamed_str.into(),
                                     ctx: attr_expr.ctx,
                                     range: attr_expr.range,
-                                });
+                                }))
+                            } else {
+                                None
                             }
+                        } else {
+                            None
+                        };
+
+                        if let Some(new_expr) = new_expr {
+                            *expr = new_expr;
+                        } else {
+                            // No rename, use the original name with module prefix
+                            let direct_name =
+                                format!("{attr_name}_{}", actual_module.replace('.', "_"));
+                            log::debug!("Rewrote {module_alias}.{attr_name} to {direct_name}");
+                            *expr = Expr::Name(ExprName {
+                                id: direct_name.into(),
+                                ctx: attr_expr.ctx,
+                                range: attr_expr.range,
+                            });
                         }
+                    }
                 }
             }
             Expr::Call(call_expr) => {
@@ -797,9 +962,9 @@ impl<'a> RecursiveImportTransformer<'a> {
             for module in &self.bundler.inlined_modules {
                 if let Some(last_part) = module.split('.').next_back()
                     && (alias == format!("{last_part}_utils") || alias == format!("{last_part}s"))
-                    {
-                        return Some(module.clone());
-                    }
+                {
+                    return Some(module.clone());
+                }
             }
             None
         }
@@ -843,6 +1008,12 @@ pub struct HybridStaticBundler {
     /// Wrapper imports from namespace hybrid modules that need to be generated
     /// Used when processing multiple dotted imports
     created_namespace_modules: FxIndexSet<String>,
+    /// Modules that are part of circular dependencies
+    circular_modules: FxIndexSet<String>,
+    /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
+    circular_predeclarations: FxIndexMap<String, FxIndexMap<String, String>>,
+    /// Symbol dependency graph for circular modules
+    symbol_dep_graph: SymbolDependencyGraph,
 }
 
 impl Default for HybridStaticBundler {
@@ -869,6 +1040,9 @@ impl HybridStaticBundler {
             namespace_imported_modules: FxIndexMap::default(),
             entry_created_namespaces: FxIndexSet::default(),
             created_namespace_modules: FxIndexSet::default(),
+            circular_modules: FxIndexSet::default(),
+            circular_predeclarations: FxIndexMap::default(),
+            symbol_dep_graph: SymbolDependencyGraph::default(),
         }
     }
 
@@ -911,6 +1085,231 @@ impl HybridStaticBundler {
             }
         }
         false
+    }
+
+    /// Build symbol-level dependency graph for circular modules
+    fn build_symbol_dependency_graph(
+        &mut self,
+        modules: &[(String, ModModule, PathBuf, String)],
+        graph: &crate::cribo_graph::CriboGraph,
+        _semantic_ctx: &SemanticContext,
+    ) {
+        // For each module in a circular dependency, analyze its symbols
+        for (module_name, _ast, _path, _source) in modules {
+            if !self.circular_modules.contains(module_name) {
+                continue;
+            }
+
+            log::debug!(
+                "Building symbol dependency graph for circular module: {module_name}"
+            );
+
+            // Get the module from the graph
+            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+                // For each item in the module
+                for item_data in module_dep_graph.items.values() {
+                    match &item_data.item_type {
+                        crate::cribo_graph::ItemType::FunctionDef { name } => {
+                            self.analyze_function_dependencies(
+                                module_name,
+                                name,
+                                item_data,
+                                module_dep_graph,
+                                graph,
+                            );
+                        }
+                        crate::cribo_graph::ItemType::ClassDef { name } => {
+                            self.analyze_class_dependencies(
+                                module_name,
+                                name,
+                                item_data,
+                                module_dep_graph,
+                                graph,
+                            );
+                        }
+                        crate::cribo_graph::ItemType::Assignment { targets } => {
+                            for target in targets {
+                                self.analyze_assignment_dependencies(
+                                    module_name,
+                                    target,
+                                    item_data,
+                                    module_dep_graph,
+                                    graph,
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    /// Analyze dependencies for a function definition
+    fn analyze_function_dependencies(
+        &mut self,
+        module_name: &str,
+        function_name: &str,
+        item_data: &crate::cribo_graph::ItemData,
+        _module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+        graph: &crate::cribo_graph::CriboGraph,
+    ) {
+        let key = (module_name.to_string(), function_name.to_string());
+        let mut dependencies = Vec::new();
+
+        // Track what this function reads
+        for var in &item_data.read_vars {
+            // Check if this variable is from another circular module
+            if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
+                && self.circular_modules.contains(&dep_module) && dep_module != module_name {
+                    dependencies.push((dep_module, var.clone()));
+                }
+        }
+
+        // Also check eventual reads (inside the function body)
+        for var in &item_data.eventual_read_vars {
+            if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
+                && self.circular_modules.contains(&dep_module) && dep_module != module_name {
+                    dependencies.push((dep_module, var.clone()));
+                }
+        }
+
+        self.symbol_dep_graph
+            .dependencies
+            .insert(key.clone(), dependencies);
+        self.symbol_dep_graph.symbol_definitions.insert(
+            key,
+            SymbolDefinition {
+                is_function: true,
+                is_class: false,
+                is_assignment: false,
+                depends_on: vec![],
+            },
+        );
+    }
+
+    /// Analyze dependencies for a class definition
+    fn analyze_class_dependencies(
+        &mut self,
+        module_name: &str,
+        class_name: &str,
+        item_data: &crate::cribo_graph::ItemData,
+        _module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+        graph: &crate::cribo_graph::CriboGraph,
+    ) {
+        let key = (module_name.to_string(), class_name.to_string());
+        let mut dependencies = Vec::new();
+
+        // For classes, check both immediate reads (base classes) and eventual reads (methods)
+        for var in &item_data.read_vars {
+            if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
+                && self.circular_modules.contains(&dep_module) && dep_module != module_name {
+                    dependencies.push((dep_module, var.clone()));
+                }
+        }
+
+        self.symbol_dep_graph
+            .dependencies
+            .insert(key.clone(), dependencies);
+        self.symbol_dep_graph.symbol_definitions.insert(
+            key,
+            SymbolDefinition {
+                is_function: false,
+                is_class: true,
+                is_assignment: false,
+                depends_on: vec![],
+            },
+        );
+    }
+
+    /// Analyze dependencies for an assignment
+    fn analyze_assignment_dependencies(
+        &mut self,
+        module_name: &str,
+        var_name: &str,
+        item_data: &crate::cribo_graph::ItemData,
+        _module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+        graph: &crate::cribo_graph::CriboGraph,
+    ) {
+        let key = (module_name.to_string(), var_name.to_string());
+        let mut dependencies = Vec::new();
+
+        // Check what this assignment reads
+        for var in &item_data.read_vars {
+            if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
+                && self.circular_modules.contains(&dep_module) && dep_module != module_name {
+                    dependencies.push((dep_module, var.clone()));
+                }
+        }
+
+        self.symbol_dep_graph
+            .dependencies
+            .insert(key.clone(), dependencies);
+        self.symbol_dep_graph.symbol_definitions.insert(
+            key,
+            SymbolDefinition {
+                is_function: false,
+                is_class: false,
+                is_assignment: true,
+                depends_on: vec![],
+            },
+        );
+    }
+
+    /// Find which module defines a symbol
+    fn find_symbol_module(
+        &self,
+        symbol: &str,
+        current_module: &str,
+        graph: &crate::cribo_graph::CriboGraph,
+    ) -> Option<String> {
+        // First check if it's defined in the current module
+        if let Some(module_dep_graph) = graph.get_module_by_name(current_module) {
+            for item_data in module_dep_graph.items.values() {
+                match &item_data.item_type {
+                    crate::cribo_graph::ItemType::FunctionDef { name } if name == symbol => {
+                        return Some(current_module.to_string());
+                    }
+                    crate::cribo_graph::ItemType::ClassDef { name } if name == symbol => {
+                        return Some(current_module.to_string());
+                    }
+                    crate::cribo_graph::ItemType::Assignment { targets } => {
+                        if targets.contains(&symbol.to_string()) {
+                            return Some(current_module.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Check other circular modules
+        for module_name in &self.circular_modules {
+            if module_name == current_module {
+                continue;
+            }
+
+            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+                for item_data in module_dep_graph.items.values() {
+                    match &item_data.item_type {
+                        crate::cribo_graph::ItemType::FunctionDef { name } if name == symbol => {
+                            return Some(module_name.clone());
+                        }
+                        crate::cribo_graph::ItemType::ClassDef { name } if name == symbol => {
+                            return Some(module_name.clone());
+                        }
+                        crate::cribo_graph::ItemType::Assignment { targets } => {
+                            if targets.contains(&symbol.to_string()) {
+                                return Some(module_name.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Sort wrapped modules by their dependencies to ensure correct initialization order
@@ -1187,6 +1586,21 @@ impl HybridStaticBundler {
 
         self.find_namespace_imported_modules(&all_modules_for_namespace_check);
 
+        // Identify all modules that are part of circular dependencies
+        if let Some(analysis) = params.circular_dep_analysis {
+            for group in &analysis.resolvable_cycles {
+                for module in &group.modules {
+                    self.circular_modules.insert(module.clone());
+                }
+            }
+            for group in &analysis.unresolvable_cycles {
+                for module in &group.modules {
+                    self.circular_modules.insert(module.clone());
+                }
+            }
+            log::debug!("Circular modules: {:?}", self.circular_modules);
+        }
+
         // Separate modules into inlinable and wrapper modules
         let mut inlinable_modules = Vec::new();
         let mut wrapper_modules = Vec::new();
@@ -1318,18 +1732,91 @@ impl HybridStaticBundler {
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
 
+        // Build symbol-level dependency graph for circular modules if needed
+        if !self.circular_modules.is_empty() {
+            log::debug!("Building symbol dependency graph for circular modules");
+
+            // Convert modules to the format expected by build_symbol_dependency_graph
+            let modules_for_graph: Vec<(String, ModModule, PathBuf, String)> = modules_normalized
+                .iter()
+                .map(|(name, ast, path, hash)| {
+                    (name.clone(), ast.clone(), path.clone(), hash.clone())
+                })
+                .collect();
+
+            self.build_symbol_dependency_graph(&modules_for_graph, params.graph, &semantic_ctx);
+
+            // Get ordered symbols for circular modules
+            match self
+                .symbol_dep_graph
+                .topological_sort_symbols(&self.circular_modules)
+            {
+                Ok(ordered_symbols) => {
+                    log::debug!(
+                        "Symbol ordering for circular modules: {ordered_symbols:?}"
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Failed to order symbols in circular modules: {e}");
+                    // Continue with default ordering
+                }
+            }
+        }
+
+        // Generate pre-declarations for symbols from circular modules
+        let mut circular_predeclarations = Vec::new();
+        if !self.circular_modules.is_empty() {
+            log::debug!("Generating pre-declarations for circular modules");
+            for (module_name, _ast, _, _) in &inlinable_modules {
+                if self.circular_modules.contains(module_name) {
+                    // Get renamed symbols for this module
+                    if let Some(module_renames) = symbol_renames.get(module_name) {
+                        // Pre-declare each symbol with None value
+                        for (original_name, renamed_name) in module_renames {
+                            log::debug!(
+                                "Pre-declaring {renamed_name} (from {module_name}.{original_name})"
+                            );
+                            circular_predeclarations.push(Stmt::Assign(StmtAssign {
+                                targets: vec![Expr::Name(ExprName {
+                                    id: renamed_name.clone().into(),
+                                    ctx: ExprContext::Store,
+                                    range: TextRange::default(),
+                                })],
+                                value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
+                                    range: TextRange::default(),
+                                })),
+                                range: TextRange::default(),
+                            }));
+
+                            // Track the pre-declaration
+                            self.circular_predeclarations
+                                .entry(module_name.clone())
+                                .or_default()
+                                .insert(original_name.clone(), renamed_name.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add pre-declarations at the very beginning
+        final_body.extend(circular_predeclarations);
+
         // Inline the inlinable modules FIRST to populate symbol_renames
         // This ensures we know what symbols have been renamed before processing wrapper modules and
         // namespace hybrids
+        let mut all_deferred_imports = Vec::new();
         for (module_name, ast, _module_path, _content_hash) in &inlinable_modules {
             log::debug!("Inlining module '{module_name}'");
             let mut inlined_stmts = Vec::new();
+            let mut deferred_imports = Vec::new();
             let mut inline_ctx = InlineContext {
                 module_exports_map: &module_exports_map,
                 global_symbols: &mut global_symbols,
                 module_renames: &mut symbol_renames,
                 inlined_stmts: &mut inlined_stmts,
                 import_aliases: FxIndexMap::default(),
+                deferred_imports: &mut deferred_imports,
             };
             self.inline_module(module_name, ast.clone(), _module_path, &mut inline_ctx)?;
             log::debug!(
@@ -1338,6 +1825,7 @@ impl HybridStaticBundler {
                 module_name
             );
             final_body.extend(inlined_stmts);
+            all_deferred_imports.extend(deferred_imports);
         }
 
         // Create namespace objects for inlined modules that are imported as namespaces
@@ -1463,6 +1951,10 @@ impl HybridStaticBundler {
             );
         }
 
+        // Add all deferred imports after wrapper modules have been initialized
+        // This ensures that any cross-module imports referencing wrapper modules will work
+        final_body.extend(all_deferred_imports);
+
         // Finally, add entry module code (it's always last in topological order)
         for (module_name, mut ast, module_path, _) in modules_normalized {
             if module_name != params.entry_module_name {
@@ -1483,11 +1975,14 @@ impl HybridStaticBundler {
 
             // Apply recursive import transformation to the entry module
             log::debug!("Creating RecursiveImportTransformer for entry module '{module_name}'");
+            let mut entry_deferred_imports = Vec::new();
             let mut transformer = RecursiveImportTransformer::new(
                 self,
                 &module_name,
                 Some(&module_path),
                 &symbol_renames,
+                &mut entry_deferred_imports,
+                true, // This is the entry module
             );
             log::debug!(
                 "Transforming entry module '{module_name}' with RecursiveImportTransformer"
@@ -1521,6 +2016,9 @@ impl HybridStaticBundler {
                     }
                 }
             }
+
+            // Add deferred imports from the entry module after all its statements
+            final_body.extend(entry_deferred_imports);
         }
 
         Ok(ModModule {
@@ -1777,13 +2275,19 @@ impl HybridStaticBundler {
         };
 
         // First, recursively transform all imports in the AST
+        // For wrapper modules, we don't need to defer imports since they run in their own scope
+        let mut wrapper_deferred_imports = Vec::new();
         let mut transformer = RecursiveImportTransformer::new(
             self,
             ctx.module_name,
             Some(ctx.module_path),
             symbol_renames,
+            &mut wrapper_deferred_imports,
+            false, // This is not the entry module
         );
         transformer.transform_module(&mut ast);
+        // Add any deferred imports to the init function body
+        body.extend(wrapper_deferred_imports);
 
         // Now process the transformed module
         for stmt in ast.body {
@@ -6072,6 +6576,79 @@ impl HybridStaticBundler {
         self.generate_unique_name(base_name, existing_symbols)
     }
 
+    /// Reorder statements in a module based on symbol dependencies for circular modules
+    fn reorder_statements_for_circular_module(
+        &self,
+        module_name: &str,
+        statements: Vec<Stmt>,
+    ) -> Vec<Stmt> {
+        // Get the ordered symbols for this module from the dependency graph
+        let ordered_symbols = self
+            .symbol_dep_graph
+            .get_module_symbols_ordered(module_name);
+
+        if ordered_symbols.is_empty() {
+            // No ordering information, return statements as-is
+            return statements;
+        }
+
+        log::debug!(
+            "Reordering statements for circular module '{module_name}' based on symbol order: {ordered_symbols:?}"
+        );
+
+        // Create a map from symbol name to statement
+        let mut symbol_to_stmt: FxIndexMap<String, Stmt> = FxIndexMap::default();
+        let mut other_stmts = Vec::new();
+        let mut imports = Vec::new();
+
+        for stmt in statements {
+            match &stmt {
+                Stmt::FunctionDef(func_def) => {
+                    symbol_to_stmt.insert(func_def.name.to_string(), stmt);
+                }
+                Stmt::ClassDef(class_def) => {
+                    symbol_to_stmt.insert(class_def.name.to_string(), stmt);
+                }
+                Stmt::Assign(assign) => {
+                    if let Some(name) = self.extract_simple_assign_target(assign) {
+                        symbol_to_stmt.insert(name, stmt);
+                    } else {
+                        other_stmts.push(stmt);
+                    }
+                }
+                Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                    // Keep imports at the beginning
+                    imports.push(stmt);
+                }
+                _ => {
+                    // Other statements maintain their relative order
+                    other_stmts.push(stmt);
+                }
+            }
+        }
+
+        // Build the reordered statement list
+        let mut reordered = Vec::new();
+
+        // First, add all imports
+        reordered.extend(imports);
+
+        // Then add symbols in the specified order
+        for symbol in &ordered_symbols {
+            if let Some(stmt) = symbol_to_stmt.shift_remove(symbol) {
+                reordered.push(stmt);
+            }
+        }
+
+        // Add any remaining symbols that weren't in the ordered list
+        reordered.extend(symbol_to_stmt.into_values());
+
+        // Finally, add other statements
+        reordered.extend(other_stmts);
+
+        reordered
+    }
+
     /// Inline a module without side effects directly into the bundle
     fn inline_module(
         &mut self,
@@ -6088,11 +6665,20 @@ impl HybridStaticBundler {
             module_name,
             Some(module_path),
             ctx.module_renames,
+            ctx.deferred_imports,
+            false, // This is not the entry module
         );
         transformer.transform_module(&mut ast);
 
+        // If this is a circular module, reorder statements based on symbol dependencies
+        let statements = if self.circular_modules.contains(module_name) {
+            self.reorder_statements_for_circular_module(module_name, ast.body)
+        } else {
+            ast.body
+        };
+
         // Process each statement in the module
-        for stmt in ast.body {
+        for stmt in statements {
             match &stmt {
                 Stmt::Import(_) | Stmt::ImportFrom(_) => {
                     // Imports have already been transformed by RecursiveImportTransformer
@@ -6899,55 +7485,11 @@ impl HybridStaticBundler {
             // Check if this is a module import
             // First check if it's a wrapped module
             if self.module_registry.contains_key(&full_module_path) {
-                // It's a wrapped module, just assign it from sys.modules
-                log::debug!(
-                    "Module '{full_module_path}' is a wrapped module, creating sys.modules access"
-                );
-
-                // First ensure the module is initialized
-                let synthetic_name = &self.module_registry[&full_module_path];
-                let init_func_name = &self.init_functions[synthetic_name];
-                assignments.push(Stmt::Expr(ruff_python_ast::StmtExpr {
-                    value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
-                        func: Box::new(Expr::Name(ExprName {
-                            id: init_func_name.into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        arguments: Arguments {
-                            args: Box::new([]),
-                            keywords: Box::new([]),
-                            range: TextRange::default(),
-                        },
-                        range: TextRange::default(),
-                    })),
-                    range: TextRange::default(),
-                }));
-
-                // Then assign it: base = sys.modules['models.base']
-                assignments.push(Stmt::Assign(StmtAssign {
-                    targets: vec![Expr::Name(ExprName {
-                        id: local_name.as_str().into(),
-                        ctx: ExprContext::Store,
-                        range: TextRange::default(),
-                    })],
-                    value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
-                        value: Box::new(Expr::Attribute(ExprAttribute {
-                            value: Box::new(Expr::Name(ExprName {
-                                id: "sys".into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            attr: Identifier::new("modules", TextRange::default()),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        slice: Box::new(self.create_string_literal(&full_module_path)),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    range: TextRange::default(),
-                }));
+                // For pure static approach, we don't use sys.modules
+                // Instead, we'll handle this as a deferred import
+                log::debug!("Module '{full_module_path}' is a wrapped module, deferring import");
+                // Skip this - it will be handled differently
+                continue;
             } else if self.inlined_modules.contains(&full_module_path)
                 || self.bundled_modules.contains(&full_module_path)
             {
@@ -7491,20 +8033,22 @@ impl HybridStaticBundler {
                 format!("{imported_name}_{module_suffix}")
             };
 
-            // Create assignment: local_name = renamed_symbol
-            result_stmts.push(Stmt::Assign(StmtAssign {
-                targets: vec![Expr::Name(ExprName {
-                    id: local_name.into(),
-                    ctx: ExprContext::Store,
+            // Only create assignment if the names are different
+            if local_name != renamed_symbol {
+                result_stmts.push(Stmt::Assign(StmtAssign {
+                    targets: vec![Expr::Name(ExprName {
+                        id: local_name.into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Name(ExprName {
+                        id: renamed_symbol.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
                     range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Name(ExprName {
-                    id: renamed_symbol.into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+                }));
+            }
         }
 
         result_stmts

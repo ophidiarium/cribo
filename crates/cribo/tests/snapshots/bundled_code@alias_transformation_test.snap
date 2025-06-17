@@ -43,7 +43,6 @@ def unaliased_function():
 process_a = process_data
 format_a = format_output
 config_a = load_config
-helper_func = helper_func
 debug_a = debug_print
 def main():
     """Main function that uses the imported modules with their aliases."""

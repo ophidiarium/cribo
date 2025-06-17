@@ -21,10 +21,8 @@ RETRY_DELAY = 5
 """\nVariable name collision test.\nBoth modules define variables with the same names.\n"""
 API_URL = API_URL_2
 VERSION = VERSION_2
-DEFAULT_TIMEOUT = DEFAULT_TIMEOUT
 CONFIG_API_URL = API_URL_1
 CONFIG_VERSION = VERSION_1
-MAX_RETRIES = MAX_RETRIES
 def main():
     print(f"Constants API URL: {API_URL}")
     print(f"Config API URL: {CONFIG_API_URL}")

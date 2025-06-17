@@ -13,7 +13,6 @@ def sub_function():
     """Function from submodule"""
     return "Hello from submodule"
 SUB_CONSTANT = "submodule_value"
-sub_function_nested_package = sub_function
 def exported_from_init():
     """Function exported from package __init__.py"""
     return f"From init, using helper: {helper_func()}"
@@ -28,10 +27,6 @@ def public_func():
     """A public function that should be exported."""
     return "Hello from public_func"
 CONSTANT = 42
-public_func = public_func
-CONSTANT = CONSTANT
-exported_from_init = exported_from_init
-sub_function = sub_function
 message = message_1
 print("Testing simple module exports:")
 print(f"public_func() = {public_func()}")
