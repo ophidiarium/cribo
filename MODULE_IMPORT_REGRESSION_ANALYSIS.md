@@ -32,6 +32,30 @@ from . import messages
 
 **Root Cause**: The wrapper module initialization function accesses sibling modules via `sys.modules` without ensuring proper initialization order for relative imports.
 
+**Update: Dependency Graph Investigation Results**
+
+Further investigation reveals that the dependency graph is functioning correctly:
+
+1. **Dependencies are properly detected**:
+   - `greetings.greeting` → `greetings.messages` (from `from . import messages`)
+   - `greetings.greeting` → `greetings` (parent package)
+   - `main` → `greetings.greeting` (from `import greetings.greeting`)
+
+2. **Topological sort is correct**:
+   ```
+   Module 0: greetings.messages  (no dependencies)
+   Module 1: greetings           (no dependencies)  
+   Module 2: greetings.greeting  (depends on messages & greetings)
+   Module 3: main               (depends on greeting & greetings)
+   ```
+
+3. **The real issue**: When testing on the feature branch, the bundled code actually runs successfully! The error only appears in the test framework. This suggests the issue might be:
+   - A test snapshot mismatch
+   - A difference in how the test framework executes the bundled code
+   - The bundled output has changed slightly but is still functionally correct
+
+**Conclusion**: This may be a false positive - the dependency graph and initialization order are working as designed.
+
 ### Regression 2: Variable Naming Mismatch in Inlined Modules
 
 **Fixture**: `stickytape_script_using_from_to_import_module`
@@ -80,13 +104,23 @@ def process_data():
 
 **Root Cause**: Function-scoped imports of modules are not being detected as module imports, leading to missing module registration and improper inlining.
 
+## Dependency Graph Investigation
+
+Based on the investigation prompted by the question about initialization order and the dependency graph:
+
+1. **The dependency graph is working correctly** - it properly detects all module dependencies including relative imports
+2. **The topological sort is correct** - modules are ordered such that dependencies come before dependents
+3. **The initialization calls are properly ordered** - the bundled code calls init functions in the correct sequence
+
+This investigation revealed that **Regression 1 might be a false positive** - the bundled code actually executes successfully when run directly, suggesting the issue may be with the test framework rather than the bundler itself.
+
 ## Common Thread
 
 All three regressions stem from the bundler's failure to correctly identify when an import is importing a **module** versus a **value** (function, class, or variable). This leads to:
 
 - Modules being incorrectly inlined as values
 - Missing module registrations
-- Incorrect initialization order assumptions
+- Incorrect initialization order assumptions (though this may be a test framework issue)
 
 ## Fix Checklists
 
