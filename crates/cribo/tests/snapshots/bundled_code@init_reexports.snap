@@ -34,6 +34,8 @@ def __cribo_init___cribo_de6c46_mypackage_config():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_de6c46_mypackage_config'] = module
     sys.modules['mypackage.config'] = module
+    if 'mypackage' in sys.modules:
+        setattr(sys.modules['mypackage'], 'config', module)
     """Configuration module."""
 
     class Config:
@@ -65,6 +67,9 @@ def __cribo_init___cribo_a81151_mypackage():
     __all__ = ["process_data", "format_data", "config", "helper_function", "__version__"]
     DEBUG_MODE = config.DEBUG
     module.__all__ = ['process_data', 'format_data', 'config', 'helper_function', '__version__']
+    if 'mypackage.config' in sys.modules:
+        if not hasattr(module, 'config'):
+            module.config = sys.modules['mypackage.config']
     return module
 __cribo_modules = {'mypackage.config': '__cribo_de6c46_mypackage_config', 'mypackage': '__cribo_a81151_mypackage'}
 __cribo_init_functions = {'__cribo_de6c46_mypackage_config': __cribo_init___cribo_de6c46_mypackage_config, '__cribo_a81151_mypackage': __cribo_init___cribo_a81151_mypackage}

@@ -19,6 +19,8 @@ def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_c3d681_mypackage_submodule_utils'] = module
     sys.modules['mypackage.submodule.utils'] = module
+    if 'mypackage.submodule' in sys.modules:
+        setattr(sys.modules['mypackage.submodule'], 'utils', module)
 
     def validate_input(data: InputData) -> bool:
         """Validate input data structure.\n\n    Uses forward reference that requires future import.\n    """
@@ -43,6 +45,8 @@ def __cribo_init___cribo_609581_mypackage_core():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_609581_mypackage_core'] = module
     sys.modules['mypackage.core'] = module
+    if 'mypackage' in sys.modules:
+        setattr(sys.modules['mypackage'], 'core', module)
 
     def process_data(data: Dict[str, Any]) -> Dict[str, Any]:
         """Process input data and return results.\n\n    This function uses forward references in type hints.\n    """
