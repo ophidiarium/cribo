@@ -55,12 +55,9 @@ Further investigation reveals that the dependency graph is functioning correctly
    Module 3: main               (depends on greeting & greetings)
    ```
 
-3. **The real issue**: When testing on the feature branch, the bundled code actually runs successfully! The error only appears in the test framework. This suggests the issue might be:
-   - A test snapshot mismatch
-   - A difference in how the test framework executes the bundled code
-   - The bundled output has changed slightly but is still functionally correct
+3. **The real issue**: In `__cribo_init___cribo_cf5a45_greetings_greeting()`, line 23 accesses `sys.modules['greetings'].messages` but the `greetings` module doesn't have a `messages` attribute yet. The initialization calls the parent module init first (line 22) but that doesn't set up the submodule attributes.
 
-**Conclusion**: This may be a false positive - the dependency graph and initialization order are working as designed.
+**Test Framework Investigation**: Direct execution confirms the bundled code fails with the same error, ruling out any test framework issues.
 
 ### Regression 2: Variable Naming Mismatch in Inlined Modules
 
@@ -118,7 +115,7 @@ Based on the investigation prompted by the question about initialization order a
 2. **The topological sort is correct** - modules are ordered such that dependencies come before dependents
 3. **The initialization calls are properly ordered** - the bundled code calls init functions in the correct sequence
 
-This investigation revealed that **Regression 1 might be a false positive** - the bundled code actually executes successfully when run directly, suggesting the issue may be with the test framework rather than the bundler itself.
+This investigation confirmed that the dependency graph and topological sort are working correctly, but the issue lies in how the bundled code is generated.
 
 ## Semantic Analysis Investigation
 
@@ -160,7 +157,7 @@ All three regressions stem from the bundler's failure to correctly identify when
 
 - Modules being incorrectly inlined as values
 - Missing module registrations
-- Incorrect initialization order assumptions (though this may be a test framework issue)
+- Incorrect initialization order assumptions
 
 ## Fix Checklists
 
@@ -255,7 +252,7 @@ The fixes should restore proper Python import semantics while maintaining the ci
 
 Through systematic investigation, we discovered:
 
-1. **Regression 1 (Module Init Order)**: Potentially a false positive - the bundled code runs successfully outside the test framework
+1. **Regression 1 (Module Init Order)**: Real issue - the bundled code fails because it tries to access module attributes before they're set up
 2. **Regression 2 & 3 (Module Inlining)**: Real issues caused by treating modules as values
 
 The investigation revealed that while the codebase has sophisticated semantic analysis capabilities through `ruff_python_semantic`, these are not being utilized for the critical decision of whether an import is importing a module or a value. This gap between available information and its usage is the root cause of the regressions.
