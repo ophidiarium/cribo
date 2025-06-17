@@ -2,70 +2,108 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 🚨 LEVEL 0: PRIME DIRECTIVES (ALWAYS ACTIVE)
+## 🛠️ PROJECT TECHNICAL DETAILS
 
-### 1. DESTRUCTION REQUIRES VERIFICATION
+### Project Overview
 
-**After ANY deletion:** STOP → Test impact → Show proof
+Cribo is a Rust-based source bundler for Python projects. It merges a multi-module Python codebase into a single `.py` file by inlining all first-party modules. Cribo is distributed as a command-line interface on both PyPI and npm.
 
-- Deleted tests/? → Run test suite and show output
-- Deleted docs/? → Build docs and show result
-- Deleted ANY directory? → Prove system still works
+#### Key features:
 
-### 2. CLAIMS REQUIRE EVIDENCE
+- Inline first-party modules while preserving original behavior
+- Tree-shaking to include only necessary modules
+- Detect and remove unused imports
+- Generate a `requirements.txt` listing all third-party dependencies
+- Customizable import classification
+- Support for PYTHONPATH and virtual environments
 
-**Never say "it works" without showing:**
+#### ❤️ Project Requirements / Objectives
 
-- Actual command executed
-- Actual output produced
-- Actual files verified to exist
+- The bundled output must be functionally equivalent to the original code.
+- The resulting bundle should remain clear and easy to understand, particularly for LLM agents. Specifically:
+  1. Preserve the original code structure as much as possible; avoid renaming, restructuring, or wrapping unless required to maintain functionality.
+  2. Perform all resolvable computations and wiring at bundle time to minimize runtime evaluation.
+- Runtime performance of the bundle should match or exceed the original code: avoid unnecessary wrappers and favor direct inlined references.
 
-### 3. USER CONTEXT SUPREMACY
+#### 👎 NOT an objective
 
-- User's environment truth > Your assumptions
-- User's "this doesn't work" > Your "it should work"
-- Local reality > Theoretical correctness
+- Maintaining full Python module semantics (e.g., `__name__`, `__all__`) is only necessary when it affects functionality; otherwise, static analysis and rewriting suffice.
+- Guaranteeing theoretical compatibility with every potential side effect is not required; address clear side effects without introducing complexity for unlikely scenarios.
 
-### 4. PATH PORTABILITY
+### Architecture Overview
 
-- No hardcoded user paths ("/Users/john/", "C:\Users\jane\")
-- Use: $HOME, ~, relative paths, environment variables
-- Universal code works in any environment
+The project is organized as a Rust workspace with the main crate in `crates/cribo`.
 
----
+#### Key Components
 
-## 🧠 LEVEL 0.5: SEQUENTIAL THINKING REQUIREMENT (AUTO-ACTIVATED)
+1. **Bundle Orchestration** (`orchestrator.rs`)
+   - Coordinates the entire bundling workflow
+   - Manages module discovery and dependency resolution
+   - Handles circular dependency detection
+   - Calls the code generator for final output
 
-### FOR ANY MULTI-STEP OPERATION:
+2. **Code Generation** (`code_generator.rs`)
+   - Implements the sys.modules-based bundling approach
+   - Generates deterministic module names using content hashing
+   - Performs AST transformations and import rewriting
+   - Integrates unused import trimming
+   - Produces the final bundled Python output
 
-**MUST use Sequential Thinking tool BEFORE execution:**
+3. **Module Resolution & Import Classification** (`resolver.rs`)
+   - Classifies imports as standard library, first-party, or third-party
+   - Resolves actual file paths for bundling
+   - Handles PYTHONPATH and VIRTUAL_ENV support
 
-1. Problem Definition → What exactly am I trying to solve?
-2. Sub-task Decomposition → Break into atomic steps
-3. Dependency Analysis → What depends on what?
-4. Alternative Paths → What if this approach fails?
-5. Risk Assessment → What could go wrong?
+4. **Dependency Graph** (`dependency_graph.rs`)
+   - Builds a directed graph of module dependencies
+   - Uses topological sorting to determine bundling order
+   - Implements Tarjan's SCC algorithm for circular dependency detection
 
-**Triggers:**
+5. **Unused Import Detection** (`unused_imports.rs`)
+   - Detects and removes unused imports
+   - Handles various import formats (simple, from, aliased)
+   - Operates directly on AST to avoid double parsing
 
-- Any operation involving 3+ steps
-- Any deletion operation
-- Any "cleanup" or "organization" task
-- Any operation modifying 5+ files
+### CLI Usage
 
----
+```bash
+cribo --entry src/main.py --output bundle.py [options]
 
-## 🚨 CRITICAL: MANDATORY WORKFLOWS (NEVER SKIP)
+# Output to stdout instead of file (useful for debugging)
+cribo --entry src/main.py --stdout [options]
 
-### Workflow Discipline Requirements
+# Common options
+--emit-requirements    # Generate requirements.txt with third-party dependencies
+-v, --verbose...       # Increase verbosity (can be repeated: -v, -vv, -vvv)
+                       # No flag: warnings/errors only
+                       # -v: informational messages  
+                       # -vv: debug messages
+                       # -vvv: trace messages
+--stdout               # Output bundled code to stdout instead of a file
+```
 
-**ABSOLUTE RULE**: For any complex task (3+ steps), immediately create comprehensive todo list using TodoWrite tool before starting work.
+#### Stdout Mode for Debugging
 
-**ABSOLUTE RULE**: For any git operation, use the complete Git Flow Todo Template below.
+The `--stdout` flag is particularly useful for debugging and development workflows:
 
-**ABSOLUTE RULE**: Never declare task complete without running full validation suite.
+```bash
+# Quick inspection of bundled output without creating files
+cribo --entry main.py --stdout
 
-**ABSOLUTE RULE**: Before diagnosing or deferring any issue, assume a clean state: always confirm there are no failing tests (`cargo test --workspace`) or clippy warnings (`cargo clippy --workspace`), and never classify issues as “pre-existing” when the validation suite passes—treat all findings as new and resolve them explicitly.
+# Pipe to tools for analysis
+cribo --entry main.py --stdout | python -m py_compile -
+
+# Combine with verbose logging (logs go to stderr, code to stdout)
+cribo --entry main.py --stdout -vv
+```
+
+**Key Benefits:**
+
+- No temporary files created
+- All log output properly separated to stderr
+- Perfect for piping to other tools
+- Ideal for containerized environments
+- Excellent for quick debugging workflows
 
 ### MANDATORY GITHUB INTERACTION RULES
 
@@ -440,20 +478,6 @@ Before moving between phases, MUST verify:
 - When resuming work, first verify current state with `git status`
 - Mark todos completed IMMEDIATELY when finished, not in batches
 
-## 🛠️ PROJECT TECHNICAL DETAILS
-
-### Project Overview
-
-cribo is a Python source bundler written in Rust that produces a single .py file from a multi-module Python project by inlining first-party source files. It's available as both a CLI tool and a Python library via PyPI and npm.
-
-Key features:
-
-- Tree-shaking to include only needed modules
-- Unused import detection and trimming
-- Requirements.txt generation
-- Configurable import classification
-- PYTHONPATH and VIRTUAL_ENV support
-
 ### Build Commands
 
 #### Rust Binary
@@ -584,88 +608,6 @@ cargo coverage-lcov
 # or
 ./scripts/coverage.sh coverage-lcov
 ```
-
-### Architecture Overview
-
-The project is organized as a Rust workspace with the main crate in `crates/cribo`.
-
-#### Key Components
-
-1. **Bundle Orchestration** (`orchestrator.rs`)
-   - Coordinates the entire bundling workflow
-   - Manages module discovery and dependency resolution
-   - Handles circular dependency detection
-   - Calls the code generator for final output
-
-2. **Code Generation** (`code_generator.rs`)
-   - Implements the sys.modules-based bundling approach
-   - Generates deterministic module names using content hashing
-   - Performs AST transformations and import rewriting
-   - Integrates unused import trimming
-   - Produces the final bundled Python output
-
-3. **Module Resolution & Import Classification** (`resolver.rs`)
-   - Classifies imports as standard library, first-party, or third-party
-   - Resolves actual file paths for bundling
-   - Handles PYTHONPATH and VIRTUAL_ENV support
-
-4. **Dependency Graph** (`dependency_graph.rs`)
-   - Builds a directed graph of module dependencies
-   - Uses topological sorting to determine bundling order
-   - Implements Tarjan's SCC algorithm for circular dependency detection
-
-5. **Unused Import Detection** (`unused_imports.rs`)
-   - Detects and removes unused imports
-   - Handles various import formats (simple, from, aliased)
-   - Operates directly on AST to avoid double parsing
-
-#### Important Environment Variables
-
-- `RUST_LOG` - Controls logging level (e.g., `RUST_LOG=debug`)
-- `VIRTUAL_ENV` - Used for virtual environment support
-
-### CLI Usage
-
-```bash
-cribo --entry src/main.py --output bundle.py [options]
-
-# Output to stdout instead of file (useful for debugging)
-cribo --entry src/main.py --stdout [options]
-
-# Common options
---emit-requirements    # Generate requirements.txt with third-party dependencies
--v, --verbose...       # Increase verbosity (can be repeated: -v, -vv, -vvv)
-                       # No flag: warnings/errors only
-                       # -v: informational messages  
-                       # -vv: debug messages
-                       # -vvv: trace messages
---config               # Specify custom config file path
---target-version       # Target Python version (e.g., py38, py39, py310, py311, py312, py313)
---stdout               # Output bundled code to stdout instead of a file
-```
-
-#### Stdout Mode for Debugging
-
-The `--stdout` flag is particularly useful for debugging and development workflows:
-
-```bash
-# Quick inspection of bundled output without creating files
-cribo --entry main.py --stdout
-
-# Pipe to tools for analysis
-cribo --entry main.py --stdout | python -m py_compile -
-
-# Combine with verbose logging (logs go to stderr, code to stdout)
-cribo --entry main.py --stdout -vv
-```
-
-**Key Benefits:**
-
-- No temporary files created
-- All log output properly separated to stderr
-- Perfect for piping to other tools
-- Ideal for containerized environments
-- Excellent for quick debugging workflows
 
 ### Development Guidelines
 
@@ -888,6 +830,7 @@ This approach provides **comprehensive validation with minimal effort** and crea
 When implementing or researching functionality, follow this order:
 
 1. **FIRST**: Generate and examine local documentation
+
    ```bash
    cargo doc --document-private-items
    ```
@@ -939,9 +882,11 @@ cargo insta test --unreferenced=warn
 #### Coverage Requirements
 
 - Run baseline coverage check before implementing features:
+
   ```bash
   cargo coverage-text  # Get current coverage baseline
   ```
+
 - Ensure coverage doesn't drop by more than 2% for any file or overall project
 - New files should aim for >90% line coverage
 - Critical paths should have 100% coverage for error handling and edge cases
