@@ -401,6 +401,8 @@ struct RecursiveImportTransformer<'a> {
     deferred_imports: &'a mut Vec<Stmt>,
     /// Flag indicating if this is the entry module
     is_entry_module: bool,
+    /// Reference to global deferred imports registry
+    global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -411,6 +413,7 @@ impl<'a> RecursiveImportTransformer<'a> {
         symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
         deferred_imports: &'a mut Vec<Stmt>,
         is_entry_module: bool,
+        global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
     ) -> Self {
         Self {
             bundler,
@@ -420,6 +423,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             import_aliases: FxIndexMap::default(),
             deferred_imports,
             is_entry_module,
+            global_deferred_imports,
         }
     }
 
@@ -686,6 +690,36 @@ impl<'a> RecursiveImportTransformer<'a> {
             self.bundler
                 .resolve_relative_import(import_from, self.module_name)
         };
+
+        // For entry module, check if this import would duplicate deferred imports
+        if self.is_entry_module
+            && let Some(ref resolved) = resolved_module {
+                // Check if this is a wrapper module
+                if self.bundler.module_registry.contains_key(resolved) {
+                    // Check if we have access to global deferred imports
+                    if let Some(global_deferred) = self.global_deferred_imports {
+                        // Check each symbol to see if it's already been deferred
+                        let mut all_symbols_deferred = true;
+                        for alias in &import_from.names {
+                            let imported_name = alias.name.as_str(); // The actual name being imported
+                            if !global_deferred
+                                .contains_key(&(resolved.to_string(), imported_name.to_string()))
+                            {
+                                all_symbols_deferred = false;
+                                break;
+                            }
+                        }
+
+                        if all_symbols_deferred {
+                            log::debug!(
+                                "  Skipping import from '{resolved}' in entry module - all symbols \
+                                 already deferred by inlined modules"
+                            );
+                            return vec![];
+                        }
+                    }
+                }
+            }
 
         // Check if we're importing submodules that have been inlined
         // e.g., from utils import calculator where calculator is utils.calculator
@@ -1004,15 +1038,20 @@ impl<'a> RecursiveImportTransformer<'a> {
             if self.bundler.module_registry.contains_key(resolved) {
                 log::debug!("  Module '{resolved}' is a wrapper module");
 
-                // For inlined modules importing from wrapper modules, we need to defer
+                // For modules importing from wrapper modules, we may need to defer
                 // the imports to ensure proper initialization order
                 let current_module_is_inlined =
                     self.bundler.inlined_modules.contains(self.module_name);
 
+                // Defer imports from wrapper modules when:
+                // 1. Current module is inlined (to ensure wrapper is initialized first)
+                // 2. Current module is entry module AND the check above determined all symbols are
+                //    already deferred (handled by early return above)
                 if !self.is_entry_module && current_module_is_inlined {
                     log::debug!(
-                        "  Deferring wrapper module imports for inlined module '{}'",
-                        self.module_name
+                        "  Deferring wrapper module imports for module '{}' (inlined: {})",
+                        self.module_name,
+                        current_module_is_inlined
                     );
 
                     // Generate the standard transformation which includes init calls
@@ -1506,6 +1545,9 @@ pub struct HybridStaticBundler {
     symbol_dep_graph: SymbolDependencyGraph,
     /// Module ASTs for resolving re-exports
     module_asts: Option<Vec<(String, ModModule, PathBuf, String)>>,
+    /// Global registry of deferred imports to prevent duplication
+    /// Maps (module_name, symbol_name) to the source module that deferred it
+    global_deferred_imports: FxIndexMap<(String, String), String>,
 }
 
 impl Default for HybridStaticBundler {
@@ -1536,6 +1578,7 @@ impl HybridStaticBundler {
             circular_predeclarations: FxIndexMap::default(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
+            global_deferred_imports: FxIndexMap::default(),
         }
     }
 
@@ -2384,6 +2427,32 @@ impl HybridStaticBundler {
                 module_name
             );
             final_body.extend(inlined_stmts);
+            // Track deferred imports globally
+            for stmt in &deferred_imports {
+                if let Stmt::Assign(assign) = stmt {
+                    // Check for pattern: symbol = sys.modules['module'].symbol
+                    if let Expr::Attribute(attr) = &assign.value.as_ref()
+                        && let Expr::Subscript(subscript) = &attr.value.as_ref()
+                            && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
+                                && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
+                                    && sys_name.id.as_str() == "sys"
+                                        && sys_attr.attr.as_str() == "modules"
+                                        && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
+                                        {
+                                            let import_module = lit.value.to_str();
+                                            let attr_name = attr.attr.as_str();
+                                            log::debug!(
+                                                "Registering deferred import: {attr_name} from {import_module} \
+                                                 (deferred by {module_name})"
+                                            );
+                                            self.global_deferred_imports.insert(
+                                                (import_module.to_string(), attr_name.to_string()),
+                                                module_name.to_string(),
+                                            );
+                                        }
+                }
+            }
+
             all_deferred_imports.extend(deferred_imports);
         }
 
@@ -2518,9 +2587,37 @@ impl HybridStaticBundler {
             );
         }
 
-        // Add all deferred imports after wrapper modules have been initialized
-        // This ensures that any cross-module imports referencing wrapper modules will work
-        final_body.extend(all_deferred_imports);
+        // Add deferred imports from inlined modules before entry module code
+        // This ensures they're available when the entry module code runs
+        if !all_deferred_imports.is_empty() {
+            log::debug!(
+                "Adding {} deferred imports from inlined modules before entry module",
+                all_deferred_imports.len()
+            );
+
+            // Filter out init calls - they should already be added when wrapper modules were
+            // initialized
+            let imports_without_init_calls: Vec<Stmt> = all_deferred_imports
+                .iter()
+                .filter(|stmt| {
+                    // Skip init calls
+                    if let Stmt::Expr(expr_stmt) = stmt
+                        && let Expr::Call(call) = &expr_stmt.value.as_ref()
+                            && let Expr::Name(name) = &call.func.as_ref() {
+                                return !name.id.as_str().starts_with("__cribo_init_");
+                            }
+                    true
+                })
+                .cloned()
+                .collect();
+
+            // Then add the deferred imports (without init calls)
+            let deduped_imports = self.deduplicate_deferred_imports(imports_without_init_calls);
+            final_body.extend(deduped_imports);
+
+            // Clear the collection so we don't add them again later
+            all_deferred_imports.clear();
+        }
 
         // Finally, add entry module code (it's always last in topological order)
         for (module_name, mut ast, module_path, _) in modules_normalized {
@@ -2549,7 +2646,8 @@ impl HybridStaticBundler {
                 Some(&module_path),
                 &symbol_renames,
                 &mut entry_deferred_imports,
-                true, // This is the entry module
+                true,                                // This is the entry module
+                Some(&self.global_deferred_imports), // Pass global deferred imports for checking
             );
             log::debug!(
                 "Transforming entry module '{module_name}' with RecursiveImportTransformer"
@@ -2585,7 +2683,90 @@ impl HybridStaticBundler {
             }
 
             // Add deferred imports from the entry module after all its statements
-            final_body.extend(entry_deferred_imports);
+            // But first update the global registry to prevent future duplicates
+            for stmt in &entry_deferred_imports {
+                if let Stmt::Assign(assign) = stmt
+                    && let Expr::Attribute(attr) = &assign.value.as_ref()
+                        && let Expr::Subscript(subscript) = &attr.value.as_ref()
+                            && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
+                                && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
+                                    && sys_name.id.as_str() == "sys"
+                                        && sys_attr.attr.as_str() == "modules"
+                                        && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
+                                        {
+                                            let import_module = lit.value.to_str();
+                                            let attr_name = attr.attr.as_str();
+                                            if let Expr::Name(target) = &assign.targets[0] {
+                                                let _symbol_name = target.id.as_str();
+                                                self.global_deferred_imports.insert(
+                                                    (
+                                                        import_module.to_string(),
+                                                        attr_name.to_string(),
+                                                    ),
+                                                    module_name.to_string(),
+                                                );
+                                            }
+                                        }
+            }
+            // Add entry module's deferred imports to the collection
+            all_deferred_imports.extend(entry_deferred_imports);
+        }
+
+        // Add any remaining deferred imports from the entry module
+        // (The inlined module imports were already added before the entry module code)
+        if !all_deferred_imports.is_empty() {
+            log::debug!(
+                "Adding {} remaining deferred imports from entry module",
+                all_deferred_imports.len()
+            );
+
+            // First, ensure we have init calls for all wrapper modules that need them
+            let mut needed_init_calls = FxIndexSet::default();
+            for stmt in &all_deferred_imports {
+                if let Stmt::Assign(assign) = stmt
+                    && let Expr::Attribute(attr) = &assign.value.as_ref()
+                        && let Expr::Subscript(subscript) = &attr.value.as_ref()
+                            && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
+                                && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
+                                    && sys_name.id.as_str() == "sys"
+                                        && sys_attr.attr.as_str() == "modules"
+                                        && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
+                                        {
+                                            let module_name = lit.value.to_str();
+                                            if let Some(synthetic_name) =
+                                                self.module_registry.get(module_name)
+                                            {
+                                                needed_init_calls.insert(synthetic_name.clone());
+                                            }
+                                        }
+            }
+
+            // Add init calls first
+            for synthetic_name in needed_init_calls {
+                let init_call = self.generate_module_init_call(&synthetic_name);
+                final_body.push(init_call);
+            }
+
+            // Then deduplicate and add the actual imports (without init calls)
+            let imports_without_init_calls: Vec<Stmt> = all_deferred_imports
+                .into_iter()
+                .filter(|stmt| {
+                    // Skip init calls - we've already added them above
+                    if let Stmt::Expr(expr_stmt) = stmt
+                        && let Expr::Call(call) = &expr_stmt.value.as_ref()
+                            && let Expr::Name(name) = &call.func.as_ref() {
+                                return !name.id.as_str().starts_with("__cribo_init_");
+                            }
+                    true
+                })
+                .collect();
+
+            let deduped_imports = self.deduplicate_deferred_imports(imports_without_init_calls);
+            log::debug!(
+                "Total deferred imports after deduplication: {}",
+                deduped_imports.len()
+            );
+            final_body.extend(deduped_imports);
         }
 
         Ok(ModModule {
@@ -2851,6 +3032,7 @@ impl HybridStaticBundler {
             symbol_renames,
             &mut wrapper_deferred_imports,
             false, // This is not the entry module
+            None,  // No need for global deferred imports in wrapper modules
         );
 
         // Track imports from inlined modules before transformation
@@ -4055,6 +4237,99 @@ impl HybridStaticBundler {
             })),
             range: TextRange::default(),
         })
+    }
+
+    /// Deduplicate deferred import statements
+    /// This prevents duplicate init calls and symbol assignments
+    fn deduplicate_deferred_imports(&self, imports: Vec<Stmt>) -> Vec<Stmt> {
+        let mut seen_init_calls = FxIndexSet::default();
+        let mut seen_assignments = FxIndexSet::default();
+        let mut result = Vec::new();
+
+        log::debug!("Deduplicating {} deferred imports", imports.len());
+
+        for (idx, stmt) in imports.into_iter().enumerate() {
+            log::debug!("Processing deferred import {idx}: {stmt:?}");
+            match &stmt {
+                // Check for init function calls
+                Stmt::Expr(expr_stmt) => {
+                    if let Expr::Call(call) = &expr_stmt.value.as_ref() {
+                        if let Expr::Name(name) = &call.func.as_ref() {
+                            let func_name = name.id.as_str();
+                            if func_name.starts_with("__cribo_init_") {
+                                if seen_init_calls.insert(func_name.to_string()) {
+                                    result.push(stmt);
+                                } else {
+                                    log::debug!("Skipping duplicate init call: {func_name}");
+                                }
+                            } else {
+                                result.push(stmt);
+                            }
+                        } else {
+                            result.push(stmt);
+                        }
+                    } else {
+                        result.push(stmt);
+                    }
+                }
+                // Check for symbol assignments like: symbol = sys.modules['module'].symbol
+                Stmt::Assign(assign) => {
+                    // Check if this is an assignment like: UserSchema =
+                    // sys.modules['schemas.user'].UserSchema
+                    if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                        if let Expr::Subscript(subscript) = &attr.value.as_ref() {
+                            if let Expr::Attribute(sys_attr) = &subscript.value.as_ref() {
+                                if let Expr::Name(sys_name) = &sys_attr.value.as_ref() {
+                                    if sys_name.id.as_str() == "sys"
+                                        && sys_attr.attr.as_str() == "modules"
+                                    {
+                                        // This is a sys.modules access
+                                        if let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
+                                        {
+                                            let module_name = lit.value.to_str();
+                                            let attr_name = attr.attr.as_str();
+                                            if let Expr::Name(target) = &assign.targets[0] {
+                                                let _symbol_name = target.id.as_str();
+                                                let key = format!("{module_name}.{attr_name}");
+                                                log::debug!("Checking assignment key: {key}");
+                                                if seen_assignments.insert(key.clone()) {
+                                                    log::debug!(
+                                                        "First occurrence of {key}, including"
+                                                    );
+                                                    result.push(stmt);
+                                                } else {
+                                                    log::debug!(
+                                                        "Skipping duplicate assignment: {_symbol_name} = \
+                                                         sys.modules['{module_name}'].{attr_name}"
+                                                    );
+                                                }
+                                            } else {
+                                                result.push(stmt);
+                                            }
+                                        } else {
+                                            result.push(stmt);
+                                        }
+                                    } else {
+                                        result.push(stmt);
+                                    }
+                                } else {
+                                    result.push(stmt);
+                                }
+                            } else {
+                                result.push(stmt);
+                            }
+                        } else {
+                            result.push(stmt);
+                        }
+                    } else {
+                        result.push(stmt);
+                    }
+                }
+                _ => result.push(stmt),
+            }
+        }
+
+        result
     }
 
     /// Extract simple assignment target
@@ -7413,7 +7688,8 @@ impl HybridStaticBundler {
             Some(module_path),
             ctx.module_renames,
             ctx.deferred_imports,
-            false, // This is not the entry module
+            false,                               // This is not the entry module
+            Some(&self.global_deferred_imports), // Pass global registry
         );
         transformer.transform_module(&mut ast);
 
