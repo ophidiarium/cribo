@@ -133,17 +133,23 @@ struct SymbolDependencyGraph {
     dependencies: FxIndexMap<(String, String), Vec<(String, String)>>,
     /// Track which symbols are defined in which modules
     symbol_definitions: FxIndexMap<(String, String), SymbolDefinition>,
+    /// Module-level dependencies (used at definition time, not inside function bodies)
+    module_level_dependencies: FxIndexMap<(String, String), Vec<(String, String)>>,
 }
 
 #[derive(Debug, Clone)]
 struct SymbolDefinition {
     /// Whether this is a function definition
+    #[allow(dead_code)]
     is_function: bool,
     /// Whether this is a class definition
+    #[allow(dead_code)]
     is_class: bool,
     /// Whether this is an assignment
+    #[allow(dead_code)]
     is_assignment: bool,
     /// Dependencies this symbol has on other symbols
+    #[allow(dead_code)]
     depends_on: Vec<(String, String)>,
 }
 
@@ -693,33 +699,34 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // For entry module, check if this import would duplicate deferred imports
         if self.is_entry_module
-            && let Some(ref resolved) = resolved_module {
-                // Check if this is a wrapper module
-                if self.bundler.module_registry.contains_key(resolved) {
-                    // Check if we have access to global deferred imports
-                    if let Some(global_deferred) = self.global_deferred_imports {
-                        // Check each symbol to see if it's already been deferred
-                        let mut all_symbols_deferred = true;
-                        for alias in &import_from.names {
-                            let imported_name = alias.name.as_str(); // The actual name being imported
-                            if !global_deferred
-                                .contains_key(&(resolved.to_string(), imported_name.to_string()))
-                            {
-                                all_symbols_deferred = false;
-                                break;
-                            }
+            && let Some(ref resolved) = resolved_module
+        {
+            // Check if this is a wrapper module
+            if self.bundler.module_registry.contains_key(resolved) {
+                // Check if we have access to global deferred imports
+                if let Some(global_deferred) = self.global_deferred_imports {
+                    // Check each symbol to see if it's already been deferred
+                    let mut all_symbols_deferred = true;
+                    for alias in &import_from.names {
+                        let imported_name = alias.name.as_str(); // The actual name being imported
+                        if !global_deferred
+                            .contains_key(&(resolved.to_string(), imported_name.to_string()))
+                        {
+                            all_symbols_deferred = false;
+                            break;
                         }
+                    }
 
-                        if all_symbols_deferred {
-                            log::debug!(
-                                "  Skipping import from '{resolved}' in entry module - all symbols \
-                                 already deferred by inlined modules"
-                            );
-                            return vec![];
-                        }
+                    if all_symbols_deferred {
+                        log::debug!(
+                            "  Skipping import from '{resolved}' in entry module - all symbols \
+                             already deferred by inlined modules"
+                        );
+                        return vec![];
                     }
                 }
             }
+        }
 
         // Check if we're importing submodules that have been inlined
         // e.g., from utils import calculator where calculator is utils.calculator
@@ -1689,32 +1696,39 @@ impl HybridStaticBundler {
         graph: &crate::cribo_graph::CriboGraph,
     ) {
         let key = (module_name.to_string(), function_name.to_string());
-        let mut dependencies = Vec::new();
+        let mut all_dependencies = Vec::new();
+        let mut module_level_deps = Vec::new();
 
-        // Track what this function reads
+        // Track what this function reads at module level (e.g., decorators, default args)
         for var in &item_data.read_vars {
             // Check if this variable is from another circular module
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && self.circular_modules.contains(&dep_module)
                 && dep_module != module_name
             {
-                dependencies.push((dep_module, var.clone()));
+                let dep = (dep_module, var.clone());
+                all_dependencies.push(dep.clone());
+                module_level_deps.push(dep); // Module-level reads need pre-declaration
             }
         }
 
-        // Also check eventual reads (inside the function body)
+        // Also check eventual reads (inside the function body) - these don't need pre-declaration
         for var in &item_data.eventual_read_vars {
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && self.circular_modules.contains(&dep_module)
                 && dep_module != module_name
             {
-                dependencies.push((dep_module, var.clone()));
+                all_dependencies.push((dep_module, var.clone()));
+                // Note: NOT added to module_level_deps since these are lazy
             }
         }
 
         self.symbol_dep_graph
             .dependencies
-            .insert(key.clone(), dependencies);
+            .insert(key.clone(), all_dependencies);
+        self.symbol_dep_graph
+            .module_level_dependencies
+            .insert(key.clone(), module_level_deps);
         self.symbol_dep_graph.symbol_definitions.insert(
             key,
             SymbolDefinition {
@@ -1736,7 +1750,8 @@ impl HybridStaticBundler {
         graph: &crate::cribo_graph::CriboGraph,
     ) {
         let key = (module_name.to_string(), class_name.to_string());
-        let mut dependencies = Vec::new();
+        let mut all_dependencies = Vec::new();
+        let mut module_level_deps = Vec::new();
 
         // For classes, check both immediate reads (base classes) and eventual reads (methods)
         for var in &item_data.read_vars {
@@ -1744,13 +1759,18 @@ impl HybridStaticBundler {
                 && self.circular_modules.contains(&dep_module)
                 && dep_module != module_name
             {
-                dependencies.push((dep_module, var.clone()));
+                let dep = (dep_module, var.clone());
+                all_dependencies.push(dep.clone());
+                module_level_deps.push(dep); // Base classes need to exist at definition time
             }
         }
 
         self.symbol_dep_graph
             .dependencies
-            .insert(key.clone(), dependencies);
+            .insert(key.clone(), all_dependencies);
+        self.symbol_dep_graph
+            .module_level_dependencies
+            .insert(key.clone(), module_level_deps);
         self.symbol_dep_graph.symbol_definitions.insert(
             key,
             SymbolDefinition {
@@ -1774,7 +1794,7 @@ impl HybridStaticBundler {
         let key = (module_name.to_string(), var_name.to_string());
         let mut dependencies = Vec::new();
 
-        // Check what this assignment reads
+        // Assignments are evaluated immediately - all dependencies are module-level
         for var in &item_data.read_vars {
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && self.circular_modules.contains(&dep_module)
@@ -1786,7 +1806,10 @@ impl HybridStaticBundler {
 
         self.symbol_dep_graph
             .dependencies
-            .insert(key.clone(), dependencies);
+            .insert(key.clone(), dependencies.clone());
+        self.symbol_dep_graph
+            .module_level_dependencies
+            .insert(key.clone(), dependencies); // All assignment deps are module-level
         self.symbol_dep_graph.symbol_definitions.insert(
             key,
             SymbolDefinition {
@@ -2133,6 +2156,9 @@ impl HybridStaticBundler {
 
         // Identify all modules that are part of circular dependencies
         if let Some(analysis) = params.circular_dep_analysis {
+            log::debug!("CircularDependencyAnalysis received:");
+            log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
+            log::debug!("  Unresolvable cycles: {:?}", analysis.unresolvable_cycles);
             for group in &analysis.resolvable_cycles {
                 for module in &group.modules {
                     self.circular_modules.insert(module.clone());
@@ -2144,6 +2170,8 @@ impl HybridStaticBundler {
                 }
             }
             log::debug!("Circular modules: {:?}", self.circular_modules);
+        } else {
+            log::debug!("No circular dependency analysis provided");
         }
 
         // Separate modules into inlinable and wrapper modules
@@ -2365,39 +2393,86 @@ impl HybridStaticBundler {
             }
         }
 
-        // Generate pre-declarations for symbols from circular modules
+        // Generate pre-declarations only for symbols that actually need them
         let mut circular_predeclarations = Vec::new();
         if !self.circular_modules.is_empty() {
-            log::debug!("Generating pre-declarations for circular modules");
-            for (module_name, _ast, _, _) in &inlinable_modules {
-                if self.circular_modules.contains(module_name) {
-                    // Get renamed symbols for this module
-                    if let Some(module_renames) = symbol_renames.get(module_name) {
-                        // Pre-declare each symbol with None value
-                        for (original_name, renamed_name) in module_renames {
-                            log::debug!(
-                                "Pre-declaring {renamed_name} (from {module_name}.{original_name})"
-                            );
-                            circular_predeclarations.push(Stmt::Assign(StmtAssign {
-                                targets: vec![Expr::Name(ExprName {
-                                    id: renamed_name.clone().into(),
-                                    ctx: ExprContext::Store,
-                                    range: TextRange::default(),
-                                })],
-                                value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
-                                    range: TextRange::default(),
-                                })),
-                                range: TextRange::default(),
-                            }));
+            log::debug!("Analyzing circular modules for necessary pre-declarations");
 
-                            // Track the pre-declaration
-                            self.circular_predeclarations
-                                .entry(module_name.clone())
-                                .or_default()
-                                .insert(original_name.clone(), renamed_name.clone());
+            // Collect all symbols that need pre-declaration based on actual forward references
+            let mut symbols_needing_predeclaration = FxIndexSet::default();
+
+            // First pass: Build a map of where each symbol will be defined in the final output
+            let mut symbol_definition_order = FxIndexMap::default();
+            let mut order_index = 0;
+
+            for (module_name, _, _, _) in &inlinable_modules {
+                if let Some(module_renames) = symbol_renames.get(module_name) {
+                    for (original_name, _) in module_renames {
+                        symbol_definition_order
+                            .insert((module_name.clone(), original_name.clone()), order_index);
+                        order_index += 1;
+                    }
+                }
+            }
+
+            // Second pass: Find actual forward references using module-level dependencies
+            for ((module, symbol), module_level_deps) in
+                &self.symbol_dep_graph.module_level_dependencies
+            {
+                if self.circular_modules.contains(module) && !module_level_deps.is_empty() {
+                    // Check each module-level dependency
+                    for (dep_module, dep_symbol) in module_level_deps {
+                        if self.circular_modules.contains(dep_module) {
+                            // Get the order indices
+                            let symbol_order =
+                                symbol_definition_order.get(&(module.clone(), symbol.clone()));
+                            let dep_order = symbol_definition_order
+                                .get(&(dep_module.clone(), dep_symbol.clone()));
+
+                            if let (Some(&sym_idx), Some(&dep_idx)) = (symbol_order, dep_order) {
+                                // Check if this creates a forward reference
+                                if dep_idx > sym_idx {
+                                    log::debug!(
+                                        "Found forward reference: {module}.{symbol} (order {sym_idx}) uses {dep_module}.{dep_symbol} \
+                                         (order {dep_idx}) at module level"
+                                    );
+                                    symbols_needing_predeclaration
+                                        .insert((dep_module.clone(), dep_symbol.clone()));
+                                }
+                            }
                         }
                     }
                 }
+            }
+
+            // Now generate pre-declarations only for symbols that actually need them
+            log::debug!(
+                "Symbols needing pre-declaration: {symbols_needing_predeclaration:?}"
+            );
+            for (module_name, symbol_name) in symbols_needing_predeclaration {
+                if let Some(module_renames) = symbol_renames.get(&module_name)
+                    && let Some(renamed_name) = module_renames.get(&symbol_name) {
+                        log::debug!(
+                            "Pre-declaring {renamed_name} (from {module_name}.{symbol_name}) due to forward reference"
+                        );
+                        circular_predeclarations.push(Stmt::Assign(StmtAssign {
+                            targets: vec![Expr::Name(ExprName {
+                                id: renamed_name.clone().into(),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            })],
+                            value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        }));
+
+                        // Track the pre-declaration
+                        self.circular_predeclarations
+                            .entry(module_name.clone())
+                            .or_default()
+                            .insert(symbol_name.clone(), renamed_name.clone());
+                    }
             }
         }
 
@@ -2433,23 +2508,23 @@ impl HybridStaticBundler {
                     // Check for pattern: symbol = sys.modules['module'].symbol
                     if let Expr::Attribute(attr) = &assign.value.as_ref()
                         && let Expr::Subscript(subscript) = &attr.value.as_ref()
-                            && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
-                                && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
-                                    && sys_name.id.as_str() == "sys"
-                                        && sys_attr.attr.as_str() == "modules"
-                                        && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
-                                        {
-                                            let import_module = lit.value.to_str();
-                                            let attr_name = attr.attr.as_str();
-                                            log::debug!(
-                                                "Registering deferred import: {attr_name} from {import_module} \
-                                                 (deferred by {module_name})"
-                                            );
-                                            self.global_deferred_imports.insert(
-                                                (import_module.to_string(), attr_name.to_string()),
-                                                module_name.to_string(),
-                                            );
-                                        }
+                        && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
+                        && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
+                        && sys_name.id.as_str() == "sys"
+                        && sys_attr.attr.as_str() == "modules"
+                        && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
+                    {
+                        let import_module = lit.value.to_str();
+                        let attr_name = attr.attr.as_str();
+                        log::debug!(
+                            "Registering deferred import: {attr_name} from {import_module} \
+                             (deferred by {module_name})"
+                        );
+                        self.global_deferred_imports.insert(
+                            (import_module.to_string(), attr_name.to_string()),
+                            module_name.to_string(),
+                        );
+                    }
                 }
             }
 
@@ -2603,9 +2678,10 @@ impl HybridStaticBundler {
                     // Skip init calls
                     if let Stmt::Expr(expr_stmt) = stmt
                         && let Expr::Call(call) = &expr_stmt.value.as_ref()
-                            && let Expr::Name(name) = &call.func.as_ref() {
-                                return !name.id.as_str().starts_with("__cribo_init_");
-                            }
+                        && let Expr::Name(name) = &call.func.as_ref()
+                    {
+                        return !name.id.as_str().starts_with("__cribo_init_");
+                    }
                     true
                 })
                 .cloned()
@@ -2687,26 +2763,23 @@ impl HybridStaticBundler {
             for stmt in &entry_deferred_imports {
                 if let Stmt::Assign(assign) = stmt
                     && let Expr::Attribute(attr) = &assign.value.as_ref()
-                        && let Expr::Subscript(subscript) = &attr.value.as_ref()
-                            && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
-                                && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
-                                    && sys_name.id.as_str() == "sys"
-                                        && sys_attr.attr.as_str() == "modules"
-                                        && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
-                                        {
-                                            let import_module = lit.value.to_str();
-                                            let attr_name = attr.attr.as_str();
-                                            if let Expr::Name(target) = &assign.targets[0] {
-                                                let _symbol_name = target.id.as_str();
-                                                self.global_deferred_imports.insert(
-                                                    (
-                                                        import_module.to_string(),
-                                                        attr_name.to_string(),
-                                                    ),
-                                                    module_name.to_string(),
-                                                );
-                                            }
-                                        }
+                    && let Expr::Subscript(subscript) = &attr.value.as_ref()
+                    && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
+                    && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
+                    && sys_name.id.as_str() == "sys"
+                    && sys_attr.attr.as_str() == "modules"
+                    && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
+                {
+                    let import_module = lit.value.to_str();
+                    let attr_name = attr.attr.as_str();
+                    if let Expr::Name(target) = &assign.targets[0] {
+                        let _symbol_name = target.id.as_str();
+                        self.global_deferred_imports.insert(
+                            (import_module.to_string(), attr_name.to_string()),
+                            module_name.to_string(),
+                        );
+                    }
+                }
             }
             // Add entry module's deferred imports to the collection
             all_deferred_imports.extend(entry_deferred_imports);
@@ -2725,20 +2798,18 @@ impl HybridStaticBundler {
             for stmt in &all_deferred_imports {
                 if let Stmt::Assign(assign) = stmt
                     && let Expr::Attribute(attr) = &assign.value.as_ref()
-                        && let Expr::Subscript(subscript) = &attr.value.as_ref()
-                            && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
-                                && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
-                                    && sys_name.id.as_str() == "sys"
-                                        && sys_attr.attr.as_str() == "modules"
-                                        && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
-                                        {
-                                            let module_name = lit.value.to_str();
-                                            if let Some(synthetic_name) =
-                                                self.module_registry.get(module_name)
-                                            {
-                                                needed_init_calls.insert(synthetic_name.clone());
-                                            }
-                                        }
+                    && let Expr::Subscript(subscript) = &attr.value.as_ref()
+                    && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
+                    && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
+                    && sys_name.id.as_str() == "sys"
+                    && sys_attr.attr.as_str() == "modules"
+                    && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
+                {
+                    let module_name = lit.value.to_str();
+                    if let Some(synthetic_name) = self.module_registry.get(module_name) {
+                        needed_init_calls.insert(synthetic_name.clone());
+                    }
+                }
             }
 
             // Add init calls first
@@ -2754,9 +2825,10 @@ impl HybridStaticBundler {
                     // Skip init calls - we've already added them above
                     if let Stmt::Expr(expr_stmt) = stmt
                         && let Expr::Call(call) = &expr_stmt.value.as_ref()
-                            && let Expr::Name(name) = &call.func.as_ref() {
-                                return !name.id.as_str().starts_with("__cribo_init_");
-                            }
+                        && let Expr::Name(name) = &call.func.as_ref()
+                    {
+                        return !name.id.as_str().starts_with("__cribo_init_");
+                    }
                     true
                 })
                 .collect();
@@ -4299,7 +4371,8 @@ impl HybridStaticBundler {
                                                     result.push(stmt);
                                                 } else {
                                                     log::debug!(
-                                                        "Skipping duplicate assignment: {_symbol_name} = \
+                                                        "Skipping duplicate assignment: \
+                                                         {_symbol_name} = \
                                                          sys.modules['{module_name}'].{attr_name}"
                                                     );
                                                 }

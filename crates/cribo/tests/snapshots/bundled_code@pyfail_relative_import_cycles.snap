@@ -7,10 +7,6 @@ input_file: crates/cribo/tests/fixtures/pyfail_relative_import_cycles/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-authenticate_user = None
-get_user_context = None
-execute_query = None
-get_connection = None
 def get_user_context():
     """Get user context - used by database module"""
     return "user_context_from_auth"

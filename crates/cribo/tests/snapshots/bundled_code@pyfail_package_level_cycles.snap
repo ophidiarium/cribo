@@ -7,10 +7,6 @@ input_file: crates/cribo/tests/fixtures/pyfail_package_level_cycles/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-utility_function = None
-main_function = None
-another_helper = None
-helper_function = None
 def utility_function():
     """Utility that pkg2 will import"""
     return "pkg1_utility"

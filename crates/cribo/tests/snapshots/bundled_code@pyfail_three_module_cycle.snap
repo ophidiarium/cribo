@@ -7,12 +7,6 @@ input_file: crates/cribo/tests/fixtures/pyfail_three_module_cycle/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-get_value_a = None
-process_a = None
-get_value_b = None
-process_b = None
-process_c = None
-get_value_c = None
 def get_value_a():
     return "value_from_A"
 def process_a():

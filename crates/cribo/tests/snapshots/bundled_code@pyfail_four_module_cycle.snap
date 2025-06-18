@@ -7,14 +7,6 @@ input_file: crates/cribo/tests/fixtures/pyfail_four_module_cycle/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-final_step = None
-start_process = None
-process_in_b = None
-step_b = None
-process_in_c = None
-step_c = None
-step_d = None
-process_in_d = None
 def final_step():
     """Final step called by module_d to complete the cycle"""
     return "A_final"

@@ -9,21 +9,6 @@ input_file: crates/cribo/tests/fixtures/xfail_comprehensive_ast_rewrite/main.py
 from typing import Any, Dict, List, Optional
 import sys
 import types
-shadow_test = None
-initialize = None
-process_2 = None
-Logger_1 = None
-validate_2 = None
-result_2 = None
-BaseModel = None
-connect_1 = None
-process_3 = None
-validate_3 = None
-connection_2 = None
-connection_4 = None
-Logger_3 = None
-result_4 = None
-Connection_4 = None
 validate_2 = validate
 def connect_1() -> str:
     """Base connect function"""

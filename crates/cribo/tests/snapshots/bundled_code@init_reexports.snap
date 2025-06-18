@@ -9,9 +9,6 @@ input_file: crates/cribo/tests/fixtures/init_reexports/main.py
 import os
 import sys
 import types
-helper_function = None
-MAX_ITEMS = None
-DEFAULT_VALUE = None
 """Utils subpackage with re-exports."""
 """Constants module."""
 MAX_ITEMS = 100
