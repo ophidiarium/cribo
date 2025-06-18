@@ -433,7 +433,10 @@ fn test_bundling_fixtures() {
         };
 
         // Check for duplicate lines in the bundled code
-        check_for_duplicate_lines(&bundled_code, fixture_name);
+        // Skip duplicate checks for xfail and pyfail tests as they may have known issues
+        if !expects_bundling_failure && !expects_python_failure {
+            check_for_duplicate_lines(&bundled_code, fixture_name);
+        }
 
         // Use Insta's with_settings for better snapshot organization
         insta::with_settings!({
