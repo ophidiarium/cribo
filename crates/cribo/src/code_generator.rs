@@ -1467,8 +1467,6 @@ pub struct HybridStaticBundler {
     created_namespace_modules: FxIndexSet<String>,
     /// Modules that are part of circular dependencies
     circular_modules: FxIndexSet<String>,
-    /// Track if we need types import for direct imports
-    needs_types_for_direct_imports: bool,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
     circular_predeclarations: FxIndexMap<String, FxIndexMap<String, String>>,
     /// Symbol dependency graph for circular modules
@@ -1502,7 +1500,6 @@ impl HybridStaticBundler {
             entry_created_namespaces: FxIndexSet::default(),
             created_namespace_modules: FxIndexSet::default(),
             circular_modules: FxIndexSet::default(),
-            needs_types_for_direct_imports: false,
             circular_predeclarations: FxIndexMap::default(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
@@ -2157,8 +2154,9 @@ impl HybridStaticBundler {
             self.add_stdlib_import("types");
         }
 
-        // Pre-scan the entry module to see if we'll need types for direct imports
-        let need_types_for_direct_imports = if let Some((_, entry_path, _)) = params
+        // Check if entry module has direct imports or dotted imports that might create namespace
+        // objects
+        let needs_types_for_entry_imports = if let Some((_, entry_path, _)) = params
             .sorted_modules
             .iter()
             .find(|(name, _, _)| name == params.entry_module_name)
@@ -2168,16 +2166,31 @@ impl HybridStaticBundler {
                 let normalized_content = crate::util::normalize_line_endings(content);
                 if let Ok(parsed) = ruff_python_parser::parse_module(&normalized_content) {
                     let ast = parsed.into_syntax();
-                    // Check if any direct imports are for inlined modules
                     ast.body.iter().any(|stmt| {
                         if let Stmt::Import(import_stmt) = stmt {
                             import_stmt.names.iter().any(|alias| {
                                 let module_name = alias.name.as_str();
-                                // Check if this is an inlined module (bundled but not wrapped)
-                                self.bundled_modules.contains(module_name)
-                                    && !wrapper_modules
-                                        .iter()
-                                        .any(|(name, _, _, _)| name == module_name)
+                                // Check for dotted imports
+                                if module_name.contains('.') {
+                                    return true;
+                                }
+                                // Check for direct imports of inlined modules that have exports
+                                if self.inlined_modules.contains(module_name) {
+                                    // Check if the module has exports
+                                    if let Some(Some(exports)) =
+                                        self.module_exports.get(module_name)
+                                    {
+                                        let has_exports = !exports.is_empty();
+                                        if has_exports {
+                                            log::debug!(
+                                                "Direct import of inlined module '{module_name}' with \
+                                                 exports: {exports:?}"
+                                            );
+                                        }
+                                        return has_exports;
+                                    }
+                                }
+                                false
                             })
                         } else {
                             false
@@ -2193,10 +2206,8 @@ impl HybridStaticBundler {
             false
         };
 
-        if need_types_for_direct_imports {
-            log::debug!(
-                "Adding types import for direct imports of inlined modules in entry module"
-            );
+        if needs_types_for_entry_imports {
+            log::debug!("Adding types import for namespace objects in entry module");
             self.add_stdlib_import("types");
         }
 
@@ -3742,8 +3753,8 @@ impl HybridStaticBundler {
             // This is a fallback for modules that don't have __all__ defined
             // For now, log a warning since we can't determine exports without module analysis
             log::warn!(
-                "Inlined module '{full_module_name}' has no explicit exports (__all__). Namespace will be empty \
-                 unless symbols are added elsewhere."
+                "Inlined module '{full_module_name}' has no explicit exports (__all__). Namespace \
+                 will be empty unless symbols are added elsewhere."
             );
         }
 
@@ -8685,7 +8696,8 @@ impl HybridStaticBundler {
             for inlined in &self.inlined_modules {
                 if inlined.starts_with(&format!("{module_name}.")) {
                     log::debug!(
-                        "Module '{module_name}' appears to be a package with inlined submodule '{inlined}'"
+                        "Module '{module_name}' appears to be a package with inlined submodule \
+                         '{inlined}'"
                     );
                     // For the specific case of greetings/__init__.py importing from
                     // greetings.english, we assume the symbol should use its
@@ -8733,7 +8745,8 @@ impl HybridStaticBundler {
                 // For package re-exports, use the original symbol name
                 // This handles cases like greetings/__init__.py re-exporting from greetings.english
                 log::debug!(
-                    "Using original name '{imported_name}' for symbol imported from package '{module_name}'"
+                    "Using original name '{imported_name}' for symbol imported from package \
+                     '{module_name}'"
                 );
                 imported_name.to_string()
             } else {
@@ -9766,9 +9779,6 @@ impl HybridStaticBundler {
         module_name: &str,
         target_name: &str,
     ) -> Stmt {
-        // Mark that we need types import for SimpleNamespace
-        self.needs_types_for_direct_imports = true;
-
         // Get module exports if available
         let exports = self
             .module_exports
@@ -9777,51 +9787,71 @@ impl HybridStaticBundler {
             .cloned()
             .unwrap_or_default();
 
-        // Create a types.SimpleNamespace with the actual exported symbols
-        let mut keywords = Vec::new();
+        // Check if the module has any symbols that were inlined
+        let module_has_inlined_symbols =
+            self.inlined_modules.contains(module_name) && !exports.is_empty();
 
-        // For each exported symbol, add it as a keyword argument to the namespace
-        for export in exports {
-            // For now, just use the export name directly
-            // The symbol should already be available in the global scope after inlining
-            keywords.push(Keyword {
-                arg: Some(Identifier::new(export.clone(), TextRange::default())),
-                value: Expr::Name(ExprName {
-                    id: export.into(),
-                    ctx: ExprContext::Load,
+        // Only use types.SimpleNamespace if we have actual symbols
+        if module_has_inlined_symbols {
+            // Create a types.SimpleNamespace with the actual exported symbols
+            let mut keywords = Vec::new();
+
+            // For each exported symbol, add it as a keyword argument to the namespace
+            for export in exports {
+                // For now, just use the export name directly
+                // The symbol should already be available in the global scope after inlining
+                keywords.push(Keyword {
+                    arg: Some(Identifier::new(export.clone(), TextRange::default())),
+                    value: Expr::Name(ExprName {
+                        id: export.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    }),
                     range: TextRange::default(),
-                }),
-                range: TextRange::default(),
-            });
-        }
+                });
+            }
 
-        // Create: target_name = types.SimpleNamespace(**kwargs)
-        Stmt::Assign(StmtAssign {
-            targets: vec![Expr::Name(ExprName {
-                id: target_name.into(),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Call(ExprCall {
-                func: Box::new(Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Name(ExprName {
-                        id: "types".into(),
+            // Create: target_name = types.SimpleNamespace(**kwargs)
+            Stmt::Assign(StmtAssign {
+                targets: vec![Expr::Name(ExprName {
+                    id: target_name.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::Call(ExprCall {
+                    func: Box::new(Expr::Attribute(ExprAttribute {
+                        value: Box::new(Expr::Name(ExprName {
+                            id: "types".into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new("SimpleNamespace", TextRange::default()),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
-                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
-                    ctx: ExprContext::Load,
+                    arguments: Arguments {
+                        args: Box::from([]),
+                        keywords: keywords.into_boxed_slice(),
+                        range: TextRange::default(),
+                    },
                     range: TextRange::default(),
                 })),
-                arguments: Arguments {
-                    args: Box::from([]),
-                    keywords: keywords.into_boxed_slice(),
-                    range: TextRange::default(),
-                },
                 range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        })
+            })
+        } else {
+            // No symbols to export, just assign None
+            Stmt::Assign(StmtAssign {
+                targets: vec![Expr::Name(ExprName {
+                    id: target_name.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            })
+        }
     }
 
     /// Create a namespace object for an inlined module that is imported as a namespace
