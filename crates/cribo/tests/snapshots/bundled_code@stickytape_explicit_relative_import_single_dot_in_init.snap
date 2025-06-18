@@ -46,5 +46,4 @@ class CriboBundledFinder:
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_b4af24_greetings()
 greetings = sys.modules['greetings']
-greetings = sys.modules['greetings']
 print(message_2)

@@ -2183,8 +2183,8 @@ impl HybridStaticBundler {
                                         let has_exports = !exports.is_empty();
                                         if has_exports {
                                             log::debug!(
-                                                "Direct import of inlined module '{module_name}' with \
-                                                 exports: {exports:?}"
+                                                "Direct import of inlined module '{module_name}' \
+                                                 with exports: {exports:?}"
                                             );
                                         }
                                         return has_exports;
@@ -2466,11 +2466,19 @@ impl HybridStaticBundler {
             // After all modules are initialized, ensure sub-modules are attached to parent modules
             // This is necessary for relative imports like "from . import messages" to work
             // correctly
+            // Check what modules are imported in the entry module to avoid duplicates
+            let entry_imported_modules =
+                self.get_entry_module_imports(&modules_normalized, params.entry_module_name);
+
             debug!(
                 "About to generate submodule attributes, current body length: {}",
                 final_body.len()
             );
-            self.generate_submodule_attributes(params.sorted_modules, &mut final_body);
+            self.generate_submodule_attributes_with_exclusions(
+                params.sorted_modules,
+                &mut final_body,
+                &entry_imported_modules,
+            );
             debug!(
                 "After generate_submodule_attributes, body length: {}",
                 final_body.len()
@@ -4066,11 +4074,58 @@ impl HybridStaticBundler {
         }
     }
 
+    /// Get modules imported directly in the entry module
+    fn get_entry_module_imports(
+        &self,
+        modules: &[(String, ModModule, PathBuf, String)],
+        entry_module_name: &str,
+    ) -> FxIndexSet<String> {
+        let mut imported_modules = FxIndexSet::default();
+
+        // Find the entry module
+        for (module_name, ast, _, _) in modules {
+            if module_name == entry_module_name {
+                // Check all import statements
+                for stmt in &ast.body {
+                    if let Stmt::Import(import_stmt) = stmt {
+                        for alias in &import_stmt.names {
+                            let module_name = alias.name.as_str();
+                            // Only track non-dotted wrapper modules
+                            if !module_name.contains('.')
+                                && self.module_registry.contains_key(module_name)
+                            {
+                                imported_modules.insert(module_name.to_string());
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        imported_modules
+    }
+
     /// Generate statements to attach sub-modules to their parent modules
     fn generate_submodule_attributes(
         &self,
         sorted_modules: &[(String, PathBuf, Vec<String>)],
         final_body: &mut Vec<Stmt>,
+    ) {
+        let empty_exclusions = FxIndexSet::default();
+        self.generate_submodule_attributes_with_exclusions(
+            sorted_modules,
+            final_body,
+            &empty_exclusions,
+        );
+    }
+
+    /// Generate statements to attach sub-modules to their parent modules with exclusions
+    fn generate_submodule_attributes_with_exclusions(
+        &self,
+        sorted_modules: &[(String, PathBuf, Vec<String>)],
+        final_body: &mut Vec<Stmt>,
+        exclusions: &FxIndexSet<String>,
     ) {
         debug!(
             "generate_submodule_attributes: Starting with {} modules",
@@ -4156,6 +4211,13 @@ impl HybridStaticBundler {
         top_level_wrappers.sort(); // Deterministic order
 
         for wrapper in top_level_wrappers {
+            // Skip if this module is imported in the entry module
+            if exclusions.contains(&wrapper) {
+                debug!("Skipping top-level wrapper '{wrapper}' - imported in entry module");
+                created_namespaces.insert(wrapper);
+                continue;
+            }
+
             debug!("Creating reference to top-level wrapper: {wrapper}");
             // Create: wrapper = sys.modules['wrapper']
             final_body.push(Stmt::Assign(StmtAssign {
