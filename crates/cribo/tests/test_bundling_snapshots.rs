@@ -432,6 +432,9 @@ fn test_bundling_fixtures() {
             },
         };
 
+        // Check for duplicate lines in the bundled code
+        check_for_duplicate_lines(&bundled_code, fixture_name);
+
         // Use Insta's with_settings for better snapshot organization
         insta::with_settings!({
             snapshot_suffix => fixture_name,
@@ -452,4 +455,58 @@ fn test_bundling_fixtures() {
             insta::assert_yaml_snapshot!("requirements", requirements_data);
         });
     });
+}
+
+/// Check for duplicate lines in the bundled code
+/// Trims lines from the right but preserves left indentation
+fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
+    use std::collections::HashMap;
+
+    let mut line_counts: HashMap<String, Vec<usize>> = HashMap::new();
+
+    for (line_num, line) in bundled_code.lines().enumerate() {
+        // Trim only from the right to preserve indentation
+        let trimmed_line = line.trim_end();
+
+        // Skip empty lines and comments
+        if trimmed_line.is_empty() || trimmed_line.trim_start().starts_with('#') {
+            continue;
+        }
+
+        // Track line numbers where this line appears
+        line_counts
+            .entry(trimmed_line.to_string())
+            .or_default()
+            .push(line_num + 1); // Use 1-based line numbers
+    }
+
+    // Find duplicates
+    let mut duplicates: Vec<(String, Vec<usize>)> = line_counts
+        .into_iter()
+        .filter(|(_, occurrences)| occurrences.len() > 1)
+        .collect();
+
+    if !duplicates.is_empty() {
+        // Sort by first occurrence line number for consistent output
+        duplicates.sort_by_key(|(_, occurrences)| occurrences[0]);
+
+        let mut error_msg = format!(
+            "Fixture '{fixture_name}' has duplicate lines in bundled output:\n\n"
+        );
+
+        for (line, occurrences) in duplicates {
+            error_msg.push_str(&format!(
+                "Line '{}' appears {} times at lines: {}\n",
+                line,
+                occurrences.len(),
+                occurrences
+                    .iter()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+
+        panic!("{}", error_msg);
+    }
 }
