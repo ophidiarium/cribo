@@ -998,6 +998,38 @@ impl<'a> RecursiveImportTransformer<'a> {
                     }
                 }
             }
+
+            // Check if this is a wrapper module (in module_registry)
+            // This check must be after the inlined module check to avoid double-handling
+            if self.bundler.module_registry.contains_key(resolved) {
+                log::debug!("  Module '{resolved}' is a wrapper module");
+
+                // For inlined modules importing from wrapper modules, we need to defer
+                // the imports to ensure proper initialization order
+                let current_module_is_inlined =
+                    self.bundler.inlined_modules.contains(self.module_name);
+
+                if !self.is_entry_module && current_module_is_inlined {
+                    log::debug!(
+                        "  Deferring wrapper module imports for inlined module '{}'",
+                        self.module_name
+                    );
+
+                    // Generate the standard transformation which includes init calls
+                    let empty_renames = FxIndexMap::default();
+                    let import_stmts = self.bundler.rewrite_import_in_stmt_multiple_with_context(
+                        Stmt::ImportFrom(import_from.clone()),
+                        self.module_name,
+                        &empty_renames,
+                    );
+
+                    // Defer these imports until after all modules are inlined
+                    self.deferred_imports.extend(import_stmts);
+                    return vec![];
+                }
+                // For wrapper modules importing from other wrapper modules,
+                // let it fall through to standard transformation
+            }
         }
 
         // Otherwise, use standard transformation
