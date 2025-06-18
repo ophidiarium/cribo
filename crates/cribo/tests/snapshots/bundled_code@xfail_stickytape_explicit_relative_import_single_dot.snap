@@ -20,7 +20,7 @@ def __cribo_init___cribo_cf5a45_greetings_greeting():
         setattr(sys.modules['greetings'], 'greeting', module)
     messages = messages_greetings
     __all__ = ["message"]
-    message = messages.message
+    message = message_2
     module.message = message
     module.__all__ = ['message']
     return module
@@ -47,4 +47,4 @@ __cribo_init___cribo_cf5a45_greetings_greeting()
 greetings = types.ModuleType('greetings')
 greetings.greeting = sys.modules['greetings.greeting']
 greetings.greeting = sys.modules['greetings.greeting']
-print(greeting_greetings.message)
+print(greetings.greeting.message)

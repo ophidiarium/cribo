@@ -200,13 +200,8 @@ validate_4 = validate_4
 User_2 = User_2
 Logger_2 = Logger_2
 connection_4 = "auth_connection_string"
-User_services_auth = sys.modules['services.auth.manager'].User
-process_services_auth = sys.modules['services.auth.manager'].process
-validate_services_auth = sys.modules['services.auth.manager'].validate
 result_4 = {"services": "initialized"}
 Logger_3 = "services_logger_string"
-User_services = sys.modules['services.auth.manager'].User
-process_services = sys.modules['services.auth.manager'].process
 Connection_4 = "utils_connection_type"
 """\nUtility helpers module with extensive naming conflicts\n"""
 result_6 = 0
@@ -326,13 +321,10 @@ def __cribo_init___cribo_49b92c_services_auth_manager():
     sys.modules['services.auth.manager'] = module
     if 'services.auth' in sys.modules:
         setattr(sys.modules['services.auth'], 'manager', module)
-    module.DBConnection = DBConnection
     DBConnection = Connection_6
     module.Connection = Connection
-    module.base = base
     """\nAuthentication manager with complex naming conflicts\n"""
     base = models_base
-    module.base = base
     result = "auth_result"
     module.result = result
     validate = lambda x: f"auth_lambda_validate: {x}"
@@ -453,6 +445,7 @@ def __cribo_init___cribo_49b92c_services_auth_manager():
     module.AuthManager = AuthManager
     global _cribo_services_auth_manager_result
     _cribo_services_auth_manager_result = result
+    module.__all__ = ['result', 'validate', 'User', 'Connection', 'process', 'validate', 'connect', 'AuthManager', 'process', 'validate', 'User']
     return module
 def __cribo_init___cribo_62c387_core():
     if '__cribo_62c387_core' in sys.modules:
@@ -461,16 +454,14 @@ def __cribo_init___cribo_62c387_core():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_62c387_core'] = module
     sys.modules['core'] = module
-    module.CoreLogger = CoreLogger
-    module.core_process = core_process
     CoreLogger = Logger_4
     core_process = process_6
     module.Logger = Logger
-    module.process = process
     result = "core_package_result"
     module.result = result
     Logger = CoreLogger
     module.Logger = Logger
+    module.__all__ = ['result', 'Logger']
     return module
 __cribo_modules = {'services.auth.manager': '__cribo_49b92c_services_auth_manager', 'core': '__cribo_62c387_core'}
 __cribo_init_functions = {'__cribo_49b92c_services_auth_manager': __cribo_init___cribo_49b92c_services_auth_manager, '__cribo_62c387_core': __cribo_init___cribo_62c387_core}

@@ -36,7 +36,13 @@ print(f"exported_from_init() = {exported_from_init()}")
 print(f"sub_function() = {sub_function()}")
 print("\nTesting conflict resolution:")
 print(f"message = {message}")
-simple_module = types.SimpleNamespace(__all__=['public_func', 'CONSTANT'])
+simple_module = types.SimpleNamespace()
+simple_module.__all__ = ['public_func', 'CONSTANT']
+simple_module.public_func = public_func
+simple_module.CONSTANT = CONSTANT
 print(f"\nsimple_module.__all__ = {simple_module.__all__}")
-sub = types.SimpleNamespace(__all__=['sub_function', 'SUB_CONSTANT'])
+sub = types.SimpleNamespace()
+sub.__all__ = ['sub_function', 'SUB_CONSTANT']
+sub.sub_function = sub_function
+sub.SUB_CONSTANT = SUB_CONSTANT
 print(f"submodule.__all__ = {sub.__all__}")

@@ -78,6 +78,7 @@ def __cribo_init___cribo_d0d3a1_schemas_user():
         is_active: bool
         bio: Optional[str] = None
     module.UserResponse = UserResponse
+    module.__all__ = ['UserSchema', 'CreateUserRequest', 'UserResponse']
     return module
 __cribo_modules = {'schemas.user': '__cribo_d0d3a1_schemas_user'}
 __cribo_init_functions = {'__cribo_d0d3a1_schemas_user': __cribo_init___cribo_d0d3a1_schemas_user}

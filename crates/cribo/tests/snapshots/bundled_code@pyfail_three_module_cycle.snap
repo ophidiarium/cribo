@@ -30,8 +30,11 @@ def process_c():
     value = get_value_a()
     return f"C(using_{value})"
 module_a = types.SimpleNamespace()
+module_a.__all__ = ['process_a', 'get_value_a']
+module_a.process_a = process_a
+module_a.get_value_a = get_value_a
 def main():
-    result = process_a()
+    result = module_a.process_a()
     print(f"Result: {result}")
 if __name__ == "__main__":
     main()

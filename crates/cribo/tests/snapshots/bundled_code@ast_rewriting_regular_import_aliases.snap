@@ -32,7 +32,13 @@ class UtilityClass:
         return self.value
 '''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
 helper_utils = types.SimpleNamespace()
+helper_utils.__all__ = ['helper_function', 'UtilityClass']
+helper_utils.helper_function = helper_function
+helper_utils.UtilityClass = UtilityClass
 config_module = types.SimpleNamespace()
+config_module.__all__ = ['DEFAULT_CONFIG', 'get_config']
+config_module.DEFAULT_CONFIG = DEFAULT_CONFIG
+config_module.get_config = get_config
 def main():
     """Test function that uses the imported modules with aliases."""
     print("Current working directory: /test/working/directory")
@@ -46,11 +52,11 @@ def main():
     root = xml.etree.ElementTree.Element("root")
     xml.etree.ElementTree.SubElement(root, "child")
     print("XML element tag:", root.tag)
-    result = helper_function()
+    result = helper_utils.helper_function()
     print("Helper result:", result)
-    util_obj = UtilityClass("test_value")
+    util_obj = helper_utils.UtilityClass("test_value")
     print("Utility value:", util_obj.get_value())
-    config = get_config()
+    config = config_module.get_config()
     print("Config debug:", config["debug"])
     print("Pi value:", math.pi)
     random.seed(42)

@@ -64,14 +64,14 @@ class Config:
         self.version = "1.0.0"
         self._logger_configured = False
         logger = get_logger()
-        log_logger("Initializing configuration system")
+        log("Initializing configuration system")
 
     def ensure_logger_configured(self):
         """Configure logger after config is ready"""
         if not self._logger_configured:
             logger = get_logger()
-            configure_logger()
-            log_logger("Configuration system initialized", "INFO")
+            configure()
+            log("Configuration system initialized", "INFO")
             self._logger_configured = True
 
     def get_setting(self, key):
@@ -98,10 +98,10 @@ def get_timestamp():
 def main():
     print(format_message("=== Application Starting ==="))
     config = Config()
-    ensure_logger_configured_config()
+    config.ensure_logger_configured()
     print(format_message(f"Configuration loaded: debug={config.debug_mode}"))
     app = Application()
-    run_app()
+    app.run()
     print(format_message("=== Application Finished ==="))
 if __name__ == "__main__":
     main()

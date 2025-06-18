@@ -25,8 +25,11 @@ def helper_function():
     util_result = utility_function()
     return f"pkg2.helper(using_{util_result})"
 pkg1 = types.SimpleNamespace()
+pkg1.__all__ = ['main_function', 'utility_function']
+pkg1.main_function = main_function
+pkg1.utility_function = utility_function
 def main():
-    result = main_function()
+    result = pkg1.main_function()
     print(f"Package cycle result: {result}")
 if __name__ == "__main__":
     main()

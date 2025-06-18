@@ -563,17 +563,21 @@ impl<'a> RecursiveImportTransformer<'a> {
                     vec![stmt.clone()]
                 } else {
                     // Track import aliases before rewriting
-                    for alias in &import_stmt.names {
-                        let module_name = alias.name.as_str();
-                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+                    // But not in the entry module - in the entry module, imports create namespace
+                    // objects
+                    if !self.is_entry_module {
+                        for alias in &import_stmt.names {
+                            let module_name = alias.name.as_str();
+                            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-                        // Only track if it's an aliased import of an inlined module
-                        if alias.asname.is_some()
-                            && self.bundler.inlined_modules.contains(module_name)
-                        {
-                            log::debug!("Tracking import alias: {local_name} -> {module_name}");
-                            self.import_aliases
-                                .insert(local_name.to_string(), module_name.to_string());
+                            // Only track if it's an aliased import of an inlined module
+                            if alias.asname.is_some()
+                                && self.bundler.inlined_modules.contains(module_name)
+                            {
+                                log::debug!("Tracking import alias: {local_name} -> {module_name}");
+                                self.import_aliases
+                                    .insert(local_name.to_string(), module_name.to_string());
+                            }
                         }
                     }
 
@@ -603,23 +607,49 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 .resolve_relative_import(import_from, self.module_name)
                         };
 
-                        if let Some(resolved) = &resolved_module
-                            && self.bundler.inlined_modules.contains(resolved)
-                        {
+                        if let Some(resolved) = &resolved_module {
                             // Track aliases for imported symbols
                             for alias in &import_from.names {
                                 let imported_name = alias.name.as_str();
                                 let local_name =
                                     alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-                                if alias.asname.is_some() || imported_name != local_name {
-                                    log::debug!(
-                                        "Tracking ImportFrom alias: {local_name} -> \
-                                         {resolved}.{imported_name}"
-                                    );
-                                    // For ImportFrom, we need to track the symbol path
-                                    self.import_aliases
-                                        .insert(local_name.to_string(), resolved.clone());
+                                // Check if we're importing a submodule
+                                let full_module_path = format!("{resolved}.{imported_name}");
+                                if self.bundler.inlined_modules.contains(&full_module_path) {
+                                    // Check if this is a namespace-imported module
+                                    if self
+                                        .bundler
+                                        .namespace_imported_modules
+                                        .contains_key(&full_module_path)
+                                    {
+                                        // Don't track namespace imports as aliases in the entry
+                                        // module
+                                        // They remain as namespace object references
+                                        log::debug!(
+                                            "Not tracking namespace import as alias: {local_name} \
+                                             (namespace module)"
+                                        );
+                                    } else {
+                                        // This is importing a submodule as a name (inlined module)
+                                        log::debug!(
+                                            "Tracking module import alias: {local_name} -> \
+                                             {full_module_path}"
+                                        );
+                                        self.import_aliases
+                                            .insert(local_name.to_string(), full_module_path);
+                                    }
+                                } else if self.bundler.inlined_modules.contains(resolved) {
+                                    // Importing from an inlined module
+                                    if alias.asname.is_some() || imported_name != local_name {
+                                        log::debug!(
+                                            "Tracking ImportFrom alias: {local_name} -> \
+                                             {resolved}.{imported_name}"
+                                        );
+                                        // For ImportFrom, we need to track the symbol path
+                                        self.import_aliases
+                                            .insert(local_name.to_string(), resolved.clone());
+                                    }
                                 }
                             }
                         }
@@ -662,55 +692,65 @@ impl<'a> RecursiveImportTransformer<'a> {
         let mut result_stmts = Vec::new();
         let mut handled_any = false;
 
-        if let Some(ref module_name) = import_from.module {
+        // Handle both regular module imports and relative imports
+        if let Some(ref resolved_base) = resolved_module {
             log::debug!(
                 "RecursiveImportTransformer: Checking import from '{}' in module '{}'",
-                module_name.as_str(),
+                resolved_base,
                 self.module_name
             );
             for alias in &import_from.names {
                 let imported_name = alias.name.as_str();
                 let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                let full_module_path = format!("{}.{}", module_name.as_str(), imported_name);
+                let full_module_path = format!("{resolved_base}.{imported_name}");
 
-                log::debug!("  Checking if '{full_module_path}' is an inlined namespace module");
+                log::debug!("  Checking if '{full_module_path}' is an inlined module");
                 log::debug!(
                     "  inlined_modules contains '{}': {}",
                     full_module_path,
                     self.bundler.inlined_modules.contains(&full_module_path)
                 );
-                log::debug!(
-                    "  namespace_imported_modules contains '{}': {}",
-                    full_module_path,
-                    self.bundler
-                        .namespace_imported_modules
-                        .contains_key(&full_module_path)
-                );
 
-                // Check if this is an inlined submodule that was namespace imported
-                if self.bundler.inlined_modules.contains(&full_module_path)
-                    && self
+                // Check if this is importing a submodule (like from . import config)
+                if self.bundler.inlined_modules.contains(&full_module_path) {
+                    log::debug!("  '{full_module_path}' is an inlined module");
+
+                    // Check if this module was namespace imported
+                    if self
                         .bundler
                         .namespace_imported_modules
                         .contains_key(&full_module_path)
-                {
-                    // Create assignment: local_name = full_module_path_with_underscores
-                    let namespace_var = full_module_path.replace('.', "_");
-                    log::debug!("  Creating namespace assignment: {local_name} = {namespace_var}");
-                    result_stmts.push(Stmt::Assign(StmtAssign {
-                        targets: vec![Expr::Name(ExprName {
-                            id: local_name.into(),
-                            ctx: ExprContext::Store,
+                    {
+                        // Create assignment: local_name = full_module_path_with_underscores
+                        let namespace_var = full_module_path.replace('.', "_");
+                        log::debug!(
+                            "  Creating namespace assignment: {local_name} = {namespace_var}"
+                        );
+                        result_stmts.push(Stmt::Assign(StmtAssign {
+                            targets: vec![Expr::Name(ExprName {
+                                id: local_name.into(),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            })],
+                            value: Box::new(Expr::Name(ExprName {
+                                id: namespace_var.into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
                             range: TextRange::default(),
-                        })],
-                        value: Box::new(Expr::Name(ExprName {
-                            id: namespace_var.into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        range: TextRange::default(),
-                    }));
-                    handled_any = true;
+                        }));
+                        handled_any = true;
+                    } else {
+                        // This is a regular inlined module import (not namespace)
+                        // Track the alias so that config.DEFAULT_NAME can be transformed
+                        log::debug!(
+                            "  Tracking inlined module import alias: {local_name} -> \
+                             {full_module_path}"
+                        );
+                        self.import_aliases
+                            .insert(local_name.to_string(), full_module_path.clone());
+                        // Let it fall through to standard handling which will create the assignment
+                    }
                 }
             }
         }
@@ -765,59 +805,194 @@ impl<'a> RecursiveImportTransformer<'a> {
 
     /// Transform an expression, rewriting module attribute access to direct references
     fn transform_expr(&self, expr: &mut Expr) {
+        // First check if this is an attribute expression and collect the path
+        let attribute_info = if matches!(expr, Expr::Attribute(_)) {
+            Some(self.collect_attribute_path(expr))
+        } else {
+            None
+        };
+
         match expr {
             Expr::Attribute(attr_expr) => {
-                // First transform the value expression
-                self.transform_expr(&mut attr_expr.value);
+                // Handle nested attribute access using the pre-collected path
+                if let Some((base_name, attr_path)) = attribute_info {
+                    if let Some(base) = base_name {
+                        // In the entry module, check if this is accessing a namespace object
+                        // created by a dotted import
+                        if self.is_entry_module && attr_path.len() >= 2 {
+                            // For "greetings.greeting.get_greeting()", we have:
+                            // base: "greetings", attr_path: ["greeting", "get_greeting"]
+                            // Check if "greetings.greeting" is a bundled module (created by "import
+                            // greetings.greeting")
+                            let namespace_path = format!("{}.{}", base, attr_path[0]);
 
-                // Check if this is accessing an attribute on a module alias
-                if let Expr::Name(name_expr) = attr_expr.value.as_ref() {
-                    let module_alias = name_expr.id.as_str();
-                    let attr_name = attr_expr.attr.as_str();
-
-                    // Check if this module alias refers to an inlined module
-                    // We need to find what module this alias refers to
-                    if let Some(actual_module) = self.find_module_for_alias(module_alias)
-                        && self.bundler.inlined_modules.contains(&actual_module)
-                    {
-                        // This is accessing an attribute on an inlined module
-                        // Replace with direct reference to the symbol
-
-                        // Check if this symbol was renamed during inlining
-                        let new_expr = if let Some(module_renames) =
-                            self.symbol_renames.get(&actual_module)
-                        {
-                            if let Some(renamed) = module_renames.get(attr_name) {
-                                // Use the renamed symbol
-                                let renamed_str = renamed.clone();
-                                log::debug!("Rewrote {module_alias}.{attr_name} to {renamed_str}");
-                                Some(Expr::Name(ExprName {
-                                    id: renamed_str.into(),
-                                    ctx: attr_expr.ctx,
-                                    range: attr_expr.range,
-                                }))
-                            } else {
-                                None
+                            if self.bundler.bundled_modules.contains(&namespace_path) {
+                                // This is accessing a method/attribute on a namespace object
+                                // created by a dotted import
+                                // Don't transform it - let the namespace object handle it
+                                log::debug!(
+                                    "Not transforming {base}.{} - accessing namespace object \
+                                     created by dotted import",
+                                    attr_path.join(".")
+                                );
+                                // Don't recursively transform - the whole expression should remain
+                                // as-is
+                                return;
                             }
-                        } else {
-                            None
-                        };
+                        }
 
-                        if let Some(new_expr) = new_expr {
-                            *expr = new_expr;
-                        } else {
-                            // No rename, use the original name with module prefix
-                            let direct_name =
-                                format!("{attr_name}_{}", actual_module.replace('.', "_"));
-                            log::debug!("Rewrote {module_alias}.{attr_name} to {direct_name}");
-                            *expr = Expr::Name(ExprName {
-                                id: direct_name.into(),
-                                ctx: attr_expr.ctx,
-                                range: attr_expr.range,
-                            });
+                        // Check if the base refers to an inlined module
+                        if let Some(actual_module) = self.find_module_for_alias(&base)
+                            && self.bundler.inlined_modules.contains(&actual_module)
+                        {
+                            // For a single attribute access (e.g., greetings.message or
+                            // config.DEFAULT_NAME)
+                            if attr_path.len() == 1 {
+                                let attr_name = &attr_path[0];
+
+                                // Check if we're accessing a submodule that's bundled as a wrapper
+                                let potential_submodule = format!("{actual_module}.{attr_name}");
+                                if self.bundler.bundled_modules.contains(&potential_submodule)
+                                    && !self.bundler.inlined_modules.contains(&potential_submodule)
+                                {
+                                    // This is accessing a wrapper module through its parent
+                                    // namespace Don't transform
+                                    // it - let it remain as namespace access
+                                    log::debug!(
+                                        "Not transforming {base}.{attr_name} - it's a wrapper \
+                                         module access"
+                                    );
+                                    // Fall through to recursive transformation
+                                } else {
+                                    // Check if this is accessing a namespace object (e.g.,
+                                    // simple_module)
+                                    // that was created by a namespace import
+                                    if self
+                                        .bundler
+                                        .namespace_imported_modules
+                                        .contains_key(&actual_module)
+                                    {
+                                        // This is accessing attributes on a namespace object
+                                        // Don't transform - let it remain as namespace.attribute
+                                        log::debug!(
+                                            "Not transforming {base}.{attr_name} - accessing \
+                                             namespace object attribute"
+                                        );
+                                        // Fall through to recursive transformation
+                                    } else {
+                                        // This is accessing a symbol from an inlined module
+                                        // The symbol should be directly available in the bundled
+                                        // scope
+                                        log::debug!(
+                                            "Transforming {base}.{attr_name} - {base} is alias \
+                                             for inlined module {actual_module}"
+                                        );
+
+                                        // Check if this symbol was renamed during inlining
+                                        let new_expr = if let Some(module_renames) =
+                                            self.symbol_renames.get(&actual_module)
+                                        {
+                                            if let Some(renamed) = module_renames.get(attr_name) {
+                                                // Use the renamed symbol
+                                                let renamed_str = renamed.clone();
+                                                log::debug!(
+                                                    "Rewrote {base}.{attr_name} to {renamed_str} \
+                                                     (renamed)"
+                                                );
+                                                Some(Expr::Name(ExprName {
+                                                    id: renamed_str.into(),
+                                                    ctx: attr_expr.ctx,
+                                                    range: attr_expr.range,
+                                                }))
+                                            } else {
+                                                // Symbol exists but wasn't renamed, use the direct
+                                                // name
+                                                log::debug!(
+                                                    "Rewrote {base}.{attr_name} to {attr_name} \
+                                                     (not renamed)"
+                                                );
+                                                Some(Expr::Name(ExprName {
+                                                    id: attr_name.clone().into(),
+                                                    ctx: attr_expr.ctx,
+                                                    range: attr_expr.range,
+                                                }))
+                                            }
+                                        } else {
+                                            // No rename information available, use the direct name
+                                            log::debug!(
+                                                "Rewrote {base}.{attr_name} to {attr_name} (no \
+                                                 rename info)"
+                                            );
+                                            Some(Expr::Name(ExprName {
+                                                id: attr_name.clone().into(),
+                                                ctx: attr_expr.ctx,
+                                                range: attr_expr.range,
+                                            }))
+                                        };
+
+                                        if let Some(new_expr) = new_expr {
+                                            *expr = new_expr;
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                            // For nested attribute access (e.g., greetings.greeting.message)
+                            // We need to handle the case where greetings.greeting is a submodule
+                            else if attr_path.len() > 1 {
+                                // Check if base.attr_path[0] forms a complete module name
+                                let potential_module =
+                                    format!("{}.{}", actual_module, attr_path[0]);
+
+                                if self.bundler.inlined_modules.contains(&potential_module) {
+                                    // This is accessing an attribute on a submodule
+                                    // Build the remaining attribute path
+                                    let remaining_attrs = &attr_path[1..];
+
+                                    if remaining_attrs.len() == 1 {
+                                        let final_attr = &remaining_attrs[0];
+
+                                        // Check if this symbol was renamed during inlining
+                                        if let Some(module_renames) =
+                                            self.symbol_renames.get(&potential_module)
+                                            && let Some(renamed) = module_renames.get(final_attr)
+                                        {
+                                            log::debug!(
+                                                "Rewrote {base}.{}.{final_attr} to {renamed}",
+                                                attr_path[0]
+                                            );
+                                            *expr = Expr::Name(ExprName {
+                                                id: renamed.clone().into(),
+                                                ctx: attr_expr.ctx,
+                                                range: attr_expr.range,
+                                            });
+                                            return;
+                                        }
+
+                                        // No rename, use the original name with module prefix
+                                        let direct_name = format!(
+                                            "{final_attr}_{}",
+                                            potential_module.replace('.', "_")
+                                        );
+                                        log::debug!(
+                                            "Rewrote {base}.{}.{final_attr} to {direct_name}",
+                                            attr_path[0]
+                                        );
+                                        *expr = Expr::Name(ExprName {
+                                            id: direct_name.into(),
+                                            ctx: attr_expr.ctx,
+                                            range: attr_expr.range,
+                                        });
+                                        return;
+                                    }
+                                }
+                            }
                         }
                     }
-                }
+
+                    // If we didn't handle it above, recursively transform the value
+                    self.transform_expr(&mut attr_expr.value);
+                } // Close the if let Some((base_name, attr_path)) = attribute_info
             }
             Expr::Call(call_expr) => {
                 self.transform_expr(&mut call_expr.func);
@@ -943,8 +1118,81 @@ impl<'a> RecursiveImportTransformer<'a> {
             Expr::Starred(starred_expr) => {
                 self.transform_expr(&mut starred_expr.value);
             }
+            Expr::FString(fstring_expr) => {
+                // Transform expressions within the f-string
+                let fstring_range = fstring_expr.range;
+                let mut transformed_elements = Vec::new();
+                let mut any_transformed = false;
+
+                for element in fstring_expr.value.elements() {
+                    match element {
+                        InterpolatedStringElement::Literal(lit_elem) => {
+                            transformed_elements
+                                .push(InterpolatedStringElement::Literal(lit_elem.clone()));
+                        }
+                        InterpolatedStringElement::Interpolation(expr_elem) => {
+                            let mut new_expr = expr_elem.expression.clone();
+                            self.transform_expr(&mut new_expr);
+
+                            if !matches!(&new_expr, other if other == &expr_elem.expression) {
+                                any_transformed = true;
+                            }
+
+                            let new_element = InterpolatedElement {
+                                expression: new_expr,
+                                debug_text: expr_elem.debug_text.clone(),
+                                conversion: expr_elem.conversion,
+                                format_spec: expr_elem.format_spec.clone(),
+                                range: expr_elem.range,
+                            };
+                            transformed_elements
+                                .push(InterpolatedStringElement::Interpolation(new_element));
+                        }
+                    }
+                }
+
+                if any_transformed {
+                    let new_fstring = FString {
+                        elements: InterpolatedStringElements::from(transformed_elements),
+                        range: TextRange::default(),
+                        flags: FStringFlags::empty(),
+                    };
+
+                    let new_value = FStringValue::single(new_fstring);
+
+                    *expr = Expr::FString(ExprFString {
+                        value: new_value,
+                        range: fstring_range,
+                    });
+                }
+            }
             // Name, Constants, etc. don't need transformation
             _ => {}
+        }
+    }
+
+    /// Collect the full dotted attribute path from a potentially nested attribute expression
+    /// Returns (base_name, [attr1, attr2, ...])
+    /// For example: greetings.greeting.message returns (Some("greetings"), ["greeting", "message"])
+    fn collect_attribute_path(&self, expr: &Expr) -> (Option<String>, Vec<String>) {
+        let mut attrs = Vec::new();
+        let mut current = expr;
+
+        loop {
+            match current {
+                Expr::Attribute(attr) => {
+                    attrs.push(attr.attr.as_str().to_string());
+                    current = &attr.value;
+                }
+                Expr::Name(name) => {
+                    attrs.reverse();
+                    return (Some(name.id.as_str().to_string()), attrs);
+                }
+                _ => {
+                    attrs.reverse();
+                    return (None, attrs);
+                }
+            }
         }
     }
 
@@ -956,7 +1204,9 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
 
         // Then check if the alias directly matches a module name
-        if self.bundler.inlined_modules.contains(alias) {
+        // But not in the entry module - in the entry module, direct module names
+        // are namespace objects, not aliases
+        if !self.is_entry_module && self.bundler.inlined_modules.contains(alias) {
             Some(alias.to_string())
         } else {
             // Check common patterns like "import utils.helpers as helper_utils"
@@ -5171,6 +5421,7 @@ impl HybridStaticBundler {
     /// Extract __all__ exports from a module
     /// Returns Some(vec) if __all__ is defined, None if not defined
     fn extract_all_exports(&self, ast: &ModModule) -> Option<Vec<String>> {
+        // First, look for explicit __all__
         for stmt in &ast.body {
             let Stmt::Assign(assign) = stmt else {
                 continue;
@@ -5189,7 +5440,49 @@ impl HybridStaticBundler {
                 return self.extract_string_list_from_expr(&assign.value);
             }
         }
-        None
+
+        // If no __all__, collect all public top-level symbols (not starting with _)
+        let mut symbols = Vec::new();
+        for stmt in &ast.body {
+            match stmt {
+                Stmt::FunctionDef(func) => {
+                    if !func.name.as_str().starts_with('_') {
+                        symbols.push(func.name.to_string());
+                    }
+                }
+                Stmt::ClassDef(class) => {
+                    if !class.name.as_str().starts_with('_') {
+                        symbols.push(class.name.to_string());
+                    }
+                }
+                Stmt::Assign(assign) => {
+                    // Include simple variable assignments
+                    for target in &assign.targets {
+                        if let Expr::Name(name) = target
+                            && !name.id.as_str().starts_with('_')
+                            && name.id.as_str() != "__all__"
+                        {
+                            symbols.push(name.id.to_string());
+                        }
+                    }
+                }
+                Stmt::AnnAssign(ann_assign) => {
+                    // Include annotated assignments
+                    if let Expr::Name(name) = ann_assign.target.as_ref()
+                        && !name.id.as_str().starts_with('_')
+                    {
+                        symbols.push(name.id.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if symbols.is_empty() {
+            None
+        } else {
+            Some(symbols)
+        }
     }
 
     /// Extract a list of strings from an expression (for __all__ parsing)
@@ -8021,16 +8314,40 @@ impl HybridStaticBundler {
                         let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
                         // For dotted imports, we need to create the parent namespaces
-                        if alias.asname.is_none() {
+                        if alias.asname.is_none() && module_name.contains('.') {
                             // For non-aliased dotted imports like "import a.b.c"
-                            // Create all parent namespace objects
-                            self.create_parent_namespace_objects(&parts, &mut result_stmts);
-                        }
+                            // Create all parent namespace objects AND the leaf namespace
+                            self.create_all_namespace_objects(&parts, &mut result_stmts);
 
-                        // Create namespace object with the module's exports
-                        let namespace_stmt = self
-                            .create_namespace_object_for_module(target_name.as_str(), module_name);
-                        result_stmts.push(namespace_stmt);
+                            // Populate ALL namespace levels with their symbols, not just the leaf
+                            // For "import greetings.greeting", populate both "greetings" and
+                            // "greetings.greeting"
+                            for i in 1..=parts.len() {
+                                let partial_module = parts[..i].join(".");
+                                // Only populate if this module was actually bundled and has exports
+                                if self.bundled_modules.contains(&partial_module) {
+                                    self.populate_namespace_with_module_symbols(
+                                        &partial_module,
+                                        &mut result_stmts,
+                                    );
+                                }
+                            }
+                        } else {
+                            // For simple imports or aliased imports, create namespace object with
+                            // the module's exports
+                            let namespace_stmt = self.create_namespace_object_for_module(
+                                target_name.as_str(),
+                                module_name,
+                            );
+                            result_stmts.push(namespace_stmt);
+
+                            // Also populate the namespace with symbols
+                            self.populate_namespace_with_module_symbols_using_target(
+                                target_name.as_str(),
+                                module_name,
+                                &mut result_stmts,
+                            );
+                        }
                     }
                 } else {
                     handled_all = false;
@@ -8057,6 +8374,13 @@ impl HybridStaticBundler {
                     let namespace_stmt =
                         self.create_namespace_object_for_module(target_name.as_str(), module_name);
                     result_stmts.push(namespace_stmt);
+
+                    // Also populate the namespace with symbols
+                    self.populate_namespace_with_module_symbols_using_target(
+                        target_name.as_str(),
+                        module_name,
+                        &mut result_stmts,
+                    );
                 }
             }
         }
@@ -8506,28 +8830,13 @@ impl HybridStaticBundler {
         }
     }
 
-    /// Create parent namespace objects for a dotted import
-    fn create_parent_namespace_objects(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
-        // For "import a.b.c", we need to create namespace objects for "a" and "a.b"
-        for i in 1..parts.len() {
-            let partial_name = parts[..i].join(".");
-
+    /// Create all namespace objects including the leaf for a dotted import
+    fn create_all_namespace_objects(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
+        // For "import a.b.c", we need to create namespace objects for "a", "a.b", and "a.b.c"
+        for i in 1..=parts.len() {
             // Check if we already created this namespace
-            if result_stmts.iter().any(|stmt| {
-                if let Stmt::Assign(assign) = stmt {
-                    assign.targets.iter().any(|target| {
-                        if let Expr::Name(name) = target {
-                            name.id.as_str() == partial_name.split('.').next().unwrap()
-                        } else {
-                            false
-                        }
-                    })
-                } else {
-                    false
-                }
-            }) {
-                continue;
-            }
+            // For now, don't check - just create all namespaces
+            // TODO: Implement proper duplicate checking
 
             // Create empty namespace object
             let namespace_expr = Expr::Call(ExprCall {
@@ -8568,7 +8877,8 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 });
 
-                for j in 1..i {
+                // Build up the chain up to but not including the last part
+                for j in 1..(i - 1) {
                     target = Expr::Attribute(ExprAttribute {
                         value: Box::new(target),
                         attr: Identifier::new(parts[j], TextRange::default()),
@@ -8580,7 +8890,7 @@ impl HybridStaticBundler {
                 result_stmts.push(Stmt::Assign(StmtAssign {
                     targets: vec![Expr::Attribute(ExprAttribute {
                         value: Box::new(target),
-                        attr: Identifier::new(parts[i], TextRange::default()),
+                        attr: Identifier::new(parts[i - 1], TextRange::default()),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
                     })],
@@ -8591,45 +8901,145 @@ impl HybridStaticBundler {
         }
     }
 
-    /// Create a namespace object for an inlined module
-    fn create_namespace_object_for_module(&self, target_name: &str, module_name: &str) -> Stmt {
-        // Find all symbols from this module that were inlined
-        let mut keywords = Vec::new();
+    /// Populate a namespace with symbols from an inlined module
+    fn populate_namespace_with_module_symbols(
+        &self,
+        module_name: &str,
+        result_stmts: &mut Vec<Stmt>,
+    ) {
+        self.populate_namespace_with_module_symbols_using_target(
+            module_name,
+            module_name,
+            result_stmts,
+        );
+    }
 
-        // Check the module's exports to know what symbols to include
-        // For now, just create a namespace with __all__ attribute if the module has exports
-        // In the static bundler, we've already inlined all the module's code,
-        // so we just need to provide a namespace object that has the __all__ attribute
+    /// Populate a namespace with symbols from an inlined module using a specific target name
+    fn populate_namespace_with_module_symbols_using_target(
+        &self,
+        target_name: &str,
+        module_name: &str,
+        result_stmts: &mut Vec<Stmt>,
+    ) {
+        // Get the module's exports
         if let Some(exports) = self
             .module_exports
             .get(module_name)
             .and_then(|e| e.as_ref())
         {
-            // Add __all__ attribute
-            keywords.push(Keyword {
-                arg: Some(Identifier::new("__all__", TextRange::default())),
-                value: Expr::List(ExprList {
-                    elts: exports
-                        .iter()
-                        .map(|name| {
-                            Expr::StringLiteral(ExprStringLiteral {
-                                value: StringLiteralValue::single(StringLiteral {
-                                    value: name.as_str().into(),
-                                    flags: StringLiteralFlags::empty(),
-                                    range: TextRange::default(),
-                                }),
-                                range: TextRange::default(),
-                            })
-                        })
-                        .collect(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                }),
+            // Build the namespace access expression for the target
+            let parts: Vec<&str> = target_name.split('.').collect();
+
+            // First, add __all__ attribute to the namespace
+            // Create the target expression for __all__
+            let mut all_target = Expr::Name(ExprName {
+                id: parts[0].into(),
+                ctx: ExprContext::Load,
                 range: TextRange::default(),
             });
-        }
 
-        // Create the namespace object
+            for i in 1..parts.len() {
+                all_target = Expr::Attribute(ExprAttribute {
+                    value: Box::new(all_target),
+                    attr: Identifier::new(parts[i], TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+            }
+
+            // Create __all__ = [...] assignment
+            let all_list = Expr::List(ExprList {
+                elts: exports
+                    .iter()
+                    .map(|name| {
+                        Expr::StringLiteral(ExprStringLiteral {
+                            value: StringLiteralValue::single(StringLiteral {
+                                value: name.as_str().into(),
+                                flags: StringLiteralFlags::empty(),
+                                range: TextRange::default(),
+                            }),
+                            range: TextRange::default(),
+                        })
+                    })
+                    .collect(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            });
+
+            result_stmts.push(Stmt::Assign(StmtAssign {
+                targets: vec![Expr::Attribute(ExprAttribute {
+                    value: Box::new(all_target),
+                    attr: Identifier::new("__all__", TextRange::default()),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(all_list),
+                range: TextRange::default(),
+            }));
+
+            // For each exported symbol, add it to the namespace
+            for symbol in exports {
+                // Create the target expression
+                // For simple modules, this will be the module name directly
+                // For dotted modules (e.g., greetings.greeting), build the chain
+                let target = if parts.len() == 1 {
+                    // Simple module - use the name directly
+                    Expr::Name(ExprName {
+                        id: parts[0].into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })
+                } else {
+                    // Dotted module - build the attribute chain
+                    let mut base = Expr::Name(ExprName {
+                        id: parts[0].into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+
+                    for i in 1..parts.len() {
+                        base = Expr::Attribute(ExprAttribute {
+                            value: Box::new(base),
+                            attr: Identifier::new(parts[i], TextRange::default()),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        });
+                    }
+                    base
+                };
+
+                // Now add the symbol as an attribute (e.g., greetings.greeting.get_greeting =
+                // get_greeting)
+                let attr_assignment = Stmt::Assign(StmtAssign {
+                    targets: vec![Expr::Attribute(ExprAttribute {
+                        value: Box::new(target),
+                        attr: Identifier::new(symbol, TextRange::default()),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Name(ExprName {
+                        id: symbol.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                });
+
+                result_stmts.push(attr_assignment);
+            }
+        }
+    }
+
+    /// Create a namespace object for an inlined module
+    fn create_namespace_object_for_module(&self, target_name: &str, _module_name: &str) -> Stmt {
+        // For inlined modules, we need to return a vector of statements:
+        // 1. Create the namespace object
+        // 2. Add all the module's symbols to it
+
+        // We'll create a compound statement that does both
+        let _stmts: Vec<Stmt> = Vec::new();
+
+        // First, create the empty namespace
         let namespace_expr = Expr::Call(ExprCall {
             func: Box::new(Expr::Attribute(ExprAttribute {
                 value: Box::new(Expr::Name(ExprName {
@@ -8643,13 +9053,16 @@ impl HybridStaticBundler {
             })),
             arguments: Arguments {
                 args: vec![].into(),
-                keywords: keywords.into(),
+                keywords: vec![].into(),
                 range: TextRange::default(),
             },
             range: TextRange::default(),
         });
 
-        // Create assignment
+        // Create assignment for the namespace
+
+        // For now, return just the namespace creation
+        // The actual symbol population needs to happen after all symbols are available
         Stmt::Assign(StmtAssign {
             targets: vec![Expr::Name(ExprName {
                 id: target_name.into(),
@@ -9113,27 +9526,17 @@ impl HybridStaticBundler {
             .cloned()
             .unwrap_or_default();
 
-        // Create a types.SimpleNamespace with __all__ if the module had it
+        // Create a types.SimpleNamespace with the actual exported symbols
         let mut keywords = Vec::new();
 
-        if !exports.is_empty() {
-            // Add __all__ attribute
+        // For each exported symbol, add it as a keyword argument to the namespace
+        for export in exports {
+            // For now, just use the export name directly
+            // The symbol should already be available in the global scope after inlining
             keywords.push(Keyword {
-                arg: Some(Identifier::new("__all__", TextRange::default())),
-                value: Expr::List(ExprList {
-                    elts: exports
-                        .into_iter()
-                        .map(|export| {
-                            Expr::StringLiteral(ExprStringLiteral {
-                                value: StringLiteralValue::single(ruff_python_ast::StringLiteral {
-                                    value: export.into_boxed_str(),
-                                    flags: StringLiteralFlags::empty(),
-                                    range: TextRange::default(),
-                                }),
-                                range: TextRange::default(),
-                            })
-                        })
-                        .collect(),
+                arg: Some(Identifier::new(export.clone(), TextRange::default())),
+                value: Expr::Name(ExprName {
+                    id: export.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 }),

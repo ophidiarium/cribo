@@ -8,5 +8,7 @@ input_file: crates/cribo/tests/fixtures/stickytape_explicit_relative_import_in_i
 
 import types
 message = "Hello"
-greetings = types.SimpleNamespace(__all__=['message'])
+greetings = types.SimpleNamespace()
+greetings.__all__ = ['message']
+greetings.message = message
 print(message)

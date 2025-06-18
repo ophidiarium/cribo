@@ -9,4 +9,6 @@ input_file: crates/cribo/tests/fixtures/stickytape_module_with_triple_quotes/mai
 import types
 message = "Hello\n'''\n" + '"""'
 greeting = types.SimpleNamespace()
-print(message)
+greeting.__all__ = ['message']
+greeting.message = message
+print(greeting.message)

@@ -19,7 +19,7 @@ def __cribo_init___cribo_b4af24_greetings():
     __cribo_init___cribo_b4af24_greetings()
     greeting = sys.modules['greetings'].greeting
     __all__ = ["message"]
-    message = greeting.message
+    message = message_2
     module.message = message
     module.__all__ = ['message']
     return module
