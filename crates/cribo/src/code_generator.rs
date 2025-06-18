@@ -581,7 +581,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
                     }
 
-                    self.bundler.rewrite_import(import_stmt.clone())
+                    self.bundler
+                        .rewrite_import_with_renames(import_stmt.clone(), self.symbol_renames)
                 }
             }
             Stmt::ImportFrom(import_from) => {
@@ -6167,7 +6168,9 @@ impl HybridStaticBundler {
             Stmt::ImportFrom(import_from) => {
                 self.rewrite_import_from(import_from, current_module, symbol_renames)
             }
-            Stmt::Import(import_stmt) => self.rewrite_import(import_stmt),
+            Stmt::Import(import_stmt) => {
+                self.rewrite_import_with_renames(import_stmt, symbol_renames)
+            }
             _ => vec![stmt],
         }
     }
@@ -8553,8 +8556,17 @@ impl HybridStaticBundler {
         }
     }
 
-    /// Rewrite Import statements
+    /// Rewrite Import statements without symbol renames
     fn rewrite_import(&self, import_stmt: StmtImport) -> Vec<Stmt> {
+        self.rewrite_import_with_renames(import_stmt, &FxIndexMap::default())
+    }
+
+    /// Rewrite Import statements with symbol renames
+    fn rewrite_import_with_renames(
+        &self,
+        import_stmt: StmtImport,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Vec<Stmt> {
         // Check each import individually
         let mut result_stmts = Vec::new();
         let mut handled_all = true;
@@ -8606,9 +8618,11 @@ impl HybridStaticBundler {
                                 let partial_module = parts[..i].join(".");
                                 // Only populate if this module was actually bundled and has exports
                                 if self.bundled_modules.contains(&partial_module) {
-                                    self.populate_namespace_with_module_symbols(
+                                    self.populate_namespace_with_module_symbols_with_renames(
+                                        &partial_module,
                                         &partial_module,
                                         &mut result_stmts,
+                                        symbol_renames,
                                     );
                                 }
                             }
@@ -8622,10 +8636,11 @@ impl HybridStaticBundler {
                             result_stmts.push(namespace_stmt);
 
                             // Also populate the namespace with symbols
-                            self.populate_namespace_with_module_symbols_using_target(
+                            self.populate_namespace_with_module_symbols_with_renames(
                                 target_name.as_str(),
                                 module_name,
                                 &mut result_stmts,
+                                symbol_renames,
                             );
                         }
                     }
@@ -8656,10 +8671,11 @@ impl HybridStaticBundler {
                     result_stmts.push(namespace_stmt);
 
                     // Also populate the namespace with symbols
-                    self.populate_namespace_with_module_symbols_using_target(
+                    self.populate_namespace_with_module_symbols_with_renames(
                         target_name.as_str(),
                         module_name,
                         &mut result_stmts,
+                        symbol_renames,
                     );
                 }
             }
@@ -9252,12 +9268,29 @@ impl HybridStaticBundler {
         );
     }
 
-    /// Populate a namespace with symbols from an inlined module using a specific target name
+    /// Populate a namespace with symbols from an inlined module using a specific target name (no
+    /// renames)
     fn populate_namespace_with_module_symbols_using_target(
         &self,
         target_name: &str,
         module_name: &str,
         result_stmts: &mut Vec<Stmt>,
+    ) {
+        self.populate_namespace_with_module_symbols_with_renames(
+            target_name,
+            module_name,
+            result_stmts,
+            &FxIndexMap::default(),
+        );
+    }
+
+    /// Populate a namespace with symbols from an inlined module using a specific target name
+    fn populate_namespace_with_module_symbols_with_renames(
+        &self,
+        target_name: &str,
+        module_name: &str,
+        result_stmts: &mut Vec<Stmt>,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) {
         // Get the module's exports
         if let Some(exports) = self
@@ -9317,6 +9350,17 @@ impl HybridStaticBundler {
 
             // For each exported symbol, add it to the namespace
             for symbol in exports {
+                // Get the renamed symbol if it exists
+                let actual_symbol_name =
+                    if let Some(module_renames) = symbol_renames.get(module_name) {
+                        module_renames
+                            .get(symbol)
+                            .cloned()
+                            .unwrap_or_else(|| symbol.clone())
+                    } else {
+                        symbol.clone()
+                    };
+
                 // Create the target expression
                 // For simple modules, this will be the module name directly
                 // For dotted modules (e.g., greetings.greeting), build the chain
@@ -9356,7 +9400,7 @@ impl HybridStaticBundler {
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::Name(ExprName {
-                        id: symbol.into(),
+                        id: actual_symbol_name.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
