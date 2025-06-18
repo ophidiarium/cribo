@@ -49,120 +49,120 @@ warning: fields `is_function`, `is_class`, `is_assignment`, and `depends_on` are
     = note: `SymbolDefinition` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
 
 warning: fields `entry_created_namespaces`, `created_namespace_modules`, and `needs_types_for_direct_imports` are never read
-    --> crates/cribo/src/code_generator.rs:1420:5
+    --> crates/cribo/src/code_generator.rs:1464:5
      |
-1389 | pub struct HybridStaticBundler {
+1433 | pub struct HybridStaticBundler {
      |            ------------------- fields in this struct
 ...
-1420 |     entry_created_namespaces: FxIndexSet<String>,
+1464 |     entry_created_namespaces: FxIndexSet<String>,
      |     ^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-1423 |     created_namespace_modules: FxIndexSet<String>,
+1467 |     created_namespace_modules: FxIndexSet<String>,
      |     ^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-1427 |     needs_types_for_direct_imports: bool,
+1471 |     needs_types_for_direct_imports: bool,
      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: associated items `is_in_circular_dependency` and `create_namespace_attr_assignment` are never used
-    --> crates/cribo/src/code_generator.rs:1488:8
+    --> crates/cribo/src/code_generator.rs:1532:8
      |
-1442 | impl HybridStaticBundler {
+1486 | impl HybridStaticBundler {
      | ------------------------ associated items in this implementation
 ...
-1488 |     fn is_in_circular_dependency(
+1532 |     fn is_in_circular_dependency(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-3709 |     fn create_namespace_attr_assignment(
+3754 |     fn create_namespace_attr_assignment(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: multiple associated items are never used
-    --> crates/cribo/src/code_generator.rs:5557:8
+    --> crates/cribo/src/code_generator.rs:5602:8
      |
-5508 | impl HybridStaticBundler {
+5553 | impl HybridStaticBundler {
      | ------------------------ associated items in this implementation
 ...
-5557 |     fn collect_module_symbol(&self, stmt: &Stmt, symbols: &mut Vec<String>) {
+5602 |     fn collect_module_symbol(&self, stmt: &Stmt, symbols: &mut Vec<String>) {
      |        ^^^^^^^^^^^^^^^^^^^^^
 ...
-5708 |     fn add_imported_symbol_attributes(
+5753 |     fn add_imported_symbol_attributes(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6067 |     fn handle_inlined_module_import(
+6112 |     fn handle_inlined_module_import(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6197 |     fn check_if_importing_module(
+6242 |     fn check_if_importing_module(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6220 |     fn create_namespace_for_inlined_module(
+6265 |     fn create_namespace_for_inlined_module(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6280 |     fn add_symbols_to_namespace(
+6325 |     fn add_symbols_to_namespace(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6325 |     fn add_symbol_to_namespace(
+6370 |     fn add_symbol_to_namespace(
      |        ^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6353 |     fn handle_symbol_import_from_inlined_module(
+6398 |     fn handle_symbol_import_from_inlined_module(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6539 |     fn find_modules_with_function_imports(
+6584 |     fn find_modules_with_function_imports(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6557 |     fn module_has_function_scoped_imports(&self, ast: &ModModule) -> bool {
+6602 |     fn module_has_function_scoped_imports(&self, ast: &ModModule) -> bool {
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6579 |     fn class_has_method_imports(&self, class_def: &StmtClassDef) -> bool {
+6624 |     fn class_has_method_imports(&self, class_def: &StmtClassDef) -> bool {
      |        ^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6586 |     fn function_has_imports(body: &[Stmt]) -> bool {
+6631 |     fn function_has_imports(body: &[Stmt]) -> bool {
      |        ^^^^^^^^^^^^^^^^^^^^
 ...
-6898 |     fn find_function_imported_modules(
+6943 |     fn find_function_imported_modules(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-7420 |     fn transform_function_body_for_renames(
+7464 |     fn transform_function_body_for_renames(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-7431 |     fn transform_stmt_for_renames(
+7475 |     fn transform_stmt_for_renames(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-7513 |     fn rename_references_in_expr(expr: &mut Expr, module_renames: &FxIndexMap<String, String>) {
+7557 |     fn rename_references_in_expr(expr: &mut Expr, module_renames: &FxIndexMap<String, String>) {
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-7709 |     fn process_wrapper_module_import(
+7753 |     fn process_wrapper_module_import(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-7956 |     fn track_import_aliases(
+8000 |     fn track_import_aliases(
      |        ^^^^^^^^^^^^^^^^^^^^
 ...
-8012 |     fn get_actual_import_name(
+8056 |     fn get_actual_import_name(
      |        ^^^^^^^^^^^^^^^^^^^^^^
 ...
-8551 |     fn rewrite_import_entry_module(&mut self, import_stmt: StmtImport) -> Vec<Stmt> {
+8595 |     fn rewrite_import_entry_module(&mut self, import_stmt: StmtImport) -> Vec<Stmt> {
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-8737 |     fn handle_dotted_import_attribute(
+8779 |     fn handle_dotted_import_attribute(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-8759 |     fn create_parent_namespaces_entry_module(
+8801 |     fn create_parent_namespaces_entry_module(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-8861 |     fn create_namespace_keywords(&self, full_module_path: &str, inlined_key: &str) -> Vec<Keyword> {
+8903 |     fn create_namespace_keywords(&self, full_module_path: &str, inlined_key: &str) -> Vec<Keyword> {
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-8954 |     fn create_module_assignment(&self, final_body: &mut Vec<Stmt>, module: &str) {
+8996 |     fn create_module_assignment(&self, final_body: &mut Vec<Stmt>, module: &str) {
      |        ^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-8972 |     fn assignment_has_dotted_target(&self, assign: &StmtAssign, parent: &str, attr: &str) -> bool {
+9014 |     fn assignment_has_dotted_target(&self, assign: &StmtAssign, parent: &str, attr: &str) -> bool {
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-8983 |     fn is_module_already_assigned(&self, final_body: &[Stmt], module: &str) -> bool {
+9025 |     fn is_module_already_assigned(&self, final_body: &[Stmt], module: &str) -> bool {
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-9011 |     fn is_name_chain(&self, expr: &Expr, expected_chain: &str) -> bool {
+9053 |     fn is_name_chain(&self, expr: &Expr, expected_chain: &str) -> bool {
      |        ^^^^^^^^^^^^^
 ...
-9722 |     fn create_namespace_object_for_direct_import(
+9764 |     fn create_namespace_object_for_direct_import(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: fields `location`, `context`, and `name_used` are never read
