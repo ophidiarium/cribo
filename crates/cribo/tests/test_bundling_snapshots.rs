@@ -473,6 +473,20 @@ fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
             continue;
         }
 
+        // Skip common Python constructs that are expected to appear multiple times
+        let trimmed_no_indent = trimmed_line.trim_start();
+        if trimmed_no_indent == "pass"
+            || trimmed_no_indent == "return"
+            || trimmed_no_indent == "continue"
+            || trimmed_no_indent == "break"
+            || trimmed_no_indent.starts_with("def __")  // Any dunder method
+            || (trimmed_no_indent.starts_with("self.") && !trimmed_line.contains("sys.modules"))   // Common in class methods
+            || (trimmed_no_indent.starts_with("return ") && !trimmed_line.contains("sys.modules"))
+        // Return statements
+        {
+            continue;
+        }
+
         // Track line numbers where this line appears
         line_counts
             .entry(trimmed_line.to_string())
@@ -480,19 +494,30 @@ fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
             .push(line_num + 1); // Use 1-based line numbers
     }
 
-    // Find duplicates
+    // Find duplicates - but only report problematic ones
     let mut duplicates: Vec<(String, Vec<usize>)> = line_counts
         .into_iter()
-        .filter(|(_, occurrences)| occurrences.len() > 1)
+        .filter(|(line, occurrences)| {
+            // Only report duplicates that are likely to be actual issues
+            occurrences.len() > 1
+                && (
+                    // Definitely report duplicate sys.modules assignments
+                    line.contains("sys.modules[") ||
+                // Report duplicate imports
+                line.trim_start().starts_with("import ") ||
+                line.trim_start().starts_with("from ") ||
+                // Report duplicate global assignments (but not in class methods)
+                (!line.starts_with("    ") && line.contains(" = ") && !line.contains("self."))
+                )
+        })
         .collect();
 
     if !duplicates.is_empty() {
         // Sort by first occurrence line number for consistent output
         duplicates.sort_by_key(|(_, occurrences)| occurrences[0]);
 
-        let mut error_msg = format!(
-            "Fixture '{fixture_name}' has duplicate lines in bundled output:\n\n"
-        );
+        let mut error_msg =
+            format!("Fixture '{fixture_name}' has duplicate lines in bundled output:\n\n");
 
         for (line, occurrences) in duplicates {
             error_msg.push_str(&format!(

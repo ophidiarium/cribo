@@ -4090,10 +4090,9 @@ impl HybridStaticBundler {
                     if let Stmt::Import(import_stmt) = stmt {
                         for alias in &import_stmt.names {
                             let module_name = alias.name.as_str();
-                            // Only track non-dotted wrapper modules
-                            if !module_name.contains('.')
-                                && self.module_registry.contains_key(module_name)
-                            {
+                            // Track both dotted and non-dotted wrapper modules
+                            if self.module_registry.contains_key(module_name) {
+                                debug!("Entry module imports wrapper module: {module_name}");
                                 imported_modules.insert(module_name.to_string());
                             }
                         }
@@ -4103,6 +4102,7 @@ impl HybridStaticBundler {
             }
         }
 
+        debug!("Entry module imported modules: {imported_modules:?}");
         imported_modules
     }
 
@@ -4315,15 +4315,24 @@ impl HybridStaticBundler {
                 };
 
                 if !skip_assignment {
-                    // This is a wrapper module - assign from sys.modules
-                    debug!(
-                        "Assigning wrapper module: {parent}.{attr} = sys.modules['{module_name}']"
-                    );
-                    final_body.push(self.create_dotted_attribute_assignment(
-                        &parent,
-                        &attr,
-                        &module_name,
-                    ));
+                    // Check if this module was imported in the entry module
+                    if exclusions.contains(&module_name) {
+                        debug!(
+                            "Skipping wrapper module assignment '{parent}.{attr} = \
+                             sys.modules['{module_name}']' - imported in entry module"
+                        );
+                    } else {
+                        // This is a wrapper module - assign from sys.modules
+                        debug!(
+                            "Assigning wrapper module: {parent}.{attr} = \
+                             sys.modules['{module_name}']"
+                        );
+                        final_body.push(self.create_dotted_attribute_assignment(
+                            &parent,
+                            &attr,
+                            &module_name,
+                        ));
+                    }
                 }
             } else {
                 // This is an intermediate namespace - create as types.ModuleType
@@ -9160,9 +9169,12 @@ impl HybridStaticBundler {
     fn create_all_namespace_objects(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
         // For "import a.b.c", we need to create namespace objects for "a", "a.b", and "a.b.c"
         for i in 1..=parts.len() {
-            // Check if we already created this namespace
-            // For now, don't check - just create all namespaces
-            // TODO: Implement proper duplicate checking
+            let partial_module = parts[..i].join(".");
+
+            // Skip if this module is already a wrapper module
+            if self.module_registry.contains_key(&partial_module) {
+                continue;
+            }
 
             // Create empty namespace object
             let namespace_expr = Expr::Call(ExprCall {
