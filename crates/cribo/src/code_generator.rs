@@ -604,23 +604,25 @@ impl<'a> RecursiveImportTransformer<'a> {
                         };
 
                         if let Some(resolved) = &resolved_module
-                            && self.bundler.inlined_modules.contains(resolved) {
-                                // Track aliases for imported symbols
-                                for alias in &import_from.names {
-                                    let imported_name = alias.name.as_str();
-                                    let local_name =
-                                        alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+                            && self.bundler.inlined_modules.contains(resolved)
+                        {
+                            // Track aliases for imported symbols
+                            for alias in &import_from.names {
+                                let imported_name = alias.name.as_str();
+                                let local_name =
+                                    alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-                                    if alias.asname.is_some() || imported_name != local_name {
-                                        log::debug!(
-                                            "Tracking ImportFrom alias: {local_name} -> {resolved}.{imported_name}"
-                                        );
-                                        // For ImportFrom, we need to track the symbol path
-                                        self.import_aliases
-                                            .insert(local_name.to_string(), resolved.clone());
-                                    }
+                                if alias.asname.is_some() || imported_name != local_name {
+                                    log::debug!(
+                                        "Tracking ImportFrom alias: {local_name} -> \
+                                         {resolved}.{imported_name}"
+                                    );
+                                    // For ImportFrom, we need to track the symbol path
+                                    self.import_aliases
+                                        .insert(local_name.to_string(), resolved.clone());
                                 }
                             }
+                        }
                     }
 
                     self.handle_import_from(import_from)
@@ -1010,6 +1012,8 @@ pub struct HybridStaticBundler {
     created_namespace_modules: FxIndexSet<String>,
     /// Modules that are part of circular dependencies
     circular_modules: FxIndexSet<String>,
+    /// Track if we need types import for direct imports
+    needs_types_for_direct_imports: bool,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
     circular_predeclarations: FxIndexMap<String, FxIndexMap<String, String>>,
     /// Symbol dependency graph for circular modules
@@ -1041,6 +1045,7 @@ impl HybridStaticBundler {
             entry_created_namespaces: FxIndexSet::default(),
             created_namespace_modules: FxIndexSet::default(),
             circular_modules: FxIndexSet::default(),
+            needs_types_for_direct_imports: false,
             circular_predeclarations: FxIndexMap::default(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
         }
@@ -1100,9 +1105,7 @@ impl HybridStaticBundler {
                 continue;
             }
 
-            log::debug!(
-                "Building symbol dependency graph for circular module: {module_name}"
-            );
+            log::debug!("Building symbol dependency graph for circular module: {module_name}");
 
             // Get the module from the graph
             if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
@@ -1161,17 +1164,21 @@ impl HybridStaticBundler {
         for var in &item_data.read_vars {
             // Check if this variable is from another circular module
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
-                && self.circular_modules.contains(&dep_module) && dep_module != module_name {
-                    dependencies.push((dep_module, var.clone()));
-                }
+                && self.circular_modules.contains(&dep_module)
+                && dep_module != module_name
+            {
+                dependencies.push((dep_module, var.clone()));
+            }
         }
 
         // Also check eventual reads (inside the function body)
         for var in &item_data.eventual_read_vars {
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
-                && self.circular_modules.contains(&dep_module) && dep_module != module_name {
-                    dependencies.push((dep_module, var.clone()));
-                }
+                && self.circular_modules.contains(&dep_module)
+                && dep_module != module_name
+            {
+                dependencies.push((dep_module, var.clone()));
+            }
         }
 
         self.symbol_dep_graph
@@ -1203,9 +1210,11 @@ impl HybridStaticBundler {
         // For classes, check both immediate reads (base classes) and eventual reads (methods)
         for var in &item_data.read_vars {
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
-                && self.circular_modules.contains(&dep_module) && dep_module != module_name {
-                    dependencies.push((dep_module, var.clone()));
-                }
+                && self.circular_modules.contains(&dep_module)
+                && dep_module != module_name
+            {
+                dependencies.push((dep_module, var.clone()));
+            }
         }
 
         self.symbol_dep_graph
@@ -1237,9 +1246,11 @@ impl HybridStaticBundler {
         // Check what this assignment reads
         for var in &item_data.read_vars {
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
-                && self.circular_modules.contains(&dep_module) && dep_module != module_name {
-                    dependencies.push((dep_module, var.clone()));
-                }
+                && self.circular_modules.contains(&dep_module)
+                && dep_module != module_name
+            {
+                dependencies.push((dep_module, var.clone()));
+            }
         }
 
         self.symbol_dep_graph
@@ -1674,12 +1685,57 @@ impl HybridStaticBundler {
 
         // If we have wrapper modules, inject sys and types as stdlib dependencies
         if !wrapper_modules.is_empty() {
+            log::debug!("Adding sys and types imports for wrapper modules");
             self.add_stdlib_import("sys");
             self.add_stdlib_import("types");
         }
 
         // If we have namespace imports, inject types as stdlib dependency
         if !self.namespace_imported_modules.is_empty() {
+            log::debug!("Adding types import for namespace imports");
+            self.add_stdlib_import("types");
+        }
+
+        // Pre-scan the entry module to see if we'll need types for direct imports
+        let need_types_for_direct_imports = if let Some((_, entry_path, _)) = params
+            .sorted_modules
+            .iter()
+            .find(|(name, _, _)| name == params.entry_module_name)
+        {
+            // Load and parse the entry module
+            if let Ok(content) = std::fs::read_to_string(entry_path) {
+                let normalized_content = crate::util::normalize_line_endings(content);
+                if let Ok(parsed) = ruff_python_parser::parse_module(&normalized_content) {
+                    let ast = parsed.into_syntax();
+                    // Check if any direct imports are for inlined modules
+                    ast.body.iter().any(|stmt| {
+                        if let Stmt::Import(import_stmt) = stmt {
+                            import_stmt.names.iter().any(|alias| {
+                                let module_name = alias.name.as_str();
+                                // Check if this is an inlined module (bundled but not wrapped)
+                                self.bundled_modules.contains(module_name)
+                                    && !wrapper_modules
+                                        .iter()
+                                        .any(|(name, _, _, _)| name == module_name)
+                            })
+                        } else {
+                            false
+                        }
+                    })
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if need_types_for_direct_imports {
+            log::debug!(
+                "Adding types import for direct imports of inlined modules in entry module"
+            );
             self.add_stdlib_import("types");
         }
 
@@ -1752,9 +1808,7 @@ impl HybridStaticBundler {
                 .topological_sort_symbols(&self.circular_modules)
             {
                 Ok(ordered_symbols) => {
-                    log::debug!(
-                        "Symbol ordering for circular modules: {ordered_symbols:?}"
-                    );
+                    log::debug!("Symbol ordering for circular modules: {ordered_symbols:?}");
                 }
                 Err(e) => {
                     log::warn!("Failed to order symbols in circular modules: {e}");
@@ -2285,16 +2339,88 @@ impl HybridStaticBundler {
             &mut wrapper_deferred_imports,
             false, // This is not the entry module
         );
+
+        // Track imports from inlined modules before transformation
+        let mut imports_from_inlined = Vec::new();
+        for stmt in &ast.body {
+            if let Stmt::ImportFrom(import_from) = stmt {
+                // Resolve the module to check if it's inlined
+                let resolved_module = self.resolve_relative_import_with_context(
+                    import_from,
+                    ctx.module_name,
+                    Some(ctx.module_path),
+                );
+
+                if let Some(ref module) = resolved_module
+                    && self.inlined_modules.contains(module)
+                {
+                    // Track all imported names from this inlined module
+                    for alias in &import_from.names {
+                        let imported_name = alias.name.as_str();
+                        imports_from_inlined.push(imported_name.to_string());
+                    }
+                }
+            }
+        }
+
         transformer.transform_module(&mut ast);
+
+        // Process deferred imports (which are transformed assignments) for module attributes
+        for stmt in &wrapper_deferred_imports {
+            if let Stmt::Assign(assign) = stmt
+                && !self.is_self_referential_assignment(assign)
+            {
+                self.add_module_attr_if_exported(assign, ctx.module_name, &mut body);
+            }
+        }
+
         // Add any deferred imports to the init function body
         body.extend(wrapper_deferred_imports);
+
+        // For imports from inlined modules that don't create assignments,
+        // we still need to set them as module attributes if they're exported
+        for imported_name in imports_from_inlined {
+            if self.should_export_symbol(&imported_name, ctx.module_name) {
+                // Check if we already have a module attribute assignment for this
+                let already_assigned = body.iter().any(|stmt| {
+                    if let Stmt::Assign(assign) = stmt
+                        && let [Expr::Attribute(attr)] = assign.targets.as_slice()
+                        && let Expr::Name(name) = &*attr.value
+                    {
+                        return name.id == "module" && attr.attr == imported_name;
+                    }
+                    false
+                });
+
+                if !already_assigned {
+                    body.push(self.create_module_attr_assignment("module", &imported_name));
+                }
+            }
+        }
 
         // Now process the transformed module
         for stmt in ast.body {
             match &stmt {
-                Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                Stmt::Import(_) => {
                     // Imports have already been transformed by RecursiveImportTransformer
                     // Just add them to the body
+                    body.push(stmt.clone());
+                }
+                Stmt::ImportFrom(import_from) => {
+                    // Skip __future__ imports - they cannot appear inside functions
+                    if import_from.module.as_ref().map(|m| m.as_str()) == Some("__future__") {
+                        continue;
+                    }
+
+                    // Skip stdlib imports that have been hoisted
+                    if let Some(module_name) = import_from.module.as_ref()
+                        && self.is_safe_stdlib_module(module_name.as_str())
+                    {
+                        // This stdlib import has been hoisted, skip it
+                        continue;
+                    }
+
+                    // Other imports have already been transformed by RecursiveImportTransformer
                     body.push(stmt.clone());
                 }
                 Stmt::ClassDef(class_def) => {
@@ -3733,23 +3859,6 @@ impl HybridStaticBundler {
             }));
         }
 
-        // Check if we need to import types for namespace objects
-        if self
-            .inlined_modules
-            .iter()
-            .any(|m| !self.module_registry.contains_key(m))
-        {
-            // We have inlined modules that might need namespace objects
-            final_body.push(Stmt::Import(StmtImport {
-                names: vec![ruff_python_ast::Alias {
-                    name: Identifier::new("types", TextRange::default()),
-                    asname: None,
-                    range: TextRange::default(),
-                }],
-                range: TextRange::default(),
-            }));
-        }
-
         // Then stdlib from imports - deduplicated and sorted by module name
         let mut sorted_modules: Vec<_> = self.stdlib_import_from_map.iter().collect();
         sorted_modules.sort_by_key(|(module_name, _)| *module_name);
@@ -5001,6 +5110,23 @@ impl HybridStaticBundler {
     /// Add a regular stdlib import (e.g., "sys", "types")
     /// This creates an import statement and adds it to the tracked imports
     fn add_stdlib_import(&mut self, module_name: &str) {
+        // Check if we already have this import to avoid duplicates
+        let already_imported = self.stdlib_import_statements.iter().any(|stmt| {
+            if let Stmt::Import(import_stmt) = stmt {
+                import_stmt
+                    .names
+                    .iter()
+                    .any(|alias| alias.name.as_str() == module_name)
+            } else {
+                false
+            }
+        });
+
+        if already_imported {
+            log::debug!("Stdlib import '{module_name}' already exists, skipping");
+            return;
+        }
+
         let import_stmt = Stmt::Import(StmtImport {
             names: vec![ruff_python_ast::Alias {
                 name: Identifier::new(module_name, TextRange::default()),
@@ -6593,7 +6719,8 @@ impl HybridStaticBundler {
         }
 
         log::debug!(
-            "Reordering statements for circular module '{module_name}' based on symbol order: {ordered_symbols:?}"
+            "Reordering statements for circular module '{module_name}' based on symbol order: \
+             {ordered_symbols:?}"
         );
 
         // Create a map from symbol name to statement
@@ -7987,11 +8114,18 @@ impl HybridStaticBundler {
                 } else {
                     // Module was inlined - this is problematic for direct imports
                     // We need to create a mock module object
-                    log::warn!(
-                        "Direct import of inlined module '{module_name}' detected - this pattern \
-                         is not fully supported"
+                    log::debug!(
+                        "Direct import of inlined module '{module_name}' detected - will create \
+                         namespace object"
                     );
-                    // For now, skip it
+
+                    // Create a namespace object for the inlined module
+                    let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+                    let namespace_stmt = self.create_namespace_object_for_direct_import(
+                        module_name,
+                        target_name.as_str(),
+                    );
+                    result_stmts.push(namespace_stmt);
                 }
             }
         }
@@ -8948,6 +9082,80 @@ impl HybridStaticBundler {
             // Add more statement types as needed
             _ => {}
         }
+    }
+
+    /// Create a namespace object for a direct import of an inlined module
+    fn create_namespace_object_for_direct_import(
+        &mut self,
+        module_name: &str,
+        target_name: &str,
+    ) -> Stmt {
+        // Mark that we need types import for SimpleNamespace
+        self.needs_types_for_direct_imports = true;
+
+        // Get module exports if available
+        let exports = self
+            .module_exports
+            .get(module_name)
+            .and_then(|e| e.as_ref())
+            .cloned()
+            .unwrap_or_default();
+
+        // Create a types.SimpleNamespace with __all__ if the module had it
+        let mut keywords = Vec::new();
+
+        if !exports.is_empty() {
+            // Add __all__ attribute
+            keywords.push(Keyword {
+                arg: Some(Identifier::new("__all__", TextRange::default())),
+                value: Expr::List(ExprList {
+                    elts: exports
+                        .into_iter()
+                        .map(|export| {
+                            Expr::StringLiteral(ExprStringLiteral {
+                                value: StringLiteralValue::single(ruff_python_ast::StringLiteral {
+                                    value: export.into_boxed_str(),
+                                    flags: StringLiteralFlags::empty(),
+                                    range: TextRange::default(),
+                                }),
+                                range: TextRange::default(),
+                            })
+                        })
+                        .collect(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                }),
+                range: TextRange::default(),
+            });
+        }
+
+        // Create: target_name = types.SimpleNamespace(**kwargs)
+        Stmt::Assign(StmtAssign {
+            targets: vec![Expr::Name(ExprName {
+                id: target_name.into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Call(ExprCall {
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    value: Box::new(Expr::Name(ExprName {
+                        id: "types".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    args: Box::from([]),
+                    keywords: keywords.into_boxed_slice(),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        })
     }
 
     /// Create a namespace object for an inlined module that is imported as a namespace

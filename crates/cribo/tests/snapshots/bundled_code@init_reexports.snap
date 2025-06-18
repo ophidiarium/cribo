@@ -9,6 +9,9 @@ input_file: crates/cribo/tests/fixtures/init_reexports/main.py
 import os
 import sys
 import types
+helper_function = None
+MAX_ITEMS = None
+DEFAULT_VALUE = None
 """Utils subpackage with re-exports."""
 """Constants module."""
 MAX_ITEMS = 100
@@ -37,6 +40,7 @@ def __cribo_init___cribo_de6c46_mypackage_config():
     if 'mypackage' in sys.modules:
         setattr(sys.modules['mypackage'], 'config', module)
     """Configuration module."""
+    import os
 
     class Config:
         """Configuration class."""
@@ -55,13 +59,13 @@ def __cribo_init___cribo_a81151_mypackage():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_a81151_mypackage'] = module
     sys.modules['mypackage'] = module
-    """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
     module.process_data = process_data
     module.format_data = format_data
+    module.helper_function = helper_function
+    """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
     __cribo_init___cribo_de6c46_mypackage_config()
     config = sys.modules['mypackage.config'].config
     module.config = config
-    module.helper_function = helper_function
     __version__ = "1.0.0"
     module.__version__ = __version__
     __all__ = ["process_data", "format_data", "config", "helper_function", "__version__"]
