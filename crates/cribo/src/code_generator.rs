@@ -2401,10 +2401,22 @@ impl HybridStaticBundler {
         // Now process the transformed module
         for stmt in ast.body {
             match &stmt {
-                Stmt::Import(_) => {
-                    // Imports have already been transformed by RecursiveImportTransformer
-                    // Just add them to the body
-                    body.push(stmt.clone());
+                Stmt::Import(import_stmt) => {
+                    // Skip stdlib imports that have been hoisted
+                    let mut skip_stmt = false;
+                    for alias in &import_stmt.names {
+                        if self.is_safe_stdlib_module(alias.name.as_str()) {
+                            // This stdlib import has been hoisted, skip it
+                            skip_stmt = true;
+                            break;
+                        }
+                    }
+
+                    if !skip_stmt {
+                        // Non-stdlib imports have already been transformed by
+                        // RecursiveImportTransformer
+                        body.push(stmt.clone());
+                    }
                 }
                 Stmt::ImportFrom(import_from) => {
                     // Skip __future__ imports - they cannot appear inside functions

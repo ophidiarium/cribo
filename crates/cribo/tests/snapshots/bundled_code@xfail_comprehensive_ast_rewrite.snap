@@ -9,9 +9,72 @@ input_file: crates/cribo/tests/fixtures/xfail_comprehensive_ast_rewrite/main.py
 from typing import Any, Dict, List, Optional
 import sys
 import types
-process_3 = "models_process_string"
+shadow_test = None
+initialize = None
+process_2 = None
+Logger_1 = None
+validate_2 = None
+result_2 = None
+BaseModel = None
+connect_1 = None
+process_3 = None
+validate_3 = None
+connection_2 = None
+connection_4 = None
+Logger_3 = None
+result_4 = None
+Connection_4 = None
+validate_2 = validate
+def connect_1() -> str:
+    """Base connect function"""
+    return "base_connected"
+class BaseModel:
+    """Base model class with method name conflicts"""
+
+    def __init__(self, model_type: str):
+        self.model_type = model_type
+        self.initialized = False
+        self.validate = self._base_validate
+        self.process = self._base_process
+        self.Logger = UserLogger("base_model")
+
+    def _base_validate(self, data: Any) -> bool:
+        """Base validation using relative imports"""
+        return core_validate(data)
+
+    def _base_process(self, data: Any) -> str:
+        """Base processing with conflicts"""
+        validated = self.validate(data)
+        if validated:
+            self.Logger._log_process(f"Base processing: {data}")
+            return f"base_processed: {data}"
+        return "base_invalid"
+
+    def initialize(self) -> str:
+        """Initialize with name conflicts"""
+        global result
+        self.initialized = True
+        result = f"base_initialized_{self.model_type}"
+        return result
+Logger_1 = Logger
+process_2 = process
+initialize = initialize
+def shadow_test(validate: Any=None, process: Any=None, Logger: Any=None, result: Any=None, initialize: Any=None) -> Dict[str, Any]:
+    """Function that shadows all major conflict names with parameters"""
+    shadows = {"validate_param": validate_2, "process_param": process_2, "Logger_param": Logger_1, "result_param": result_2, "initialize_param": initialize}
+    validate_2 = globals()["validate"]
+    process_2 = globals()["process"]
+    Logger_1 = globals()["Logger"]
+    validation_result = validate_2("test_data")
+    process_result = process_2("test_data")
+    logger = Logger_1("shadow_test")
+    shadows.update({"global_validate_result": validation_result, "global_process_result": process_result, "global_logger_source": logger.source})
+    return shadows
+result_2 = "base_result"
+"""\nBase model functionality with relative import conflicts\n"""
 validate_3 = "models_validate_string"
 connection_2 = "models_connection_string"
+process_3 = "models_process_string"
 """\nUser model with extensive naming conflicts across the project\n"""
 result_3 = {"model": "user"}
 connection_3 = None
@@ -46,7 +109,7 @@ class User_2:
 
     def _user_process(self, data: Any) -> str:
         """Private method using conflicted names"""
-        util_result = process_6(data)
+        util_result = util_process(data)
         self.Logger.validate(str(data))
         self.Logger._log_process(f"Processing: {data}")
         self.result = f"user_model_process: {util_result}"
@@ -137,8 +200,13 @@ validate_4 = validate_4
 User_2 = User_2
 Logger_2 = Logger_2
 connection_4 = "auth_connection_string"
-Logger_3 = "services_logger_string"
+User_services_auth = sys.modules['services.auth.manager'].User
+process_services_auth = sys.modules['services.auth.manager'].process
+validate_services_auth = sys.modules['services.auth.manager'].validate
 result_4 = {"services": "initialized"}
+Logger_3 = "services_logger_string"
+User_services = sys.modules['services.auth.manager'].User
+process_services = sys.modules['services.auth.manager'].process
 Connection_4 = "utils_connection_type"
 """\nUtility helpers module with extensive naming conflicts\n"""
 result_6 = 0
@@ -230,7 +298,7 @@ class Connection_6:
 def process_7(data):
     """Database process function - conflicts with other process functions"""
     global result_8
-    validated = validate_6(data)
+    validated = helper_validate(data)
     user_result = process_user(data)
     processed = {"db_process": True, "data": validated, "user_processing": user_result, "timestamp": "2024-01-01"}
     result_8.append(processed)
@@ -247,123 +315,8 @@ def connect_5():
         connection_5 = Connection_6()
     return connection_5.connect()
 process_7 = process_7
-__cribo_models_base_result = None
-__cribo_services_auth_manager_result = None
-def __cribo_init___cribo_de4088_models_base():
-    if '__cribo_de4088_models_base' in sys.modules:
-        return sys.modules['__cribo_de4088_models_base']
-    module = types.ModuleType('__cribo_de4088_models_base')
-    module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_de4088_models_base'] = module
-    sys.modules['models.base'] = module
-    if 'models' in sys.modules:
-        setattr(sys.modules['models'], 'base', module)
-    """\nBase model functionality with relative import conflicts\n"""
-    core_validate = validate_6
-    module.core_validate = core_validate
-    UserLogger = Logger_2
-    module.UserLogger = UserLogger
-    result = "base_result"
-    module.result = result
-    process = "base_process_string"
-    module.process = process
-
-    class BaseModel:
-        """Base model class with method name conflicts"""
-
-        def __init__(self, model_type: str):
-            self.model_type = model_type
-            self.initialized = False
-            self.validate = self._base_validate
-            self.process = self._base_process
-            self.Logger = UserLogger("base_model")
-
-        def _base_validate(self, data: Any) -> bool:
-            """Base validation using relative imports"""
-            return core_validate(data)
-
-        def _base_process(self, data: Any) -> str:
-            """Base processing with conflicts"""
-            validated = self.validate(data)
-            if validated:
-                self.Logger._log_process(f"Base processing: {data}")
-                return f"base_processed: {data}"
-            return "base_invalid"
-
-        def initialize(self) -> str:
-            """Initialize with name conflicts"""
-            global result
-            self.initialized = True
-            result = f"base_initialized_{self.model_type}"
-            return result
-    module.BaseModel = BaseModel
-
-    def initialize() -> str:
-        """Module initialization function"""
-        global __cribo_models_base_result
-        result = __cribo_models_base_result
-        base = BaseModel("default")
-        init_result = base.initialize()
-        logger = UserLogger("base_init")
-        logger._log_process("Base module initialized")
-        __cribo_models_base_result = f"module_init: {init_result}"
-        return __cribo_models_base_result
-    module.initialize = initialize
-
-    def validate(data: Any) -> bool:
-        """Base validate function - conflicts everywhere"""
-        return core_validate(data) and data != "invalid"
-    module.validate = validate
-
-    def process(data: Any) -> str:
-        """Base process function - conflicts everywhere"""
-        global __cribo_models_base_result
-        result = __cribo_models_base_result
-        validated = validate(data)
-        if validated:
-            processed = f"base_module_process: {data}"
-        else:
-            processed = "base_module_invalid"
-        __cribo_models_base_result = f"base_last_process: {processed}"
-        return processed
-    module.process = process
-
-    class Logger:
-        """Base Logger class - yet another Logger conflict"""
-
-        def __init__(self, source: str):
-            self.source = source
-            self.logs = []
-
-        def log(self, message: str) -> None:
-            self.logs.append(f"[BASE {self.source}] {message}")
-
-        def process(self, log_data: Any) -> str:
-            """Logger process method - conflicts with global process"""
-            self.log(f"Processing: {log_data}")
-            return f"base_logger_process: {log_data}"
-    module.Logger = Logger
-
-    def connect() -> str:
-        """Base connect function"""
-        return "base_connected"
-    module.connect = connect
-
-    def shadow_test(validate: Any=None, process: Any=None, Logger: Any=None, result: Any=None, initialize: Any=None) -> Dict[str, Any]:
-        """Function that shadows all major conflict names with parameters"""
-        shadows = {"validate_param": validate, "process_param": process, "Logger_param": Logger, "result_param": result, "initialize_param": initialize}
-        validate = module.__dict__["validate"]
-        process = module.__dict__["process"]
-        Logger = module.__dict__["Logger"]
-        validation_result = validate("test_data")
-        process_result = process("test_data")
-        logger = Logger("shadow_test")
-        shadows.update({"global_validate_result": validation_result, "global_process_result": process_result, "global_logger_source": logger.source})
-        return shadows
-    module.shadow_test = shadow_test
-    global __cribo_models_base_result
-    __cribo_models_base_result = result
-    return module
+models_base = types.SimpleNamespace(validate=validate_2, connect=connect_1, BaseModel=BaseModel, Logger=Logger_1, process=process_2, initialize=initialize, shadow_test=shadow_test, result=result_2)
+_cribo_services_auth_manager_result = None
 def __cribo_init___cribo_49b92c_services_auth_manager():
     if '__cribo_49b92c_services_auth_manager' in sys.modules:
         return sys.modules['__cribo_49b92c_services_auth_manager']
@@ -373,10 +326,13 @@ def __cribo_init___cribo_49b92c_services_auth_manager():
     sys.modules['services.auth.manager'] = module
     if 'services.auth' in sys.modules:
         setattr(sys.modules['services.auth'], 'manager', module)
-    """\nAuthentication manager with complex naming conflicts\n"""
-    DBConnection = Connection_6
     module.DBConnection = DBConnection
-    base = sys.modules['models.base']
+    DBConnection = Connection_6
+    module.Connection = Connection
+    module.base = base
+    """\nAuthentication manager with complex naming conflicts\n"""
+    base = models_base
+    module.base = base
     result = "auth_result"
     module.result = result
     validate = lambda x: f"auth_lambda_validate: {x}"
@@ -427,8 +383,8 @@ def __cribo_init___cribo_49b92c_services_auth_manager():
 
     def process(data: Any) -> str:
         """Auth process function - major conflict"""
-        global __cribo_services_auth_manager_result
-        result = __cribo_services_auth_manager_result
+        global _cribo_services_auth_manager_result
+        result = _cribo_services_auth_manager_result
         base_init = base.initialize()
         if isinstance(data, str):
             validate = lambda x: x.startswith("auth_")
@@ -436,7 +392,7 @@ def __cribo_init___cribo_49b92c_services_auth_manager():
             processed = f"auth_str_{data}" if validated else f"invalid_auth_{data}"
         else:
             processed = f"auth_other_{data}"
-        __cribo_services_auth_manager_result = f'{__cribo_services_auth_manager_result}_processed'
+        _cribo_services_auth_manager_result = f'{_cribo_services_auth_manager_result}_processed'
         return f"auth_processed: {processed}, base: {base_init}"
     module.process = process
 
@@ -495,8 +451,8 @@ def __cribo_init___cribo_49b92c_services_auth_manager():
                 result.append({"user": User.username, "process": user_result, "validate": validate_result, "connection": connection_process})
             return {"manager_results": result}
     module.AuthManager = AuthManager
-    global __cribo_services_auth_manager_result
-    __cribo_services_auth_manager_result = result
+    global _cribo_services_auth_manager_result
+    _cribo_services_auth_manager_result = result
     return module
 def __cribo_init___cribo_62c387_core():
     if '__cribo_62c387_core' in sys.modules:
@@ -505,17 +461,19 @@ def __cribo_init___cribo_62c387_core():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_62c387_core'] = module
     sys.modules['core'] = module
-    CoreLogger = Logger_4
     module.CoreLogger = CoreLogger
-    core_process = process_6
     module.core_process = core_process
+    CoreLogger = Logger_4
+    core_process = process_6
+    module.Logger = Logger
+    module.process = process
     result = "core_package_result"
     module.result = result
     Logger = CoreLogger
     module.Logger = Logger
     return module
-__cribo_modules = {'models.base': '__cribo_de4088_models_base', 'services.auth.manager': '__cribo_49b92c_services_auth_manager', 'core': '__cribo_62c387_core'}
-__cribo_init_functions = {'__cribo_de4088_models_base': __cribo_init___cribo_de4088_models_base, '__cribo_49b92c_services_auth_manager': __cribo_init___cribo_49b92c_services_auth_manager, '__cribo_62c387_core': __cribo_init___cribo_62c387_core}
+__cribo_modules = {'services.auth.manager': '__cribo_49b92c_services_auth_manager', 'core': '__cribo_62c387_core'}
+__cribo_init_functions = {'__cribo_49b92c_services_auth_manager': __cribo_init___cribo_49b92c_services_auth_manager, '__cribo_62c387_core': __cribo_init___cribo_62c387_core}
 class CriboBundledFinder:
 
     def __init__(self, module_registry, init_functions):
@@ -534,34 +492,40 @@ class CriboBundledFinder:
         return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
 __cribo_init___cribo_49b92c_services_auth_manager()
-__cribo_init___cribo_de4088_models_base()
 __cribo_init___cribo_62c387_core()
 core = sys.modules['core']
-models = types.ModuleType('models')
 services = types.ModuleType('services')
-models.base = sys.modules['models.base']
 services.auth = types.ModuleType('services.auth')
 services.auth.manager = sys.modules['services.auth.manager']
+core_validate = validate_6
+UserLogger = Logger_2
+User = User_2
+Logger = Logger_2
+util_process = process_6
+UtilLogger = Logger_4
+Logger = Logger_4
+Logger = Logger_4
+process = process_6
+validate = validate_6
+Connection = Connection_6
+process = process_7
+Logger = Logger_4
+helper_validate = validate_6
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
-process = process_6
+process_1 = process_6
+process = process_1
 UtilLogger = Logger_4
-validate = validate_6
+validate_1 = validate_6
+validate = validate_1
 __cribo_init___cribo_49b92c_services_auth_manager()
 auth_process = sys.modules['services.auth.manager'].process
-User = sys.modules['services.auth.manager'].User
+User_1 = sys.modules['services.auth.manager'].User
+User = User_1
 auth_validate = sys.modules['services.auth.manager'].validate
 UserModel = User_2
 Logger = Logger_2
-base = types.SimpleNamespace()
-base.shadow_test = shadow_test
-base.initialize = initialize
-base.process = process_2
-base.Logger = Logger_1
-base.validate = validate_2
-base.result = result_2
-base.BaseModel = BaseModel
-base.connect = connect_1
+base = models_base
 result_1 = 42
 result = result_1
 connection_1 = None

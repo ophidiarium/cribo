@@ -40,7 +40,6 @@ def __cribo_init___cribo_de6c46_mypackage_config():
     if 'mypackage' in sys.modules:
         setattr(sys.modules['mypackage'], 'config', module)
     """Configuration module."""
-    import os
 
     class Config:
         """Configuration class."""

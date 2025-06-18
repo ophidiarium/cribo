@@ -1,0 +1,14 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/xfail_pydantic_project/main.py
+---
+RuffLintResults {
+    f401_violations: [],
+    f404_violations: [],
+    other_violations: [
+        "Line 6: unused-import - `pydantic.Field` imported but unused",
+        "Line 6: unused-import - `pydantic.EmailStr` imported but unused",
+        "Line 6: unused-import - `pydantic.BaseModel` imported but unused",
+    ],
+    total_violations: 3,
+}

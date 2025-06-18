@@ -2,49 +2,165 @@
 source: crates/cribo/tests/test_cli_stdout.rs
 expression: stderr
 ---
-warning: field `entry_created_namespaces` is never read
-   --> crates/cribo/src/code_generator.rs:323:5
+warning: struct `NamespaceImportParams` is never constructed
+  --> crates/cribo/src/code_generator.rs:61:8
+   |
+61 | struct NamespaceImportParams<'a> {
+   |        ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: struct `InlinedImportParams` is never constructed
+  --> crates/cribo/src/code_generator.rs:76:8
+   |
+76 | struct InlinedImportParams<'a> {
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `AddSymbolsParams` is never constructed
+  --> crates/cribo/src/code_generator.rs:83:8
+   |
+83 | struct AddSymbolsParams<'a> {
+   |        ^^^^^^^^^^^^^^^^
+
+warning: struct `SymbolImportParams` is never constructed
+  --> crates/cribo/src/code_generator.rs:97:8
+   |
+97 | struct SymbolImportParams<'a> {
+   |        ^^^^^^^^^^^^^^^^^^
+
+warning: fields `is_function`, `is_class`, `is_assignment`, and `depends_on` are never read
+   --> crates/cribo/src/code_generator.rs:141:5
     |
-292 | pub struct HybridStaticBundler {
-    |            ------------------- field in this struct
+139 | struct SymbolDefinition {
+    |        ---------------- fields in this struct
+140 |     /// Whether this is a function definition
+141 |     is_function: bool,
+    |     ^^^^^^^^^^^
+142 |     /// Whether this is a class definition
+143 |     is_class: bool,
+    |     ^^^^^^^^
+144 |     /// Whether this is an assignment
+145 |     is_assignment: bool,
+    |     ^^^^^^^^^^^^^
+146 |     /// Dependencies this symbol has on other symbols
+147 |     depends_on: Vec<(String, String)>,
+    |     ^^^^^^^^^^
+    |
+    = note: `SymbolDefinition` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `entry_created_namespaces`, `created_namespace_modules`, and `needs_types_for_direct_imports` are never read
+    --> crates/cribo/src/code_generator.rs:1009:5
+     |
+978  | pub struct HybridStaticBundler {
+     |            ------------------- fields in this struct
 ...
-323 |     entry_created_namespaces: FxIndexSet<String>,
-    |     ^^^^^^^^^^^^^^^^^^^^^^^^
-    |
-    = note: `#[warn(dead_code)]` on by default
+1009 |     entry_created_namespaces: FxIndexSet<String>,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1012 |     created_namespace_modules: FxIndexSet<String>,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1016 |     needs_types_for_direct_imports: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `is_in_circular_dependency` is never used
+    --> crates/cribo/src/code_generator.rs:1074:8
+     |
+1029 | impl HybridStaticBundler {
+     | ------------------------ associated function in this implementation
+...
+1074 |     fn is_in_circular_dependency(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: multiple associated items are never used
-    --> crates/cribo/src/code_generator.rs:3603:8
+    --> crates/cribo/src/code_generator.rs:5153:8
      |
-3571 | impl HybridStaticBundler {
+5104 | impl HybridStaticBundler {
      | ------------------------ associated items in this implementation
 ...
-3603 |     fn collect_module_symbol(&self, stmt: &Stmt, symbols: &mut Vec<String>) {
+5153 |     fn collect_module_symbol(&self, stmt: &Stmt, symbols: &mut Vec<String>) {
      |        ^^^^^^^^^^^^^^^^^^^^^
 ...
-5233 |     fn transform_function_body_for_renames(
-     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+5261 |     fn add_imported_symbol_attributes(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-5244 |     fn transform_stmt_for_renames(
-     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
-...
-5326 |     fn rename_references_in_expr(expr: &mut Expr, module_renames: &FxIndexMap<String, String>) {
-     |        ^^^^^^^^^^^^^^^^^^^^^^^^^
-...
-6555 |     fn create_namespace_keywords(&self, full_module_path: &str, inlined_key: &str) -> Vec<Keyword> {
-     |        ^^^^^^^^^^^^^^^^^^^^^^^^^
-...
-6648 |     fn create_module_assignment(&self, final_body: &mut Vec<Stmt>, module: &str) {
-     |        ^^^^^^^^^^^^^^^^^^^^^^^^
-...
-6666 |     fn assignment_has_dotted_target(&self, assign: &StmtAssign, parent: &str, attr: &str) -> bool {
+5620 |     fn handle_inlined_module_import(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6677 |     fn is_module_already_assigned(&self, final_body: &[Stmt], module: &str) -> bool {
+5750 |     fn check_if_importing_module(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5773 |     fn create_namespace_for_inlined_module(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5833 |     fn add_symbols_to_namespace(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5878 |     fn add_symbol_to_namespace(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^
+...
+5906 |     fn handle_symbol_import_from_inlined_module(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6092 |     fn find_modules_with_function_imports(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6110 |     fn module_has_function_scoped_imports(&self, ast: &ModModule) -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6132 |     fn class_has_method_imports(&self, class_def: &StmtClassDef) -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6139 |     fn function_has_imports(body: &[Stmt]) -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^^
+...
+6451 |     fn find_function_imported_modules(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6972 |     fn transform_function_body_for_renames(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6983 |     fn transform_stmt_for_renames(
      |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
 ...
-6705 |     fn is_name_chain(&self, expr: &Expr, expected_chain: &str) -> bool {
+7065 |     fn rename_references_in_expr(expr: &mut Expr, module_renames: &FxIndexMap<String, String>) {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+7261 |     fn process_wrapper_module_import(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+7508 |     fn track_import_aliases(
+     |        ^^^^^^^^^^^^^^^^^^^^
+...
+7564 |     fn get_actual_import_name(
+     |        ^^^^^^^^^^^^^^^^^^^^^^
+...
+8072 |     fn rewrite_import_entry_module(&mut self, import_stmt: StmtImport) -> Vec<Stmt> {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+8203 |     fn handle_dotted_import_attribute(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+8225 |     fn create_parent_namespaces_entry_module(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+8327 |     fn create_namespace_keywords(&self, full_module_path: &str, inlined_key: &str) -> Vec<Keyword> {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+8420 |     fn create_module_assignment(&self, final_body: &mut Vec<Stmt>, module: &str) {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+8438 |     fn assignment_has_dotted_target(&self, assign: &StmtAssign, parent: &str, attr: &str) -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+8449 |     fn is_module_already_assigned(&self, final_body: &[Stmt], module: &str) -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+8477 |     fn is_name_chain(&self, expr: &Expr, expected_chain: &str) -> bool {
      |        ^^^^^^^^^^^^^
+...
+9099 |     fn create_namespace_object_for_direct_import(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: fields `location`, `context`, and `name_used` are never read
   --> crates/cribo/src/visitors/import_discovery.rs:37:9

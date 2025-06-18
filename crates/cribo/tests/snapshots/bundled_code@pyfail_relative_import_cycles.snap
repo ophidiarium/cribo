@@ -7,23 +7,26 @@ input_file: crates/cribo/tests/fixtures/pyfail_relative_import_cycles/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
+authenticate_user = None
+get_user_context = None
+execute_query = None
+get_connection = None
+def get_user_context():
+    """Get user context - used by database module"""
+    return "user_context_from_auth"
 def authenticate_user(username):
     """Authenticate user using database connection"""
     conn = get_connection()
     return f"auth({username}, conn={conn})"
-def get_user_context():
-    """Get user context - used by database module"""
-    return "user_context_from_auth"
+def execute_query(query):
+    """Execute a database query"""
+    return f"query_result({query})"
 def get_connection():
     """Get database connection with user context"""
     context = get_user_context()
     return f"db_connection(context={context})"
-def execute_query(query):
-    """Execute a database query"""
-    return f"query_result({query})"
-auth = types.SimpleNamespace()
-auth.authenticate_user = authenticate_user
-auth.get_user_context = get_user_context
+services_auth = types.SimpleNamespace(get_user_context=get_user_context, authenticate_user=authenticate_user)
+auth = services_auth
 def main():
     result = auth.authenticate_user("test_user")
     print(f"Relative import cycle result: {result}")
