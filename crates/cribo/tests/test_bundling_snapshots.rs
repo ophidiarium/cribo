@@ -463,9 +463,9 @@ fn test_bundling_fixtures() {
 /// Check for duplicate lines in the bundled code
 /// Trims lines from the right but preserves left indentation
 fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
-    use std::collections::HashMap;
+    use indexmap::IndexMap;
 
-    let mut line_counts: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut line_counts: IndexMap<String, Vec<usize>> = IndexMap::new();
 
     for (line_num, line) in bundled_code.lines().enumerate() {
         // Trim only from the right to preserve indentation
