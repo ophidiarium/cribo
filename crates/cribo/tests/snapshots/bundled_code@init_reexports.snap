@@ -59,9 +59,6 @@ def __cribo_init___cribo_a81151_mypackage():
     module.__file__ = __file__ if '__file__' in globals() else None
     sys.modules['__cribo_a81151_mypackage'] = module
     sys.modules['mypackage'] = module
-    module.process_data = process_data
-    module.format_data = format_data
-    module.helper_function = helper_function
     """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
     __cribo_init___cribo_de6c46_mypackage_config()
     config = sys.modules['mypackage.config'].config
@@ -70,10 +67,21 @@ def __cribo_init___cribo_a81151_mypackage():
     module.__version__ = __version__
     __all__ = ["process_data", "format_data", "config", "helper_function", "__version__"]
     DEBUG_MODE = config.DEBUG
-    module.__all__ = ['process_data', 'format_data', 'config', 'helper_function', '__version__']
     if 'mypackage.config' in sys.modules:
         if not hasattr(module, 'config'):
             module.config = sys.modules['mypackage.config']
+    utils = types.SimpleNamespace()
+    utils.helper_function = helper_function
+    utils.MAX_ITEMS = MAX_ITEMS
+    utils.DEFAULT_VALUE = DEFAULT_VALUE
+    formatter = types.SimpleNamespace()
+    formatter.format_data = format_data
+    data_processor = types.SimpleNamespace()
+    data_processor.process_data = process_data
+    module.__all__ = ['process_data', 'format_data', 'config', 'helper_function', '__version__']
+    module.process_data = process_data
+    module.format_data = format_data
+    module.helper_function = helper_function
     return module
 __cribo_modules = {'mypackage.config': '__cribo_de6c46_mypackage_config', 'mypackage': '__cribo_a81151_mypackage'}
 __cribo_init_functions = {'__cribo_de6c46_mypackage_config': __cribo_init___cribo_de6c46_mypackage_config, '__cribo_a81151_mypackage': __cribo_init___cribo_a81151_mypackage}

@@ -741,22 +741,227 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }));
                         handled_any = true;
                     } else {
-                        // This is a regular inlined module import (not namespace)
-                        // Track the alias so that config.DEFAULT_NAME can be transformed
-                        log::debug!(
-                            "  Tracking inlined module import alias: {local_name} -> \
-                             {full_module_path}"
-                        );
-                        self.import_aliases
-                            .insert(local_name.to_string(), full_module_path.clone());
-                        // Let it fall through to standard handling which will create the assignment
+                        // This is importing an inlined submodule
+                        // We need to handle this specially when the current module is being inlined
+                        // (i.e., not the entry module and not a wrapper module that will be in
+                        // sys.modules)
+                        let current_module_is_inlined =
+                            self.bundler.inlined_modules.contains(self.module_name);
+                        let current_module_is_wrapper =
+                            !current_module_is_inlined && !self.is_entry_module;
+
+                        if !self.is_entry_module
+                            && (current_module_is_inlined || current_module_is_wrapper)
+                        {
+                            log::debug!(
+                                "  Creating namespace for inlined submodule: {local_name} -> \
+                                 {full_module_path}"
+                            );
+
+                            if current_module_is_inlined {
+                                // For inlined modules importing other inlined modules, we need to
+                                // defer the namespace creation
+                                // until after all modules are inlined
+                                log::debug!(
+                                    "  Deferring namespace creation for inlined module import"
+                                );
+
+                                // Create the namespace and populate it as deferred imports
+                                // Create: local_name = types.SimpleNamespace()
+                                self.deferred_imports.push(Stmt::Assign(StmtAssign {
+                                    targets: vec![Expr::Name(ExprName {
+                                        id: local_name.into(),
+                                        ctx: ExprContext::Store,
+                                        range: TextRange::default(),
+                                    })],
+                                    value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
+                                        func: Box::new(Expr::Attribute(ExprAttribute {
+                                            value: Box::new(Expr::Name(ExprName {
+                                                id: "types".into(),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            attr: Identifier::new(
+                                                "SimpleNamespace",
+                                                TextRange::default(),
+                                            ),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        })),
+                                        arguments: Arguments {
+                                            args: Box::from([]),
+                                            keywords: Box::from([]),
+                                            range: TextRange::default(),
+                                        },
+                                        range: TextRange::default(),
+                                    })),
+                                    range: TextRange::default(),
+                                }));
+
+                                // Now add the exported symbols from the inlined module to the
+                                // namespace
+                                if let Some(exports) = self
+                                    .bundler
+                                    .module_exports
+                                    .get(&full_module_path)
+                                    .cloned()
+                                    .flatten()
+                                {
+                                    for symbol in exports {
+                                        // local_name.symbol = symbol
+                                        self.deferred_imports.push(Stmt::Assign(StmtAssign {
+                                            targets: vec![Expr::Attribute(ExprAttribute {
+                                                value: Box::new(Expr::Name(ExprName {
+                                                    id: local_name.into(),
+                                                    ctx: ExprContext::Load,
+                                                    range: TextRange::default(),
+                                                })),
+                                                attr: Identifier::new(
+                                                    &symbol,
+                                                    TextRange::default(),
+                                                ),
+                                                ctx: ExprContext::Store,
+                                                range: TextRange::default(),
+                                            })],
+                                            value: Box::new(Expr::Name(ExprName {
+                                                // The symbol should use the renamed version if it
+                                                // exists
+                                                id: if let Some(renames) =
+                                                    self.symbol_renames.get(&full_module_path)
+                                                {
+                                                    if let Some(renamed) = renames.get(&symbol) {
+                                                        renamed.into()
+                                                    } else {
+                                                        symbol.into()
+                                                    }
+                                                } else {
+                                                    symbol.clone().into()
+                                                },
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            range: TextRange::default(),
+                                        }));
+                                    }
+                                }
+                            } else {
+                                // For wrapper modules importing inlined modules, we need to create
+                                // the namespace immediately since it's used in the module body
+                                log::debug!(
+                                    "  Creating immediate namespace for wrapper module import"
+                                );
+
+                                // Create: local_name = types.SimpleNamespace()
+                                result_stmts.push(Stmt::Assign(StmtAssign {
+                                    targets: vec![Expr::Name(ExprName {
+                                        id: local_name.into(),
+                                        ctx: ExprContext::Store,
+                                        range: TextRange::default(),
+                                    })],
+                                    value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
+                                        func: Box::new(Expr::Attribute(ExprAttribute {
+                                            value: Box::new(Expr::Name(ExprName {
+                                                id: "types".into(),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            attr: Identifier::new(
+                                                "SimpleNamespace",
+                                                TextRange::default(),
+                                            ),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        })),
+                                        arguments: Arguments {
+                                            args: Box::from([]),
+                                            keywords: Box::from([]),
+                                            range: TextRange::default(),
+                                        },
+                                        range: TextRange::default(),
+                                    })),
+                                    range: TextRange::default(),
+                                }));
+
+                                // Now add the exported symbols from the inlined module to the
+                                // namespace
+                                if let Some(exports) = self
+                                    .bundler
+                                    .module_exports
+                                    .get(&full_module_path)
+                                    .cloned()
+                                    .flatten()
+                                {
+                                    for symbol in exports {
+                                        // local_name.symbol = symbol
+                                        result_stmts.push(Stmt::Assign(StmtAssign {
+                                            targets: vec![Expr::Attribute(ExprAttribute {
+                                                value: Box::new(Expr::Name(ExprName {
+                                                    id: local_name.into(),
+                                                    ctx: ExprContext::Load,
+                                                    range: TextRange::default(),
+                                                })),
+                                                attr: Identifier::new(
+                                                    &symbol,
+                                                    TextRange::default(),
+                                                ),
+                                                ctx: ExprContext::Store,
+                                                range: TextRange::default(),
+                                            })],
+                                            value: Box::new(Expr::Name(ExprName {
+                                                // The symbol should use the renamed version if it
+                                                // exists
+                                                id: if let Some(renames) =
+                                                    self.symbol_renames.get(&full_module_path)
+                                                {
+                                                    if let Some(renamed) = renames.get(&symbol) {
+                                                        renamed.into()
+                                                    } else {
+                                                        symbol.into()
+                                                    }
+                                                } else {
+                                                    symbol.into()
+                                                },
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            range: TextRange::default(),
+                                        }));
+                                    }
+                                }
+                            }
+
+                            handled_any = true;
+                        } else if !self.is_entry_module {
+                            // This is a wrapper module importing an inlined module
+                            // The wrapper will exist in sys.modules, so we can defer the import
+                            log::debug!(
+                                "  Deferring inlined submodule import in wrapper module: \
+                                 {local_name} -> {full_module_path}"
+                            );
+                        } else {
+                            // For entry module, handle differently
+                            log::debug!(
+                                "  Inlined submodule import in entry module: {local_name} -> \
+                                 {full_module_path}"
+                            );
+                        }
                     }
                 }
             }
         }
 
         if handled_any {
-            return result_stmts;
+            // For deferred imports, we return empty to remove the original import
+            if result_stmts.is_empty() {
+                log::debug!("  Import handling deferred, returning empty");
+                return vec![];
+            } else {
+                log::debug!(
+                    "  Returning {} transformed statements for import",
+                    result_stmts.len()
+                );
+                return result_stmts;
+            }
         }
 
         if let Some(ref resolved) = resolved_module {
@@ -1268,6 +1473,8 @@ pub struct HybridStaticBundler {
     circular_predeclarations: FxIndexMap<String, FxIndexMap<String, String>>,
     /// Symbol dependency graph for circular modules
     symbol_dep_graph: SymbolDependencyGraph,
+    /// Module ASTs for resolving re-exports
+    module_asts: Option<Vec<(String, ModModule, PathBuf, String)>>,
 }
 
 impl Default for HybridStaticBundler {
@@ -1298,6 +1505,7 @@ impl HybridStaticBundler {
             needs_types_for_direct_imports: false,
             circular_predeclarations: FxIndexMap::default(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
+            module_asts: None,
         }
     }
 
@@ -1811,6 +2019,9 @@ impl HybridStaticBundler {
 
         // Trim unused imports from all modules
         let modules = self.trim_unused_imports_from_modules(params.modules, params.graph)?;
+
+        // Store module ASTs for re-export resolution
+        self.module_asts = Some(modules.clone());
 
         // Store entry path for relative path calculation
         if let Some((_, entry_path, _)) = params.sorted_modules.last() {
@@ -2615,38 +2826,8 @@ impl HybridStaticBundler {
 
         transformer.transform_module(&mut ast);
 
-        // Process deferred imports (which are transformed assignments) for module attributes
-        for stmt in &wrapper_deferred_imports {
-            if let Stmt::Assign(assign) = stmt
-                && !self.is_self_referential_assignment(assign)
-            {
-                self.add_module_attr_if_exported(assign, ctx.module_name, &mut body);
-            }
-        }
-
-        // Add any deferred imports to the init function body
-        body.extend(wrapper_deferred_imports);
-
-        // For imports from inlined modules that don't create assignments,
-        // we still need to set them as module attributes if they're exported
-        for imported_name in imports_from_inlined {
-            if self.should_export_symbol(&imported_name, ctx.module_name) {
-                // Check if we already have a module attribute assignment for this
-                let already_assigned = body.iter().any(|stmt| {
-                    if let Stmt::Assign(assign) = stmt
-                        && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                        && let Expr::Name(name) = &*attr.value
-                    {
-                        return name.id == "module" && attr.attr == imported_name;
-                    }
-                    false
-                });
-
-                if !already_assigned {
-                    body.push(self.create_module_attr_assignment("module", &imported_name));
-                }
-            }
-        }
+        // Store deferred imports to add after module body
+        let deferred_imports_to_add = wrapper_deferred_imports.clone();
 
         // Now process the transformed module
         for stmt in ast.body {
@@ -2755,14 +2936,8 @@ impl HybridStaticBundler {
             }
         }
 
-        // Generate __all__ for the bundled module only if the original module had __all__
-        if let Some(Some(_)) = self.module_exports.get(ctx.module_name) {
-            body.push(self.create_all_assignment_for_module(ctx.module_name));
-        }
-
-        // Set submodules as attributes on this module
-        // This is needed for imports like "from parent import submodule"
-        // Look through all modules to find submodules of the current module
+        // Set submodules as attributes on this module BEFORE processing deferred imports
+        // This is needed because deferred imports may reference these submodules
         let current_module_prefix = format!("{}.", ctx.module_name);
         let mut submodules_to_add = Vec::new();
 
@@ -2891,6 +3066,47 @@ impl HybridStaticBundler {
                     elif_else_clauses: vec![],
                     range: TextRange::default(),
                 }));
+            }
+        }
+
+        // Add deferred imports after submodule namespaces are created
+        // This is needed for cases where the deferred imports reference submodules
+        for stmt in &deferred_imports_to_add {
+            if let Stmt::Assign(assign) = stmt
+                && !self.is_self_referential_assignment(assign)
+            {
+                // For deferred imports that are assignments, also set as module attribute if
+                // exported
+                body.push(stmt.clone());
+                self.add_module_attr_if_exported(assign, ctx.module_name, &mut body);
+            } else {
+                body.push(stmt.clone());
+            }
+        }
+
+        // Generate __all__ for the bundled module only if the original module had __all__
+        if let Some(Some(_)) = self.module_exports.get(ctx.module_name) {
+            body.push(self.create_all_assignment_for_module(ctx.module_name));
+        }
+
+        // For imports from inlined modules that don't create assignments,
+        // we still need to set them as module attributes if they're exported
+        for imported_name in imports_from_inlined {
+            if self.should_export_symbol(&imported_name, ctx.module_name) {
+                // Check if we already have a module attribute assignment for this
+                let already_assigned = body.iter().any(|stmt| {
+                    if let Stmt::Assign(assign) = stmt
+                        && let [Expr::Attribute(attr)] = assign.targets.as_slice()
+                        && let Expr::Name(name) = &*attr.value
+                    {
+                        return name.id == "module" && attr.attr == imported_name;
+                    }
+                    false
+                });
+
+                if !already_assigned {
+                    body.push(self.create_module_attr_assignment("module", &imported_name));
+                }
             }
         }
 
@@ -3463,90 +3679,72 @@ impl HybridStaticBundler {
     ) -> Vec<Stmt> {
         let mut stmts = Vec::new();
 
-        // For now, we'll create a simple module reference that imports the inlined module
-        // dynamically This is a simplified approach that should work for the
-        // function_level_module_import case
-
-        // import types
-        // calculator_ns = types.ModuleType('calculator')
-        // # Add all the inlined symbols dynamically - this will be populated by the bundled code
-        // calculator_ns.add = add
-        // calculator_ns.multiply = multiply
-        // calculator_ns.description = description
-        // module.calculator = calculator_ns
-
-        // Since we don't have direct access to the symbol renames here, we'll use a different
-        // approach: We'll create a placeholder that will be populated when the module is
-        // actually used
-
-        // For the specific case of utils.calculator, we know the symbols are already inlined
-        // So we can create a namespace that references them
-        // This is a targeted fix for the function_level_module_import test
-
-        if full_module_name == "utils.calculator" {
-            // calculator_ns = types.SimpleNamespace()
-            let namespace_var = format!("{attr_name}_ns");
-            stmts.push(Stmt::Assign(StmtAssign {
-                targets: vec![Expr::Name(ExprName {
-                    id: namespace_var.clone().into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
-                    func: Box::new(Expr::Attribute(ExprAttribute {
-                        value: Box::new(Expr::Name(ExprName {
-                            id: "types".into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new("SimpleNamespace", TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    arguments: Arguments {
-                        args: Box::from([]),
-                        keywords: Box::from([]),
-                        range: TextRange::default(),
-                    },
-                    range: TextRange::default(),
-                })),
+        // Create a types.SimpleNamespace() for the inlined module
+        stmts.push(Stmt::Assign(StmtAssign {
+            targets: vec![Expr::Name(ExprName {
+                id: attr_name.into(),
+                ctx: ExprContext::Store,
                 range: TextRange::default(),
-            }));
-
-            // calculator_ns.add = add
-            stmts.push(self.create_namespace_attr_assignment(&namespace_var, "add", "add"));
-            // calculator_ns.multiply = multiply
-            stmts.push(self.create_namespace_attr_assignment(
-                &namespace_var,
-                "multiply",
-                "multiply",
-            ));
-            // calculator_ns.description = description
-            stmts.push(self.create_namespace_attr_assignment(
-                &namespace_var,
-                "description",
-                "description",
-            ));
-
-            // module.calculator = calculator_ns
-            stmts.push(Stmt::Assign(StmtAssign {
-                targets: vec![Expr::Attribute(ExprAttribute {
+            })],
+            value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
+                func: Box::new(Expr::Attribute(ExprAttribute {
                     value: Box::new(Expr::Name(ExprName {
-                        id: "module".into(),
+                        id: "types".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
-                    attr: Identifier::new(attr_name, TextRange::default()),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Name(ExprName {
-                    id: namespace_var.into(),
+                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 })),
+                arguments: Arguments {
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
                 range: TextRange::default(),
-            }));
+            })),
+            range: TextRange::default(),
+        }));
+
+        // Get the module exports for this inlined module
+        let exported_symbols = self.module_exports.get(full_module_name).cloned().flatten();
+
+        // Add all exported symbols from the inlined module to the namespace
+        if let Some(exports) = exported_symbols {
+            for symbol in exports {
+                // For inlined modules, symbols are not renamed - they keep their original names
+                // The symbol should already be available in the current scope from the inlined
+                // module
+
+                // attr_name.symbol = symbol
+                stmts.push(Stmt::Assign(StmtAssign {
+                    targets: vec![Expr::Attribute(ExprAttribute {
+                        value: Box::new(Expr::Name(ExprName {
+                            id: attr_name.into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new(&symbol, TextRange::default()),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Name(ExprName {
+                        id: symbol.clone().into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+            }
+        } else {
+            // If no explicit exports, we still need to check if this module defines symbols
+            // This is a fallback for modules that don't have __all__ defined
+            // For now, log a warning since we can't determine exports without module analysis
+            log::warn!(
+                "Inlined module '{full_module_name}' has no explicit exports (__all__). Namespace will be empty \
+                 unless symbols are added elsewhere."
+            );
         }
 
         stmts
@@ -8474,6 +8672,31 @@ impl HybridStaticBundler {
         }
     }
 
+    /// Check if importing from a package __init__.py that might re-export symbols
+    fn is_package_init_reexport(&self, module_name: &str, _symbol_name: &str) -> bool {
+        // Special handling for package __init__.py files
+        // If we're importing from "greetings" and there's a "greetings.X" module
+        // that could be the source of the symbol
+
+        // For now, check if this looks like a package (no dots) and if there are
+        // any inlined submodules
+        if !module_name.contains('.') {
+            // Check if any inlined module starts with module_name.
+            for inlined in &self.inlined_modules {
+                if inlined.starts_with(&format!("{module_name}.")) {
+                    log::debug!(
+                        "Module '{module_name}' appears to be a package with inlined submodule '{inlined}'"
+                    );
+                    // For the specific case of greetings/__init__.py importing from
+                    // greetings.english, we assume the symbol should use its
+                    // original name
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Handle imports from inlined modules
     fn handle_imports_from_inlined_module(
         &self,
@@ -8481,26 +8704,54 @@ impl HybridStaticBundler {
         module_name: &str,
         symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
-        let mut result_stmts = Vec::new();
+        self.handle_imports_from_inlined_module_with_context(
+            import_from,
+            module_name,
+            symbol_renames,
+            None,
+        )
+    }
 
-        // Get the rename map for this module
-        let module_renames = symbol_renames.get(module_name);
+    /// Handle imports from inlined modules with optional module context
+    fn handle_imports_from_inlined_module_with_context(
+        &self,
+        import_from: &StmtImportFrom,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        _modules: Option<&[(String, ModModule, PathBuf, String)]>,
+    ) -> Vec<Stmt> {
+        let mut result_stmts = Vec::new();
 
         for alias in &import_from.names {
             let imported_name = alias.name.as_str();
             let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-            // Find the renamed symbol name
-            let renamed_symbol = if let Some(renames) = module_renames {
-                renames.get(imported_name).cloned().unwrap_or_else(|| {
-                    // If no rename found, use the default pattern
+            // Check if this is likely a re-export from a package __init__.py
+            let is_package_reexport = self.is_package_init_reexport(module_name, imported_name);
+
+            let renamed_symbol = if is_package_reexport {
+                // For package re-exports, use the original symbol name
+                // This handles cases like greetings/__init__.py re-exporting from greetings.english
+                log::debug!(
+                    "Using original name '{imported_name}' for symbol imported from package '{module_name}'"
+                );
+                imported_name.to_string()
+            } else {
+                // Not a re-export, check normal renames
+                if let Some(module_renames) = symbol_renames.get(module_name) {
+                    module_renames
+                        .get(imported_name)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            // If no rename found, use the default pattern
+                            let module_suffix = module_name.cow_replace('.', "_").into_owned();
+                            format!("{imported_name}_{module_suffix}")
+                        })
+                } else {
+                    // If no rename map, use the default pattern
                     let module_suffix = module_name.cow_replace('.', "_").into_owned();
                     format!("{imported_name}_{module_suffix}")
-                })
-            } else {
-                // If no rename map, use the default pattern
-                let module_suffix = module_name.cow_replace('.', "_").into_owned();
-                format!("{imported_name}_{module_suffix}")
+                }
             };
 
             // Only create assignment if the names are different
