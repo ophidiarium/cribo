@@ -9,11 +9,11 @@ use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use ruff_python_ast::{
-    Arguments, CmpOp, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprCompare, ExprContext,
-    ExprFString, ExprIf, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript,
-    FString, FStringFlags, FStringValue, Identifier, InterpolatedElement,
-    InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign,
-    StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
+    Arguments, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext, ExprFString, ExprList,
+    ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, FString, FStringFlags,
+    FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
+    InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef,
+    StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
     StringLiteralValue,
 };
 use ruff_text_size::TextRange;
@@ -1637,9 +1637,9 @@ impl HybridStaticBundler {
     fn expr_to_module_path(&self, expr: &Expr) -> Option<String> {
         match expr {
             Expr::Name(name) => Some(name.id.to_string()),
-            Expr::Attribute(attr) => {
-                self.expr_to_module_path(&attr.value).map(|base_path| format!("{}.{}", base_path, attr.attr.as_str()))
-            }
+            Expr::Attribute(attr) => self
+                .expr_to_module_path(&attr.value)
+                .map(|base_path| format!("{}.{}", base_path, attr.attr.as_str())),
             _ => None,
         }
     }
@@ -3560,8 +3560,6 @@ impl HybridStaticBundler {
 
     /// Create the import hook class and install it
     fn create_import_hook(&self) -> Vec<Stmt> {
-        
-
         Vec::new()
     }
 
@@ -3721,56 +3719,6 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })],
                 value: Box::new(module_call),
-                range: TextRange::default(),
-            }),
-            // module.__file__ = __file__ if '__file__' in globals() else None
-            Stmt::Assign(StmtAssign {
-                targets: vec![Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Name(ExprName {
-                        id: "module".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("__file__", TextRange::default()),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::If(ExprIf {
-                    test: Box::new(Expr::Compare(ExprCompare {
-                        left: Box::new(Expr::StringLiteral(ExprStringLiteral {
-                            value: StringLiteralValue::single(StringLiteral {
-                                value: Box::from("__file__"),
-                                range: TextRange::default(),
-                                flags: StringLiteralFlags::empty(),
-                            }),
-                            range: TextRange::default(),
-                        })),
-                        ops: Box::from([CmpOp::In]),
-                        comparators: Box::from([Expr::Call(ExprCall {
-                            func: Box::new(Expr::Name(ExprName {
-                                id: "globals".into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            arguments: ruff_python_ast::Arguments {
-                                args: Box::from([]),
-                                keywords: Box::from([]),
-                                range: TextRange::default(),
-                            },
-                            range: TextRange::default(),
-                        })]),
-                        range: TextRange::default(),
-                    })),
-                    body: Box::new(Expr::Name(ExprName {
-                        id: "__file__".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    orelse: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
-                        range: TextRange::default(),
-                    })),
-                    range: TextRange::default(),
-                })),
                 range: TextRange::default(),
             }),
         ]

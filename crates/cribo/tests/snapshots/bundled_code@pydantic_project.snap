@@ -33,7 +33,6 @@ def validate_age(age: Union[int, str]) -> bool:
 """Schemas package initialization."""
 def __cribo_init___cribo_f275a8_schemas_user():
     module = types.SimpleNamespace()
-    module.__file__ = __file__ if '__file__' in globals() else None
     """User schema definitions using Pydantic."""
     from pydantic import BaseModel, EmailStr, Field
 

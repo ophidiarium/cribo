@@ -198,7 +198,6 @@ def start_server(server: Server_2, port: int) -> bool:
 "end of server module"
 def __cribo_init___cribo_2c21b2_lib_constants():
     module = types.SimpleNamespace()
-    module.__file__ = __file__ if '__file__' in globals() else None
     """Constants module with no-ops."""
     MAX_CONNECTIONS = 100
     module.MAX_CONNECTIONS = MAX_CONNECTIONS

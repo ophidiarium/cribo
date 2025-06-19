@@ -323,7 +323,6 @@ models_base = types.SimpleNamespace(validate=validate_2, connect=connect_1, Base
 _cribo_services_auth_manager_result = None
 def __cribo_init___cribo_ee1d45_services_auth_manager():
     module = types.SimpleNamespace()
-    module.__file__ = __file__ if '__file__' in globals() else None
     """\nAuthentication manager with complex naming conflicts\n"""
     base = models_base
     result = "auth_result"
@@ -451,7 +450,6 @@ def __cribo_init___cribo_ee1d45_services_auth_manager():
     return module
 def __cribo_init___cribo_62c387_core():
     module = types.SimpleNamespace()
-    module.__file__ = __file__ if '__file__' in globals() else None
     result = "core_package_result"
     module.result = result
     Logger = CoreLogger

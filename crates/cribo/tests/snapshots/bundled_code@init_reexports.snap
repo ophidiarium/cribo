@@ -28,7 +28,6 @@ def process_data(data):
     return processed
 def __cribo_init___cribo_de6c46_mypackage_config():
     module = types.SimpleNamespace()
-    module.__file__ = __file__ if '__file__' in globals() else None
     """Configuration module."""
 
     class Config:
@@ -44,7 +43,6 @@ def __cribo_init___cribo_de6c46_mypackage_config():
     return module
 def __cribo_init___cribo_a81151_mypackage():
     module = types.SimpleNamespace()
-    module.__file__ = __file__ if '__file__' in globals() else None
     """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
     _cribo_module_mypackage_config = __cribo_init___cribo_de6c46_mypackage_config()
     config = _cribo_module_mypackage_config.config

@@ -10,7 +10,6 @@ import types
 message_2 = "Hello"
 def __cribo_init___cribo_b4af24_greetings():
     module = types.SimpleNamespace()
-    module.__file__ = __file__ if '__file__' in globals() else None
     greeting = types.SimpleNamespace()
     greeting.message = message_2
     __all__ = ["message"]
