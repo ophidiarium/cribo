@@ -19,5 +19,4 @@ def __cribo_init___cribo_cf5a45_greetings_greeting():
     return module
 greetings = types.SimpleNamespace()
 greetings.greeting = __cribo_init___cribo_cf5a45_greetings_greeting()
-greetings.greeting = greetings.greeting
 print(greetings.greeting.message)

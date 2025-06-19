@@ -9162,7 +9162,18 @@ impl HybridStaticBundler {
             let parent = parts[..i - 1].join(".");
             let attr = parts[i - 1];
             let full_path = parts[..i].join(".");
-            result_stmts.push(self.create_dotted_attribute_assignment(&parent, attr, &full_path));
+
+            // Check if this would be a redundant self-assignment
+            let full_target = format!("{parent}.{attr}");
+            if full_target == full_path {
+                debug!(
+                    "Skipping redundant self-assignment in create_dotted_assignments: \
+                     {parent}.{attr} = {full_path}"
+                );
+            } else {
+                result_stmts
+                    .push(self.create_dotted_attribute_assignment(&parent, attr, &full_path));
+            }
         }
     }
 
@@ -9262,7 +9273,17 @@ impl HybridStaticBundler {
             if parts.len() > 1 {
                 let parent = parts[..parts.len() - 1].join(".");
                 let attr = parts[parts.len() - 1];
-                final_body.push(self.create_dotted_attribute_assignment(&parent, attr, module));
+
+                // Check if this would be a redundant self-assignment
+                let full_target = format!("{parent}.{attr}");
+                if full_target == module {
+                    debug!(
+                        "Skipping redundant self-assignment in create_module_assignment: \
+                         {parent}.{attr} = {module}"
+                    );
+                } else {
+                    final_body.push(self.create_dotted_attribute_assignment(&parent, attr, module));
+                }
             }
         } else {
             // Simple module name without dots

@@ -17,6 +17,9 @@ fn run_cribo(args: &[&str]) -> (String, String, i32) {
         .args(["run", "--bin", "cribo", "--quiet", "--"])
         .args(args)
         .env("RUST_LOG", "off")
+        .env("CARGO_TERM_QUIET", "true")
+        .env("CARGO_TERM_COLOR", "never")
+        .env("RUSTFLAGS", "-Awarnings")
         .output()
         .expect("Failed to execute command");
 
