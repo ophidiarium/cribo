@@ -49,8 +49,6 @@ mypackage = types.SimpleNamespace()
 mypackage.submodule = types.SimpleNamespace()
 mypackage.core = __cribo_init___cribo_41d36f_mypackage_core()
 mypackage.submodule.utils = __cribo_init___cribo_c3d681_mypackage_submodule_utils()
-mypackage.core = mypackage.core
-mypackage.submodule.utils = mypackage.submodule.utils
 process_data = mypackage.core.process_data
 validate_input = mypackage.submodule.utils.validate_input
 def main() -> None:

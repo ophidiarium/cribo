@@ -468,7 +468,6 @@ services = types.SimpleNamespace()
 services.auth = types.SimpleNamespace()
 services.auth.manager = __cribo_init___cribo_ee1d45_services_auth_manager()
 core = __cribo_init___cribo_62c387_core()
-services.auth.manager = services.auth.manager
 core_validate = validate_6
 UserLogger = Logger_2
 User = User_2

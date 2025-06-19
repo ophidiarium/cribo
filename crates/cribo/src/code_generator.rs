@@ -4374,13 +4374,22 @@ impl HybridStaticBundler {
                              - imported in entry module"
                         );
                     } else {
-                        // This is a wrapper module - assign direct reference
-                        debug!("Assigning wrapper module: {parent}.{attr} = {module_name}");
-                        final_body.push(self.create_dotted_attribute_assignment(
-                            &parent,
-                            &attr,
-                            &module_name,
-                        ));
+                        // Check if this would be a redundant self-assignment
+                        let full_target = format!("{parent}.{attr}");
+                        if full_target == module_name {
+                            debug!(
+                                "Skipping redundant self-assignment: {parent}.{attr} = \
+                                 {module_name}"
+                            );
+                        } else {
+                            // This is a wrapper module - assign direct reference
+                            debug!("Assigning wrapper module: {parent}.{attr} = {module_name}");
+                            final_body.push(self.create_dotted_attribute_assignment(
+                                &parent,
+                                &attr,
+                                &module_name,
+                            ));
+                        }
                     }
                 }
             } else {
