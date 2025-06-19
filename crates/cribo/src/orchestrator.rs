@@ -1476,15 +1476,14 @@ impl BundleOrchestrator {
         }
 
         // Bundle all modules using static bundler
-        let bundled_ast =
-            static_bundler.bundle_modules(crate::code_generator::BundleParams {
-                modules: module_asts,
-                sorted_modules: params.sorted_modules,
-                entry_module_name: params.entry_module_name,
-                graph: params.graph,
-                semantic_bundler: &self.semantic_bundler,
-                circular_dep_analysis: params.circular_dep_analysis,
-            })?;
+        let bundled_ast = static_bundler.bundle_modules(crate::code_generator::BundleParams {
+            modules: module_asts,
+            sorted_modules: params.sorted_modules,
+            entry_module_name: params.entry_module_name,
+            graph: params.graph,
+            semantic_bundler: &self.semantic_bundler,
+            circular_dep_analysis: params.circular_dep_analysis,
+        })?;
 
         // Generate Python code from AST
         let empty_parsed = ruff_python_parser::parse_module("")?;
