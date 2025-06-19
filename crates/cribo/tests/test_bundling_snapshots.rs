@@ -1,8 +1,15 @@
 #![allow(clippy::disallowed_methods)] // insta macros use unwrap internally
 
-use std::{fs, io::Write, path::Path, process::Command};
+use std::{
+    fs,
+    io::Write,
+    path::Path,
+    process::Command,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use cribo::{config::Config, orchestrator::BundleOrchestrator, util::get_python_executable};
+use once_cell::sync::Lazy;
 use pretty_assertions::assert_eq;
 // Ruff linting integration for cross-validation
 use ruff_linter::linter::{ParseSource, lint_only};
@@ -14,6 +21,23 @@ use ruff_linter::{
 use ruff_python_ast::PySourceType;
 use serde::Serialize;
 use tempfile::TempDir;
+
+static FIXTURE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Default)]
+struct TestSummary;
+
+impl Drop for TestSummary {
+    fn drop(&mut self) {
+        let count = FIXTURE_COUNT.load(Ordering::Relaxed);
+        if count > 0 && !std::thread::panicking() {
+            // Use eprintln to ensure it's printed even if tests pass and stdout is captured
+            eprintln!("\nTotal fixtures checked: {count}");
+        }
+    }
+}
+
+static SUMMARY: Lazy<TestSummary> = Lazy::new(TestSummary::default);
 
 /// Structured execution results for better snapshot formatting
 #[derive(Debug)]
@@ -135,6 +159,10 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
 #[test]
 fn test_bundling_fixtures() {
     insta::glob!("fixtures/", "*/main.py", |path| {
+        // Initialize summary reporter on the first test run and increment count
+        Lazy::force(&SUMMARY);
+        FIXTURE_COUNT.fetch_add(1, Ordering::Relaxed);
+
         // Extract fixture name from the path
         let fixture_dir = path.parent().unwrap();
         let fixture_name = fixture_dir.file_name().unwrap().to_str().unwrap();
