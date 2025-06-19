@@ -165,9 +165,9 @@ fn test_virtualenv_scan_directories_exclusion() {
     // Create resolver with VIRTUAL_ENV override
     let virtualenv_str = virtualenv_dir.to_string_lossy();
     let resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
-    let scan_dirs = resolver.get_scan_directories_with_overrides(None, Some(&virtualenv_str));
+    let scan_dirs = resolver.get_search_directories();
 
-    // VIRTUAL_ENV directories should NOT be in scan directories (they're for classification only)
+    // Entry directory would be first if set, then src directories
     let expected_src = src_dir.canonicalize().unwrap_or(src_dir);
     assert!(
         scan_dirs.contains(&expected_src),
@@ -230,7 +230,7 @@ fn test_virtualenv_empty_or_nonexistent() {
 
     // Test with empty VIRTUAL_ENV
     let resolver1 = ModuleResolver::new_with_virtualenv(config.clone(), Some("")).unwrap();
-    let scan_dirs1 = resolver1.get_scan_directories_with_overrides(None, Some(""));
+    let scan_dirs1 = resolver1.get_search_directories();
 
     // Should only contain configured src directories
     assert_eq!(scan_dirs1.len(), 1);
@@ -467,20 +467,27 @@ fn test_module_shadowing_priority() {
         "Submodule of non-shadowed virtual environment package should be third-party"
     );
 
-    // Verify that the first-party modules are actually discovered
-    let first_party_modules = resolver.get_first_party_modules();
+    // Verify that the first-party modules can be resolved
+    let config2 = Config {
+        src: vec![src_dir.clone()],
+        ..Default::default()
+    };
+    let mut resolver_mut =
+        ModuleResolver::new_with_overrides(config2, Some(&pythonpath_str), Some(&virtualenv_str))
+            .unwrap();
     assert!(
-        first_party_modules.contains("requests"),
-        "requests should be discovered as first-party module"
+        resolver_mut
+            .resolve_module_path("requests")
+            .unwrap()
+            .is_some(),
+        "requests should be resolvable as first-party module"
     );
     assert!(
-        first_party_modules.contains("numpy"),
-        "numpy should be discovered as first-party module"
+        resolver_mut.resolve_module_path("numpy").unwrap().is_some(),
+        "numpy should be resolvable as first-party module"
     );
-    assert!(
-        !first_party_modules.contains("flask"),
-        "flask should NOT be discovered as first-party module"
-    );
+    // flask is in virtual environment, but we can't resolve it directly (it's just for
+    // classification)
 }
 
 #[test]
@@ -553,15 +560,23 @@ fn test_package_vs_module_shadowing() {
         "Local anotherlib package should shadow virtual environment anotherlib.py module"
     );
 
-    // Verify first-party discovery
-    let first_party_modules = resolver.get_first_party_modules();
+    // Verify first-party modules can be resolved
+    let config2 = Config {
+        src: vec![src_dir.clone()],
+        ..Default::default()
+    };
+    let mut resolver_mut =
+        ModuleResolver::new_with_virtualenv(config2, Some(&virtualenv_str)).unwrap();
     assert!(
-        first_party_modules.contains("mylib"),
-        "mylib should be discovered as first-party"
+        resolver_mut.resolve_module_path("mylib").unwrap().is_some(),
+        "mylib should be resolvable as first-party"
     );
     assert!(
-        first_party_modules.contains("anotherlib"),
-        "anotherlib should be discovered as first-party"
+        resolver_mut
+            .resolve_module_path("anotherlib")
+            .unwrap()
+            .is_some(),
+        "anotherlib should be resolvable as first-party"
     );
 }
 

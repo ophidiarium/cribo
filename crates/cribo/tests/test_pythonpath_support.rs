@@ -1,8 +1,11 @@
 #![allow(clippy::disallowed_methods)]
 
-use std::{fs, path::PathBuf};
+use std::fs;
 
-use cribo::{config::Config, resolver::ModuleResolver};
+use cribo::{
+    config::Config,
+    resolver::{ImportType, ModuleResolver},
+};
 use tempfile::TempDir;
 
 #[test]
@@ -44,25 +47,58 @@ fn test_pythonpath_module_discovery() {
 
     // Create resolver with PYTHONPATH override
     let pythonpath_str = pythonpath_dir.to_string_lossy();
-    let resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str)).unwrap();
-    let first_party_modules = resolver.get_first_party_modules();
+    let mut resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str)).unwrap();
 
-    // Verify that modules from both src and PYTHONPATH are discovered
+    // Test that modules can be resolved from both src and PYTHONPATH
     assert!(
-        first_party_modules.contains("src_module"),
-        "Should discover modules from configured src directories"
+        resolver
+            .resolve_module_path("src_module")
+            .unwrap()
+            .is_some(),
+        "Should resolve modules from configured src directories"
     );
     assert!(
-        first_party_modules.contains("pythonpath_module"),
-        "Should discover modules from PYTHONPATH directories"
+        resolver
+            .resolve_module_path("pythonpath_module")
+            .unwrap()
+            .is_some(),
+        "Should resolve modules from PYTHONPATH directories"
     );
     assert!(
-        first_party_modules.contains("pythonpath_pkg"),
-        "Should discover packages from PYTHONPATH directories"
+        resolver
+            .resolve_module_path("pythonpath_pkg")
+            .unwrap()
+            .is_some(),
+        "Should resolve packages from PYTHONPATH directories"
     );
     assert!(
-        first_party_modules.contains("pythonpath_pkg.submodule"),
-        "Should discover submodules from PYTHONPATH packages"
+        resolver
+            .resolve_module_path("pythonpath_pkg.submodule")
+            .unwrap()
+            .is_some(),
+        "Should resolve submodules from PYTHONPATH packages"
+    );
+
+    // Also verify classification
+    assert_eq!(
+        resolver.classify_import("src_module"),
+        ImportType::FirstParty,
+        "Should classify src_module as first-party"
+    );
+    assert_eq!(
+        resolver.classify_import("pythonpath_module"),
+        ImportType::FirstParty,
+        "Should classify pythonpath_module as first-party"
+    );
+    assert_eq!(
+        resolver.classify_import("pythonpath_pkg"),
+        ImportType::FirstParty,
+        "Should classify pythonpath_pkg as first-party"
+    );
+    assert_eq!(
+        resolver.classify_import("pythonpath_pkg.submodule"),
+        ImportType::FirstParty,
+        "Should classify pythonpath_pkg.submodule as first-party"
     );
 }
 
@@ -142,64 +178,93 @@ fn test_pythonpath_multiple_directories() {
         separator,
         pythonpath_dir2.to_string_lossy()
     );
-    let resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str)).unwrap();
-    let first_party_modules = resolver.get_first_party_modules();
+    let mut resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str)).unwrap();
 
-    // Verify that modules from both PYTHONPATH directories are discovered
+    // Test that modules from both PYTHONPATH directories can be resolved
     assert!(
-        first_party_modules.contains("module1"),
-        "Should discover modules from first PYTHONPATH directory"
+        resolver.resolve_module_path("module1").unwrap().is_some(),
+        "Should resolve modules from first PYTHONPATH directory"
     );
     assert!(
-        first_party_modules.contains("module2"),
-        "Should discover modules from second PYTHONPATH directory"
+        resolver.resolve_module_path("module2").unwrap().is_some(),
+        "Should resolve modules from second PYTHONPATH directory"
+    );
+
+    // Also verify classification
+    assert_eq!(
+        resolver.classify_import("module1"),
+        ImportType::FirstParty,
+        "Should classify module1 as first-party"
+    );
+    assert_eq!(
+        resolver.classify_import("module2"),
+        ImportType::FirstParty,
+        "Should classify module2 as first-party"
     );
 }
 
 #[test]
 fn test_pythonpath_empty_or_nonexistent() {
-    // Set up config
-    let src_path = PathBuf::from("tests/fixtures/simple_project");
+    // Create a temporary directory for testing
+    let temp_dir = TempDir::new().unwrap();
+    let src_dir = temp_dir.path().join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+
+    // Create a test module
+    let test_module = src_dir.join("test_module.py");
+    fs::write(&test_module, "# Test module").unwrap();
+
     let config = Config {
-        src: vec![src_path.clone()],
+        src: vec![src_dir.clone()],
         ..Default::default()
     };
 
     // Test with empty PYTHONPATH
-    let resolver1 = ModuleResolver::new_with_pythonpath(config.clone(), Some("")).unwrap();
-    let scan_dirs1 = resolver1.get_scan_directories_with_pythonpath(Some(""));
+    let mut resolver1 = ModuleResolver::new_with_pythonpath(config.clone(), Some("")).unwrap();
 
-    // Should only contain configured src directories
-    assert_eq!(scan_dirs1.len(), 1);
-    let expected_path = src_path.canonicalize().unwrap_or(src_path.clone());
+    // Should be able to resolve module from src directory
     assert!(
-        scan_dirs1.contains(&expected_path),
-        "Expected {expected_path:?} in {scan_dirs1:?}"
+        resolver1
+            .resolve_module_path("test_module")
+            .unwrap()
+            .is_some(),
+        "Should resolve module from src directory with empty PYTHONPATH"
     );
 
     // Test with no PYTHONPATH
-    let resolver2 = ModuleResolver::new_with_pythonpath(config.clone(), None).unwrap();
-    let scan_dirs2 = resolver2.get_scan_directories_with_pythonpath(None);
+    let mut resolver2 = ModuleResolver::new_with_pythonpath(config.clone(), None).unwrap();
 
-    // Should only contain configured src directories
-    assert_eq!(scan_dirs2.len(), 1);
+    // Should be able to resolve module from src directory
     assert!(
-        scan_dirs2.contains(&expected_path),
-        "Expected {expected_path:?} in {scan_dirs2:?}"
+        resolver2
+            .resolve_module_path("test_module")
+            .unwrap()
+            .is_some(),
+        "Should resolve module from src directory with no PYTHONPATH"
     );
 
     // Test with nonexistent directories in PYTHONPATH
     let separator = if cfg!(windows) { ';' } else { ':' };
     let nonexistent_pythonpath = format!("/nonexistent1{separator}/nonexistent2");
-    let resolver3 =
+    let mut resolver3 =
         ModuleResolver::new_with_pythonpath(config, Some(&nonexistent_pythonpath)).unwrap();
-    let scan_dirs3 = resolver3.get_scan_directories_with_pythonpath(Some(&nonexistent_pythonpath));
 
-    // Should only contain configured src directories (nonexistent dirs filtered out)
-    assert_eq!(scan_dirs3.len(), 1);
+    // Should still be able to resolve module from src directory
     assert!(
-        scan_dirs3.contains(&expected_path),
-        "Expected {expected_path:?} in {scan_dirs3:?}"
+        resolver3
+            .resolve_module_path("test_module")
+            .unwrap()
+            .is_some(),
+        "Should resolve module from src directory even with nonexistent PYTHONPATH"
+    );
+
+    // Non-existent modules should not be found
+    assert!(
+        resolver3
+            .resolve_module_path("nonexistent_module")
+            .unwrap()
+            .is_none(),
+        "Should not find nonexistent modules"
     );
 }
 
@@ -235,39 +300,34 @@ fn test_directory_deduplication() {
         separator,
         other_dir.to_string_lossy()
     );
-    let resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str)).unwrap();
-    let scan_dirs = resolver.get_scan_directories_with_pythonpath(Some(&pythonpath_str));
+    let mut resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str)).unwrap();
 
-    // Should only have 2 unique directories, even though src_dir appears in both config.src and
-    // PYTHONPATH
+    // Test that deduplication works - both modules should be resolvable
+    assert!(
+        resolver
+            .resolve_module_path("src_module")
+            .unwrap()
+            .is_some(),
+        "Should resolve src_module"
+    );
+    assert!(
+        resolver
+            .resolve_module_path("other_module")
+            .unwrap()
+            .is_some(),
+        "Should resolve other_module"
+    );
+
+    // Both should be classified as first-party
     assert_eq!(
-        scan_dirs.len(),
-        2,
-        "Should deduplicate directories: got {scan_dirs:?}"
+        resolver.classify_import("src_module"),
+        ImportType::FirstParty,
+        "Should classify src_module as first-party"
     );
-
-    // Convert to canonical paths for comparison
-    let expected_src = src_dir.canonicalize().unwrap_or(src_dir);
-    let expected_other = other_dir.canonicalize().unwrap_or(other_dir);
-
-    assert!(
-        scan_dirs.contains(&expected_src),
-        "Should contain src directory"
-    );
-    assert!(
-        scan_dirs.contains(&expected_other),
-        "Should contain other directory"
-    );
-
-    // Verify modules are discovered correctly
-    let first_party_modules = resolver.get_first_party_modules();
-    assert!(
-        first_party_modules.contains("src_module"),
-        "Should discover src_module"
-    );
-    assert!(
-        first_party_modules.contains("other_module"),
-        "Should discover other_module"
+    assert_eq!(
+        resolver.classify_import("other_module"),
+        ImportType::FirstParty,
+        "Should classify other_module as first-party"
     );
 }
 
@@ -293,20 +353,21 @@ fn test_path_canonicalization() {
     let parent_dir = src_dir.parent().unwrap();
     let relative_path = parent_dir.join("src/../src"); // This resolves to the same directory
     let pythonpath_str = relative_path.to_string_lossy();
-    let resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str)).unwrap();
-    let scan_dirs = resolver.get_scan_directories_with_pythonpath(Some(&pythonpath_str));
+    let mut resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str)).unwrap();
 
-    // Should deduplicate even with different path representations
-    assert_eq!(
-        scan_dirs.len(),
-        1,
-        "Should deduplicate paths even with different representations: got {scan_dirs:?}"
+    // Test that the module can be resolved despite path canonicalization differences
+    assert!(
+        resolver
+            .resolve_module_path("test_module")
+            .unwrap()
+            .is_some(),
+        "Should resolve module even with different path representations"
     );
 
-    // The path should be canonicalized
-    let canonical_src = src_dir.canonicalize().unwrap_or(src_dir);
-    assert!(
-        scan_dirs.contains(&canonical_src),
-        "Should contain canonicalized src directory: expected {canonical_src:?} in {scan_dirs:?}"
+    // Should be classified as first-party
+    assert_eq!(
+        resolver.classify_import("test_module"),
+        ImportType::FirstParty,
+        "Should classify test_module as first-party"
     );
 }

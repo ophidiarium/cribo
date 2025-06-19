@@ -34,11 +34,11 @@ pub enum ExecutionContext {
 #[derive(Debug, Clone)]
 pub struct ImportUsage {
     /// Where the name was used
-    pub location: TextRange,
+    pub _location: TextRange,
     /// In what execution context
-    pub context: ExecutionContext,
+    pub _context: ExecutionContext,
     /// The actual name used (might be aliased)
-    pub name_used: String,
+    pub _name_used: String,
 }
 
 /// An import discovered during AST traversal
@@ -103,9 +103,9 @@ pub struct ImportDiscoveryVisitor<'a> {
     /// Track usage of each imported name
     name_usage: HashMap<String, Vec<ImportUsage>>,
     /// Optional reference to semantic bundler for enhanced analysis
-    semantic_bundler: Option<&'a SemanticBundler>,
+    _semantic_bundler: Option<&'a SemanticBundler>,
     /// Current module ID if available
-    module_id: Option<ModuleId>,
+    _module_id: Option<ModuleId>,
     /// Current execution context
     current_context: ExecutionContext,
     /// Whether we're in a type checking block
@@ -126,8 +126,8 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             scope_stack: Vec::new(),
             imported_names: HashMap::default(),
             name_usage: HashMap::default(),
-            semantic_bundler: None,
-            module_id: None,
+            _semantic_bundler: None,
+            _module_id: None,
             current_context: ExecutionContext::ModuleLevel,
             in_type_checking: false,
         }
@@ -143,8 +143,8 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             scope_stack: Vec::new(),
             imported_names: HashMap::default(),
             name_usage: HashMap::default(),
-            semantic_bundler: Some(semantic_bundler),
-            module_id: Some(module_id),
+            _semantic_bundler: Some(semantic_bundler),
+            _module_id: Some(module_id),
             current_context: ExecutionContext::ModuleLevel,
             in_type_checking: false,
         }
@@ -458,9 +458,9 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                     .entry(name.clone())
                     .or_default()
                     .push(ImportUsage {
-                        location: *range,
-                        context,
-                        name_used: name.clone(),
+                        _location: *range,
+                        _context: context,
+                        _name_used: name.clone(),
                     });
 
                 // Update the import's execution contexts

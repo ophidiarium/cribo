@@ -40,7 +40,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            src: vec![PathBuf::from("src"), PathBuf::from(".")],
+            src: vec![], // Empty by default - entry directory will be added automatically
             known_first_party: IndexSet::new(),
             known_third_party: IndexSet::new(),
             preserve_comments: true,

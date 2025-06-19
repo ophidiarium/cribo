@@ -58,6 +58,7 @@ struct SemanticContext<'a> {
 }
 
 /// Parameters for namespace import operations
+#[allow(dead_code)]
 struct NamespaceImportParams<'a> {
     local_name: &'a str,
     imported_name: &'a str,
@@ -66,6 +67,7 @@ struct NamespaceImportParams<'a> {
 }
 
 /// Parameters for processing module globals
+#[allow(dead_code)]
 struct ProcessGlobalsParams<'a> {
     module_name: &'a str,
     ast: &'a ModModule,
@@ -73,6 +75,7 @@ struct ProcessGlobalsParams<'a> {
 }
 
 /// Parameters for handling inlined module imports
+#[allow(dead_code)]
 struct InlinedImportParams<'a> {
     import_from: &'a StmtImportFrom,
     resolved_module: &'a str,
@@ -80,6 +83,7 @@ struct InlinedImportParams<'a> {
 }
 
 /// Parameters for adding symbols to namespace
+#[allow(dead_code)]
 struct AddSymbolsParams<'a> {
     local_name: &'a str,
     imported_name: &'a str,
@@ -94,6 +98,7 @@ struct DirectImportContext<'a> {
 }
 
 /// Parameters for handling symbol imports from inlined modules
+#[allow(dead_code)]
 struct SymbolImportParams<'a> {
     imported_name: &'a str,
     local_name: &'a str,
@@ -492,8 +497,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.transform_expr(&mut if_stmt.test);
                         self.transform_statements(&mut if_stmt.body);
                         for clause in &mut if_stmt.elif_else_clauses {
-                            if let Some(test) = &mut clause.test {
-                                self.transform_expr(test);
+                            if let Some(test_expr) = &mut clause.test {
+                                self.transform_expr(test_expr);
                             }
                             self.transform_statements(&mut clause.body);
                         }
@@ -768,7 +773,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         .contains_key(&full_module_path)
                     {
                         // Create assignment: local_name = full_module_path_with_underscores
-                        let namespace_var = full_module_path.replace('.', "_");
+                        let namespace_var = full_module_path.cow_replace('.', "_").into_owned();
                         log::debug!(
                             "  Creating namespace assignment: {local_name} = {namespace_var}"
                         );
@@ -1265,7 +1270,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         // No rename, use the original name with module prefix
                                         let direct_name = format!(
                                             "{final_attr}_{}",
-                                            potential_module.replace('.', "_")
+                                            potential_module.cow_replace('.', "_").as_ref()
                                         );
                                         log::debug!(
                                             "Rewrote {base}.{}.{final_attr} to {direct_name}",
@@ -1548,11 +1553,6 @@ pub struct HybridStaticBundler {
     /// Modules that are imported as namespaces (e.g., from package import module)
     /// Maps module name to set of importing modules
     namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>>,
-    /// Tracks namespace modules already created in the entry module to avoid duplicates
-    entry_created_namespaces: FxIndexSet<String>,
-    /// Wrapper imports from namespace hybrid modules that need to be generated
-    /// Used when processing multiple dotted imports
-    created_namespace_modules: FxIndexSet<String>,
     /// Modules that are part of circular dependencies
     circular_modules: FxIndexSet<String>,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
@@ -1596,8 +1596,6 @@ impl HybridStaticBundler {
             module_exports: FxIndexMap::default(),
             lifted_global_declarations: Vec::new(),
             namespace_imported_modules: FxIndexMap::default(),
-            entry_created_namespaces: FxIndexSet::default(),
-            created_namespace_modules: FxIndexSet::default(),
             circular_modules: FxIndexSet::default(),
             circular_predeclarations: FxIndexMap::default(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
@@ -6113,7 +6111,10 @@ impl HybridStaticBundler {
         let module_var_name = if module_needs_init && !initialized_modules.contains(module_name) {
             let synthetic_name = &self.module_registry[module_name];
             let init_func_name = format!("__cribo_init_{synthetic_name}");
-            let local_module_var = format!("_cribo_module_{}", module_name.replace('.', "_"));
+            let local_module_var = format!(
+                "_cribo_module_{}",
+                module_name.cow_replace('.', "_").as_ref()
+            );
 
             // Add: _cribo_module_xxx = __cribo_init_<synthetic>()
             assignments.push(Stmt::Assign(StmtAssign {
@@ -10196,7 +10197,7 @@ impl HybridStaticBundler {
         }
 
         // Create the namespace variable name
-        let namespace_var = module_name.replace('.', "_");
+        let namespace_var = module_name.cow_replace('.', "_").into_owned();
 
         // Create namespace = types.SimpleNamespace(**kwargs) assignment
         Stmt::Assign(StmtAssign {

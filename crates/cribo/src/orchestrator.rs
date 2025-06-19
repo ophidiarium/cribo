@@ -148,6 +148,9 @@ impl BundleOrchestrator {
         // Initialize resolver with the updated config
         let mut resolver = ModuleResolver::new(self.config.clone())?;
 
+        // Set the entry file to establish the primary search path
+        resolver.set_entry_file(entry_path);
+
         // Find the entry module name
         let entry_module_name = self.find_entry_module_name(entry_path, &resolver)?;
         info!("Entry module: {entry_module_name}");
@@ -531,6 +534,16 @@ impl BundleOrchestrator {
             debug!("Discovering module: {module_name} ({module_path:?})");
             if processed_modules.contains(&module_name) {
                 debug!("Module {module_name} already discovered, skipping");
+                continue;
+            }
+
+            // Check if this is a namespace package (directory without __init__.py)
+            if module_path.is_dir() {
+                debug!(
+                    "Module {module_name} is a namespace package (directory), marking as processed"
+                );
+                processed_modules.insert(module_name.clone());
+                // Don't add namespace packages to discovered_modules since they have no code
                 continue;
             }
 

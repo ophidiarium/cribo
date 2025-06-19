@@ -902,8 +902,8 @@ impl<'a> GraphBuilder<'a> {
                             match handler {
                                 ast::ExceptHandler::ExceptHandler(except_handler) => {
                                     // Process the test expression if present
-                                    if let Some(test) = &except_handler.type_ {
-                                        self.collect_vars_in_expr(test, read_vars);
+                                    if let Some(test_expr) = &except_handler.type_ {
+                                        self.collect_vars_in_expr(test_expr, read_vars);
                                     }
                                     // Process the handler body
                                     stack.push(&except_handler.body);
