@@ -2433,8 +2433,9 @@ impl HybridStaticBundler {
                                 // Check if this creates a forward reference
                                 if dep_idx > sym_idx {
                                     log::debug!(
-                                        "Found forward reference: {module}.{symbol} (order {sym_idx}) uses {dep_module}.{dep_symbol} \
-                                         (order {dep_idx}) at module level"
+                                        "Found forward reference: {module}.{symbol} (order \
+                                         {sym_idx}) uses {dep_module}.{dep_symbol} (order \
+                                         {dep_idx}) at module level"
                                     );
                                     symbols_needing_predeclaration
                                         .insert((dep_module.clone(), dep_symbol.clone()));
@@ -2446,33 +2447,33 @@ impl HybridStaticBundler {
             }
 
             // Now generate pre-declarations only for symbols that actually need them
-            log::debug!(
-                "Symbols needing pre-declaration: {symbols_needing_predeclaration:?}"
-            );
+            log::debug!("Symbols needing pre-declaration: {symbols_needing_predeclaration:?}");
             for (module_name, symbol_name) in symbols_needing_predeclaration {
                 if let Some(module_renames) = symbol_renames.get(&module_name)
-                    && let Some(renamed_name) = module_renames.get(&symbol_name) {
-                        log::debug!(
-                            "Pre-declaring {renamed_name} (from {module_name}.{symbol_name}) due to forward reference"
-                        );
-                        circular_predeclarations.push(Stmt::Assign(StmtAssign {
-                            targets: vec![Expr::Name(ExprName {
-                                id: renamed_name.clone().into(),
-                                ctx: ExprContext::Store,
-                                range: TextRange::default(),
-                            })],
-                            value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
-                                range: TextRange::default(),
-                            })),
+                    && let Some(renamed_name) = module_renames.get(&symbol_name)
+                {
+                    log::debug!(
+                        "Pre-declaring {renamed_name} (from {module_name}.{symbol_name}) due to \
+                         forward reference"
+                    );
+                    circular_predeclarations.push(Stmt::Assign(StmtAssign {
+                        targets: vec![Expr::Name(ExprName {
+                            id: renamed_name.clone().into(),
+                            ctx: ExprContext::Store,
                             range: TextRange::default(),
-                        }));
+                        })],
+                        value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    }));
 
-                        // Track the pre-declaration
-                        self.circular_predeclarations
-                            .entry(module_name.clone())
-                            .or_default()
-                            .insert(symbol_name.clone(), renamed_name.clone());
-                    }
+                    // Track the pre-declaration
+                    self.circular_predeclarations
+                        .entry(module_name.clone())
+                        .or_default()
+                        .insert(symbol_name.clone(), renamed_name.clone());
+                }
             }
         }
 

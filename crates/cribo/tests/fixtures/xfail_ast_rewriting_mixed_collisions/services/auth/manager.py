@@ -8,7 +8,9 @@ from models import base  # Cross-package relative import
 
 # Global conflicts
 result = "auth_result"
-validate = lambda x: f"auth_lambda_validate: {x}"  # Lambda conflicts with function names
+validate = (
+    lambda x: f"auth_lambda_validate: {x}"
+)  # Lambda conflicts with function names
 
 
 class User:
@@ -86,7 +88,11 @@ def validate(data: Any) -> str:
 
     # Use module-level validate lambda if it exists and is not this function
     module_validate = globals().get("validate")
-    if module_validate and module_validate is not validate and callable(module_validate):
+    if (
+        module_validate
+        and module_validate is not validate
+        and callable(module_validate)
+    ):
         lambda_result = module_validate(data)
     else:
         lambda_result = f"fallback_{data}"
@@ -140,7 +146,14 @@ class AuthManager:
             connection = connect(User)  # Module function with User param
             connection_process = connection.process(User.username)
 
-            result.append({"user": User.username, "process": user_result, "validate": validate_result, "connection": connection_process})
+            result.append(
+                {
+                    "user": User.username,
+                    "process": user_result,
+                    "validate": validate_result,
+                    "connection": connection_process,
+                }
+            )
 
         return {"manager_results": result}
 

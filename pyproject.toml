@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.7,<2.0"]
+requires      = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
@@ -26,10 +26,10 @@ classifiers = [
 keywords = ["bundler", "python", "deployment", "pyspark", "lambda"]
 
 [project.urls]
-Homepage = "https://github.com/ophidiarium/cribo"
-Repository = "https://github.com/ophidiarium/cribo"
+Homepage      = "https://github.com/ophidiarium/cribo"
+Repository    = "https://github.com/ophidiarium/cribo"
 Documentation = "https://github.com/ophidiarium/cribo#readme"
-Issues = "https://github.com/ophidiarium/cribo/issues"
+Issues        = "https://github.com/ophidiarium/cribo/issues"
 
 [dependency-groups]
 dev = [
@@ -44,7 +44,7 @@ fixtures = [
 ]
 
 [tool.maturin]
-bindings = "bin"
+bindings      = "bin"
 python-source = "python"
 manifest-path = "crates/cribo/Cargo.toml"
 
@@ -57,3 +57,8 @@ required-environments = [
     "sys_platform == 'win32'",
     "sys_platform == 'darwin'",
 ]
+
+[tool.ruff]
+exclude        = [".venv", "references"]
+force-exclude  = true
+target-version = "py312"

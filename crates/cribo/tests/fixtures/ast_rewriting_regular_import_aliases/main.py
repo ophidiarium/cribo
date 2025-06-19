@@ -33,7 +33,9 @@ def main():
     print("JSON string:", json_str)
 
     # Use a fixed version for test consistency across different Python environments
-    print("Python version: sys.version_info(major=3, minor=13, micro=3, releaselevel='final', serial=0)")
+    print(
+        "Python version: sys.version_info(major=3, minor=13, micro=3, releaselevel='final', serial=0)"
+    )
 
     # Test dotted module alias
     print("ABC module available:", hasattr(abc_collections, "ABC"))

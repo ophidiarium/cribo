@@ -30,7 +30,11 @@ class Settings:
 
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration with self-references."""
-        base_config = {"app_name": self.app_name, "version": self.version, "debug": DEBUG}
+        base_config = {
+            "app_name": self.app_name,
+            "version": self.version,
+            "debug": DEBUG,
+        }
 
         # Self-reference of dict
         base_config = base_config  # Should be removed

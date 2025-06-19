@@ -7,7 +7,11 @@ This module demonstrates complex naming conflicts and import scenarios
 # Import conflicts: 'process' function exists in multiple modules
 from core.database.connection import process as db_process
 from core.utils.helpers import process, Logger as UtilLogger, validate
-from services.auth.manager import process as auth_process, User, validate as auth_validate
+from services.auth.manager import (
+    process as auth_process,
+    User,
+    validate as auth_validate,
+)
 from models.user import User as UserModel, process_user, Logger
 from models import base  # Relative import
 
@@ -67,7 +71,9 @@ def main():
     # Using imported User classes vs local User class
     auth_user = User("auth_type")  # Local User class
     model_user = UserModel("model_type")  # Imported User class
-    service_user = User("service_type")  # Local User class (was incorrectly trying to use auth User)
+    service_user = User(
+        "service_type"
+    )  # Local User class (was incorrectly trying to use auth User)
 
     # Using local functions that conflict with imports
     local_validate_result = validate("local_data")  # Local function
@@ -83,7 +89,11 @@ def main():
     # Complex expression with multiple conflicts
     final_result = {
         "process_results": [db_result, util_result, auth_result],
-        "validation_results": [local_validate_result, auth_validate_result, util_validate_result],
+        "validation_results": [
+            local_validate_result,
+            auth_validate_result,
+            util_validate_result,
+        ],
         "user_types": [auth_user.name, model_user.name, service_user.name],
         "logger_messages": [util_logger.get_message(), model_logger.get_message()],
         "base_init": base_result,

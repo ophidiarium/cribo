@@ -99,11 +99,23 @@ def connect() -> str:
 
 
 # Function with parameter shadowing all conflict names
-def shadow_test(validate: Any = None, process: Any = None, Logger: Any = None, result: Any = None, initialize: Any = None) -> Dict[str, Any]:
+def shadow_test(
+    validate: Any = None,
+    process: Any = None,
+    Logger: Any = None,
+    result: Any = None,
+    initialize: Any = None,
+) -> Dict[str, Any]:
     """Function that shadows all major conflict names with parameters"""
 
     # Parameters shadow all the global/class names
-    shadows = {"validate_param": validate, "process_param": process, "Logger_param": Logger, "result_param": result, "initialize_param": initialize}
+    shadows = {
+        "validate_param": validate,
+        "process_param": process,
+        "Logger_param": Logger,
+        "result_param": result,
+        "initialize_param": initialize,
+    }
 
     # Local variables that shadow parameters and globals
     validate = globals()["validate"]  # Get global function
@@ -115,7 +127,13 @@ def shadow_test(validate: Any = None, process: Any = None, Logger: Any = None, r
     process_result = process("test_data")
     logger = Logger("shadow_test")
 
-    shadows.update({"global_validate_result": validation_result, "global_process_result": process_result, "global_logger_source": logger.source})
+    shadows.update(
+        {
+            "global_validate_result": validation_result,
+            "global_process_result": process_result,
+            "global_logger_source": logger.source,
+        }
+    )
 
     return shadows
 

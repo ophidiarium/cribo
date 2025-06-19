@@ -92,7 +92,9 @@ def main():
         pass  # Should be removed - unnecessary
 
     # Lambda with empty expression
-    processor = lambda x: (x, None)[0]  # The None here is part of expression, not standalone
+    processor = lambda x: (x, None)[
+        0
+    ]  # The None here is part of expression, not standalone
     processor = processor  # Should be removed
 
     # Return with unnecessary operations

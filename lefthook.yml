@@ -36,6 +36,10 @@ pre-commit:
     update-index:
       glob: '**/*.rs'
       run: git update-index --again
+    ruff-format:
+      glob: '**/*.py'
+      run: uv tool run ruff format --config pyproject.toml {staged_files}
+      stage_fixed: true
     codecov:
       glob: '.codecov.yml'
       run: curl --fail --data-binary @.codecov.yml https://codecov.io/validate

@@ -42,7 +42,12 @@ def process(data):
     user_result = process_user(data)
 
     # Build result with local processing
-    processed = {"db_process": True, "data": validated, "user_processing": user_result, "timestamp": "2024-01-01"}
+    processed = {
+        "db_process": True,
+        "data": validated,
+        "user_processing": user_result,
+        "timestamp": "2024-01-01",
+    }
 
     result.append(processed)
     return f"db_processed: {data}"

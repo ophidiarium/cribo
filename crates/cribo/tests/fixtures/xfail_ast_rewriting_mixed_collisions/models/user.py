@@ -3,7 +3,10 @@ User model with extensive naming conflicts across the project
 """
 
 from typing import List, Dict, Any
-from core.utils.helpers import process as util_process, Logger as UtilLogger  # Cross-package import
+from core.utils.helpers import (
+    process as util_process,
+    Logger as UtilLogger,
+)  # Cross-package import
 
 # Global variables with conflicts
 result = {"model": "user"}
@@ -77,12 +80,21 @@ class User:
         password_valid = len(password) >= 4
 
         # Process authentication with conflicts
-        auth_data = {"name": self.name, "email": self.email, "password_length": len(password)}
+        auth_data = {
+            "name": self.name,
+            "email": self.email,
+            "password_length": len(password),
+        }
 
         process_result = process(auth_data)
         Logger.validate(f"auth_{self.name}")
 
-        result = {"user": self.name, "valid": name_valid and email_valid and password_valid, "process_result": process_result, "logger_context": Logger.context}
+        result = {
+            "user": self.name,
+            "valid": name_valid and email_valid and password_valid,
+            "process_result": process_result,
+            "logger_context": Logger.context,
+        }
 
         return result
 
@@ -165,7 +177,14 @@ def complex_operation(
     """Function with all parameter names conflicting with globals/classes"""
 
     # Use parameters with conflicted names
-    operation_result = {"user_param": User, "logger_param": Logger, "process_param": process, "validate_param": validate, "result_param": result, "connection_param": connection}
+    operation_result = {
+        "user_param": User,
+        "logger_param": Logger,
+        "process_param": process,
+        "validate_param": validate,
+        "result_param": result,
+        "connection_param": connection,
+    }
 
     # Local variable conflicts
     User = globals()["User"]  # Get class, shadows parameter

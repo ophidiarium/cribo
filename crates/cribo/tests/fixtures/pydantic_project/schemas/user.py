@@ -11,7 +11,9 @@ class UserSchema(BaseModel):
     email: EmailStr = Field(..., description="User's email address")
     age: int = Field(..., ge=0, le=150, description="User's age")
     is_active: bool = Field(default=True, description="Whether the user is active")
-    bio: Optional[str] = Field(default=None, max_length=500, description="User's biography")
+    bio: Optional[str] = Field(
+        default=None, max_length=500, description="User's biography"
+    )
 
     class Config:
         """Pydantic configuration."""
@@ -19,7 +21,15 @@ class UserSchema(BaseModel):
         json_encoders = {
             # Custom encoders if needed
         }
-        json_schema_extra = {"example": {"name": "John Doe", "email": "john@example.com", "age": 30, "is_active": True, "bio": "Software developer"}}
+        json_schema_extra = {
+            "example": {
+                "name": "John Doe",
+                "email": "john@example.com",
+                "age": 30,
+                "is_active": True,
+                "bio": "Software developer",
+            }
+        }
 
 
 class CreateUserRequest(BaseModel):

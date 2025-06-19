@@ -15,7 +15,9 @@ class Application:
     def __init__(self):
         self.config = get_config()
         self.logger = get_logger()
-        self.logger.log(f"Creating {self.config.app_name} v{self.config.version} application instance")
+        self.logger.log(
+            f"Creating {self.config.app_name} v{self.config.version} application instance"
+        )
 
     def run(self):
         """Run the application with various logging examples"""
