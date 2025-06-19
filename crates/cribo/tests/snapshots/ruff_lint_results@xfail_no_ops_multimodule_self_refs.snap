@@ -7,6 +7,7 @@ RuffLintResults {
     f404_violations: [],
     other_violations: [
         "Line 5: unused-import - `os.path` imported but unused",
+        "Line 8: unused-import - `sys` imported but unused",
     ],
-    total_violations: 1,
+    total_violations: 2,
 }

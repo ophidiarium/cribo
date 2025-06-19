@@ -8,7 +8,6 @@ input_file: crates/cribo/tests/fixtures/no_ops_multimodule_mixed/main.py
 
 from typing import Any, Dict, Optional
 import socket
-import sys
 import threading
 import types
 """Utilities with mixed no-op patterns."""
@@ -198,14 +197,8 @@ def start_server(server: Server_2, port: int) -> bool:
     return False
 "end of server module"
 def __cribo_init___cribo_2c21b2_lib_constants():
-    if '__cribo_2c21b2_lib_constants' in sys.modules:
-        return sys.modules['__cribo_2c21b2_lib_constants']
-    module = types.ModuleType('__cribo_2c21b2_lib_constants')
+    module = types.SimpleNamespace()
     module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_2c21b2_lib_constants'] = module
-    sys.modules['lib.constants'] = module
-    if 'lib' in sys.modules:
-        setattr(sys.modules['lib'], 'constants', module)
     """Constants module with no-ops."""
     MAX_CONNECTIONS = 100
     module.MAX_CONNECTIONS = MAX_CONNECTIONS
@@ -232,27 +225,10 @@ def __cribo_init___cribo_2c21b2_lib_constants():
     "end"
     module.__all__ = ['MAX_CONNECTIONS', 'MIN_PORT', 'MAX_PORT', 'BUFFER_SIZE', 'TIMEOUT', 'RETRY_COUNT', 'CONFIG', 'ALLOWED_METHODS']
     return module
-__cribo_modules = {'lib.constants': '__cribo_2c21b2_lib_constants'}
-__cribo_init_functions = {'__cribo_2c21b2_lib_constants': __cribo_init___cribo_2c21b2_lib_constants}
-class CriboBundledFinder:
-
-    def __init__(self, module_registry, init_functions):
-        self.module_registry = module_registry
-        self.init_functions = init_functions
-
-    def find_spec(self, fullname, path, target=None):
-        if fullname in self.module_registry:
-            synthetic_name = self.module_registry[fullname]
-            if synthetic_name not in sys.modules:
-                init_func = self.init_functions.get(synthetic_name)
-                if init_func:
-                    init_func()
-            import importlib.util
-            return importlib.util.find_spec(synthetic_name)
-        return None
-sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
-__cribo_init___cribo_2c21b2_lib_constants()
-lib = types.ModuleType('lib')
+api = types.SimpleNamespace()
+handlers = types.SimpleNamespace()
+lib = types.SimpleNamespace()
+lib.constants = __cribo_init___cribo_2c21b2_lib_constants()
 validate_input = validate_input_1
 """Test fixture combining multiple no-op patterns across modules."""
 """This is the module docstring and should NOT be removed."""
@@ -262,7 +238,7 @@ RequestHandler_1 = RequestHandler_2
 RequestHandler = RequestHandler_1
 process_request_1 = process_request_2
 process_request = process_request_1
-constants = sys.modules['lib.constants']
+constants = lib.constants
 "random string"
 counter = 0
 total = 100.0

@@ -6,7 +6,7 @@ RuffLintResults {
     f401_violations: [],
     f404_violations: [],
     other_violations: [
-        "Line 8: unused-import - `threading` imported but unused",
+        "Line 7: unused-import - `threading` imported but unused",
     ],
     total_violations: 1,
 }

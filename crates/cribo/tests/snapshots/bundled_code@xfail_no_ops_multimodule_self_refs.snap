@@ -14,14 +14,8 @@ import types
 """Models package."""
 """Core package with self-references."""
 def __cribo_init___cribo_aec1d1_core_config():
-    if '__cribo_aec1d1_core_config' in sys.modules:
-        return sys.modules['__cribo_aec1d1_core_config']
-    module = types.ModuleType('__cribo_aec1d1_core_config')
+    module = types.SimpleNamespace()
     module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_aec1d1_core_config'] = module
-    sys.modules['core.config'] = module
-    if 'core' in sys.modules:
-        setattr(sys.modules['core'], 'config', module)
     """Configuration module with self-references."""
     DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
     module.DEBUG = DEBUG
@@ -66,14 +60,8 @@ def __cribo_init___cribo_aec1d1_core_config():
     module.__all__ = ['DEBUG', 'Settings', 'CONFIG', 'get_setting', 'DEFAULT_CONFIG', 'config_getter']
     return module
 def __cribo_init___cribo_708a84_utils_constants():
-    if '__cribo_708a84_utils_constants' in sys.modules:
-        return sys.modules['__cribo_708a84_utils_constants']
-    module = types.ModuleType('__cribo_708a84_utils_constants')
+    module = types.SimpleNamespace()
     module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_708a84_utils_constants'] = module
-    sys.modules['utils.constants'] = module
-    if 'utils' in sys.modules:
-        setattr(sys.modules['utils'], 'constants', module)
     """Constants module with self-references."""
     MAX_VALUE = 1000
     module.MAX_VALUE = MAX_VALUE
@@ -98,18 +86,12 @@ def __cribo_init___cribo_708a84_utils_constants():
     module.__all__ = ['MAX_VALUE', 'MIN_VALUE', 'DEFAULT_NAME', 'CONFIG_DICT', 'CONFIG_LIST', 'COMPUTED_VALUE', 'LIMITS', 'VALID_NAMES']
     return module
 def __cribo_init___cribo_2811ba_models_user():
-    if '__cribo_2811ba_models_user' in sys.modules:
-        return sys.modules['__cribo_2811ba_models_user']
-    module = types.ModuleType('__cribo_2811ba_models_user')
+    module = types.SimpleNamespace()
     module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_2811ba_models_user'] = module
-    sys.modules['models.user'] = module
-    if 'models' in sys.modules:
-        setattr(sys.modules['models'], 'user', module)
     """User model with self-references."""
-    __cribo_init___cribo_b84d0d_utils_helpers()
-    validate = sys.modules['utils.helpers'].validate
-    Logger = sys.modules['utils.helpers'].Logger
+    _cribo_module_utils_helpers = __cribo_init___cribo_b84d0d_utils_helpers()
+    validate = _cribo_module_utils_helpers.validate
+    Logger = _cribo_module_utils_helpers.Logger
 
     class User:
         """User class with self-references."""
@@ -192,18 +174,12 @@ def __cribo_init___cribo_2811ba_models_user():
     module.__all__ = ['User', 'UserManager', 'create_admin_user', 'default_manager']
     return module
 def __cribo_init___cribo_5e767a_core_processor():
-    if '__cribo_5e767a_core_processor' in sys.modules:
-        return sys.modules['__cribo_5e767a_core_processor']
-    module = types.ModuleType('__cribo_5e767a_core_processor')
+    module = types.SimpleNamespace()
     module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_5e767a_core_processor'] = module
-    sys.modules['core.processor'] = module
-    if 'core' in sys.modules:
-        setattr(sys.modules['core'], 'processor', module)
     """Data processor module with self-references."""
-    __cribo_init___cribo_b84d0d_utils_helpers()
-    Logger = sys.modules['utils.helpers'].Logger
-    validate = sys.modules['utils.helpers'].validate
+    _cribo_module_utils_helpers = __cribo_init___cribo_b84d0d_utils_helpers()
+    Logger = _cribo_module_utils_helpers.Logger
+    validate = _cribo_module_utils_helpers.validate
 
     class DataProcessor:
         """Processor class with self-references."""
@@ -218,8 +194,8 @@ def __cribo_init___cribo_5e767a_core_processor():
 
         def process(self, items: List[Any]) -> List[Any]:
             """Process items with self-references."""
-            __cribo_init___cribo_708a84_utils_constants()
-            MAX_VALUE = sys.modules['utils.constants'].MAX_VALUE
+            _cribo_module_utils_constants = __cribo_init___cribo_708a84_utils_constants()
+            MAX_VALUE = _cribo_module_utils_constants.MAX_VALUE
             results = []
             for i, item in enumerate(items):
                 if item in self.cache:
@@ -271,14 +247,8 @@ def __cribo_init___cribo_5e767a_core_processor():
     module.__all__ = ['DataProcessor', 'transform']
     return module
 def __cribo_init___cribo_b84d0d_utils_helpers():
-    if '__cribo_b84d0d_utils_helpers' in sys.modules:
-        return sys.modules['__cribo_b84d0d_utils_helpers']
-    module = types.ModuleType('__cribo_b84d0d_utils_helpers')
+    module = types.SimpleNamespace()
     module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_b84d0d_utils_helpers'] = module
-    sys.modules['utils.helpers'] = module
-    if 'utils' in sys.modules:
-        setattr(sys.modules['utils'], 'helpers', module)
     """Helper utilities with self-reference patterns."""
     DEFAULT_TIMEOUT = 30
     module.DEFAULT_TIMEOUT = DEFAULT_TIMEOUT
@@ -341,52 +311,32 @@ def __cribo_init___cribo_b84d0d_utils_helpers():
         conditional_var = 200
     module.__all__ = ['DEFAULT_TIMEOUT', 'DEFAULT_RETRIES', 'Logger', 'process_data', 'validate', 'helper_function', 'get_config']
     return module
-__cribo_modules = {'core.config': '__cribo_aec1d1_core_config', 'utils.constants': '__cribo_708a84_utils_constants', 'models.user': '__cribo_2811ba_models_user', 'core.processor': '__cribo_5e767a_core_processor', 'utils.helpers': '__cribo_b84d0d_utils_helpers'}
-__cribo_init_functions = {'__cribo_aec1d1_core_config': __cribo_init___cribo_aec1d1_core_config, '__cribo_708a84_utils_constants': __cribo_init___cribo_708a84_utils_constants, '__cribo_2811ba_models_user': __cribo_init___cribo_2811ba_models_user, '__cribo_5e767a_core_processor': __cribo_init___cribo_5e767a_core_processor, '__cribo_b84d0d_utils_helpers': __cribo_init___cribo_b84d0d_utils_helpers}
-class CriboBundledFinder:
-
-    def __init__(self, module_registry, init_functions):
-        self.module_registry = module_registry
-        self.init_functions = init_functions
-
-    def find_spec(self, fullname, path, target=None):
-        if fullname in self.module_registry:
-            synthetic_name = self.module_registry[fullname]
-            if synthetic_name not in sys.modules:
-                init_func = self.init_functions.get(synthetic_name)
-                if init_func:
-                    init_func()
-            import importlib.util
-            return importlib.util.find_spec(synthetic_name)
-        return None
-sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
-__cribo_init___cribo_b84d0d_utils_helpers()
-__cribo_init___cribo_2811ba_models_user()
-__cribo_init___cribo_708a84_utils_constants()
-__cribo_init___cribo_5e767a_core_processor()
-__cribo_init___cribo_aec1d1_core_config()
-core = types.ModuleType('core')
-models = types.ModuleType('models')
-utils = types.ModuleType('utils')
-core.config = sys.modules['core.config']
-core.processor = sys.modules['core.processor']
-models.user = sys.modules['models.user']
-utils.helpers = sys.modules['utils.helpers']
-User = sys.modules['models.user'].User
-UserManager = sys.modules['models.user'].UserManager
-DataProcessor = sys.modules['core.processor'].DataProcessor
-transform = sys.modules['core.processor'].transform
-CONFIG = sys.modules['core.config'].CONFIG
-Settings = sys.modules['core.config'].Settings
+core = types.SimpleNamespace()
+models = types.SimpleNamespace()
+utils = types.SimpleNamespace()
+utils.helpers = __cribo_init___cribo_b84d0d_utils_helpers()
+models.user = __cribo_init___cribo_2811ba_models_user()
+utils.constants = __cribo_init___cribo_708a84_utils_constants()
+core.processor = __cribo_init___cribo_5e767a_core_processor()
+core.config = __cribo_init___cribo_aec1d1_core_config()
+core.config = core.config
+core.processor = core.processor
+models.user = models.user
+utils.helpers = utils.helpers
+User = models.user.User
+UserManager = models.user.UserManager
+DataProcessor = core.processor.DataProcessor
+transform = core.processor.transform
+CONFIG = core.config.CONFIG
+Settings = core.config.Settings
 """Test fixture for self-reference assignments across multiple modules."""
-__cribo_init___cribo_b84d0d_utils_helpers()
-process_data_1 = sys.modules['utils.helpers'].process_data
+process_data_1 = utils.helpers.process_data
 process_data = process_data_1
-validate_1 = sys.modules['utils.helpers'].validate
+validate_1 = utils.helpers.validate
 validate = validate_1
-Logger_1 = sys.modules['utils.helpers'].Logger
+Logger_1 = utils.helpers.Logger
 Logger = Logger_1
-constants = sys.modules['utils.constants']
+constants = utils.constants
 core = types.SimpleNamespace()
 core.__all__ = ['DataProcessor', 'transform', 'CONFIG', 'Settings']
 core.DataProcessor = DataProcessor_2
@@ -398,8 +348,8 @@ result = None
 data = []
 def main():
     """Main function with self-references in function scope."""
-    __cribo_init___cribo_b84d0d_utils_helpers()
-    helper_function = sys.modules['utils.helpers'].helper_function
+    helper_function = utils.helpers.helper_function
+    CONFIG = core.config.CONFIG
     logger = Logger("main")
     processor = DataProcessor()
     user_manager = UserManager()
@@ -423,8 +373,7 @@ class MainController:
 
     def run(self):
         """Method with various self-references."""
-        __cribo_init___cribo_b84d0d_utils_helpers()
-        get_config = sys.modules['utils.helpers'].get_config
+        get_config = utils.helpers.get_config
         config = get_config()
         result = self.processor.process([1, 2, 3])
         temp = result if result else result

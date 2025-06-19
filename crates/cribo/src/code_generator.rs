@@ -13,8 +13,8 @@ use ruff_python_ast::{
     ExprFString, ExprIf, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript,
     FString, FStringFlags, FStringValue, Identifier, InterpolatedElement,
     InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign,
-    StmtClassDef, StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StringLiteral,
-    StringLiteralFlags, StringLiteralValue,
+    StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
+    StringLiteralValue,
 };
 use ruff_text_size::TextRange;
 use rustc_hash::FxHasher;
@@ -407,6 +407,8 @@ struct RecursiveImportTransformer<'a> {
     deferred_imports: &'a mut Vec<Stmt>,
     /// Flag indicating if this is the entry module
     is_entry_module: bool,
+    /// Flag indicating if we're inside a wrapper module's init function
+    is_wrapper_init: bool,
     /// Reference to global deferred imports registry
     global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
 }
@@ -419,6 +421,7 @@ impl<'a> RecursiveImportTransformer<'a> {
         symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
         deferred_imports: &'a mut Vec<Stmt>,
         is_entry_module: bool,
+        is_wrapper_init: bool,
         global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
     ) -> Self {
         Self {
@@ -429,6 +432,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             import_aliases: FxIndexMap::default(),
             deferred_imports,
             is_entry_module,
+            is_wrapper_init,
             global_deferred_imports,
         }
     }
@@ -1063,11 +1067,14 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                     // Generate the standard transformation which includes init calls
                     let empty_renames = FxIndexMap::default();
-                    let import_stmts = self.bundler.rewrite_import_in_stmt_multiple_with_context(
-                        Stmt::ImportFrom(import_from.clone()),
-                        self.module_name,
-                        &empty_renames,
-                    );
+                    let import_stmts = self
+                        .bundler
+                        .rewrite_import_in_stmt_multiple_with_full_context(
+                            Stmt::ImportFrom(import_from.clone()),
+                            self.module_name,
+                            &empty_renames,
+                            self.is_wrapper_init,
+                        );
 
                     // Defer these imports until after all modules are inlined
                     self.deferred_imports.extend(import_stmts);
@@ -1080,11 +1087,13 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // Otherwise, use standard transformation
         let empty_renames = FxIndexMap::default();
-        self.bundler.rewrite_import_in_stmt_multiple_with_context(
-            Stmt::ImportFrom(import_from.clone()),
-            self.module_name,
-            &empty_renames,
-        )
+        self.bundler
+            .rewrite_import_in_stmt_multiple_with_full_context(
+                Stmt::ImportFrom(import_from.clone()),
+                self.module_name,
+                &empty_renames,
+                self.is_wrapper_init,
+            )
     }
 
     /// Transform an expression, rewriting module attribute access to direct references
@@ -1555,6 +1564,12 @@ pub struct HybridStaticBundler {
     /// Global registry of deferred imports to prevent duplication
     /// Maps (module_name, symbol_name) to the source module that deferred it
     global_deferred_imports: FxIndexMap<(String, String), String>,
+    /// Track all namespaces that need to be created before module initialization
+    /// This ensures parent namespaces exist before any submodule assignments
+    required_namespaces: FxIndexSet<String>,
+    /// Runtime tracking of all created namespaces to prevent duplicates
+    /// This includes both pre-identified and dynamically created namespaces
+    created_namespaces: FxIndexSet<String>,
 }
 
 impl Default for HybridStaticBundler {
@@ -1586,7 +1601,197 @@ impl HybridStaticBundler {
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
             global_deferred_imports: FxIndexMap::default(),
+            required_namespaces: FxIndexSet::default(),
+            created_namespaces: FxIndexSet::default(),
         }
+    }
+
+    /// Check if an expression is accessing a module namespace
+    fn is_module_namespace_access(&self, expr: &Expr) -> bool {
+        match expr {
+            // Direct module name (e.g., schemas)
+            Expr::Name(name) => {
+                let module_name = name.id.as_str();
+                // Check if it's a known module or namespace
+                self.bundled_modules.contains(module_name)
+                    || self.namespace_imported_modules.contains_key(module_name)
+                    || self.created_namespaces.contains(module_name)
+            }
+            // Nested module access (e.g., schemas.user)
+            Expr::Attribute(_attr) => {
+                // Check if this represents a module path
+                let module_path = self.expr_to_module_path(expr);
+                if let Some(path) = module_path {
+                    self.bundled_modules.contains(&path)
+                        || self.namespace_imported_modules.contains_key(&path)
+                        || self.created_namespaces.contains(&path)
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Convert an expression to a module path if it represents one
+    fn expr_to_module_path(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Name(name) => Some(name.id.to_string()),
+            Expr::Attribute(attr) => {
+                self.expr_to_module_path(&attr.value).map(|base_path| format!("{}.{}", base_path, attr.attr.as_str()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Compare two expressions for equality
+    fn expr_equals(&self, expr1: &Expr, expr2: &Expr) -> bool {
+        match (expr1, expr2) {
+            (Expr::Name(n1), Expr::Name(n2)) => n1.id == n2.id,
+            (Expr::Attribute(a1), Expr::Attribute(a2)) => {
+                a1.attr == a2.attr && self.expr_equals(&a1.value, &a2.value)
+            }
+            _ => false,
+        }
+    }
+
+    /// Pre-scan all modules to identify required namespaces
+    /// This ensures parent namespaces are created before any module initialization
+    fn identify_required_namespaces(&mut self, modules: &[(String, ModModule, PathBuf, String)]) {
+        debug!(
+            "Identifying required namespaces from {} modules",
+            modules.len()
+        );
+
+        // Clear any existing namespaces
+        self.required_namespaces.clear();
+
+        // Scan all modules to find dotted module names
+        for (module_name, _, _, _) in modules {
+            if !module_name.contains('.') {
+                continue;
+            }
+
+            // Split the module name and identify all parent namespaces
+            let parts: Vec<&str> = module_name.split('.').collect();
+
+            // Add all parent namespace levels
+            for i in 1..parts.len() {
+                let namespace = parts[..i].join(".");
+
+                // Check if this namespace is itself a wrapped module (not inlined)
+                let is_wrapped_module = modules.iter().any(|(name, _, _, _)| {
+                    name == &namespace && self.module_registry.contains_key(name)
+                });
+
+                // If it's not a wrapped module (either not a module at all, or an inlined module),
+                // we need to create a namespace for it
+                if !is_wrapped_module {
+                    debug!("Identified required namespace: {namespace}");
+                    self.required_namespaces.insert(namespace);
+                }
+            }
+        }
+
+        debug!(
+            "Total required namespaces: {}",
+            self.required_namespaces.len()
+        );
+    }
+
+    /// Create all required namespace statements before module initialization
+    fn create_namespace_statements(&mut self) -> Vec<Stmt> {
+        let mut statements = Vec::new();
+
+        // Sort namespaces for deterministic output
+        let mut sorted_namespaces: Vec<String> = self.required_namespaces.iter().cloned().collect();
+        sorted_namespaces.sort();
+
+        for namespace in sorted_namespaces {
+            debug!("Creating namespace statement for: {namespace}");
+
+            // Use ensure_namespace_exists to handle both simple and dotted namespaces
+            let namespace_stmts = self.ensure_namespace_exists(&namespace);
+            statements.extend(namespace_stmts);
+        }
+
+        statements
+    }
+
+    /// Ensure a namespace exists, creating it and any parent namespaces if needed
+    /// Returns statements to create any missing namespaces
+    fn ensure_namespace_exists(&mut self, namespace_path: &str) -> Vec<Stmt> {
+        let mut statements = Vec::new();
+
+        // For dotted names like "models.user", we need to ensure "models" exists first
+        if namespace_path.contains('.') {
+            let parts: Vec<&str> = namespace_path.split('.').collect();
+
+            // Create all parent namespaces
+            for i in 1..=parts.len() {
+                let namespace = parts[..i].join(".");
+
+                if !self.created_namespaces.contains(&namespace) {
+                    debug!("Creating namespace dynamically: {namespace}");
+
+                    if i == 1 {
+                        // Top-level namespace
+                        statements.push(self.create_namespace_module(&namespace));
+                    } else {
+                        // Nested namespace - create as attribute
+                        let parent = parts[..i - 1].join(".");
+                        let attr = parts[i - 1];
+                        statements.push(self.create_namespace_attribute(&parent, attr));
+                    }
+
+                    self.created_namespaces.insert(namespace);
+                }
+            }
+        } else {
+            // Simple namespace without dots
+            if !self.created_namespaces.contains(namespace_path) {
+                debug!("Creating simple namespace dynamically: {namespace_path}");
+                statements.push(self.create_namespace_module(namespace_path));
+                self.created_namespaces.insert(namespace_path.to_string());
+            }
+        }
+
+        statements
+    }
+
+    /// Create a namespace as an attribute of a parent namespace
+    fn create_namespace_attribute(&self, parent: &str, attr: &str) -> Stmt {
+        Stmt::Assign(StmtAssign {
+            targets: vec![Expr::Attribute(ExprAttribute {
+                value: Box::new(Expr::Name(ExprName {
+                    id: parent.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new(attr, TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Call(ExprCall {
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    value: Box::new(Expr::Name(ExprName {
+                        id: "types".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: ruff_python_ast::Arguments {
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        })
     }
 
     /// Find matching module name from the modules list (for namespace imports)
@@ -2245,10 +2450,9 @@ impl HybridStaticBundler {
             self.collect_imports_from_module(ast, module_name, module_path);
         }
 
-        // If we have wrapper modules, inject sys and types as stdlib dependencies
+        // If we have wrapper modules, inject types as stdlib dependency
         if !wrapper_modules.is_empty() {
-            log::debug!("Adding sys and types imports for wrapper modules");
-            self.add_stdlib_import("sys");
+            log::debug!("Adding types import for wrapper modules");
             self.add_stdlib_import("types");
         }
 
@@ -2335,8 +2539,8 @@ impl HybridStaticBundler {
         // Add imports first
         self.add_hoisted_imports(&mut final_body);
 
-        // Check if we need sys import (for wrapper modules)
-        let need_sys_import = !wrapper_modules.is_empty();
+        // Check if we have wrapper modules
+        let has_wrapper_modules = !wrapper_modules.is_empty();
 
         // Check if we need types import (for namespace imports)
         let _need_types_import = !self.namespace_imported_modules.is_empty();
@@ -2549,7 +2753,7 @@ impl HybridStaticBundler {
 
         // Now transform wrapper modules into init functions AFTER inlining
         // This way we have access to symbol_renames for proper import resolution
-        if need_sys_import {
+        if has_wrapper_modules {
             // First pass: analyze globals in all wrapper modules
             let mut module_globals = FxIndexMap::default();
             let mut all_lifted_declarations = Vec::new();
@@ -2603,7 +2807,22 @@ impl HybridStaticBundler {
         }
 
         // Initialize wrapper modules in dependency order AFTER inlined modules are defined
-        if need_sys_import {
+        if has_wrapper_modules {
+            debug!("Creating parent namespaces before module initialization");
+
+            // Pre-scan to identify all required namespaces
+            self.identify_required_namespaces(&modules_normalized);
+
+            // Create namespace statements BEFORE module initialization
+            let namespace_statements = self.create_namespace_statements();
+            debug!(
+                "Created {} namespace statements",
+                namespace_statements.len()
+            );
+
+            // Add namespace creation statements to the final body
+            final_body.extend(namespace_statements);
+
             debug!("Initializing modules in order:");
 
             // First, collect all wrapped modules that need initialization
@@ -2628,10 +2847,10 @@ impl HybridStaticBundler {
 
             for module_name in &sorted_wrapped {
                 debug!("  - {module_name}");
-                if let Some(synthetic_name) = self.module_registry.get(module_name) {
-                    let init_call = self.generate_module_init_call(synthetic_name);
+                if let Some(synthetic_name) = self.module_registry.get(module_name).cloned() {
+                    let init_stmts = self.generate_module_init_call(&synthetic_name);
                     let prev_len = final_body.len();
-                    final_body.push(init_call);
+                    final_body.extend(init_stmts);
                     debug!(
                         "Added init call for {}, body length {} -> {}",
                         module_name,
@@ -2728,6 +2947,7 @@ impl HybridStaticBundler {
                 &symbol_renames,
                 &mut entry_deferred_imports,
                 true,                                // This is the entry module
+                false,                               // Not a wrapper init
                 Some(&self.global_deferred_imports), // Pass global deferred imports for checking
             );
             log::debug!(
@@ -2753,44 +2973,43 @@ impl HybridStaticBundler {
                         final_body.push(stmt.clone());
                     }
                     Stmt::Assign(assign) => {
-                        // Check if this is a simple import assignment that might duplicate
-                        // a deferred import that was already added
-                        let mut is_duplicate = false;
-                        if assign.targets.len() == 1
-                            && let (Expr::Name(target), Expr::Name(value)) =
+                        // Check if this assignment already exists in final_body to avoid duplicates
+                        let is_duplicate = if assign.targets.len() == 1 {
+                            // Check the exact assignment pattern
+                            if let (Expr::Name(target), _value) =
                                 (&assign.targets[0], &assign.value.as_ref())
                             {
-                                // Check if this assignment already exists in final_body
-                                let assignment_key =
-                                    format!("{} = {}", target.id.as_str(), value.id.as_str());
-                                for existing_stmt in &*final_body {
-                                    if let Stmt::Assign(existing_assign) = existing_stmt
-                                        && existing_assign.targets.len() == 1
-                                            && let (
-                                                Expr::Name(existing_target),
-                                                Expr::Name(existing_value),
-                                            ) = (
-                                                &existing_assign.targets[0],
-                                                &existing_assign.value.as_ref(),
-                                            ) {
-                                                let existing_key = format!(
-                                                    "{} = {}",
-                                                    existing_target.id.as_str(),
-                                                    existing_value.id.as_str()
-                                                );
-                                                if existing_key == assignment_key {
-                                                    log::debug!(
-                                                        "Skipping duplicate entry module \
-                                                         assignment: {assignment_key}"
-                                                    );
-                                                    is_duplicate = true;
-                                                    break;
-                                                }
+                                // Look for exact duplicate in final_body
+                                final_body.iter().any(|stmt| {
+                                    if let Stmt::Assign(existing) = stmt {
+                                        if existing.targets.len() == 1 {
+                                            if let Expr::Name(existing_target) =
+                                                &existing.targets[0]
+                                            {
+                                                // Check if it's the same assignment
+                                                existing_target.id == target.id
+                                                    && self
+                                                        .expr_equals(&existing.value, &assign.value)
+                                            } else {
+                                                false
                                             }
-                                }
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                })
+                            } else {
+                                false
                             }
+                        } else {
+                            false
+                        };
 
-                        if !is_duplicate {
+                        if is_duplicate {
+                            log::debug!("Skipping duplicate assignment in entry module");
+                        } else {
                             let mut stmt_clone = stmt.clone();
                             self.process_entry_module_statement(
                                 &mut stmt_clone,
@@ -2866,8 +3085,10 @@ impl HybridStaticBundler {
 
             // Add init calls first
             for synthetic_name in needed_init_calls {
-                let init_call = self.generate_module_init_call(&synthetic_name);
-                final_body.push(init_call);
+                // Note: This is in a context where we can't mutate self, so we'll rely on
+                // the namespaces being pre-created by identify_required_namespaces
+                let init_stmts = self.generate_module_init_call(&synthetic_name);
+                final_body.extend(init_stmts);
             }
 
             // Then deduplicate and add the actual imports (without init calls)
@@ -3039,95 +3260,8 @@ impl HybridStaticBundler {
         let init_func_name = &self.init_functions[ctx.synthetic_name];
         let mut body = Vec::new();
 
-        // Check if module already exists in sys.modules
-        body.push(self.create_module_exists_check(ctx.synthetic_name));
-
         // Create module object (returns multiple statements)
         body.extend(self.create_module_object_stmt(ctx.synthetic_name, ctx.module_path));
-
-        // Register in sys.modules with both synthetic and original names
-        body.push(self.create_sys_modules_registration(ctx.synthetic_name));
-        body.push(self.create_sys_modules_registration_alias(ctx.synthetic_name, ctx.module_name));
-
-        // If this is a submodule, set it as an attribute on its parent module
-        // This is necessary for relative imports like "from . import submodule" to work
-        if ctx.module_name.contains('.') {
-            let parts: Vec<&str> = ctx.module_name.split('.').collect();
-            if parts.len() >= 2 {
-                let parent_module = parts[..parts.len() - 1].join(".");
-                let attr_name = parts[parts.len() - 1];
-
-                // Check if parent module exists in sys.modules
-                let parent_check = Stmt::If(ruff_python_ast::StmtIf {
-                    test: Box::new(Expr::Compare(ruff_python_ast::ExprCompare {
-                        left: Box::new(self.create_string_literal(&parent_module)),
-                        ops: vec![CmpOp::In].into(),
-                        comparators: vec![Expr::Attribute(ExprAttribute {
-                            value: Box::new(Expr::Name(ExprName {
-                                id: "sys".into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            attr: Identifier::new("modules", TextRange::default()),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })]
-                        .into(),
-                        range: TextRange::default(),
-                    })),
-                    body: vec![
-                        // setattr(sys.modules[parent_module], attr_name, module)
-                        Stmt::Expr(ruff_python_ast::StmtExpr {
-                            value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
-                                func: Box::new(Expr::Name(ExprName {
-                                    id: "setattr".into(),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                arguments: Arguments {
-                                    args: vec![
-                                        Expr::Subscript(ruff_python_ast::ExprSubscript {
-                                            value: Box::new(Expr::Attribute(ExprAttribute {
-                                                value: Box::new(Expr::Name(ExprName {
-                                                    id: "sys".into(),
-                                                    ctx: ExprContext::Load,
-                                                    range: TextRange::default(),
-                                                })),
-                                                attr: Identifier::new(
-                                                    "modules",
-                                                    TextRange::default(),
-                                                ),
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            })),
-                                            slice: Box::new(
-                                                self.create_string_literal(&parent_module),
-                                            ),
-                                            ctx: ExprContext::Load,
-                                            range: TextRange::default(),
-                                        }),
-                                        self.create_string_literal(attr_name),
-                                        Expr::Name(ExprName {
-                                            id: "module".into(),
-                                            ctx: ExprContext::Load,
-                                            range: TextRange::default(),
-                                        }),
-                                    ]
-                                    .into(),
-                                    keywords: vec![].into(),
-                                    range: TextRange::default(),
-                                },
-                                range: TextRange::default(),
-                            })),
-                            range: TextRange::default(),
-                        }),
-                    ],
-                    elif_else_clauses: vec![],
-                    range: TextRange::default(),
-                });
-                body.push(parent_check);
-            }
-        }
 
         // Apply globals lifting if needed
         let lifted_names = if let Some(ref global_info) = ctx.global_info {
@@ -3156,6 +3290,7 @@ impl HybridStaticBundler {
             symbol_renames,
             &mut wrapper_deferred_imports,
             false, // This is not the entry module
+            true,  // This IS a wrapper init function
             None,  // No need for global deferred imports in wrapper modules
         );
 
@@ -3335,95 +3470,9 @@ impl HybridStaticBundler {
                     self.create_namespace_for_inlined_submodule(&full_name, &relative_name);
                 body.extend(create_namespace_stmts);
             } else {
-                // For wrapped submodules, just reference sys.modules
-                body.push(Stmt::If(ruff_python_ast::StmtIf {
-                    test: Box::new(Expr::Compare(ruff_python_ast::ExprCompare {
-                        left: Box::new(self.create_string_literal(&full_name)),
-                        ops: vec![CmpOp::In].into(),
-                        comparators: vec![Expr::Attribute(ExprAttribute {
-                            value: Box::new(Expr::Name(ExprName {
-                                id: "sys".into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            attr: Identifier::new("modules", TextRange::default()),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })]
-                        .into(),
-                        range: TextRange::default(),
-                    })),
-                    body: vec![
-                        // Only set the attribute if it hasn't been set already
-                        // This prevents overwriting re-exported symbols with module references
-                        Stmt::If(ruff_python_ast::StmtIf {
-                            test: Box::new(Expr::UnaryOp(ruff_python_ast::ExprUnaryOp {
-                                op: ruff_python_ast::UnaryOp::Not,
-                                operand: Box::new(Expr::Call(ruff_python_ast::ExprCall {
-                                    func: Box::new(Expr::Name(ExprName {
-                                        id: "hasattr".into(),
-                                        ctx: ExprContext::Load,
-                                        range: TextRange::default(),
-                                    })),
-                                    arguments: Arguments {
-                                        args: Box::from([
-                                            Expr::Name(ExprName {
-                                                id: "module".into(),
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            }),
-                                            self.create_string_literal(&relative_name),
-                                        ]),
-                                        keywords: Box::from([]),
-                                        range: TextRange::default(),
-                                    },
-                                    range: TextRange::default(),
-                                })),
-                                range: TextRange::default(),
-                            })),
-                            body: vec![
-                                // module.relative_name = sys.modules[full_name]
-                                Stmt::Assign(StmtAssign {
-                                    targets: vec![Expr::Attribute(ExprAttribute {
-                                        value: Box::new(Expr::Name(ExprName {
-                                            id: "module".into(),
-                                            ctx: ExprContext::Load,
-                                            range: TextRange::default(),
-                                        })),
-                                        attr: Identifier::new(&relative_name, TextRange::default()),
-                                        ctx: ExprContext::Store,
-                                        range: TextRange::default(),
-                                    })],
-                                    value: Box::new(Expr::Subscript(
-                                        ruff_python_ast::ExprSubscript {
-                                            value: Box::new(Expr::Attribute(ExprAttribute {
-                                                value: Box::new(Expr::Name(ExprName {
-                                                    id: "sys".into(),
-                                                    ctx: ExprContext::Load,
-                                                    range: TextRange::default(),
-                                                })),
-                                                attr: Identifier::new(
-                                                    "modules",
-                                                    TextRange::default(),
-                                                ),
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            })),
-                                            slice: Box::new(self.create_string_literal(&full_name)),
-                                            ctx: ExprContext::Load,
-                                            range: TextRange::default(),
-                                        },
-                                    )),
-                                    range: TextRange::default(),
-                                }),
-                            ],
-                            elif_else_clauses: vec![],
-                            range: TextRange::default(),
-                        }),
-                    ],
-                    elif_else_clauses: vec![],
-                    range: TextRange::default(),
-                }));
+                // For wrapped submodules, we'll set them up later when they're initialized
+                // For now, just skip - the parent module will get the submodule reference
+                // when the submodule's init function is called
             }
         }
 
@@ -3505,528 +3554,15 @@ impl HybridStaticBundler {
 
     /// Generate registries and import hook after init functions are defined
     fn generate_registries_and_hook(&self) -> Vec<Stmt> {
-        let mut stmts = Vec::new();
-
-        // Create module registry
-        stmts.push(self.create_module_registry());
-
-        // Create init functions registry
-        stmts.push(self.create_init_functions_registry());
-
-        // Create and install import hook
-        stmts.extend(self.create_import_hook());
-
-        stmts
-    }
-
-    /// Create the __cribo_modules registry
-    fn create_module_registry(&self) -> Stmt {
-        let mut items = Vec::new();
-
-        for (original_name, synthetic_name) in &self.module_registry {
-            items.push(ruff_python_ast::DictItem {
-                key: Some(self.create_string_literal(original_name)),
-                value: self.create_string_literal(synthetic_name),
-            });
-        }
-
-        Stmt::Assign(StmtAssign {
-            targets: vec![Expr::Name(ExprName {
-                id: "__cribo_modules".into(),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Dict(ruff_python_ast::ExprDict {
-                items,
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        })
-    }
-
-    /// Create the __cribo_init_functions registry
-    fn create_init_functions_registry(&self) -> Stmt {
-        let mut items = Vec::new();
-
-        for (synthetic_name, init_func_name) in &self.init_functions {
-            items.push(ruff_python_ast::DictItem {
-                key: Some(self.create_string_literal(synthetic_name)),
-                value: Expr::Name(ExprName {
-                    id: init_func_name.as_str().into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                }),
-            });
-        }
-
-        Stmt::Assign(StmtAssign {
-            targets: vec![Expr::Name(ExprName {
-                id: "__cribo_init_functions".into(),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Dict(ruff_python_ast::ExprDict {
-                items,
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        })
+        // No longer needed - we don't use sys.modules or import hooks
+        Vec::new()
     }
 
     /// Create the import hook class and install it
     fn create_import_hook(&self) -> Vec<Stmt> {
-        let mut stmts = Vec::new();
+        
 
-        // Define CriboBundledFinder class
-        let finder_class = self.create_finder_class();
-        stmts.push(finder_class);
-
-        // Install the hook: sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules,
-        // __cribo_init_functions))
-        let install_stmt = Stmt::Expr(ruff_python_ast::StmtExpr {
-            value: Box::new(Expr::Call(ExprCall {
-                func: Box::new(Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Attribute(ExprAttribute {
-                        value: Box::new(Expr::Name(ExprName {
-                            id: "sys".into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new("meta_path", TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("insert", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                arguments: ruff_python_ast::Arguments {
-                    args: Box::from([
-                        self.create_number_literal(0),
-                        Expr::Call(ExprCall {
-                            func: Box::new(Expr::Name(ExprName {
-                                id: "CriboBundledFinder".into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            arguments: ruff_python_ast::Arguments {
-                                args: Box::from([
-                                    Expr::Name(ExprName {
-                                        id: "__cribo_modules".into(),
-                                        ctx: ExprContext::Load,
-                                        range: TextRange::default(),
-                                    }),
-                                    Expr::Name(ExprName {
-                                        id: "__cribo_init_functions".into(),
-                                        ctx: ExprContext::Load,
-                                        range: TextRange::default(),
-                                    }),
-                                ]),
-                                keywords: Box::from([]),
-                                range: TextRange::default(),
-                            },
-                            range: TextRange::default(),
-                        }),
-                    ]),
-                    keywords: Box::from([]),
-                    range: TextRange::default(),
-                },
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        });
-
-        stmts.push(install_stmt);
-        stmts
-    }
-
-    /// Create the CriboBundledFinder class
-    fn create_finder_class(&self) -> Stmt {
-        use ruff_python_ast::{Parameter, ParameterWithDefault, StmtClassDef, StmtReturn};
-
-        let mut class_body = Vec::new();
-
-        // __init__ method
-        let init_params = vec![
-            ParameterWithDefault {
-                parameter: Parameter {
-                    name: Identifier::new("self", TextRange::default()),
-                    annotation: None,
-                    range: TextRange::default(),
-                },
-                default: None,
-                range: TextRange::default(),
-            },
-            ParameterWithDefault {
-                parameter: Parameter {
-                    name: Identifier::new("module_registry", TextRange::default()),
-                    annotation: None,
-                    range: TextRange::default(),
-                },
-                default: None,
-                range: TextRange::default(),
-            },
-            ParameterWithDefault {
-                parameter: Parameter {
-                    name: Identifier::new("init_functions", TextRange::default()),
-                    annotation: None,
-                    range: TextRange::default(),
-                },
-                default: None,
-                range: TextRange::default(),
-            },
-        ];
-
-        let init_body = vec![
-            // self.module_registry = module_registry
-            Stmt::Assign(StmtAssign {
-                targets: vec![Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Name(ExprName {
-                        id: "self".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("module_registry", TextRange::default()),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Name(ExprName {
-                    id: "module_registry".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }),
-            // self.init_functions = init_functions
-            Stmt::Assign(StmtAssign {
-                targets: vec![Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Name(ExprName {
-                        id: "self".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("init_functions", TextRange::default()),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Name(ExprName {
-                    id: "init_functions".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }),
-        ];
-
-        let init_method = Stmt::FunctionDef(StmtFunctionDef {
-            name: Identifier::new("__init__", TextRange::default()),
-            type_params: None,
-            parameters: Box::new(ruff_python_ast::Parameters {
-                posonlyargs: vec![],
-                args: init_params,
-                vararg: None,
-                kwonlyargs: vec![],
-                kwarg: None,
-                range: TextRange::default(),
-            }),
-            returns: None,
-            body: init_body,
-            decorator_list: vec![],
-            is_async: false,
-            range: TextRange::default(),
-        });
-
-        class_body.push(init_method);
-
-        // find_spec method
-        let find_spec_params = vec![
-            ParameterWithDefault {
-                parameter: Parameter {
-                    name: Identifier::new("self", TextRange::default()),
-                    annotation: None,
-                    range: TextRange::default(),
-                },
-                default: None,
-                range: TextRange::default(),
-            },
-            ParameterWithDefault {
-                parameter: Parameter {
-                    name: Identifier::new("fullname", TextRange::default()),
-                    annotation: None,
-                    range: TextRange::default(),
-                },
-                default: None,
-                range: TextRange::default(),
-            },
-            ParameterWithDefault {
-                parameter: Parameter {
-                    name: Identifier::new("path", TextRange::default()),
-                    annotation: None,
-                    range: TextRange::default(),
-                },
-                default: None,
-                range: TextRange::default(),
-            },
-            ParameterWithDefault {
-                parameter: Parameter {
-                    name: Identifier::new("target", TextRange::default()),
-                    annotation: None,
-                    range: TextRange::default(),
-                },
-                default: Some(Box::new(Expr::NoneLiteral(
-                    ruff_python_ast::ExprNoneLiteral {
-                        range: TextRange::default(),
-                    },
-                ))),
-                range: TextRange::default(),
-            },
-        ];
-
-        let find_spec_kwonlyargs = vec![];
-
-        let mut find_spec_body = Vec::new();
-
-        // if fullname in self.module_registry:
-        let condition = Expr::Compare(ruff_python_ast::ExprCompare {
-            left: Box::new(Expr::Name(ExprName {
-                id: "fullname".into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            ops: Box::from([ruff_python_ast::CmpOp::In]),
-            comparators: Box::from([Expr::Attribute(ExprAttribute {
-                value: Box::new(Expr::Name(ExprName {
-                    id: "self".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new("module_registry", TextRange::default()),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })]),
-            range: TextRange::default(),
-        });
-
-        let mut if_body = Vec::new();
-
-        // synthetic_name = self.module_registry[fullname]
-        if_body.push(Stmt::Assign(StmtAssign {
-            targets: vec![Expr::Name(ExprName {
-                id: "synthetic_name".into(),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
-                value: Box::new(Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Name(ExprName {
-                        id: "self".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("module_registry", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                slice: Box::new(Expr::Name(ExprName {
-                    id: "fullname".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        }));
-
-        // if synthetic_name not in sys.modules:
-        let inner_condition = Expr::Compare(ruff_python_ast::ExprCompare {
-            left: Box::new(Expr::Name(ExprName {
-                id: "synthetic_name".into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            ops: Box::from([ruff_python_ast::CmpOp::NotIn]),
-            comparators: Box::from([Expr::Attribute(ExprAttribute {
-                value: Box::new(Expr::Name(ExprName {
-                    id: "sys".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new("modules", TextRange::default()),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })]),
-            range: TextRange::default(),
-        });
-
-        let mut inner_if_body = Vec::new();
-
-        // init_func = self.init_functions.get(synthetic_name)
-        inner_if_body.push(Stmt::Assign(StmtAssign {
-            targets: vec![Expr::Name(ExprName {
-                id: "init_func".into(),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Call(ExprCall {
-                func: Box::new(Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Attribute(ExprAttribute {
-                        value: Box::new(Expr::Name(ExprName {
-                            id: "self".into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new("init_functions", TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("get", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                arguments: ruff_python_ast::Arguments {
-                    args: Box::from([Expr::Name(ExprName {
-                        id: "synthetic_name".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })]),
-                    keywords: Box::from([]),
-                    range: TextRange::default(),
-                },
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        }));
-
-        // if init_func:
-        let init_func_condition = Expr::Name(ExprName {
-            id: "init_func".into(),
-            ctx: ExprContext::Load,
-            range: TextRange::default(),
-        });
-
-        let init_func_if_body = vec![
-            // init_func()
-            Stmt::Expr(ruff_python_ast::StmtExpr {
-                value: Box::new(Expr::Call(ExprCall {
-                    func: Box::new(Expr::Name(ExprName {
-                        id: "init_func".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    arguments: ruff_python_ast::Arguments {
-                        args: Box::from([]),
-                        keywords: Box::from([]),
-                        range: TextRange::default(),
-                    },
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }),
-        ];
-
-        inner_if_body.push(Stmt::If(StmtIf {
-            test: Box::new(init_func_condition),
-            body: init_func_if_body,
-            elif_else_clauses: vec![],
-            range: TextRange::default(),
-        }));
-
-        if_body.push(Stmt::If(StmtIf {
-            test: Box::new(inner_condition),
-            body: inner_if_body,
-            elif_else_clauses: vec![],
-            range: TextRange::default(),
-        }));
-
-        // import importlib.util
-        if_body.push(Stmt::Import(StmtImport {
-            names: vec![ruff_python_ast::Alias {
-                name: Identifier::new("importlib.util", TextRange::default()),
-                asname: None,
-                range: TextRange::default(),
-            }],
-            range: TextRange::default(),
-        }));
-
-        // return importlib.util.find_spec(synthetic_name)
-        if_body.push(Stmt::Return(StmtReturn {
-            value: Some(Box::new(Expr::Call(ExprCall {
-                func: Box::new(Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Attribute(ExprAttribute {
-                        value: Box::new(Expr::Name(ExprName {
-                            id: "importlib".into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new("util", TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("find_spec", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                arguments: ruff_python_ast::Arguments {
-                    args: Box::from([Expr::Name(ExprName {
-                        id: "synthetic_name".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })]),
-                    keywords: Box::from([]),
-                    range: TextRange::default(),
-                },
-                range: TextRange::default(),
-            }))),
-            range: TextRange::default(),
-        }));
-
-        find_spec_body.push(Stmt::If(StmtIf {
-            test: Box::new(condition),
-            body: if_body,
-            elif_else_clauses: vec![],
-            range: TextRange::default(),
-        }));
-
-        // return None
-        find_spec_body.push(Stmt::Return(StmtReturn {
-            value: Some(Box::new(Expr::NoneLiteral(
-                ruff_python_ast::ExprNoneLiteral {
-                    range: TextRange::default(),
-                },
-            ))),
-            range: TextRange::default(),
-        }));
-
-        let find_spec_method = Stmt::FunctionDef(StmtFunctionDef {
-            name: Identifier::new("find_spec", TextRange::default()),
-            type_params: None,
-            parameters: Box::new(ruff_python_ast::Parameters {
-                posonlyargs: vec![],
-                args: find_spec_params,
-                vararg: None,
-                kwonlyargs: find_spec_kwonlyargs,
-                kwarg: None,
-                range: TextRange::default(),
-            }),
-            returns: None,
-            body: find_spec_body,
-            decorator_list: vec![],
-            is_async: false,
-            range: TextRange::default(),
-        });
-
-        class_body.push(find_spec_method);
-
-        // Create the class definition
-        Stmt::ClassDef(StmtClassDef {
-            name: Identifier::new("CriboBundledFinder", TextRange::default()),
-            type_params: None,
-            arguments: None,
-            body: class_body,
-            decorator_list: vec![],
-            range: TextRange::default(),
-        })
+        Vec::new()
     }
 
     /// Create a namespace for an inlined submodule
@@ -4155,51 +3691,8 @@ impl HybridStaticBundler {
         })
     }
 
-    /// Check if module exists in sys.modules
-    fn create_module_exists_check(&self, synthetic_name: &str) -> Stmt {
-        let condition = Expr::Compare(ruff_python_ast::ExprCompare {
-            left: Box::new(self.create_string_literal(synthetic_name)),
-            ops: Box::from([ruff_python_ast::CmpOp::In]),
-            comparators: Box::from([Expr::Attribute(ExprAttribute {
-                value: Box::new(Expr::Name(ExprName {
-                    id: "sys".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new("modules", TextRange::default()),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })]),
-            range: TextRange::default(),
-        });
-
-        Stmt::If(StmtIf {
-            test: Box::new(condition),
-            body: vec![Stmt::Return(ruff_python_ast::StmtReturn {
-                value: Some(Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
-                    value: Box::new(Expr::Attribute(ExprAttribute {
-                        value: Box::new(Expr::Name(ExprName {
-                            id: "sys".into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new("modules", TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    slice: Box::new(self.create_string_literal(synthetic_name)),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                }))),
-                range: TextRange::default(),
-            })],
-            elif_else_clauses: vec![],
-            range: TextRange::default(),
-        })
-    }
-
     /// Create module object
-    fn create_module_object_stmt(&self, synthetic_name: &str, _module_path: &Path) -> Vec<Stmt> {
+    fn create_module_object_stmt(&self, _synthetic_name: &str, _module_path: &Path) -> Vec<Stmt> {
         let module_call = Expr::Call(ExprCall {
             func: Box::new(Expr::Attribute(ExprAttribute {
                 value: Box::new(Expr::Name(ExprName {
@@ -4207,12 +3700,12 @@ impl HybridStaticBundler {
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 })),
-                attr: Identifier::new("ModuleType", TextRange::default()),
+                attr: Identifier::new("SimpleNamespace", TextRange::default()),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
             })),
             arguments: ruff_python_ast::Arguments {
-                args: Box::from([self.create_string_literal(synthetic_name)]),
+                args: Box::from([]),
                 keywords: Box::from([]),
                 range: TextRange::default(),
             },
@@ -4220,7 +3713,7 @@ impl HybridStaticBundler {
         });
 
         vec![
-            // module = types.ModuleType(synthetic_name)
+            // module = types.SimpleNamespace()
             Stmt::Assign(StmtAssign {
                 targets: vec![Expr::Name(ExprName {
                     id: "module".into(),
@@ -4281,64 +3774,6 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             }),
         ]
-    }
-
-    /// Register module in sys.modules
-    fn create_sys_modules_registration(&self, synthetic_name: &str) -> Stmt {
-        Stmt::Assign(StmtAssign {
-            targets: vec![Expr::Subscript(ruff_python_ast::ExprSubscript {
-                value: Box::new(Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Name(ExprName {
-                        id: "sys".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("modules", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                slice: Box::new(self.create_string_literal(synthetic_name)),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Name(ExprName {
-                id: "module".into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        })
-    }
-
-    /// Register module in sys.modules with original name as alias
-    fn create_sys_modules_registration_alias(
-        &self,
-        _synthetic_name: &str,
-        original_name: &str,
-    ) -> Stmt {
-        Stmt::Assign(StmtAssign {
-            targets: vec![Expr::Subscript(ruff_python_ast::ExprSubscript {
-                value: Box::new(Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Name(ExprName {
-                        id: "sys".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("modules", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                slice: Box::new(self.create_string_literal(original_name)),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Name(ExprName {
-                id: "module".into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        })
     }
 
     /// Create module attribute assignment
@@ -4495,12 +3930,13 @@ impl HybridStaticBundler {
         for stmt in existing_body {
             if let Stmt::Assign(assign) = stmt
                 && assign.targets.len() == 1
-                    && let Expr::Name(target) = &assign.targets[0]
-                        && let Expr::Name(value) = &assign.value.as_ref() {
-                            // Track existing simple assignments
-                            let key = format!("{} = {}", target.id.as_str(), value.id.as_str());
-                            seen_assignments.insert(key);
-                        }
+                && let Expr::Name(target) = &assign.targets[0]
+                && let Expr::Name(value) = &assign.value.as_ref()
+            {
+                // Track existing simple assignments
+                let key = format!("{} = {}", target.id.as_str(), value.id.as_str());
+                seen_assignments.insert(key);
+            }
         }
 
         log::debug!(
@@ -4644,9 +4080,81 @@ impl HybridStaticBundler {
     }
 
     /// Generate a call to initialize a module
-    fn generate_module_init_call(&self, synthetic_name: &str) -> Stmt {
+    fn generate_module_init_call(&mut self, synthetic_name: &str) -> Vec<Stmt> {
+        let mut statements = Vec::new();
+
         if let Some(init_func_name) = self.init_functions.get(synthetic_name) {
-            Stmt::Expr(ruff_python_ast::StmtExpr {
+            // Get the original module name for this synthetic name
+            let module_name = self
+                .module_registry
+                .iter()
+                .find(|(_, syn_name)| syn_name == &synthetic_name)
+                .map(|(orig_name, _)| orig_name.as_str())
+                .unwrap_or(synthetic_name);
+
+            // For dotted module names, ensure parent namespaces exist
+            if module_name.contains('.') {
+                let parts: Vec<&str> = module_name.split('.').collect();
+
+                // Ensure all parent namespaces exist before assignment
+                for i in 1..parts.len() {
+                    let namespace = parts[..i].join(".");
+
+                    // Only create namespace if it's not a module itself and not already created
+                    if !self.module_registry.contains_key(&namespace)
+                        && !self.bundled_modules.contains(&namespace)
+                        && !self.created_namespaces.contains(&namespace)
+                    {
+                        debug!("Creating namespace '{namespace}' before module init");
+                        if i == 1 {
+                            // Top-level namespace
+                            statements.push(self.create_namespace_module(&namespace));
+                        } else {
+                            // Nested namespace
+                            let parent = parts[..i - 1].join(".");
+                            let attr = parts[i - 1];
+                            statements.push(self.create_namespace_attribute(&parent, attr));
+                        }
+                        self.created_namespaces.insert(namespace);
+                    }
+                }
+            }
+
+            // Create the assignment target based on whether it's a dotted name
+            let target_expr = if module_name.contains('.') {
+                // For nested modules like models.user, create models.user expression
+                let parts: Vec<&str> = module_name.split('.').collect();
+                let mut expr = Expr::Name(ExprName {
+                    id: parts[0].into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+                for (i, part) in parts[1..].iter().enumerate() {
+                    let ctx = if i == parts.len() - 2 {
+                        ExprContext::Store // Last part is Store context
+                    } else {
+                        ExprContext::Load
+                    };
+                    expr = Expr::Attribute(ExprAttribute {
+                        value: Box::new(expr),
+                        attr: Identifier::new(*part, TextRange::default()),
+                        ctx,
+                        range: TextRange::default(),
+                    });
+                }
+                expr
+            } else {
+                // Simple module name
+                Expr::Name(ExprName {
+                    id: module_name.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })
+            };
+
+            // module_name = __cribo_init_synthetic_name()
+            statements.push(Stmt::Assign(StmtAssign {
+                targets: vec![target_expr],
                 value: Box::new(Expr::Call(ExprCall {
                     func: Box::new(Expr::Name(ExprName {
                         id: init_func_name.as_str().into(),
@@ -4661,12 +4169,14 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })),
                 range: TextRange::default(),
-            })
+            }));
         } else {
-            Stmt::Pass(ruff_python_ast::StmtPass {
+            statements.push(Stmt::Pass(ruff_python_ast::StmtPass {
                 range: TextRange::default(),
-            })
+            }));
         }
+
+        statements
     }
 
     /// Get modules imported directly in the entry module
@@ -4795,6 +4305,11 @@ impl HybridStaticBundler {
         // Step 2: Create top-level namespace modules and wrapper module references
         let mut created_namespaces = FxIndexSet::default();
 
+        // Add all namespaces that were already created via the namespace tracking index
+        for namespace in &self.required_namespaces {
+            created_namespaces.insert(namespace.clone());
+        }
+
         // First, create references to top-level wrapper modules
         let mut top_level_wrappers = Vec::new();
         for module_name in &all_initialized_modules {
@@ -4813,31 +4328,9 @@ impl HybridStaticBundler {
                 continue;
             }
 
-            debug!("Creating reference to top-level wrapper: {wrapper}");
-            // Create: wrapper = sys.modules['wrapper']
-            final_body.push(Stmt::Assign(StmtAssign {
-                targets: vec![Expr::Name(ExprName {
-                    id: wrapper.clone().into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
-                    value: Box::new(Expr::Attribute(ExprAttribute {
-                        value: Box::new(Expr::Name(ExprName {
-                            id: "sys".into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new("modules", TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    slice: Box::new(self.create_string_literal(&wrapper)),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+            debug!("Top-level wrapper '{wrapper}' already initialized, skipping assignment");
+            // Top-level wrapper modules are already initialized via their init functions
+            // No need to create any assignment - the module already exists
             created_namespaces.insert(wrapper);
         }
 
@@ -4846,6 +4339,16 @@ impl HybridStaticBundler {
         sorted_namespaces.sort(); // Deterministic order
 
         for namespace in sorted_namespaces {
+            // Skip if this namespace was already created via the namespace tracking index
+            if self.required_namespaces.contains(&namespace) {
+                debug!(
+                    "Skipping top-level namespace '{namespace}' - already created via namespace \
+                     index"
+                );
+                created_namespaces.insert(namespace);
+                continue;
+            }
+
             debug!("Creating top-level namespace: {namespace}");
             final_body.push(self.create_namespace_module(&namespace));
             created_namespaces.insert(namespace);
@@ -4913,15 +4416,12 @@ impl HybridStaticBundler {
                     // Check if this module was imported in the entry module
                     if exclusions.contains(&module_name) {
                         debug!(
-                            "Skipping wrapper module assignment '{parent}.{attr} = \
-                             sys.modules['{module_name}']' - imported in entry module"
+                            "Skipping wrapper module assignment '{parent}.{attr} = {module_name}' \
+                             - imported in entry module"
                         );
                     } else {
-                        // This is a wrapper module - assign from sys.modules
-                        debug!(
-                            "Assigning wrapper module: {parent}.{attr} = \
-                             sys.modules['{module_name}']"
-                        );
+                        // This is a wrapper module - assign direct reference
+                        debug!("Assigning wrapper module: {parent}.{attr} = {module_name}");
                         final_body.push(self.create_dotted_attribute_assignment(
                             &parent,
                             &attr,
@@ -4930,10 +4430,18 @@ impl HybridStaticBundler {
                     }
                 }
             } else {
-                // This is an intermediate namespace - create as types.ModuleType
+                // This is an intermediate namespace - skip if already created via namespace index
+                if self.required_namespaces.contains(&module_name) {
+                    debug!(
+                        "Skipping intermediate namespace '{module_name}' - already created via \
+                         namespace index"
+                    );
+                    created_namespaces.insert(module_name);
+                    continue;
+                }
+
                 debug!(
-                    "Creating intermediate namespace: {parent}.{attr} = \
-                     types.ModuleType('{module_name}')"
+                    "Creating intermediate namespace: {parent}.{attr} = types.SimpleNamespace()"
                 );
                 final_body.push(Stmt::Assign(StmtAssign {
                     targets: vec![Expr::Attribute(ExprAttribute {
@@ -4953,12 +4461,12 @@ impl HybridStaticBundler {
                                 ctx: ExprContext::Load,
                                 range: TextRange::default(),
                             })),
-                            attr: Identifier::new("ModuleType", TextRange::default()),
+                            attr: Identifier::new("SimpleNamespace", TextRange::default()),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
                         })),
                         arguments: ruff_python_ast::Arguments {
-                            args: Box::from([self.create_string_literal(&module_name)]),
+                            args: Box::from([]),
                             keywords: Box::from([]),
                             range: TextRange::default(),
                         },
@@ -6594,8 +6102,81 @@ impl HybridStaticBundler {
         import_from: StmtImportFrom,
         module_name: &str,
     ) -> Vec<Stmt> {
+        self.transform_bundled_import_from_multiple_with_context(import_from, module_name, false)
+    }
+
+    /// Transform a bundled "from module import ..." statement into multiple assignments with
+    /// context
+    fn transform_bundled_import_from_multiple_with_context(
+        &self,
+        import_from: StmtImportFrom,
+        module_name: &str,
+        inside_wrapper_init: bool,
+    ) -> Vec<Stmt> {
+        log::debug!(
+            "transform_bundled_import_from_multiple: module_name={}, imports={:?}",
+            module_name,
+            import_from
+                .names
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+        );
         let mut assignments = Vec::new();
         let mut initialized_modules = FxIndexSet::default();
+
+        // Pre-check if this is a wrapper module that needs initialization
+        let module_needs_init = if self.module_registry.contains_key(module_name) {
+            if inside_wrapper_init {
+                // Inside a wrapper module's init function, we can't reference ANY global namespace
+                // because it hasn't been set up yet. We need to initialize all wrapper modules
+                // locally.
+                true
+            } else if module_name.contains('.') {
+                // In other contexts, nested modules like schemas.user are initialized during
+                // global namespace creation
+                false
+            } else {
+                // Top-level wrapper modules may need initialization
+                true
+            }
+        } else {
+            false
+        };
+
+        // If we need to initialize the module, do it once before processing any imports
+        let module_var_name = if module_needs_init && !initialized_modules.contains(module_name) {
+            let synthetic_name = &self.module_registry[module_name];
+            let init_func_name = format!("__cribo_init_{synthetic_name}");
+            let local_module_var = format!("_cribo_module_{}", module_name.replace('.', "_"));
+
+            // Add: _cribo_module_xxx = __cribo_init_<synthetic>()
+            assignments.push(Stmt::Assign(StmtAssign {
+                targets: vec![Expr::Name(ExprName {
+                    id: local_module_var.clone().into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::Call(ExprCall {
+                    func: Box::new(Expr::Name(ExprName {
+                        id: init_func_name.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    arguments: Arguments {
+                        args: Box::from([]),
+                        keywords: Box::from([]),
+                        range: TextRange::default(),
+                    },
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            }));
+            initialized_modules.insert(module_name.to_string());
+            Some(local_module_var)
+        } else {
+            None
+        };
 
         for alias in &import_from.names {
             let imported_name = alias.name.as_str();
@@ -6661,62 +6242,83 @@ impl HybridStaticBundler {
                     }
                 }
 
-                // Create: target = sys.modules['module.submodule']
+                // Create: target = module.submodule (direct namespace reference)
                 log::debug!(
                     "Importing submodule '{imported_name}' from '{module_name}' via from import"
                 );
+
+                // Build the direct namespace reference
+                let namespace_expr = if full_module_path.contains('.') {
+                    // For nested modules like models.user, create models.user expression
+                    let parts: Vec<&str> = full_module_path.split('.').collect();
+                    let mut expr = Expr::Name(ExprName {
+                        id: parts[0].into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+                    for part in &parts[1..] {
+                        expr = Expr::Attribute(ExprAttribute {
+                            value: Box::new(expr),
+                            attr: Identifier::new(*part, TextRange::default()),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        });
+                    }
+                    expr
+                } else {
+                    // Top-level module
+                    Expr::Name(ExprName {
+                        id: full_module_path.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })
+                };
+
                 assignments.push(Stmt::Assign(StmtAssign {
                     targets: vec![Expr::Name(ExprName {
                         id: target_name.as_str().into(),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
                     })],
-                    value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
-                        value: Box::new(Expr::Attribute(ExprAttribute {
-                            value: Box::new(Expr::Name(ExprName {
-                                id: "sys".into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            attr: Identifier::new("modules", TextRange::default()),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        slice: Box::new(self.create_string_literal(&full_module_path)),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
+                    value: Box::new(namespace_expr),
                     range: TextRange::default(),
                 }));
             } else {
                 // Regular attribute import
-                // First, ensure the module is initialized if it's a wrapper module
-                if let Some(synthetic_name) = self.module_registry.get(module_name) {
-                    // Only add initialization call if we haven't already initialized this module
-                    if !initialized_modules.contains(module_name) {
-                        // Add initialization call: __cribo_init_<synthetic>()
-                        let init_func_name = format!("__cribo_init_{synthetic_name}");
-                        assignments.push(Stmt::Expr(ruff_python_ast::StmtExpr {
-                            value: Box::new(Expr::Call(ExprCall {
-                                func: Box::new(Expr::Name(ExprName {
-                                    id: init_func_name.into(),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                arguments: Arguments {
-                                    args: Box::from([]),
-                                    keywords: Box::from([]),
-                                    range: TextRange::default(),
-                                },
-                                range: TextRange::default(),
-                            })),
+                // Create: target = module.imported_name
+                let module_expr = if let Some(ref var_name) = module_var_name {
+                    // We initialized the module locally, use the local variable
+                    Expr::Name(ExprName {
+                        id: var_name.clone().into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })
+                } else if module_name.contains('.') {
+                    // For nested modules like models.user, create models.user expression
+                    let parts: Vec<&str> = module_name.split('.').collect();
+                    let mut expr = Expr::Name(ExprName {
+                        id: parts[0].into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+                    for part in &parts[1..] {
+                        expr = Expr::Attribute(ExprAttribute {
+                            value: Box::new(expr),
+                            attr: Identifier::new(*part, TextRange::default()),
+                            ctx: ExprContext::Load,
                             range: TextRange::default(),
-                        }));
-                        initialized_modules.insert(module_name.to_string());
+                        });
                     }
-                }
+                    expr
+                } else {
+                    // Top-level module
+                    Expr::Name(ExprName {
+                        id: module_name.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })
+                };
 
-                // Create: target = sys.modules['module'].imported_name
                 assignments.push(Stmt::Assign(StmtAssign {
                     targets: vec![Expr::Name(ExprName {
                         id: target_name.as_str().into(),
@@ -6724,21 +6326,7 @@ impl HybridStaticBundler {
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::Attribute(ExprAttribute {
-                        value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
-                            value: Box::new(Expr::Attribute(ExprAttribute {
-                                value: Box::new(Expr::Name(ExprName {
-                                    id: "sys".into(),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                attr: Identifier::new("modules", TextRange::default()),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            slice: Box::new(self.create_string_literal(module_name)),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
+                        value: Box::new(module_expr),
                         attr: Identifier::new(imported_name, TextRange::default()),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -6758,10 +6346,29 @@ impl HybridStaticBundler {
         current_module: &str,
         symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
+        self.rewrite_import_in_stmt_multiple_with_full_context(
+            stmt,
+            current_module,
+            symbol_renames,
+            false,
+        )
+    }
+
+    /// Rewrite imports in a statement with full context including wrapper init flag
+    fn rewrite_import_in_stmt_multiple_with_full_context(
+        &self,
+        stmt: Stmt,
+        current_module: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        inside_wrapper_init: bool,
+    ) -> Vec<Stmt> {
         match stmt {
-            Stmt::ImportFrom(import_from) => {
-                self.rewrite_import_from(import_from, current_module, symbol_renames)
-            }
+            Stmt::ImportFrom(import_from) => self.rewrite_import_from(
+                import_from,
+                current_module,
+                symbol_renames,
+                inside_wrapper_init,
+            ),
             Stmt::Import(import_stmt) => {
                 self.rewrite_import_with_renames(import_stmt, symbol_renames)
             }
@@ -7976,6 +7583,7 @@ impl HybridStaticBundler {
             ctx.module_renames,
             ctx.deferred_imports,
             false,                               // This is not the entry module
+            false,                               // Not a wrapper init
             Some(&self.global_deferred_imports), // Pass global registry
         );
         transformer.transform_module(&mut ast);
@@ -8481,10 +8089,11 @@ impl HybridStaticBundler {
                 ctx.module_name
             );
             let empty_renames = FxIndexMap::default();
-            let transformed_stmts = self.rewrite_import_in_stmt_multiple_with_context(
+            let transformed_stmts = self.rewrite_import_in_stmt_multiple_with_full_context(
                 stmt.clone(),
                 ctx.module_name,
                 &empty_renames,
+                true, // inside_wrapper_init = true since we're creating a wrapper module
             );
             body.extend(transformed_stmts);
 
@@ -8911,6 +8520,7 @@ impl HybridStaticBundler {
         import_from: StmtImportFrom,
         current_module: &str,
         symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        inside_wrapper_init: bool,
     ) -> Vec<Stmt> {
         // Resolve relative imports to absolute module names
         log::debug!(
@@ -8981,7 +8591,10 @@ impl HybridStaticBundler {
             );
         }
 
-        log::debug!("Transforming bundled import from module: {module_name}");
+        log::debug!(
+            "Transforming bundled import from module: {module_name}, is wrapper: {}",
+            self.module_registry.contains_key(&module_name)
+        );
 
         // Check if this module is in the registry (wrapper approach)
         // or if it was inlined
@@ -8994,7 +8607,11 @@ impl HybridStaticBundler {
                 absolute_import.level = 0;
                 absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
             }
-            self.transform_bundled_import_from_multiple(absolute_import, &module_name)
+            self.transform_bundled_import_from_multiple_with_context(
+                absolute_import,
+                &module_name,
+                inside_wrapper_init,
+            )
         } else {
             // Module was inlined - create assignments for imported symbols
             log::debug!(
@@ -9189,12 +8806,10 @@ impl HybridStaticBundler {
                             self.create_dotted_assignments(&parts, &mut result_stmts);
                         } else {
                             // For aliased imports or non-dotted imports, just assign to the target
-                            result_stmts.push(
-                                self.create_sys_modules_assignment(
-                                    target_name.as_str(),
-                                    module_name,
-                                ),
-                            );
+                            result_stmts.push(self.create_module_reference_assignment(
+                                target_name.as_str(),
+                                module_name,
+                            ));
                         }
                     } else {
                         // Module was inlined - create a namespace object
@@ -9254,7 +8869,7 @@ impl HybridStaticBundler {
                     // Module uses wrapper approach - transform to sys.modules access
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
                     result_stmts.push(
-                        self.create_sys_modules_assignment(target_name.as_str(), module_name),
+                        self.create_module_reference_assignment(target_name.as_str(), module_name),
                     );
                 } else {
                     // Module was inlined - create a namespace object
@@ -9318,7 +8933,10 @@ impl HybridStaticBundler {
                     } else {
                         // For aliased imports or non-dotted imports, just assign to the target
                         result_stmts.push(
-                            self.create_sys_modules_assignment(target_name.as_str(), module_name),
+                            self.create_module_reference_assignment(
+                                target_name.as_str(),
+                                module_name,
+                            ),
                         );
                     }
                 } else {
@@ -9336,7 +8954,7 @@ impl HybridStaticBundler {
                     // Module uses wrapper approach - transform to sys.modules access
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
                     result_stmts.push(
-                        self.create_sys_modules_assignment(target_name.as_str(), module_name),
+                        self.create_module_reference_assignment(target_name.as_str(), module_name),
                     );
                 } else {
                     // Module was inlined - this is problematic for direct imports
@@ -9505,41 +9123,29 @@ impl HybridStaticBundler {
                 // Parent is a wrapper module - don't create assignment here
                 // generate_submodule_attributes will handle all necessary parent assignments
             } else if !self.bundled_modules.contains(&parent_path) {
-                // Check if we haven't already created this namespace globally or in result_stmts
-                let already_created = self.created_namespace_modules.contains(&parent_path)
-                    || self.is_namespace_already_created(&parent_path, result_stmts);
-
-                if !already_created {
+                // Check if we haven't already created this namespace globally
+                if !self.created_namespaces.contains(&parent_path) {
                     // Parent is not a wrapper module and not an inlined module, create a simple
                     // namespace
                     result_stmts.push(self.create_namespace_module(&parent_path));
-                    // Track that we created this namespace module
-                    self.created_namespace_modules.insert(parent_path);
+                    // Track that we created this namespace
+                    self.created_namespaces.insert(parent_path);
                 }
             }
         }
     }
 
-    /// Create a sys.modules assignment for an import
-    fn create_sys_modules_assignment(&self, target_name: &str, module_name: &str) -> Stmt {
+    /// Create a module reference assignment
+    fn create_module_reference_assignment(&self, target_name: &str, module_name: &str) -> Stmt {
+        // Simply assign the module reference: target_name = module_name
         Stmt::Assign(StmtAssign {
             targets: vec![Expr::Name(ExprName {
                 id: target_name.into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
-            value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
-                value: Box::new(Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Name(ExprName {
-                        id: "sys".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("modules", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                slice: Box::new(self.create_string_literal(module_name)),
+            value: Box::new(Expr::Name(ExprName {
+                id: module_name.into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
             })),
@@ -9553,8 +9159,9 @@ impl HybridStaticBundler {
             let parent_path = parts[..i].join(".");
 
             if self.module_registry.contains_key(&parent_path) {
-                // Parent is a wrapper module, get it from sys.modules
-                result_stmts.push(self.create_sys_modules_assignment(&parent_path, &parent_path));
+                // Parent is a wrapper module, create reference to it
+                result_stmts
+                    .push(self.create_module_reference_assignment(&parent_path, &parent_path));
             } else if !self.bundled_modules.contains(&parent_path) {
                 // Check if we haven't already created this namespace in result_stmts
                 let already_created = self.is_namespace_already_created(&parent_path, result_stmts);
@@ -9615,12 +9222,16 @@ impl HybridStaticBundler {
 
     /// Create a simple namespace module object
     fn create_namespace_module(&self, module_name: &str) -> Stmt {
-        // Create: module_name = types.ModuleType('module_name')
+        // Create: module_name = types.SimpleNamespace()
         // Note: This should only be called with simple (non-dotted) module names
         debug_assert!(
             !module_name.contains('.'),
             "create_namespace_module called with dotted name: {module_name}"
         );
+
+        // This method is called by create_namespace_statements which already
+        // filters based on required_namespaces, so we don't need to check again
+
         Stmt::Assign(StmtAssign {
             targets: vec![Expr::Name(ExprName {
                 id: module_name.into(),
@@ -9634,12 +9245,12 @@ impl HybridStaticBundler {
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
-                    attr: Identifier::new("ModuleType", TextRange::default()),
+                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 })),
                 arguments: ruff_python_ast::Arguments {
-                    args: Box::from([self.create_string_literal(module_name)]),
+                    args: Box::from([]),
                     keywords: Box::from([]),
                     range: TextRange::default(),
                 },
@@ -9649,8 +9260,7 @@ impl HybridStaticBundler {
         })
     }
 
-    /// Create dotted attribute assignment (e.g., greetings.greeting =
-    /// sys.modules['greetings.greeting'])
+    /// Create dotted attribute assignment (e.g., greetings.greeting = greeting)
     fn create_dotted_attribute_assignment(
         &self,
         parent_module: &str,
@@ -9668,18 +9278,8 @@ impl HybridStaticBundler {
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
-            value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
-                value: Box::new(Expr::Attribute(ExprAttribute {
-                    value: Box::new(Expr::Name(ExprName {
-                        id: "sys".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("modules", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                slice: Box::new(self.create_string_literal(full_module_name)),
+            value: Box::new(Expr::Name(ExprName {
+                id: full_module_name.into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
             })),
@@ -9701,7 +9301,7 @@ impl HybridStaticBundler {
             }
         } else {
             // Simple module name without dots
-            final_body.push(self.create_sys_modules_assignment(module, module));
+            final_body.push(self.create_module_reference_assignment(module, module));
         }
     }
 

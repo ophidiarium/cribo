@@ -8,7 +8,6 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_happy_path/main.py
 
 from enum import Enum
 from typing import Any, Dict, List, Optional
-import sys
 import types
 """\nDatabase service module.\nContains database-related functionality with unique names.\n"""
 class DatabaseConnection:
@@ -61,14 +60,8 @@ def get_version() -> str:
     return "1.0.0"
 UTILS_VERSION = "1.0.0"
 def __cribo_init___cribo_fddf57_models_user():
-    if '__cribo_fddf57_models_user' in sys.modules:
-        return sys.modules['__cribo_fddf57_models_user']
-    module = types.ModuleType('__cribo_fddf57_models_user')
+    module = types.SimpleNamespace()
     module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_fddf57_models_user'] = module
-    sys.modules['models.user'] = module
-    if 'models' in sys.modules:
-        setattr(sys.modules['models'], 'user', module)
     """\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 
     class UserRole(Enum):
@@ -105,32 +98,14 @@ def __cribo_init___cribo_fddf57_models_user():
     module.DEFAULT_ROLE = DEFAULT_ROLE
     module.__all__ = ['UserRole', 'User', 'DEFAULT_ROLE']
     return module
-__cribo_modules = {'models.user': '__cribo_fddf57_models_user'}
-__cribo_init_functions = {'__cribo_fddf57_models_user': __cribo_init___cribo_fddf57_models_user}
-class CriboBundledFinder:
-
-    def __init__(self, module_registry, init_functions):
-        self.module_registry = module_registry
-        self.init_functions = init_functions
-
-    def find_spec(self, fullname, path, target=None):
-        if fullname in self.module_registry:
-            synthetic_name = self.module_registry[fullname]
-            if synthetic_name not in sys.modules:
-                init_func = self.init_functions.get(synthetic_name)
-                if init_func:
-                    init_func()
-            import importlib.util
-            return importlib.util.find_spec(synthetic_name)
-        return None
-sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
-__cribo_init___cribo_fddf57_models_user()
-models = types.ModuleType('models')
-models.user = sys.modules['models.user']
+models = types.SimpleNamespace()
+services = types.SimpleNamespace()
+utils = types.SimpleNamespace()
+models.user = __cribo_init___cribo_fddf57_models_user()
+models.user = models.user
 """\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
-__cribo_init___cribo_fddf57_models_user()
-User = sys.modules['models.user'].User
-UserRole = sys.modules['models.user'].UserRole
+User = models.user.User
+UserRole = models.user.UserRole
 def main():
     user = User("Alice", "alice@example.com", UserRole.ADMIN)
     db = DatabaseService("test.db")
