@@ -8,9 +8,7 @@ input_file: crates/cribo/tests/fixtures/xfail_ast_rewriting_mixed_collisions/mai
 
 from typing import Any, Dict, List, Optional
 import types
-def validate_2(data: Any) -> bool:
-    """Base validate function - conflicts everywhere"""
-    return core_validate(data) and data != "invalid"
+validate_2 = validate
 def connect_1() -> str:
     """Base connect function"""
     return "base_connected"
@@ -42,39 +40,9 @@ class BaseModel:
         self.initialized = True
         result = f"base_initialized_{self.model_type}"
         return result
-class Logger_1:
-    """Base Logger class - yet another Logger conflict"""
-
-    def __init__(self, source: str):
-        self.source = source
-        self.logs = []
-
-    def log(self, message: str) -> None:
-        self.logs.append(f"[BASE {self.source}] {message}")
-
-    def process(self, log_data: Any) -> str:
-        """Logger process method - conflicts with global process"""
-        self.log(f"Processing: {log_data}")
-        return f"base_logger_process: {log_data}"
-def process_2(data: Any) -> str:
-    """Base process function - conflicts everywhere"""
-    global result_2
-    validated = validate_2(data)
-    if validated:
-        processed = f"base_module_process: {data}"
-    else:
-        processed = "base_module_invalid"
-    result_2 = f"base_last_process: {processed}"
-    return processed
-def initialize() -> str:
-    """Module initialization function"""
-    global result_2
-    base = BaseModel("default")
-    init_result = base.initialize()
-    logger = UserLogger("base_init")
-    logger._log_process("Base module initialized")
-    result_2 = f"module_init: {init_result}"
-    return result_2
+Logger_1 = Logger
+process_2 = process
+initialize = initialize
 def shadow_test(validate: Any=None, process: Any=None, Logger: Any=None, result: Any=None, initialize: Any=None) -> Dict[str, Any]:
     """Function that shadows all major conflict names with parameters"""
     shadows = {"validate_param": validate_2, "process_param": process_2, "Logger_param": Logger_1, "result_param": result_2, "initialize_param": initialize}
@@ -211,6 +179,10 @@ def complex_operation(User: Any=None, Logger: Any=None, process: Any=None, valid
         operation_result["created_user"] = user.name
         operation_result["created_logger"] = logger.context
     return operation_result
+process_4 = process_4
+validate_4 = validate_4
+User_2 = User_2
+Logger_2 = Logger_2
 connection_4 = "auth_connection_string"
 result_4 = {"services": "initialized"}
 Logger_3 = "services_logger_string"
@@ -278,6 +250,8 @@ def process_with_conflicts(data: Any, User: str="param_user", result: int=100, L
     validate_result = validate_6(data)
     local_result = {"data": data, "user_param": User_4, "result_param": result_6, "logger_param": Logger_4, "validation": validate_result, "connection_type": connection.connection_type}
     return local_result
+validate_6 = validate_6
+process_6 = process_6
 User_5 = "database_user_type"
 """\nDatabase connection module with naming conflicts\n"""
 result_8 = []
@@ -319,6 +293,7 @@ def connect_5():
     if connection_5 is None:
         connection_5 = Connection_6()
     return connection_5.connect()
+process_7 = process_7
 models_base = types.SimpleNamespace(validate=validate_2, connect=connect_1, BaseModel=BaseModel, Logger=Logger_1, process=process_2, initialize=initialize, shadow_test=shadow_test, result=result_2)
 _cribo_services_auth_manager_result = None
 def __cribo_init___cribo_ee1d45_services_auth_manager():

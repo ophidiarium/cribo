@@ -7,7 +7,7 @@ input_file: crates/cribo/tests/fixtures/module_first_resolution/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-def __cribo_init___cribo_a2b4ab_foo():
+def __cribo_init___cribo_e25798_foo():
     module = types.SimpleNamespace()
     source = "foo/__init__.py (package)"
     module.source = source
@@ -15,6 +15,6 @@ def __cribo_init___cribo_a2b4ab_foo():
     module.value = value
     print("Successfully imported foo package")
     return module
-foo = __cribo_init___cribo_a2b4ab_foo()
+foo = __cribo_init___cribo_e25798_foo()
 print(f"Imported foo from: {foo.source}")
 print(f"foo.value = {foo.value}")

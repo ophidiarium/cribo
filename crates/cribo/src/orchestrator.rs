@@ -593,7 +593,7 @@ impl BundleOrchestrator {
             let parsed = ruff_python_parser::parse_module(&source)
                 .with_context(|| format!("Failed to parse Python file: {module_path:?}"))?;
 
-            let mut ast = parsed.into_syntax();
+            let ast = parsed.into_syntax();
 
             // Perform semantic analysis on this module
             self.semantic_bundler
@@ -604,10 +604,6 @@ impl BundleOrchestrator {
                 let mut builder = crate::graph_builder::GraphBuilder::new(module);
                 builder.build_from_ast(&ast)?;
             }
-
-            // Apply no-ops removal AFTER both semantic analysis and graph building
-            let no_ops_transformer = crate::visitors::NoOpsRemovalTransformer::new();
-            no_ops_transformer.transform_module(&mut ast);
 
             // Store parsed module data for later use
             parsed_modules.push((
@@ -1480,7 +1476,7 @@ impl BundleOrchestrator {
         }
 
         // Bundle all modules using static bundler
-        let mut bundled_ast =
+        let bundled_ast =
             static_bundler.bundle_modules(crate::code_generator::BundleParams {
                 modules: module_asts,
                 sorted_modules: params.sorted_modules,
@@ -1489,10 +1485,6 @@ impl BundleOrchestrator {
                 semantic_bundler: &self.semantic_bundler,
                 circular_dep_analysis: params.circular_dep_analysis,
             })?;
-
-        // Apply no-ops removal to the final bundled output
-        let no_ops_transformer = crate::visitors::NoOpsRemovalTransformer::new();
-        no_ops_transformer.transform_module(&mut bundled_ast);
 
         // Generate Python code from AST
         let empty_parsed = ruff_python_parser::parse_module("")?;

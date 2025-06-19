@@ -3839,9 +3839,18 @@ impl HybridStaticBundler {
                             if let Expr::Name(target) = &assign.targets[0] {
                                 if let Expr::Name(value) = &assign.value.as_ref() {
                                     // This is a simple name assignment
-                                    let key =
-                                        format!("{} = {}", target.id.as_str(), value.id.as_str());
-                                    if seen_assignments.insert(key.clone()) {
+                                    let target_str = target.id.as_str();
+                                    let value_str = value.id.as_str();
+                                    let key = format!("{target_str} = {value_str}");
+
+                                    // Check for self-assignment
+                                    if target_str == value_str {
+                                        log::warn!(
+                                            "Found self-assignment in deferred imports: {key}"
+                                        );
+                                        // Skip self-assignments entirely
+                                        log::debug!("Skipping self-assignment: {key}");
+                                    } else if seen_assignments.insert(key.clone()) {
                                         log::debug!("First occurrence of simple assignment: {key}");
                                         result.push(stmt);
                                     } else {
@@ -3978,9 +3987,18 @@ impl HybridStaticBundler {
                             if let Expr::Name(target) = &assign.targets[0] {
                                 if let Expr::Name(value) = &assign.value.as_ref() {
                                     // This is a simple name assignment
-                                    let key =
-                                        format!("{} = {}", target.id.as_str(), value.id.as_str());
-                                    if seen_assignments.insert(key.clone()) {
+                                    let target_str = target.id.as_str();
+                                    let value_str = value.id.as_str();
+                                    let key = format!("{target_str} = {value_str}");
+
+                                    // Check for self-assignment
+                                    if target_str == value_str {
+                                        log::warn!(
+                                            "Found self-assignment in deferred imports: {key}"
+                                        );
+                                        // Skip self-assignments entirely
+                                        log::debug!("Skipping self-assignment: {key}");
+                                    } else if seen_assignments.insert(key.clone()) {
                                         log::debug!("First occurrence of simple assignment: {key}");
                                         result.push(stmt);
                                     } else {
@@ -8772,10 +8790,13 @@ impl HybridStaticBundler {
                             self.create_dotted_assignments(&parts, &mut result_stmts);
                         } else {
                             // For aliased imports or non-dotted imports, just assign to the target
-                            result_stmts.push(self.create_module_reference_assignment(
-                                target_name.as_str(),
-                                module_name,
-                            ));
+                            // Skip self-assignments - the module is already initialized
+                            if target_name.as_str() != module_name {
+                                result_stmts.push(self.create_module_reference_assignment(
+                                    target_name.as_str(),
+                                    module_name,
+                                ));
+                            }
                         }
                     } else {
                         // Module was inlined - create a namespace object
@@ -8834,9 +8855,15 @@ impl HybridStaticBundler {
                 if self.module_registry.contains_key(module_name) {
                     // Module uses wrapper approach - transform to sys.modules access
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                    result_stmts.push(
-                        self.create_module_reference_assignment(target_name.as_str(), module_name),
-                    );
+                    // Skip self-assignments - the module is already initialized
+                    if target_name.as_str() != module_name {
+                        result_stmts.push(
+                            self.create_module_reference_assignment(
+                                target_name.as_str(),
+                                module_name,
+                            ),
+                        );
+                    }
                 } else {
                     // Module was inlined - create a namespace object
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
@@ -8919,9 +8946,15 @@ impl HybridStaticBundler {
                 if self.module_registry.contains_key(module_name) {
                     // Module uses wrapper approach - transform to sys.modules access
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                    result_stmts.push(
-                        self.create_module_reference_assignment(target_name.as_str(), module_name),
-                    );
+                    // Skip self-assignments - the module is already initialized
+                    if target_name.as_str() != module_name {
+                        result_stmts.push(
+                            self.create_module_reference_assignment(
+                                target_name.as_str(),
+                                module_name,
+                            ),
+                        );
+                    }
                 } else {
                     // Module was inlined - this is problematic for direct imports
                     // We need to create a mock module object
