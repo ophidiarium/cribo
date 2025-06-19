@@ -18,7 +18,8 @@
         "joshbolduc.commitlint",
         "sonarsource.sonarlint-vscode",
         "davidanson.vscode-markdownlint",
-        "timonwong.shellcheck"
+        "timonwong.shellcheck",
+        "charliermarsh.ruff"
     ],
     "unwantedRecommendations": [
         "ms-python.vscode-pylance",

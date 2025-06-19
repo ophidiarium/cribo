@@ -50,7 +50,11 @@
     },
     "evenBetterToml.schema.enabled": true,
     "evenBetterToml.taplo.configFile.path": ".taplo.toml",
-    "ruff.enable": false,
+    "[python]": {
+        "diffEditor.ignoreTrimWhitespace": false,
+        "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+    "ruff.lint.enable": false, // only format
     "cSpell.enabled": false,
     "chat.agent.enabled": true,
     "chat.promptFiles": true,
