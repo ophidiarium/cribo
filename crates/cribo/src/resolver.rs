@@ -516,9 +516,10 @@ impl ModuleResolver {
         // If we have a cached result and the same override (or lack thereof), return it
         if override_to_use == self.virtualenv_override.as_deref()
             && let Ok(cache_ref) = self.virtualenv_packages_cache.try_borrow()
-                && let Some(cached_packages) = cache_ref.as_ref() {
-                    return cached_packages.clone();
-                }
+            && let Some(cached_packages) = cache_ref.as_ref()
+        {
+            return cached_packages.clone();
+        }
 
         // Compute the packages
         self.compute_virtualenv_packages(override_to_use)
@@ -549,9 +550,10 @@ impl ModuleResolver {
 
         // Cache the result if it matches our stored override
         if virtualenv_override == self.virtualenv_override.as_deref()
-            && let Ok(mut cache_ref) = self.virtualenv_packages_cache.try_borrow_mut() {
-                *cache_ref = Some(packages.clone());
-            }
+            && let Ok(mut cache_ref) = self.virtualenv_packages_cache.try_borrow_mut()
+        {
+            *cache_ref = Some(packages.clone());
+        }
 
         packages
     }
@@ -589,17 +591,18 @@ impl ModuleResolver {
         // Unix-style virtual environment
         let lib_dir = venv_path.join("lib");
         if lib_dir.is_dir()
-            && let Ok(entries) = std::fs::read_dir(&lib_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        let site_packages = path.join("site-packages");
-                        if site_packages.is_dir() {
-                            site_packages_dirs.push(site_packages);
-                        }
+            && let Ok(entries) = std::fs::read_dir(&lib_dir)
+        {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let site_packages = path.join("site-packages");
+                    if site_packages.is_dir() {
+                        site_packages_dirs.push(site_packages);
                     }
                 }
             }
+        }
 
         // Windows-style virtual environment
         let lib_site_packages = venv_path.join("Lib").join("site-packages");
@@ -653,9 +656,10 @@ impl ModuleResolver {
 
         // Check if this is a submodule of a virtual environment package
         if let Some(root_module) = module_name.split('.').next()
-            && virtualenv_packages.contains(root_module) {
-                return true;
-            }
+            && virtualenv_packages.contains(root_module)
+        {
+            return true;
+        }
 
         false
     }
