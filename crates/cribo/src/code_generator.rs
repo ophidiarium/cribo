@@ -2689,7 +2689,11 @@ impl HybridStaticBundler {
                 .collect();
 
             // Then add the deferred imports (without init calls)
-            let deduped_imports = self.deduplicate_deferred_imports(imports_without_init_calls);
+            // Pass the current final_body so we can check for existing assignments
+            let deduped_imports = self.deduplicate_deferred_imports_with_existing(
+                imports_without_init_calls,
+                &final_body,
+            );
             final_body.extend(deduped_imports);
 
             // Clear the collection so we don't add them again later
@@ -2747,6 +2751,53 @@ impl HybridStaticBundler {
                     Stmt::Import(_) => {
                         // Imports have already been transformed by RecursiveImportTransformer
                         final_body.push(stmt.clone());
+                    }
+                    Stmt::Assign(assign) => {
+                        // Check if this is a simple import assignment that might duplicate
+                        // a deferred import that was already added
+                        let mut is_duplicate = false;
+                        if assign.targets.len() == 1
+                            && let (Expr::Name(target), Expr::Name(value)) =
+                                (&assign.targets[0], &assign.value.as_ref())
+                            {
+                                // Check if this assignment already exists in final_body
+                                let assignment_key =
+                                    format!("{} = {}", target.id.as_str(), value.id.as_str());
+                                for existing_stmt in &*final_body {
+                                    if let Stmt::Assign(existing_assign) = existing_stmt
+                                        && existing_assign.targets.len() == 1
+                                            && let (
+                                                Expr::Name(existing_target),
+                                                Expr::Name(existing_value),
+                                            ) = (
+                                                &existing_assign.targets[0],
+                                                &existing_assign.value.as_ref(),
+                                            ) {
+                                                let existing_key = format!(
+                                                    "{} = {}",
+                                                    existing_target.id.as_str(),
+                                                    existing_value.id.as_str()
+                                                );
+                                                if existing_key == assignment_key {
+                                                    log::debug!(
+                                                        "Skipping duplicate entry module \
+                                                         assignment: {assignment_key}"
+                                                    );
+                                                    is_duplicate = true;
+                                                    break;
+                                                }
+                                            }
+                                }
+                            }
+
+                        if !is_duplicate {
+                            let mut stmt_clone = stmt.clone();
+                            self.process_entry_module_statement(
+                                &mut stmt_clone,
+                                &entry_module_renames,
+                                &mut final_body,
+                            );
+                        }
                     }
                     _ => {
                         let mut stmt_clone = stmt.clone();
@@ -4396,7 +4447,169 @@ impl HybridStaticBundler {
                             result.push(stmt);
                         }
                     } else {
+                        // Check for simple assignments like: Logger = Logger_4
+                        if assign.targets.len() == 1 {
+                            if let Expr::Name(target) = &assign.targets[0] {
+                                if let Expr::Name(value) = &assign.value.as_ref() {
+                                    // This is a simple name assignment
+                                    let key =
+                                        format!("{} = {}", target.id.as_str(), value.id.as_str());
+                                    if seen_assignments.insert(key.clone()) {
+                                        log::debug!("First occurrence of simple assignment: {key}");
+                                        result.push(stmt);
+                                    } else {
+                                        log::debug!("Skipping duplicate simple assignment: {key}");
+                                    }
+                                } else {
+                                    // Not a simple name assignment, include it
+                                    result.push(stmt);
+                                }
+                            } else {
+                                // Target is not a simple name, include it
+                                result.push(stmt);
+                            }
+                        } else {
+                            // Multiple targets, include it
+                            result.push(stmt);
+                        }
+                    }
+                }
+                _ => result.push(stmt),
+            }
+        }
+
+        result
+    }
+
+    /// Deduplicate deferred imports, checking against existing statements in the body
+    fn deduplicate_deferred_imports_with_existing(
+        &self,
+        imports: Vec<Stmt>,
+        existing_body: &[Stmt],
+    ) -> Vec<Stmt> {
+        let mut seen_init_calls = FxIndexSet::default();
+        let mut seen_assignments = FxIndexSet::default();
+        let mut result = Vec::new();
+
+        // First, collect all existing simple assignments from the body
+        for stmt in existing_body {
+            if let Stmt::Assign(assign) = stmt
+                && assign.targets.len() == 1
+                    && let Expr::Name(target) = &assign.targets[0]
+                        && let Expr::Name(value) = &assign.value.as_ref() {
+                            // Track existing simple assignments
+                            let key = format!("{} = {}", target.id.as_str(), value.id.as_str());
+                            seen_assignments.insert(key);
+                        }
+        }
+
+        log::debug!(
+            "Found {} existing assignments in body",
+            seen_assignments.len()
+        );
+        log::debug!("Deduplicating {} deferred imports", imports.len());
+
+        // Now process the deferred imports
+        for (idx, stmt) in imports.into_iter().enumerate() {
+            log::debug!("Processing deferred import {idx}: {stmt:?}");
+            match &stmt {
+                // Check for init function calls
+                Stmt::Expr(expr_stmt) => {
+                    if let Expr::Call(call) = &expr_stmt.value.as_ref() {
+                        if let Expr::Name(name) = &call.func.as_ref() {
+                            let func_name = name.id.as_str();
+                            if func_name.starts_with("__cribo_init_") {
+                                if seen_init_calls.insert(func_name.to_string()) {
+                                    result.push(stmt);
+                                } else {
+                                    log::debug!("Skipping duplicate init call: {func_name}");
+                                }
+                            } else {
+                                result.push(stmt);
+                            }
+                        } else {
+                            result.push(stmt);
+                        }
+                    } else {
                         result.push(stmt);
+                    }
+                }
+                // Check for symbol assignments
+                Stmt::Assign(assign) => {
+                    // Check if this is an assignment like: UserSchema =
+                    // sys.modules['schemas.user'].UserSchema
+                    if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                        if let Expr::Subscript(subscript) = &attr.value.as_ref() {
+                            if let Expr::Attribute(sys_attr) = &subscript.value.as_ref() {
+                                if let Expr::Name(sys_name) = &sys_attr.value.as_ref() {
+                                    if sys_name.id.as_str() == "sys"
+                                        && sys_attr.attr.as_str() == "modules"
+                                    {
+                                        // This is a sys.modules access
+                                        if let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
+                                        {
+                                            let module_name = lit.value.to_str();
+                                            let attr_name = attr.attr.as_str();
+                                            if let Expr::Name(target) = &assign.targets[0] {
+                                                let _symbol_name = target.id.as_str();
+                                                let key = format!("{module_name}.{attr_name}");
+                                                log::debug!("Checking assignment key: {key}");
+                                                if seen_assignments.insert(key.clone()) {
+                                                    log::debug!(
+                                                        "First occurrence of {key}, including"
+                                                    );
+                                                    result.push(stmt);
+                                                } else {
+                                                    log::debug!(
+                                                        "Skipping duplicate assignment: \
+                                                         {_symbol_name} = \
+                                                         sys.modules['{module_name}'].{attr_name}"
+                                                    );
+                                                }
+                                            } else {
+                                                result.push(stmt);
+                                            }
+                                        } else {
+                                            result.push(stmt);
+                                        }
+                                    } else {
+                                        result.push(stmt);
+                                    }
+                                } else {
+                                    result.push(stmt);
+                                }
+                            } else {
+                                result.push(stmt);
+                            }
+                        } else {
+                            result.push(stmt);
+                        }
+                    } else {
+                        // Check for simple assignments like: Logger = Logger_4
+                        if assign.targets.len() == 1 {
+                            if let Expr::Name(target) = &assign.targets[0] {
+                                if let Expr::Name(value) = &assign.value.as_ref() {
+                                    // This is a simple name assignment
+                                    let key =
+                                        format!("{} = {}", target.id.as_str(), value.id.as_str());
+                                    if seen_assignments.insert(key.clone()) {
+                                        log::debug!("First occurrence of simple assignment: {key}");
+                                        result.push(stmt);
+                                    } else {
+                                        log::debug!("Skipping duplicate simple assignment: {key}");
+                                    }
+                                } else {
+                                    // Not a simple name assignment, include it
+                                    result.push(stmt);
+                                }
+                            } else {
+                                // Target is not a simple name, include it
+                                result.push(stmt);
+                            }
+                        } else {
+                            // Multiple targets, include it
+                            result.push(stmt);
+                        }
                     }
                 }
                 _ => result.push(stmt),

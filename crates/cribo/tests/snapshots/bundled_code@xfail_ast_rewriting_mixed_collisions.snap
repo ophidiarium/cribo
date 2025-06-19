@@ -322,12 +322,12 @@ def connect_5():
     return connection_5.connect()
 models_base = types.SimpleNamespace(validate=validate_2, connect=connect_1, BaseModel=BaseModel, Logger=Logger_1, process=process_2, initialize=initialize, shadow_test=shadow_test, result=result_2)
 _cribo_services_auth_manager_result = None
-def __cribo_init___cribo_49b92c_services_auth_manager():
-    if '__cribo_49b92c_services_auth_manager' in sys.modules:
-        return sys.modules['__cribo_49b92c_services_auth_manager']
-    module = types.ModuleType('__cribo_49b92c_services_auth_manager')
+def __cribo_init___cribo_ee1d45_services_auth_manager():
+    if '__cribo_ee1d45_services_auth_manager' in sys.modules:
+        return sys.modules['__cribo_ee1d45_services_auth_manager']
+    module = types.ModuleType('__cribo_ee1d45_services_auth_manager')
     module.__file__ = __file__ if '__file__' in globals() else None
-    sys.modules['__cribo_49b92c_services_auth_manager'] = module
+    sys.modules['__cribo_ee1d45_services_auth_manager'] = module
     sys.modules['services.auth.manager'] = module
     if 'services.auth' in sys.modules:
         setattr(sys.modules['services.auth'], 'manager', module)
@@ -475,8 +475,8 @@ def __cribo_init___cribo_62c387_core():
     core_process = process_6
     module.__all__ = ['result', 'Logger']
     return module
-__cribo_modules = {'services.auth.manager': '__cribo_49b92c_services_auth_manager', 'core': '__cribo_62c387_core'}
-__cribo_init_functions = {'__cribo_49b92c_services_auth_manager': __cribo_init___cribo_49b92c_services_auth_manager, '__cribo_62c387_core': __cribo_init___cribo_62c387_core}
+__cribo_modules = {'services.auth.manager': '__cribo_ee1d45_services_auth_manager', 'core': '__cribo_62c387_core'}
+__cribo_init_functions = {'__cribo_ee1d45_services_auth_manager': __cribo_init___cribo_ee1d45_services_auth_manager, '__cribo_62c387_core': __cribo_init___cribo_62c387_core}
 class CriboBundledFinder:
 
     def __init__(self, module_registry, init_functions):
@@ -494,7 +494,7 @@ class CriboBundledFinder:
             return importlib.util.find_spec(synthetic_name)
         return None
 sys.meta_path.insert(0, CriboBundledFinder(__cribo_modules, __cribo_init_functions))
-__cribo_init___cribo_49b92c_services_auth_manager()
+__cribo_init___cribo_ee1d45_services_auth_manager()
 __cribo_init___cribo_62c387_core()
 core = sys.modules['core']
 services = types.ModuleType('services')
@@ -517,10 +517,6 @@ process = process_7
 helper_validate = validate_6
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
-process_1 = process_6
-process = process_1
-validate_1 = validate_6
-validate = validate_1
 UserModel = User_2
 base = models_base
 result_1 = 42
@@ -530,9 +526,11 @@ connection = connection_1
 def validate_1(data):
     """This validate function conflicts with imported validate functions"""
     return f"main_validate: {data}"
+validate = validate_1
 def process_1(data):
     """This process function conflicts with multiple imported process functions"""
     return f"main_process: {data}"
+process = process_1
 class User_1:
     """This User class conflicts with imported User classes"""
 

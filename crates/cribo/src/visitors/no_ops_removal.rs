@@ -100,9 +100,7 @@ impl NoOpsRemovalTransformer {
             // Boolean operations
             (Operator::BitAnd, Expr::BooleanLiteral(b)) => b.value,
             (Operator::BitOr, Expr::BooleanLiteral(b)) => !b.value,
-            (Operator::BitOr, Expr::NumberLiteral(n)) => {
-                n.value.as_int().is_some_and(|i| *i == 0)
-            }
+            (Operator::BitOr, Expr::NumberLiteral(n)) => n.value.as_int().is_some_and(|i| *i == 0),
             (Operator::BitAnd, Expr::NumberLiteral(n)) => {
                 n.value.as_int().is_some_and(|i| *i == -1)
             }
