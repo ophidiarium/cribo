@@ -67,7 +67,6 @@ def __cribo_init___cribo_f275a8_schemas_user():
         is_active: bool
         bio: Optional[str] = None
     module.UserResponse = UserResponse
-    module.__all__ = ['UserSchema', 'CreateUserRequest', 'UserResponse']
     return module
 schemas = types.SimpleNamespace()
 utils = types.SimpleNamespace()

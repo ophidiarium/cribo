@@ -95,7 +95,6 @@ def __cribo_init___cribo_fddf57_models_user():
     module.User = User
     DEFAULT_ROLE = UserRole.USER
     module.DEFAULT_ROLE = DEFAULT_ROLE
-    module.__all__ = ['UserRole', 'User', 'DEFAULT_ROLE']
     return module
 models = types.SimpleNamespace()
 services = types.SimpleNamespace()

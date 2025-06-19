@@ -1570,6 +1570,8 @@ pub struct HybridStaticBundler {
     /// Runtime tracking of all created namespaces to prevent duplicates
     /// This includes both pre-identified and dynamically created namespaces
     created_namespaces: FxIndexSet<String>,
+    /// Modules that have explicit __all__ defined
+    modules_with_explicit_all: FxIndexSet<String>,
 }
 
 impl Default for HybridStaticBundler {
@@ -1603,6 +1605,7 @@ impl HybridStaticBundler {
             global_deferred_imports: FxIndexMap::default(),
             required_namespaces: FxIndexSet::default(),
             created_namespaces: FxIndexSet::default(),
+            modules_with_explicit_all: FxIndexSet::default(),
         }
     }
 
@@ -2391,7 +2394,10 @@ impl HybridStaticBundler {
             }
 
             // Extract __all__ exports from the module
-            let module_exports = self.extract_all_exports(ast);
+            let (has_explicit_all, module_exports) = self.extract_all_exports(ast);
+            if has_explicit_all {
+                self.modules_with_explicit_all.insert(module_name.clone());
+            }
             module_exports_map.insert(module_name.clone(), module_exports.clone());
 
             // Check if module is imported as a namespace
@@ -3491,8 +3497,8 @@ impl HybridStaticBundler {
             }
         }
 
-        // Generate __all__ for the bundled module only if the original module had __all__
-        if let Some(Some(_)) = self.module_exports.get(ctx.module_name) {
+        // Generate __all__ for the bundled module only if the original module had explicit __all__
+        if self.modules_with_explicit_all.contains(ctx.module_name) {
             body.push(self.create_all_assignment_for_module(ctx.module_name));
         }
 
@@ -5750,8 +5756,10 @@ impl HybridStaticBundler {
     }
 
     /// Extract __all__ exports from a module
-    /// Returns Some(vec) if __all__ is defined, None if not defined
-    fn extract_all_exports(&self, ast: &ModModule) -> Option<Vec<String>> {
+    /// Returns (has_explicit_all, exports) where:
+    /// - has_explicit_all: true if __all__ is explicitly defined
+    /// - exports: Some(vec) if there are exports, None if no exports
+    fn extract_all_exports(&self, ast: &ModModule) -> (bool, Option<Vec<String>>) {
         // First, look for explicit __all__
         for stmt in &ast.body {
             let Stmt::Assign(assign) = stmt else {
@@ -5768,7 +5776,7 @@ impl HybridStaticBundler {
             };
 
             if name.id.as_str() == "__all__" {
-                return self.extract_string_list_from_expr(&assign.value);
+                return (true, self.extract_string_list_from_expr(&assign.value));
             }
         }
 
@@ -5810,9 +5818,9 @@ impl HybridStaticBundler {
         }
 
         if symbols.is_empty() {
-            None
+            (false, None)
         } else {
-            Some(symbols)
+            (false, Some(symbols))
         }
     }
 

@@ -39,7 +39,6 @@ def __cribo_init___cribo_de6c46_mypackage_config():
     module.Config = Config
     config = Config()
     module.config = config
-    module.__all__ = ['Config', 'config']
     return module
 def __cribo_init___cribo_a81151_mypackage():
     module = types.SimpleNamespace()

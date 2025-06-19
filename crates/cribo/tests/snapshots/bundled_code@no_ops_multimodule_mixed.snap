@@ -222,7 +222,6 @@ def __cribo_init___cribo_2c21b2_lib_constants():
     else:
         HIGH_PORT_RANGE = False
     "end"
-    module.__all__ = ['MAX_CONNECTIONS', 'MIN_PORT', 'MAX_PORT', 'BUFFER_SIZE', 'TIMEOUT', 'RETRY_COUNT', 'CONFIG', 'ALLOWED_METHODS']
     return module
 api = types.SimpleNamespace()
 handlers = types.SimpleNamespace()
