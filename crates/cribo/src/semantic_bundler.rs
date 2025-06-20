@@ -648,6 +648,14 @@ impl<'a> GlobalUsageVisitor<'a> {
                 }
                 // Statement processed
             }
+            Stmt::AugAssign(aug_assign) => {
+                // Check if we're augmented assigning to a global
+                if self.current_function.is_some() {
+                    // AugAssign has a single target, not a list
+                    self.track_global_assignments(&[(*aug_assign.target).clone()]);
+                }
+                // Statement processed
+            }
             _ => {
                 // Statement processed
             }

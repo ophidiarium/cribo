@@ -3373,8 +3373,20 @@ impl HybridStaticBundler {
                     }
                 }
                 Stmt::FunctionDef(func_def) => {
-                    // Add function definition
-                    body.push(stmt.clone());
+                    // Clone the function for transformation
+                    let mut func_def_clone = func_def.clone();
+
+                    // Transform nested functions to use module attributes for module-level vars
+                    if let Some(ref global_info) = ctx.global_info {
+                        self.transform_nested_function_for_module_vars(
+                            &mut func_def_clone,
+                            &global_info.module_level_vars,
+                        );
+                    }
+
+                    // Add transformed function definition
+                    body.push(Stmt::FunctionDef(func_def_clone));
+
                     // Set as module attribute only if it should be exported
                     let symbol_name = func_def.name.to_string();
                     if self.should_export_symbol(&symbol_name, ctx.module_name) {
@@ -3748,6 +3760,135 @@ impl HybridStaticBundler {
             })),
             range: TextRange::default(),
         })
+    }
+
+    /// Transform nested functions to use module attributes for module-level variables
+    fn transform_nested_function_for_module_vars(
+        &self,
+        func_def: &mut StmtFunctionDef,
+        module_level_vars: &rustc_hash::FxHashSet<String>,
+    ) {
+        // Transform the function body
+        for stmt in &mut func_def.body {
+            self.transform_stmt_for_module_vars(stmt, module_level_vars);
+        }
+    }
+
+    /// Transform a statement to use module attributes for module-level variables
+    fn transform_stmt_for_module_vars(
+        &self,
+        stmt: &mut Stmt,
+        module_level_vars: &rustc_hash::FxHashSet<String>,
+    ) {
+        match stmt {
+            Stmt::FunctionDef(nested_func) => {
+                // Recursively transform nested functions
+                self.transform_nested_function_for_module_vars(nested_func, module_level_vars);
+            }
+            Stmt::Assign(assign) => {
+                // Transform assignment targets and values
+                for target in &mut assign.targets {
+                    self.transform_expr_for_module_vars(target, module_level_vars);
+                }
+                self.transform_expr_for_module_vars(&mut assign.value, module_level_vars);
+            }
+            Stmt::Expr(expr_stmt) => {
+                self.transform_expr_for_module_vars(&mut expr_stmt.value, module_level_vars);
+            }
+            Stmt::Return(return_stmt) => {
+                if let Some(value) = &mut return_stmt.value {
+                    self.transform_expr_for_module_vars(value, module_level_vars);
+                }
+            }
+            Stmt::If(if_stmt) => {
+                self.transform_expr_for_module_vars(&mut if_stmt.test, module_level_vars);
+                for stmt in &mut if_stmt.body {
+                    self.transform_stmt_for_module_vars(stmt, module_level_vars);
+                }
+                for clause in &mut if_stmt.elif_else_clauses {
+                    if let Some(test) = &mut clause.test {
+                        self.transform_expr_for_module_vars(test, module_level_vars);
+                    }
+                    for stmt in &mut clause.body {
+                        self.transform_stmt_for_module_vars(stmt, module_level_vars);
+                    }
+                }
+            }
+            Stmt::For(for_stmt) => {
+                self.transform_expr_for_module_vars(&mut for_stmt.target, module_level_vars);
+                self.transform_expr_for_module_vars(&mut for_stmt.iter, module_level_vars);
+                for stmt in &mut for_stmt.body {
+                    self.transform_stmt_for_module_vars(stmt, module_level_vars);
+                }
+            }
+            _ => {
+                // Handle other statement types as needed
+            }
+        }
+    }
+
+    /// Transform an expression to use module attributes for module-level variables
+    fn transform_expr_for_module_vars(
+        &self,
+        expr: &mut Expr,
+        module_level_vars: &rustc_hash::FxHashSet<String>,
+    ) {
+        match expr {
+            Expr::Name(name_expr) => {
+                // If this is a module-level variable being read, transform to module.var
+                if module_level_vars.contains(name_expr.id.as_str())
+                    && matches!(name_expr.ctx, ExprContext::Load)
+                {
+                    // Transform foo -> module.foo
+                    *expr = Expr::Attribute(ExprAttribute {
+                        value: Box::new(Expr::Name(ExprName {
+                            id: "module".into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new(name_expr.id.as_str(), TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+                }
+            }
+            Expr::Call(call) => {
+                self.transform_expr_for_module_vars(&mut call.func, module_level_vars);
+                for arg in &mut call.arguments.args {
+                    self.transform_expr_for_module_vars(arg, module_level_vars);
+                }
+                for keyword in &mut call.arguments.keywords {
+                    self.transform_expr_for_module_vars(&mut keyword.value, module_level_vars);
+                }
+            }
+            Expr::BinOp(binop) => {
+                self.transform_expr_for_module_vars(&mut binop.left, module_level_vars);
+                self.transform_expr_for_module_vars(&mut binop.right, module_level_vars);
+            }
+            Expr::Dict(dict) => {
+                for item in &mut dict.items {
+                    if let Some(key) = &mut item.key {
+                        self.transform_expr_for_module_vars(key, module_level_vars);
+                    }
+                    self.transform_expr_for_module_vars(&mut item.value, module_level_vars);
+                }
+            }
+            Expr::List(list_expr) => {
+                for elem in &mut list_expr.elts {
+                    self.transform_expr_for_module_vars(elem, module_level_vars);
+                }
+            }
+            Expr::Attribute(attr) => {
+                self.transform_expr_for_module_vars(&mut attr.value, module_level_vars);
+            }
+            Expr::Subscript(subscript) => {
+                self.transform_expr_for_module_vars(&mut subscript.value, module_level_vars);
+                self.transform_expr_for_module_vars(&mut subscript.slice, module_level_vars);
+            }
+            _ => {
+                // Handle other expression types as needed
+            }
+        }
     }
 
     /// Deduplicate deferred import statements
@@ -5428,6 +5569,21 @@ impl HybridStaticBundler {
                         current_function_globals,
                     );
                 }
+            }
+            Stmt::AugAssign(aug_assign) => {
+                // Transform augmented assignments to use lifted names
+                self.transform_expr_for_lifted_globals(
+                    &mut aug_assign.target,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
+                self.transform_expr_for_lifted_globals(
+                    &mut aug_assign.value,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
             }
             _ => {
                 // Other statement types handled as needed
@@ -8107,29 +8263,12 @@ impl HybridStaticBundler {
     /// Create initialization statements for lifted globals
     fn create_global_init_statements(
         &self,
-        function_globals: &FxIndexSet<String>,
-        lifted_names: &FxIndexMap<String, String>,
+        _function_globals: &FxIndexSet<String>,
+        _lifted_names: &FxIndexMap<String, String>,
     ) -> Vec<Stmt> {
-        let mut init_stmts = Vec::new();
-        for global_name in function_globals {
-            if let Some(lifted_name) = lifted_names.get(global_name) {
-                // Add: local_var = __cribo_module_var at the beginning
-                init_stmts.push(Stmt::Assign(StmtAssign {
-                    targets: vec![Expr::Name(ExprName {
-                        id: global_name.clone().into(),
-                        ctx: ExprContext::Store,
-                        range: TextRange::default(),
-                    })],
-                    value: Box::new(Expr::Name(ExprName {
-                        id: lifted_name.clone().into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    range: TextRange::default(),
-                }));
-            }
-        }
-        init_stmts
+        // No initialization statements needed - global declarations mean
+        // we use the lifted names directly, not through local variables
+        Vec::new()
     }
 
     /// Transform function body for lifted globals
@@ -8168,12 +8307,117 @@ impl HybridStaticBundler {
                         Some(params.function_globals),
                     );
                     new_body.push(body_stmt.clone());
+
+                    // After transforming, check if we need to add synchronization
+                    self.add_global_sync_if_needed(
+                        body_stmt,
+                        params.function_globals,
+                        params.lifted_names,
+                        &mut new_body,
+                    );
                 }
             }
         }
 
         // Replace function body with new body
         func_def.body = new_body;
+    }
+
+    /// Add synchronization statements for global variable modifications
+    fn add_global_sync_if_needed(
+        &self,
+        stmt: &Stmt,
+        function_globals: &FxIndexSet<String>,
+        lifted_names: &FxIndexMap<String, String>,
+        new_body: &mut Vec<Stmt>,
+    ) {
+        match stmt {
+            Stmt::Assign(assign) => {
+                // Check if this is an assignment to a global variable
+                if let [Expr::Name(name)] = &assign.targets[..] {
+                    let var_name = name.id.as_str();
+
+                    // The variable name might already be transformed to the lifted name,
+                    // so we need to check if it's a lifted variable
+                    if let Some(original_name) = lifted_names
+                        .iter()
+                        .find(|(orig, lifted)| {
+                            lifted.as_str() == var_name && function_globals.contains(orig.as_str())
+                        })
+                        .map(|(orig, _)| orig)
+                    {
+                        log::debug!(
+                            "Adding sync for assignment to global {var_name}: {var_name} -> module.{original_name}"
+                        );
+                        // Add: module.<original_name> = <lifted_name>
+                        new_body.push(Stmt::Assign(StmtAssign {
+                            targets: vec![Expr::Attribute(ExprAttribute {
+                                value: Box::new(Expr::Name(ExprName {
+                                    id: "module".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(original_name, TextRange::default()),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            })],
+                            value: Box::new(Expr::Name(ExprName {
+                                id: var_name.into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        }));
+                    }
+                }
+            }
+            Stmt::AugAssign(aug_assign) => {
+                // Check if this is an augmented assignment to a global variable
+                if let Expr::Name(name) = aug_assign.target.as_ref() {
+                    let var_name = name.id.as_str();
+                    log::debug!(
+                        "Checking augmented assignment to {var_name}, function_globals: {function_globals:?}, \
+                         lifted_names: {lifted_names:?}"
+                    );
+
+                    // The variable name might already be transformed to the lifted name,
+                    // so we need to check if it's a lifted variable
+                    if let Some(original_name) = lifted_names
+                        .iter()
+                        .find(|(orig, lifted)| {
+                            lifted.as_str() == var_name && function_globals.contains(orig.as_str())
+                        })
+                        .map(|(orig, _)| orig)
+                    {
+                        log::debug!(
+                            "Adding sync for augmented assignment to global {var_name}: {var_name} -> module.{original_name}"
+                        );
+                        // Add: module.<original_name> = <lifted_name>
+                        new_body.push(Stmt::Assign(StmtAssign {
+                            targets: vec![Expr::Attribute(ExprAttribute {
+                                value: Box::new(Expr::Name(ExprName {
+                                    id: "module".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(original_name, TextRange::default()),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            })],
+                            value: Box::new(Expr::Name(ExprName {
+                                id: var_name.into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        }));
+                    }
+                }
+            }
+            _ => {
+                // Other statement types don't modify globals directly
+            }
+        }
     }
 
     /// Transform f-string expressions for lifted globals

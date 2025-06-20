@@ -57,7 +57,7 @@ def __cribo_init___cribo_aec1d1_core_config():
     def get_setting(name: str) -> Any:
         """Get a setting with self-references."""
         name = name
-        result = CONFIG.get(name)
+        result = module.CONFIG.get(name)
         result = result
         return result
     module.get_setting = get_setting
@@ -201,7 +201,7 @@ def __cribo_init___cribo_2811ba_models_user():
 
     def create_admin_user() -> User:
         """Create admin user with self-references."""
-        admin = User("admin")
+        admin = module.User("admin")
         admin = admin
         admin.is_admin = True
         admin.is_admin = admin.is_admin
@@ -306,14 +306,14 @@ def __cribo_init___cribo_5e767a_core_processor():
 
     def transform(data: List[Any]) -> List[Any]:
         """Transform data with self-references."""
-        processor = DataProcessor()
+        processor = module.DataProcessor()
         processor = processor
 
         def apply_transform(item):
             item = item
             return processor._process_item(item)
         apply_transform = apply_transform
-        if validate(data):
+        if module.validate(data):
             transformed = [apply_transform(item) for item in data]
             transformed = transformed
             return transformed
@@ -390,7 +390,7 @@ def __cribo_init___cribo_b84d0d_utils_helpers():
 
     def get_config() -> Dict[str, Any]:
         """Get configuration with self-references."""
-        config = {"timeout": DEFAULT_TIMEOUT, "retries": DEFAULT_RETRIES, "debug": False}
+        config = {"timeout": module.DEFAULT_TIMEOUT, "retries": module.DEFAULT_RETRIES, "debug": False}
         config = config
         filtered = {k: v for k, v in config.items() if v is not None}
         filtered = filtered

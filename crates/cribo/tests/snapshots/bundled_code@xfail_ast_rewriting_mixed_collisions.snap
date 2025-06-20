@@ -351,15 +351,15 @@ def __cribo_init___cribo_ee1d45_services_auth_manager():
     def process(data: Any) -> str:
         """Auth process function - major conflict"""
         global _cribo_services_auth_manager_result
-        result = _cribo_services_auth_manager_result
         base_init = base.initialize()
         if isinstance(data, str):
             validate = lambda x: x.startswith("auth_")
-            validated = validate(data)
+            validated = module.validate(data)
             processed = f"auth_str_{data}" if validated else f"invalid_auth_{data}"
         else:
             processed = f"auth_other_{data}"
         _cribo_services_auth_manager_result = f'{_cribo_services_auth_manager_result}_processed'
+        module.result = _cribo_services_auth_manager_result
         return f"auth_processed: {processed}, base: {base_init}"
     module.process = process
 
@@ -378,8 +378,8 @@ def __cribo_init___cribo_ee1d45_services_auth_manager():
     def connect(User: Optional["User"]=None) -> Connection:
         """Connect function with parameter conflict"""
         connection = Connection("auth_manager")
-        if User:
-            connection.add_user(User)
+        if module.User:
+            connection.add_user(module.User)
         return connection
     module.connect = connect
 
