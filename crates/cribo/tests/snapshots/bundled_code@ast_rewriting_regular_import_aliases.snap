@@ -13,12 +13,11 @@ import random
 import types
 import urllib.parse
 import xml.etree.ElementTree
-"""Configuration module for testing regular import aliases."""
 DEFAULT_CONFIG = {"debug": True, "timeout": 30}
 def get_config():
     """Get the default configuration."""
     return DEFAULT_CONFIG.copy()
-"""Utility module for testing regular import aliases."""
+"""Configuration module for testing regular import aliases."""
 def helper_function():
     """A simple helper function."""
     return "helper_result"
@@ -30,11 +29,12 @@ class UtilityClass:
 
     def get_value(self):
         return self.value
+"""Utility module for testing regular import aliases."""
 '''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
 helper_utils = types.SimpleNamespace()
-helper_utils.__all__ = ['helper_function', 'UtilityClass']
-helper_utils.helper_function = helper_function
+helper_utils.__all__ = ['UtilityClass', 'helper_function']
 helper_utils.UtilityClass = UtilityClass
+helper_utils.helper_function = helper_function
 config_module = types.SimpleNamespace()
 config_module.__all__ = ['DEFAULT_CONFIG', 'get_config']
 config_module.DEFAULT_CONFIG = DEFAULT_CONFIG

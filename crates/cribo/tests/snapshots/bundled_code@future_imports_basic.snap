@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Union
 import types
 """Submodule with future imports."""
+__version__ = "1.0.0"
 """Package initialization with future import."""
 def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
     module = types.SimpleNamespace()
@@ -42,6 +43,7 @@ def __cribo_init___cribo_41d36f_mypackage_core():
     def _transform_data(data: Dict[str, Any]) -> List[str]:
         """Transform data into list format."""
         return [f"{k}={v}" for k, v in data.items()]
+    module._transform_data = _transform_data
     ProcessingResult = Dict[str, Any]
     module.ProcessingResult = ProcessingResult
     return module

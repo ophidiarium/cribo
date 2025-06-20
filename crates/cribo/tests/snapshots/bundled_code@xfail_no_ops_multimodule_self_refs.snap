@@ -320,6 +320,7 @@ def __cribo_init___cribo_5e767a_core_processor():
         return data
     module.transform = transform
     _processor_instance = DataProcessor()
+    module._processor_instance = _processor_instance
     return module
 def __cribo_init___cribo_b84d0d_utils_helpers():
     module = types.SimpleNamespace()
@@ -397,6 +398,7 @@ def __cribo_init___cribo_b84d0d_utils_helpers():
         return filtered
     module.get_config = get_config
     _private_var = 100
+    module._private_var = _private_var
     if True:
         conditional_var = 200
         conditional_var = conditional_var

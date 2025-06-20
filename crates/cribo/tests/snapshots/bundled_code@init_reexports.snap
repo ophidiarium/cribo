@@ -9,23 +9,23 @@ input_file: crates/cribo/tests/fixtures/init_reexports/main.py
 import os
 import types
 """Utils subpackage with re-exports."""
-"""Constants module."""
 MAX_ITEMS = 100
 DEFAULT_VALUE = "default"
-"""Helper utilities."""
+"""Constants module."""
 def helper_function(data):
     """Helper function for processing data."""
     return f"Helped: {data}"
-"""Data formatting module."""
+"""Helper utilities."""
 def format_data(data):
     """Format the processed data."""
     return f"Formatted: {data}"
-"""Data processing module."""
+"""Data formatting module."""
 def process_data(data):
     """Process the input data."""
     processed = data.copy()
     processed["processed"] = True
     return processed
+"""Data processing module."""
 def __cribo_init___cribo_de6c46_mypackage_config():
     module = types.SimpleNamespace()
     """Configuration module."""

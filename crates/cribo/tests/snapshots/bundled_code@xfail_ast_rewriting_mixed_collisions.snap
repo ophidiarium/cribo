@@ -59,9 +59,12 @@ result_2 = "base_result"
 validate_3 = "models_validate_string"
 connection_2 = "models_connection_string"
 process_3 = "models_process_string"
-"""\nUser model with extensive naming conflicts across the project\n"""
 result_3 = {"model": "user"}
 connection_3 = None
+process_4 = process
+validate_4 = validate
+User_2 = User
+Logger_2 = Logger
 class Logger_2:
     """Model Logger class - conflicts with other Logger classes"""
 
@@ -109,15 +112,15 @@ class User_2:
 
     def authenticate(self, password: str) -> Dict[str, Any]:
         """Method with complex internal conflicts"""
-        validate = self.validate
-        process = self.process
+        validate_4 = self.validate
+        process_4 = self.process
         Logger_2 = self.Logger
         result_3 = {}
-        name_valid = validate("name", self.name)
-        email_valid = validate("email", self.email)
+        name_valid = validate_4("name", self.name)
+        email_valid = validate_4("email", self.email)
         password_valid = len(password) >= 4
         auth_data = {"name": self.name, "email": self.email, "password_length": len(password)}
-        process_result = process(auth_data)
+        process_result = process_4(auth_data)
         Logger_2.validate(f"auth_{self.name}")
         result_3 = {"user": self.name, "valid": name_valid and email_valid and password_valid, "process_result": process_result, "logger_context": Logger_2.context}
         return result_3
@@ -179,17 +182,15 @@ def complex_operation(User: Any=None, Logger: Any=None, process: Any=None, valid
         operation_result["created_user"] = user.name
         operation_result["created_logger"] = logger.context
     return operation_result
-process_4 = process_4
-validate_4 = validate_4
-User_2 = User_2
-Logger_2 = Logger_2
+"""\nUser model with extensive naming conflicts across the project\n"""
 connection_4 = "auth_connection_string"
 result_4 = {"services": "initialized"}
 Logger_3 = "services_logger_string"
 Connection_4 = "utils_connection_type"
-"""\nUtility helpers module with extensive naming conflicts\n"""
 result_6 = 0
 User_4 = "helper_user_string"
+validate_6 = validate
+process_6 = process
 class Logger_4:
     """Utility logger class - conflicts with other Logger classes"""
 
@@ -250,12 +251,11 @@ def process_with_conflicts(data: Any, User: str="param_user", result: int=100, L
     validate_result = validate_6(data)
     local_result = {"data": data, "user_param": User_4, "result_param": result_6, "logger_param": Logger_4, "validation": validate_result, "connection_type": connection.connection_type}
     return local_result
-validate_6 = validate_6
-process_6 = process_6
+"""\nUtility helpers module with extensive naming conflicts\n"""
 User_5 = "database_user_type"
-"""\nDatabase connection module with naming conflicts\n"""
 result_8 = []
 connection_5 = None
+process_7 = process
 class Connection_6:
     """Database connection class"""
 
@@ -293,7 +293,7 @@ def connect_5():
     if connection_5 is None:
         connection_5 = Connection_6()
     return connection_5.connect()
-process_7 = process_7
+"""\nDatabase connection module with naming conflicts\n"""
 models_base = types.SimpleNamespace(validate=validate_2, connect=connect_1, BaseModel=BaseModel, Logger=Logger_1, process=process_2, initialize=initialize, shadow_test=shadow_test, result=result_2)
 _cribo_services_auth_manager_result = None
 def __cribo_init___cribo_ee1d45_services_auth_manager():

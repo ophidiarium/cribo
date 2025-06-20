@@ -11,7 +11,6 @@ from pydantic import BaseModel, EmailStr, Field, ValidationError
 import re
 import types
 """Utils package initialization."""
-"""Validation utilities."""
 def validate_email(email: str) -> bool:
     """Simple email validation."""
     pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -30,6 +29,7 @@ def validate_age(age: Union[int, str]) -> bool:
         return 0 <= age_int <= 150
     except (ValueError, TypeError):
         return False
+"""Validation utilities."""
 """Schemas package initialization."""
 def __cribo_init___cribo_f275a8_schemas_user():
     module = types.SimpleNamespace()

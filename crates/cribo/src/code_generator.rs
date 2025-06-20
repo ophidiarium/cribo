@@ -416,6 +416,8 @@ struct RecursiveImportTransformer<'a> {
     is_wrapper_init: bool,
     /// Reference to global deferred imports registry
     global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
+    /// Track local variable assignments to avoid treating them as module aliases
+    local_variables: FxIndexSet<String>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -439,6 +441,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             is_entry_module,
             is_wrapper_init,
             global_deferred_imports,
+            local_variables: FxIndexSet::default(),
         }
     }
 
@@ -530,6 +533,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.transform_statements(&mut try_stmt.finalbody);
                     }
                     Stmt::Assign(assign) => {
+                        // Track local variable assignments
+                        for target in &assign.targets {
+                            if let Expr::Name(name) = target {
+                                self.local_variables.insert(name.id.to_string());
+                            }
+                        }
                         for target in &mut assign.targets {
                             self.transform_expr(target);
                         }
@@ -1496,6 +1505,11 @@ impl<'a> RecursiveImportTransformer<'a> {
 
     /// Find the actual module name for a given alias
     fn find_module_for_alias(&self, alias: &str) -> Option<String> {
+        // Don't treat local variables as module aliases
+        if self.local_variables.contains(alias) {
+            return None;
+        }
+
         // First check our tracked import aliases
         if let Some(module_name) = self.import_aliases.get(alias) {
             return Some(module_name.clone());
@@ -5961,25 +5975,21 @@ impl HybridStaticBundler {
             }
         }
 
-        // If no __all__, collect all public top-level symbols (not starting with _)
+        // If no __all__, collect all top-level symbols (including private ones for module state)
         let mut symbols = Vec::new();
         for stmt in &ast.body {
             match stmt {
                 Stmt::FunctionDef(func) => {
-                    if !func.name.as_str().starts_with('_') {
-                        symbols.push(func.name.to_string());
-                    }
+                    symbols.push(func.name.to_string());
                 }
                 Stmt::ClassDef(class) => {
-                    if !class.name.as_str().starts_with('_') {
-                        symbols.push(class.name.to_string());
-                    }
+                    symbols.push(class.name.to_string());
                 }
                 Stmt::Assign(assign) => {
-                    // Include simple variable assignments
+                    // Include ALL variable assignments (including private ones starting with _)
+                    // This ensures module state variables like _config, _logger are available
                     for target in &assign.targets {
                         if let Expr::Name(name) = target
-                            && !name.id.as_str().starts_with('_')
                             && name.id.as_str() != "__all__"
                         {
                             symbols.push(name.id.to_string());
@@ -5987,10 +5997,8 @@ impl HybridStaticBundler {
                     }
                 }
                 Stmt::AnnAssign(ann_assign) => {
-                    // Include annotated assignments
-                    if let Expr::Name(name) = ann_assign.target.as_ref()
-                        && !name.id.as_str().starts_with('_')
-                    {
+                    // Include ALL annotated assignments (including private ones)
+                    if let Expr::Name(name) = ann_assign.target.as_ref() {
                         symbols.push(name.id.to_string());
                     }
                 }
@@ -6001,6 +6009,8 @@ impl HybridStaticBundler {
         if symbols.is_empty() {
             (false, None)
         } else {
+            // Sort symbols for deterministic output
+            symbols.sort();
             (false, Some(symbols))
         }
     }
@@ -7705,6 +7715,47 @@ impl HybridStaticBundler {
         reordered
     }
 
+    /// Reorder statements to ensure module-level variables are declared before use
+    fn reorder_statements_for_proper_declaration_order(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
+        let mut imports = Vec::new();
+        let mut assignments = Vec::new();
+        let mut functions_and_classes = Vec::new();
+        let mut other_stmts = Vec::new();
+
+        // Categorize statements
+        for stmt in statements {
+            match &stmt {
+                Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                    imports.push(stmt);
+                }
+                Stmt::Assign(_) | Stmt::AnnAssign(_) => {
+                    // Module-level variable assignments
+                    assignments.push(stmt);
+                }
+                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
+                    // Functions and classes that might reference module-level variables
+                    functions_and_classes.push(stmt);
+                }
+                _ => {
+                    other_stmts.push(stmt);
+                }
+            }
+        }
+
+        // Build the reordered list:
+        // 1. Imports first
+        // 2. Module-level assignments (variables)
+        // 3. Functions and classes
+        // 4. Other statements
+        let mut reordered = Vec::new();
+        reordered.extend(imports);
+        reordered.extend(assignments);
+        reordered.extend(functions_and_classes);
+        reordered.extend(other_stmts);
+
+        reordered
+    }
+
     /// Inline a module without side effects directly into the bundle
     fn inline_module(
         &mut self,
@@ -7728,11 +7779,13 @@ impl HybridStaticBundler {
         );
         transformer.transform_module(&mut ast);
 
-        // If this is a circular module, reorder statements based on symbol dependencies
+        // Reorder statements to ensure proper declaration order
         let statements = if self.circular_modules.contains(module_name) {
             self.reorder_statements_for_circular_module(module_name, ast.body)
         } else {
-            ast.body
+            // Even for non-circular modules, ensure module-level variables are declared
+            // before functions that might use them
+            self.reorder_statements_for_proper_declaration_order(ast.body)
         };
 
         // Process each statement in the module
@@ -8606,11 +8659,12 @@ impl HybridStaticBundler {
         let exports = module_exports_map.get(module_name).and_then(|e| e.as_ref());
 
         if let Some(export_list) = exports {
-            // Module has explicit __all__, only inline if exported
+            // Module has exports (either explicit __all__ or extracted symbols)
+            // Only inline if the symbol is in the export list
             export_list.contains(&symbol_name.to_string())
         } else {
-            // No __all__, export non-private symbols
-            !symbol_name.starts_with('_')
+            // No exports at all, don't inline anything
+            false
         }
     }
 

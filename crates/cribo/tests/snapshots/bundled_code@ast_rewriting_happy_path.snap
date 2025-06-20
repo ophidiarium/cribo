@@ -9,7 +9,8 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_happy_path/main.py
 from enum import Enum
 from typing import Any, Dict, List, Optional
 import types
-"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
+DEFAULT_DATABASE_PATH = "app.db"
+MAX_CONNECTIONS = 10
 class DatabaseConnection:
     """Represents a database connection."""
 
@@ -46,9 +47,8 @@ class DatabaseService:
     def close(self) -> None:
         """Close the database connection."""
         self.connection.disconnect()
-DEFAULT_DATABASE_PATH = "app.db"
-MAX_CONNECTIONS = 10
-"""\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
+"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
+UTILS_VERSION = "1.0.0"
 def format_message(greeting: str, name: str) -> str:
     """Format a greeting message."""
     return f"{greeting}, {name}!"
@@ -58,7 +58,7 @@ def calculate_total(values: List[int]) -> int:
 def get_version() -> str:
     """Get the version string."""
     return "1.0.0"
-UTILS_VERSION = "1.0.0"
+"""\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
 def __cribo_init___cribo_fddf57_models_user():
     module = types.SimpleNamespace()
     """\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""

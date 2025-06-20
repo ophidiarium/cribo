@@ -9,24 +9,24 @@ input_file: crates/cribo/tests/fixtures/all_variable_handling/main.py
 import types
 message_1 = "from conflict_module"
 SHARED_NAME = "conflict_module_version"
+SUB_CONSTANT = "submodule_value"
 def sub_function():
     """Function from submodule"""
     return "Hello from submodule"
-SUB_CONSTANT = "submodule_value"
 def exported_from_init():
     """Function exported from package __init__.py"""
     return f"From init, using helper: {helper_func()}"
+UTILS_CONSTANT = "utils value"
 def helper_func():
     """Helper function used by other modules"""
     return "helper result"
 def another_helper():
     """Another helper function"""
     return "another helper"
-UTILS_CONSTANT = "utils value"
+CONSTANT = 42
 def public_func():
     """A public function that should be exported."""
     return "Hello from public_func"
-CONSTANT = 42
 message = message_1
 print("Testing simple module exports:")
 print(f"public_func() = {public_func()}")

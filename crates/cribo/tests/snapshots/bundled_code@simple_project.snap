@@ -11,7 +11,6 @@ from typing import Optional, Union
 import os
 import sys
 """Models package initialization."""
-"""User model for the test project."""
 @dataclass
 class User:
     """A simple user model."""
@@ -28,8 +27,8 @@ class User:
         if self.email:
             return f"{self.name} <{self.email}>"
         return self.name
+"""User model for the test project."""
 """Utils package initialization."""
-"""Utility functions for the test project."""
 def greet(name: str) -> str:
     """Greet a person by name."""
     return f"Hello, {name}!"
@@ -39,6 +38,7 @@ def calculate(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
 def get_system_info() -> dict:
     """Get basic system information."""
     return {"platform": sys.platform, "python_version": sys.version, "cwd": os.getcwd()}
+"""Utility functions for the test project."""
 """Simple test project entry point."""
 def main():
     """Main function."""
