@@ -427,17 +427,11 @@ User = User_1
 UserManager = models.user.UserManager
 constants = utils.constants
 process_data_1 = process_data_1
-process_data = process_data_1
 validate_1 = validate_1
-validate = validate_1
 Logger_1 = Logger_1
-Logger = Logger_1
 DataProcessor_1 = DataProcessor_1
-DataProcessor = DataProcessor_1
 transform_1 = transform_1
-transform = transform_1
 User_1 = User_1
-User = User_1
 constants = constants
 core = core
 models = models
@@ -492,8 +486,6 @@ class MainController:
         temp = result if result else result
         temp = temp
         return result
-MainController = MainController
-main = main
 if __name__ == "__main__":
     controller = MainController()
     controller = controller

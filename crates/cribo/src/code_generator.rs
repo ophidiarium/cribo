@@ -2955,6 +2955,21 @@ impl HybridStaticBundler {
 
             log::debug!("Entry module '{module_name}' renames: {entry_module_renames:?}");
 
+            // First pass: collect locally defined symbols in the entry module
+            let mut locally_defined_symbols = FxIndexSet::default();
+            for stmt in &ast.body {
+                match stmt {
+                    Stmt::FunctionDef(func_def) => {
+                        locally_defined_symbols.insert(func_def.name.to_string());
+                    }
+                    Stmt::ClassDef(class_def) => {
+                        locally_defined_symbols.insert(class_def.name.to_string());
+                    }
+                    _ => {}
+                }
+            }
+            log::debug!("Entry module locally defined symbols: {locally_defined_symbols:?}");
+
             // Apply recursive import transformation to the entry module
             log::debug!("Creating RecursiveImportTransformer for entry module '{module_name}'");
             let mut entry_deferred_imports = Vec::new();
@@ -2991,6 +3006,25 @@ impl HybridStaticBundler {
                         final_body.push(stmt.clone());
                     }
                     Stmt::Assign(assign) => {
+                        // Check if this is an import assignment for a locally defined symbol
+                        let is_import_for_local_symbol = if assign.targets.len() == 1 {
+                            if let Expr::Name(target) = &assign.targets[0] {
+                                locally_defined_symbols.contains(target.id.as_str())
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if is_import_for_local_symbol {
+                            log::debug!(
+                                "Skipping import assignment for locally defined symbol in entry \
+                                 module"
+                            );
+                            continue;
+                        }
+
                         // Check if this assignment already exists in final_body to avoid duplicates
                         let is_duplicate = if assign.targets.len() == 1 {
                             // Check the exact assignment pattern
@@ -3175,11 +3209,33 @@ impl HybridStaticBundler {
         final_body.push(stmt.clone());
 
         // Add reassignment if needed, but skip if original and renamed are the same
+        // or if the reassignment already exists
         if let Some((original, renamed)) = pending_reassignment
             && original != renamed
         {
-            let reassign = self.create_reassignment(&original, &renamed);
-            final_body.push(reassign);
+            // Check if this reassignment already exists in final_body
+            let assignment_exists = final_body.iter().any(|stmt| {
+                if let Stmt::Assign(assign) = stmt {
+                    if assign.targets.len() == 1 {
+                        if let (Expr::Name(target), Expr::Name(value)) =
+                            (&assign.targets[0], assign.value.as_ref())
+                        {
+                            target.id.as_str() == original && value.id.as_str() == renamed
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            });
+
+            if !assignment_exists {
+                let reassign = self.create_reassignment(&original, &renamed);
+                final_body.push(reassign);
+            }
         }
     }
 
@@ -7719,6 +7775,7 @@ impl HybridStaticBundler {
     fn reorder_statements_for_proper_declaration_order(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
         let mut imports = Vec::new();
         let mut assignments = Vec::new();
+        let mut self_assignments = Vec::new();
         let mut functions_and_classes = Vec::new();
         let mut other_stmts = Vec::new();
 
@@ -7728,8 +7785,30 @@ impl HybridStaticBundler {
                 Stmt::Import(_) | Stmt::ImportFrom(_) => {
                     imports.push(stmt);
                 }
-                Stmt::Assign(_) | Stmt::AnnAssign(_) => {
-                    // Module-level variable assignments
+                Stmt::Assign(assign) => {
+                    // Check if this is a self-assignment (e.g., validate = validate)
+                    let is_self_assignment = if assign.targets.len() == 1 {
+                        if let (Expr::Name(target), Expr::Name(value)) =
+                            (&assign.targets[0], assign.value.as_ref())
+                        {
+                            target.id == value.id
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if is_self_assignment {
+                        // Self-assignments should come after function definitions
+                        self_assignments.push(stmt);
+                    } else {
+                        // Regular module-level variable assignments
+                        assignments.push(stmt);
+                    }
+                }
+                Stmt::AnnAssign(_) => {
+                    // Annotated assignments are regular variable declarations
                     assignments.push(stmt);
                 }
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
@@ -7744,13 +7823,15 @@ impl HybridStaticBundler {
 
         // Build the reordered list:
         // 1. Imports first
-        // 2. Module-level assignments (variables)
+        // 2. Module-level assignments (variables) - but not self-assignments
         // 3. Functions and classes
-        // 4. Other statements
+        // 4. Self-assignments (after functions are defined)
+        // 5. Other statements
         let mut reordered = Vec::new();
         reordered.extend(imports);
         reordered.extend(assignments);
         reordered.extend(functions_and_classes);
+        reordered.extend(self_assignments);
         reordered.extend(other_stmts);
 
         reordered
@@ -10123,7 +10204,7 @@ impl HybridStaticBundler {
 
         // Apply the rename to the LHS
         if let Expr::Name(name_expr) = &mut assign_clone.targets[0] {
-            name_expr.id = renamed_name.into();
+            name_expr.id = renamed_name.clone().into();
         }
 
         ctx.inlined_stmts.push(Stmt::Assign(assign_clone));
