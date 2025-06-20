@@ -158,6 +158,8 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
 /// This discovers and tests all fixtures automatically
 #[test]
 fn test_bundling_fixtures() {
+    // Reset fixture counter before running fixtures
+    FIXTURE_COUNT.store(0, Ordering::Relaxed);
     insta::glob!("fixtures/", "*/main.py", |path| {
         // Initialize summary reporter on the first test run and increment count
         Lazy::force(&SUMMARY);
@@ -486,6 +488,17 @@ fn test_bundling_fixtures() {
             insta::assert_yaml_snapshot!("requirements", requirements_data);
         });
     });
+    // Fail the test if no fixtures were executed
+    let count = FIXTURE_COUNT.load(Ordering::Relaxed);
+    // Report applied glob filter and instruct on running a specific fixture
+    let filter = std::env::var("INSTA_GLOB_FILTER").unwrap_or_else(|_| "<none>".to_string());
+    assert!(
+        count > 0,
+        "\x1b[1;31mNo fixtures found in `fixtures/` directory.\x1b[0m\n 🔎 Applied glob filter: \
+         {filter}.\n\n 💡 To run a specific fixture, \
+         use:\nINSTA_GLOB_FILTER=\"**/stickytape_single_file/main.py\" cargo nextest run \
+         --no-capture --test test_bundling_snapshots --cargo-quiet --cargo-quiet\n\n",
+    );
 }
 
 /// Check for duplicate lines in the bundled code
