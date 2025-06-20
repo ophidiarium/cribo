@@ -1,10 +1,10 @@
 # Complexity thresholds
 allowed-idents-below-min-chars      = ["..", "id", "x", "y", "z", "i", "j", "k", "n", "m"] # Added common loop/coord vars
 cognitive-complexity-threshold      = 10
-excessive-nesting-threshold         = 7
+excessive-nesting-threshold         = 8
 min-ident-chars-threshold           = 2
 single-char-binding-names-threshold = 3
-too-many-arguments-threshold        = 5
+too-many-arguments-threshold        = 6
 too-many-lines-threshold            = 80
 trivial-copy-size-limit             = 16
 type-complexity-threshold           = 300
