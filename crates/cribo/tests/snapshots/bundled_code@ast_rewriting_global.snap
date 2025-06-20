@@ -30,7 +30,7 @@ def local_vs_global():
     return foo_3, inner()
 _cribo_module_mixed_patterns_foo = None
 _cribo_module_mixed_patterns_counter = None
-def __cribo_init___cribo_29c41e_module_mixed_patterns():
+def __cribo_init___cribo_c75306_module_mixed_patterns():
     module = types.SimpleNamespace()
     """Module demonstrating mixed global access patterns."""
     foo = "module3_foo"
@@ -71,7 +71,7 @@ def __cribo_init___cribo_29c41e_module_mixed_patterns():
             _cribo_module_mixed_patterns_counter += 1
             module.counter = _cribo_module_mixed_patterns_counter
             return _cribo_module_mixed_patterns_counter
-        global_keys = [k for k in globals() if not k.startswith('_')]
+        global_keys = [k for k in globals() if not k.startswith("_")]
         return {"original": original, "after_loop": _cribo_module_mixed_patterns_counter, "increment_func": increment, "global_count": len(global_keys)}
     module.complex_global_usage = complex_global_usage
     module.__dict__["initialized_via_globals"] = True
@@ -81,7 +81,7 @@ def __cribo_init___cribo_29c41e_module_mixed_patterns():
     global _cribo_module_mixed_patterns_counter
     _cribo_module_mixed_patterns_counter = counter
     return module
-def __cribo_init___cribo_d67d67_module_globals_dict():
+def __cribo_init___cribo_5101f4_module_globals_dict():
     module = types.SimpleNamespace()
     """Module demonstrating globals() dictionary access."""
     bar = "module2_bar"
@@ -111,13 +111,13 @@ def __cribo_init___cribo_d67d67_module_globals_dict():
 
     def list_module_globals():
         """List all non-built-in globals in this module."""
-        return {k: v for k, v in globals().items() if not k.startswith('__') and k not in ['get_bar', 'modify_bar', 'set_dynamic_global', 'get_dynamic_global', 'list_module_globals']}
+        return {k: v for k, v in globals().items() if not k.startswith("__") and k not in ["get_bar", "modify_bar", "set_dynamic_global", "get_dynamic_global", "list_module_globals"]}
     module.list_module_globals = list_module_globals
     set_dynamic_global("dynamic1", "created_via_globals")
     set_dynamic_global("dynamic2", [1, 2, 3])
     return module
-module_globals_dict = __cribo_init___cribo_d67d67_module_globals_dict()
-module_mixed_patterns = __cribo_init___cribo_29c41e_module_mixed_patterns()
+module_globals_dict = __cribo_init___cribo_5101f4_module_globals_dict()
+module_mixed_patterns = __cribo_init___cribo_c75306_module_mixed_patterns()
 """Test global namespace isolation between modules."""
 foo_1 = "main_foo"
 foo = foo_1
