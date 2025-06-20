@@ -99,7 +99,8 @@ def __cribo_init___cribo_fddf57_models_user():
 models = types.SimpleNamespace()
 services = types.SimpleNamespace()
 utils = types.SimpleNamespace()
-models.user = __cribo_init___cribo_fddf57_models_user()
+_cribo_temp_models_user = __cribo_init___cribo_fddf57_models_user()
+models.user = _cribo_temp_models_user
 """\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
 User = models.user.User
 UserRole = models.user.UserRole

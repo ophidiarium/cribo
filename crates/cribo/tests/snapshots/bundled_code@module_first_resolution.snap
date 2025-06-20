@@ -15,6 +15,7 @@ def __cribo_init___cribo_e25798_foo():
     module.value = value
     print("Successfully imported foo package")
     return module
-foo = __cribo_init___cribo_e25798_foo()
+_cribo_temp_foo = __cribo_init___cribo_e25798_foo()
+foo = _cribo_temp_foo
 print(f"Imported foo from: {foo.source}")
 print(f"foo.value = {foo.value}")

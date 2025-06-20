@@ -116,8 +116,10 @@ def __cribo_init___cribo_5101f4_module_globals_dict():
     set_dynamic_global("dynamic1", "created_via_globals")
     set_dynamic_global("dynamic2", [1, 2, 3])
     return module
-module_globals_dict = __cribo_init___cribo_5101f4_module_globals_dict()
-module_mixed_patterns = __cribo_init___cribo_c75306_module_mixed_patterns()
+_cribo_temp_module_globals_dict = __cribo_init___cribo_5101f4_module_globals_dict()
+_cribo_temp_module_mixed_patterns = __cribo_init___cribo_c75306_module_mixed_patterns()
+module_globals_dict = _cribo_temp_module_globals_dict
+module_mixed_patterns = _cribo_temp_module_mixed_patterns
 """Test global namespace isolation between modules."""
 foo_1 = "main_foo"
 foo = foo_1

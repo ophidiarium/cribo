@@ -11,6 +11,7 @@ message_2 = "Hello"
 def __cribo_init___cribo_b4af24_greetings():
     module = types.SimpleNamespace()
     greeting = types.SimpleNamespace()
+    module.greeting = greeting
     greeting.message = message_2
     __all__ = ["message"]
     message = greeting.message
@@ -19,5 +20,7 @@ def __cribo_init___cribo_b4af24_greetings():
     greeting.message = message
     module.__all__ = ['message']
     return module
-greetings = __cribo_init___cribo_b4af24_greetings()
+greetings = types.SimpleNamespace()
+_cribo_temp_greetings = __cribo_init___cribo_b4af24_greetings()
+greetings = _cribo_temp_greetings
 print(message_2)
