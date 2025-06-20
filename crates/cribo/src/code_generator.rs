@@ -8347,7 +8347,8 @@ impl HybridStaticBundler {
                         .map(|(orig, _)| orig)
                     {
                         log::debug!(
-                            "Adding sync for assignment to global {var_name}: {var_name} -> module.{original_name}"
+                            "Adding sync for assignment to global {var_name}: {var_name} -> \
+                             module.{original_name}"
                         );
                         // Add: module.<original_name> = <lifted_name>
                         new_body.push(Stmt::Assign(StmtAssign {
@@ -8376,8 +8377,8 @@ impl HybridStaticBundler {
                 if let Expr::Name(name) = aug_assign.target.as_ref() {
                     let var_name = name.id.as_str();
                     log::debug!(
-                        "Checking augmented assignment to {var_name}, function_globals: {function_globals:?}, \
-                         lifted_names: {lifted_names:?}"
+                        "Checking augmented assignment to {var_name}, function_globals: \
+                         {function_globals:?}, lifted_names: {lifted_names:?}"
                     );
 
                     // The variable name might already be transformed to the lifted name,
@@ -8390,7 +8391,8 @@ impl HybridStaticBundler {
                         .map(|(orig, _)| orig)
                     {
                         log::debug!(
-                            "Adding sync for augmented assignment to global {var_name}: {var_name} -> module.{original_name}"
+                            "Adding sync for augmented assignment to global {var_name}: \
+                             {var_name} -> module.{original_name}"
                         );
                         // Add: module.<original_name> = <lifted_name>
                         new_body.push(Stmt::Assign(StmtAssign {

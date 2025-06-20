@@ -494,8 +494,8 @@ fn test_bundling_fixtures() {
     let filter = std::env::var("INSTA_GLOB_FILTER").unwrap_or_else(|_| "<none>".to_string());
     assert!(
         count > 0,
-        "\x1b[1;31mNo fixtures found in `fixtures/` directory.\x1b[0m\n 🔎 Applied glob filter: \
-         {filter}.\n\n 💡 To run a specific fixture, \
+        "\x1b[1;31m 🛑 No fixtures tested from `fixtures/` directory.\x1b[0m\n 🧩 Applied glob \
+         filter: \x1b[1;95m{filter}\x1b[0m\n\n 📝 To run a specific fixture, \
          use:\nINSTA_GLOB_FILTER=\"**/stickytape_single_file/main.py\" cargo nextest run \
          --no-capture --test test_bundling_snapshots --cargo-quiet --cargo-quiet\n\n",
     );
