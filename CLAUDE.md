@@ -131,22 +131,14 @@ cribo --entry main.py --stdout -vv
 
 - [ ] **GitHub Tools Check**: Verify `gh` CLI authenticated and MCP tools available
 - [ ] **git MCP**: set current working directory for git MCP
-- [ ] **Coverage Baseline**: Run `cargo coverage-text` and record current numbers
-- [ ] **Performance Baseline**: Run `cargo bench-save` to save performance baseline
-- [ ] **Record baseline**: Overall %, affected files %, note 80% patch requirement
-- [ ] **Current state**: `git status` and `git branch` - verify clean main
-- [ ] **Dependencies**: Run `cargo test --workspace` for clean starting state
+- [ ] **Dependencies**: Run `cargo nextest run --workspace` for clean starting state
 
 #### Phase 1: Feature Branch Creation & Implementation
 
-- [ ] Create feature branch: `git checkout -b fix/descriptive-name`
-- [ ] Implement changes (with coverage in mind)
-- [ ] **Coverage check**: `cargo coverage-text` after major changes
-- [ ] **Performance check**: `cargo bench-compare` after major changes
+- [ ] Create feature branch: `git checkout -b fix/descriptive-name origin/main`
+- [ ] Implement changes
 - [ ] **Test validation**: `cargo test --workspace` (must pass)
 - [ ] **Clippy validation**: `cargo clippy --workspace --all-targets` (must be clean)
-- [ ] **Coverage verification**: Ensure no >2% drops, patch >80%
-- [ ] **Performance verification**: Ensure no >5% regressions without justification
 - [ ] Commit with conventional message
 - [ ] Push with upstream: `git push -u origin <branch-name>`
 
@@ -216,41 +208,6 @@ cribo --entry main.py --stdout -vv
 
 ### CODE COVERAGE & PERFORMANCE DISCIPLINE
 
-#### Baseline Protocol (Coverage + Performance)
-
-**MANDATORY FIRST STEP** for any code changes:
-
-```bash
-# 1. Get baseline coverage (BEFORE any changes)
-cargo coverage-text
-
-# 2. Record these numbers (example format):
-# Baseline Coverage: 
-# - Overall: 73.2%
-# - orchestrator.rs: 89.4% 
-# - code_generator.rs: 91.2%
-# - unused_imports.rs: 76.8%
-
-# 3. Get baseline performance (BEFORE any changes)
-cargo bench-save     # Save current performance as baseline
-# or
-./scripts/bench.sh --save-baseline main
-```
-
-#### Coverage Targets and CI Requirements
-
-**CI FAILURE TRIGGERS**:
-
-- 🚨 **Patch coverage <80%**: CI will fail, PR cannot merge
-- 🚨 **File coverage drops >2%**: Indicates insufficient testing
-- 🚨 **Overall coverage drops >1%**: Major regression
-
-**DEVELOPMENT RULES**:
-
-- **New files**: Must achieve >90% line coverage
-- **Modified files**: Coverage must not decrease
-- **Critical paths**: Must have 100% coverage for error handling
-
 #### Coverage Verification Commands
 
 ```bash
@@ -264,29 +221,7 @@ cargo coverage
 cargo coverage-lcov
 ```
 
-#### Coverage Recovery Procedures
-
-**If coverage drops**:
-
-1. Identify uncovered lines: `cargo coverage`
-2. Add targeted tests for missed paths
-3. Focus on error conditions and edge cases
-4. Re-run coverage until targets met
-5. NEVER proceed with failing coverage
-
-**If CI coverage check fails**:
-
-1. Check CI logs for specific coverage failure
-2. Run local coverage to reproduce
-3. Add tests for uncovered code paths
-4. Verify fix with `cargo coverage-text`
-5. Push fix and re-check CI status
-
-### PERFORMANCE REGRESSION TRACKING
-
 #### Performance Baseline Management
-
-**MANDATORY**: Track performance alongside code coverage for all significant changes.
 
 ```bash
 # Before starting work - save baseline
@@ -303,57 +238,6 @@ cargo bench-compare
 ./scripts/bench.sh --open
 ```
 
-#### Performance Targets
-
-**ACCEPTABLE REGRESSIONS**:
-
-- ≤3% for individual benchmarks (within noise margin)
-- ≤1% for overall bundling performance
-- Must be justified by significant feature additions
-
-**UNACCEPTABLE REGRESSIONS**:
-
-- 5% for any core operation without justification
-- 10% for any benchmark (indicates algorithmic issue)
-- Any regression in AST parsing (critical path)
-
-#### Benchmark Categories
-
-1. **Core Operations** (CRITICAL):
-   - `bundle_simple_project`: End-to-end bundling
-   - `parse_python_ast`: AST parsing performance
-   - `resolve_module_path`: Module resolution speed
-
-2. **Supporting Operations**:
-   - `extract_imports`: Import extraction
-   - `build_dependency_graph`: Graph construction
-
-#### Performance Recovery Procedures
-
-**If benchmarks show regression**:
-
-1. **Identify**: Run `cargo bench-compare` to pinpoint specific regressions
-2. **Profile**: Use `cargo flamegraph` or `perf` to find hotspots
-3. **Optimize**: Focus on algorithmic improvements first
-4. **Verify**: Re-run benchmarks to confirm improvement
-5. **Document**: Note any trade-offs in commit message
-
-**CI Performance Checks** (via Bencher.dev):
-
-- Automated benchmark runs on PRs with statistical analysis
-- Comprehensive PR comments with visual charts and regression alerts
-- Historical performance tracking with trend analysis
-- Block merge for statistically significant regressions
-
-### PR STATUS MONITORING (CRITICAL FAILURE PREVENTION)
-
-#### My Historical Failures to Avoid:
-
-- ❌ Assuming PR is ready based on "mergeable" status alone
-- ❌ Missing failed GitHub Actions in CI pipeline
-- ❌ Not checking coverage CI specifically
-- ❌ Merging with yellow/pending checks
-
 #### MANDATORY PR Status Commands
 
 ```bash
@@ -368,107 +252,6 @@ gh pr view <PR-number> --json state,mergeable,statusCheckRollup,reviewDecision
 gh run list --repo=ophidiarium/cribo --branch=<branch-name>
 ```
 
-#### Status Interpretation Guide
-
-**GREEN LIGHT** (safe to merge):
-
-```json
-{
-    "mergeable": true,
-    "statusCheckRollup": {
-        "state": "SUCCESS" // ALL checks must be SUCCESS
-    },
-    "reviewDecision": "APPROVED"
-}
-```
-
-**RED LIGHT** (DO NOT MERGE):
-
-```json
-{
-    "statusCheckRollup": {
-        "state": "FAILURE" // ANY failure means STOP
-    }
-}
-```
-
-**YELLOW LIGHT** (WAIT):
-
-```json
-{
-    "statusCheckRollup": {
-        "state": "PENDING" // Wait for completion
-    }
-}
-```
-
-#### Specific CI Checks to Monitor
-
-**MUST BE GREEN**:
-
-- ✅ **Build**: All platforms compile successfully
-- ✅ **Test**: All test suites pass
-- ✅ **Coverage**: Patch coverage >80%
-- ✅ **Clippy**: No warnings or errors
-- ✅ **Format**: Code formatting correct
-- ✅ **Dependencies**: No security issues
-
-#### CI Failure Response Protocol
-
-**When ANY check fails**:
-
-1. **STOP** - Do not proceed with merge
-2. **Investigate**: Check CI logs for specific failure
-3. **Fix**: Address the root cause locally
-4. **Test**: Verify fix with local commands
-5. **Push**: Commit fix and push to PR branch
-6. **Monitor**: Wait for CI to re-run and verify GREEN
-7. **Only then**: Proceed with merge consideration
-
-#### Emergency CI Commands
-
-```bash
-# Check latest CI run status
-gh run list --repo=ophidiarium/cribo --limit=5
-
-# Get details of failed run
-gh run view <run-id>
-
-# Re-run failed checks (if appropriate)
-gh run rerun <run-id>
-```
-
-### CHECKPOINT INSTRUCTIONS
-
-#### Major Workflow Transitions
-
-Before moving between phases, MUST verify:
-
-**Implementation → Git Flow**:
-
-- [ ] All tests passing: `cargo test --workspace` ✅
-- [ ] All clippy issues resolved: `cargo clippy --workspace --all-targets` ✅
-- [ ] Working directory clean: `git status` ✅
-
-**Git Flow → Code Review**:
-
-- [ ] PR created with comprehensive description ✅
-- [ ] All files correctly included in PR ✅
-- [ ] CI checks passing ✅
-
-**Code Review → Merge**:
-
-- [ ] ALL reviewer comments addressed ✅
-- [ ] Final approval received ✅
-- [ ] No outstanding review requests ✅
-
-**Merge → Cleanup**:
-
-- [ ] On main branch: `git branch` shows `* main` ✅
-- [ ] Up to date: `git status` shows "up to date with origin/main" ✅
-- [ ] Feature branch deleted ✅
-- [ ] Working tree clean ✅
-
 ### Context Preservation Rules
 
 **MANDATORY PRACTICES**:
@@ -479,25 +262,6 @@ Before moving between phases, MUST verify:
 - Mark todos completed IMMEDIATELY when finished, not in batches
 
 ### Build Commands
-
-#### Rust Binary
-
-```bash
-# Development build
-cargo build
-
-# Release build
-cargo build --release
-
-# Run the tool directly
-cargo run -- --entry path/to/main.py --output bundle.py
-
-# Run with verbose output for debugging
-cargo run -- --entry path/to/main.py --output bundle.py -vv
-
-# Run with trace-level output for detailed debugging
-cargo run -- --entry path/to/main.py --output bundle.py -vvv
-```
 
 #### Python Package
 
@@ -523,7 +287,7 @@ node scripts/generate-npm-packages.js
 
 ```bash
 # Run all tests
-cargo test --workspace
+cargo nextest run --workspace
 ```
 
 #### Running Specific Bundling Fixtures with Insta Glob
@@ -532,19 +296,13 @@ The bundling snapshot tests use Insta's glob feature for automatic fixture disco
 
 ```bash
 # Run a specific fixture using environment variable
-INSTA_GLOB_FILTER="**/stickytape_single_file/main.py" cargo test -p cribo --test test_bundling_snapshots test_bundling_fixtures
-
-# Or using command line flag
-cargo test test_bundling_fixtures -- --glob-filter "**/stickytape_single_file/main.py"
-
-# Run multiple specific fixtures (use regex OR pattern)
-INSTA_GLOB_FILTER="**/simple_math/main.py|**/future_imports_basic/main.py" cargo test test_bundling_fixtures
+INSTA_GLOB_FILTER="**/stickytape_single_file/main.py" cargo nextest run --test test_bundling_snapshots --cargo-quiet --cargo-quiet
 
 # Run all fixtures matching a pattern
-INSTA_GLOB_FILTER="**/future_imports_*/main.py" cargo test test_bundling_fixtures
+INSTA_GLOB_FILTER="**/future_imports_*/main.py" cargo nextest run --test test_bundling_snapshots --cargo-quiet --cargo-quiet
 
 # Run fixture with debug output to see which fixture is running
-INSTA_GLOB_FILTER="**/stickytape_single_file/main.py" cargo test test_bundling_fixtures -- --nocapture
+INSTA_GLOB_FILTER="**/stickytape_single_file/main.py" cargo nextest run --test test_bundling_snapshots --cargo-quiet --cargo-quiet --nocapture
 
 # List available fixtures (useful for finding fixture names)
 find crates/cribo/tests/fixtures -name "main.py" -type f | sed 's|.*/fixtures/||' | sed 's|/main.py||' | sort
@@ -555,7 +313,8 @@ find crates/cribo/tests/fixtures -name "main.py" -type f | sed 's|.*/fixtures/||
 - `stickytape_*` - Compatibility tests from stickytape project
 - `future_imports_*` - Tests for **future** import handling
 - `ast_rewriting_*` - Tests for AST transformation features
-- `xfail_*` - Expected failure fixtures (prefix with xfail_)
+- `pyail_*` - Expected failure fixtures (must fail by direct python execution)
+- `xfail_*` - Expected failure fixtures (prefix with xfail_ - bundled code MUST fail)
 
 **Tips:**
 
@@ -564,52 +323,9 @@ find crates/cribo/tests/fixtures -name "main.py" -type f | sed 's|.*/fixtures/||
 - The fixture name is the directory name containing `main.py`
 - Fixtures are automatically discovered - just add a new directory with `main.py`
 
-### Benchmarking Commands
-
-```bash
-# Run all benchmarks
-cargo bench --bench bundling
-# or
-./scripts/bench.sh
-
-# Save performance baseline
-cargo bench-save
-# or
-./scripts/bench.sh --save-baseline main
-
-# Compare against baseline
-cargo bench-compare
-# or
-./scripts/bench.sh --baseline main
-
-# Open HTML report
-./scripts/bench.sh --open
-
-# Run with Bencher.dev cloud tracking
-./scripts/bench-bencher.sh
-# Results viewable at: https://bencher.dev/console/projects/cribo/perf
-```
-
-### Coverage Commands
-
-```bash
-# Text coverage report
-cargo coverage-text
-# or
-./scripts/coverage.sh coverage
-
-# HTML coverage report (opens in browser)
-cargo coverage
-# or
-./scripts/coverage.sh coverage-html
-
-# LCOV format (for CI tools)
-cargo coverage-lcov
-# or
-./scripts/coverage.sh coverage-lcov
-```
-
 ### Development Guidelines
+
+- **Temporary Directory Usage**: When the agent requires a temporary directory for input or output files, it MUST use the `target/tmp` directory.
 
 #### Technical Decision-Making Requirements
 
@@ -633,7 +349,7 @@ Under no circumstances should you justify a design or implementation by citing "
 - Avoid temporary `println!` statements - replace them with proper logging before committing code
 - Use structured logging with context where helpful: `debug!("Processing file: {}", file_path)`
 
-#### Deterministic Output Requirements (CRITICAL FOR DEPLOYMENT)
+#### Deterministic Output Requirements (CRITICAL)
 
 **MANDATORY**: Considering the potential use of this tool in deployment scenarios, it is **essential** to aim for deterministic, reproducible bundle output. This enables users to:
 
@@ -655,18 +371,6 @@ Under no circumstances should you justify a design or implementation by citing "
 - **Consistent formatting**: Apply the same formatting rules regardless of input order
 - **Reproducible timestamps**: Avoid embedding timestamps or random values in output
 
-**Examples**:
-
-```rust
-// ❌ Non-deterministic (HashMap iteration order varies)
-for import in imports.iter() { ... }
-
-// ✅ Deterministic (sorted output)
-let mut sorted_imports: Vec<_> = imports.iter().collect();
-sorted_imports.sort();
-for import in sorted_imports { ... }
-```
-
 **Testing Determinism**:
 
 - Run bundler multiple times on same input - output must be identical
@@ -686,71 +390,12 @@ for import in sorted_imports { ... }
 - **Dual Snapshots**: Generates both bundled code and execution result snapshots
 - **Deterministic**: All output is sorted and reproducible across runs
 
-**Usage Pattern**:
-
-```bash
-# 1. Create fixture directory
-mkdir crates/cribo/tests/fixtures/my_new_feature
-
-# 2. Add test files (main.py + any supporting modules)
-echo "print('Hello Feature')" > crates/cribo/tests/fixtures/my_new_feature/main.py
-
-# 3. Run tests - automatically discovered and tested
-cargo test test_all_bundling_fixtures
-
-# 4. Accept snapshots
-cargo insta accept
-```
-
 **Generated Snapshots**:
 
 - **`bundled_code@my_new_feature.snap`**: Clean Python code showing bundling structure
 - **`execution_results@my_new_feature.snap`**: Structured execution results with status/output
 
 **ALWAYS** prefer this framework when creating a new functionality or fixing a newly discovered regression.
-
-**Snapshot Technology**:
-
-- **Bundled Code**: Uses `insta::assert_snapshot!` for clean Python code
-- **Execution Results**: Uses `insta::assert_debug_snapshot!` with structured `ExecutionResults` type
-- **Named Snapshots**: Uses `insta::with_settings!` for organized, fixture-specific snapshots
-
-**Example Fixture Structure**:
-
-```text
-crates/cribo/tests/fixtures/
-├── future_imports_basic/          # Complex nested packages + future imports
-│   ├── main.py
-│   └── mypackage/
-│       ├── __init__.py
-│       ├── core.py
-│       └── submodule/...
-├── future_imports_multiple/       # Multiple future features + deduplication  
-│   ├── main.py
-│   ├── module_a.py
-│   └── module_b.py
-└── simple_math/                   # Basic bundling without special features
-    ├── main.py
-    ├── calculator.py
-    └── utils.py
-```
-
-**MANDATORY Practice**: When implementing ANY new bundling feature:
-
-1. **First**: Create fixture directory showcasing the feature
-2. **Second**: Run snapshot tests to establish baseline
-3. **Third**: Implement feature with snapshot-driven development
-4. **Fourth**: Verify snapshots show correct bundling + execution
-
-This approach provides **comprehensive validation with minimal effort** and creates **excellent regression protection** for all bundling functionality.
-
-#### General Coding Standards
-
-- Follow Rust idiomatic practices and use the Rust 2024 edition or later
-- Ensure all functions are properly documented with Rust doc comments
-
-- **Temporary Directory Usage**: When the agent requires a temporary directory for input or output files, it MUST use the `target/tmp` directory.
-- **Stdout Output Support**: Tools support the `--stdout` argument and can output the bundle to stdout.
 
 #### Prohibited Coding Practice: Hardcoding Test Values in Production
 
@@ -777,44 +422,6 @@ This approach provides **comprehensive validation with minimal effort** and crea
 - **Use MCP Git tools**: Prefer `mcp__git__*` tools (e.g., `mcp__git__status`, `mcp__git__add`, `mcp__git__commit`) over bash `git` commands
 - **Better integration**: MCP Git tools provide better integration with the development environment and error handling
 - **Consistent workflow**: This ensures consistent git operations across all development workflows
-
-#### Conventional Commits Requirements
-
-**MANDATORY**: This repository uses automated release management with release-please. ALL commit messages MUST follow the Conventional Commits specification.
-
-- **Format**: `<type>(<optional scope>): <description>`
-- **Common types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `ci`
-- **Breaking changes**: Use `!` after type (e.g., `feat!:`) or include `BREAKING CHANGE:` in footer
-- **Version bumping**:
-  - `fix:` → patch version (0.4.1 → 0.4.2)
-  - `feat:` → minor version (0.4.1 → 0.5.0)
-  - `feat!:` or `BREAKING CHANGE:` → major version (0.4.1 → 1.0.0)
-- **Examples**:
-  - `feat(parser): add support for new syntax`
-  - `fix: handle null pointer exception in module resolver`
-  - `chore: update dependencies`
-  - `docs: improve CLI usage examples`
-  - `feat(ai): enhance Claude Code integration`
-  - `docs(ai): update CLAUDE.md configuration`
-
-- **Available scopes**:
-  - **Core components**: `parser`, `bundler`, `resolver`, `ast`, `emit`, `deps`, `config`, `cli`
-  - **Testing & CI**: `test`, `ci`
-  - **Documentation & AI**: `docs`, `ai`
-  - **Build & packaging**: `build`, `npm`, `pypi`, `release`
-
-**Enforcement**:
-
-- Local validation via lefthook + commitlint prevents invalid commits
-- CI checks all PR commits for compliance
-- Release-please generates changelogs and releases automatically from commit history
-
-**Never manually**:
-
-- Edit `Cargo.toml` version numbers
-- Edit `CHANGELOG.md`
-- Create release tags
-- The automated system handles all versioning and releases
 
 #### Immediate Code Removal Over Deprecation
 
@@ -849,52 +456,7 @@ When implementing functionality, consult these high-quality repositories:
 - **[astral-sh/uv](https://github.com/astral-sh/uv)** - For package resolution, dependency management, Python ecosystem integration
 - **[web-infra-dev/rspack](https://github.com/web-infra-dev/rspack)** - For module graph construction, dependency resolution
 
-#### Snapshot Testing with Insta
-
-Accept new or updated snapshots using:
-
-```bash
-cargo insta accept
-```
-
-DO NOT use `cargo insta review` as that requires interactive input.
-
-**Managing Unreferenced Snapshots:**
-
-```bash
-# List unreferenced snapshots without deleting them
-cargo insta test --unreferenced=reject
-
-# Auto-delete unreferenced snapshots
-cargo insta test --unreferenced=auto
-
-# Warn about unreferenced snapshots (default behavior)
-cargo insta test --unreferenced=warn
-```
-
-**When to use:**
-
-- After refactoring tests that change snapshot names
-- After deleting tests that had associated snapshots
-- When migrating snapshot locations (e.g., moving to test-specific directories)
-- To clean up orphaned snapshots from renamed fixtures
-
-#### Coverage Requirements
-
-- Run baseline coverage check before implementing features:
-
-  ```bash
-  cargo coverage-text  # Get current coverage baseline
-  ```
-
-- Ensure coverage doesn't drop by more than 2% for any file or overall project
-- New files should aim for >90% line coverage
-- Critical paths should have 100% coverage for error handling and edge cases
-
-#### Workflow Best Practices
-
-- Always run tests and clippy after implementing a feature to make sure everything is working as expected
-- **ALWAYS fix all clippy errors in the code you editing after finishing implementing a feature**
+Check `references/` directory for local clones of above and some other examples
 
 #### Docs-Manager MCP Tools (`mcp__docs-manager__*`)
 
