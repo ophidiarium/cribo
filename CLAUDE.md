@@ -302,7 +302,7 @@ INSTA_GLOB_FILTER="**/stickytape_single_file/main.py" cargo nextest run --test t
 INSTA_GLOB_FILTER="**/future_imports_*/main.py" cargo nextest run --test test_bundling_snapshots --cargo-quiet --cargo-quiet
 
 # Run fixture with debug output to see which fixture is running
-INSTA_GLOB_FILTER="**/stickytape_single_file/main.py" cargo nextest run --test test_bundling_snapshots --cargo-quiet --cargo-quiet --nocapture
+INSTA_GLOB_FILTER="**/stickytape_single_file/main.py" cargo nextest run --no-capture --test test_bundling_snapshots --cargo-quiet --cargo-quiet
 
 # List available fixtures (useful for finding fixture names)
 find crates/cribo/tests/fixtures -name "main.py" -type f | sed 's|.*/fixtures/||' | sed 's|/main.py||' | sort
