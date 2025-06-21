@@ -214,24 +214,32 @@ impl ImportRewriter {
                 trace!("Import {imported_module} in {module_name} can be moved to functions");
 
                 // Convert to ImportStatement
-                let import_stmt = if import_info.names.is_empty() {
-                    ImportStatement::Import {
-                        module: imported_module.clone(),
-                        alias: None, // TODO: handle aliases properly
-                    }
-                } else {
-                    ImportStatement::FromImport {
-                        module: import_info.module_name.clone(),
-                        names: import_info.names.clone(),
-                        level: import_info.level,
-                    }
-                };
+                let import_stmt =
+                    if import_info.names.len() == 1 && import_info.names[0].0 == *imported_module {
+                        // This is a regular import statement (e.g., "import foo" or "import foo as
+                        // bar") For regular imports, the module name
+                        // matches the first (and only) name in the names vector
+                        let alias = import_info.names[0].1.clone();
+
+                        ImportStatement::Import {
+                            module: imported_module.clone(),
+                            alias,
+                        }
+                    } else {
+                        // This is a from import statement
+                        ImportStatement::FromImport {
+                            module: import_info.module_name.clone(),
+                            names: import_info.names.clone(),
+                            level: import_info.level,
+                        }
+                    };
 
                 movable.push(MovableImport {
                     import_stmt,
                     target_functions,
                     source_module: module_name.to_string(),
-                    line_number: 0, // TODO: Extract line number from range
+                    line_number: import_info.range.start().to_usize(), /* Use byte offset as a
+                                                                        * placeholder */
                 });
             }
         }
