@@ -2137,9 +2137,10 @@ impl HybridStaticBundler {
                     // other_module is a child of module_name
                     debug!("  - {module_name} depends on child module {other_module}");
                     if let Some(module_deps) = deps_map.get_mut(module_name)
-                        && !module_deps.contains(other_module) {
-                            module_deps.push(other_module.clone());
-                        }
+                        && !module_deps.contains(other_module)
+                    {
+                        module_deps.push(other_module.clone());
+                    }
                 }
             }
 
@@ -2922,7 +2923,8 @@ impl HybridStaticBundler {
                     // If they do, we need to merge attributes instead of overwriting
                     if is_parent_module {
                         debug!(
-                            "Dotted module '{module_name}' is both a wrapper module and parent namespace"
+                            "Dotted module '{module_name}' is both a wrapper module and parent \
+                             namespace"
                         );
                         // We need to merge the wrapper module's attributes into the existing
                         // namespace Get the parts to construct the
@@ -2994,9 +2996,7 @@ impl HybridStaticBundler {
                         );
                     } else {
                         // Simple assignment for non-parent modules
-                        debug!(
-                            "Assigning simple module '{module_name}' = '{temp_var_name}'"
-                        );
+                        debug!("Assigning simple module '{module_name}' = '{temp_var_name}'");
                         final_body.push(Stmt::Assign(StmtAssign {
                             targets: vec![Expr::Name(ExprName {
                                 id: module_name.into(),
@@ -3532,7 +3532,8 @@ impl HybridStaticBundler {
                         for alias in &import_from.names {
                             let imported_name = alias.name.as_str();
                             debug!(
-                                "Tracking imported name '{imported_name}' from bundled module '{module}'"
+                                "Tracking imported name '{imported_name}' from bundled module \
+                                 '{module}'"
                             );
                             imports_from_inlined.push(imported_name.to_string());
                         }

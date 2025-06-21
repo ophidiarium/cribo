@@ -1,0 +1,11 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/xfail_module_shadowing/main.py
+---
+ExecutionResults {
+    status: Failed(
+        1,
+    ),
+    stdout: "Loading first-party pandera module\nStarting test_import.py\nSuccessfully imported pandera.polars: <module 'pandera.polars' from '/Volumes/workplace/GitHub/ophidiarium/cribo/.venv/lib/python3.12/site-packages/pandera/polars.py'>\npandera.polars module: pandera.polars",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 40, in <module>",
+}

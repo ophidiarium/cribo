@@ -19,7 +19,7 @@ use crate::{
     resolver::{ImportType, ModuleResolver},
     semantic_bundler::SemanticBundler,
     util::{module_name_from_relative, normalize_line_endings},
-    visitors::{ImportDiscoveryVisitor, ImportLocation},
+    visitors::{ImportDiscoveryVisitor, ImportLocation, ScopeElement},
 };
 
 /// Type alias for module processing queue
@@ -172,37 +172,61 @@ impl BundleOrchestrator {
         if graph.has_cycles() {
             let analysis = graph.analyze_circular_dependencies();
 
+            // Check if we have unresolvable cycles - these we must fail on
             if !analysis.unresolvable_cycles.is_empty() {
                 let error_msg =
                     Self::format_unresolvable_cycles_error(&analysis.unresolvable_cycles);
                 return Err(anyhow!(error_msg));
             }
 
-            // Check if we can resolve the circular dependencies
-            let all_resolvable = analysis
-                .resolvable_cycles
-                .iter()
-                .all(|cycle| matches!(cycle.cycle_type, CircularDependencyType::FunctionLevel));
-
-            if all_resolvable && analysis.unresolvable_cycles.is_empty() {
-                // All cycles are function-level and resolvable - proceed with bundling
+            // For resolvable cycles, warn but proceed
+            if !analysis.resolvable_cycles.is_empty() {
                 warn!(
-                    "Detected {} resolvable circular dependencies - proceeding with bundling",
+                    "Detected {} potentially resolvable circular dependencies",
                     analysis.resolvable_cycles.len()
                 );
 
-                Self::log_resolvable_cycles(&analysis.resolvable_cycles);
+                // Log details about each resolvable cycle
+                for (i, cycle) in analysis.resolvable_cycles.iter().enumerate() {
+                    warn!(
+                        "Cycle {}: {} (Type: {:?})",
+                        i + 1,
+                        cycle.modules.join(" → "),
+                        cycle.cycle_type
+                    );
+
+                    // Provide specific warnings for non-function-level cycles
+                    match cycle.cycle_type {
+                        CircularDependencyType::ClassLevel => {
+                            warn!(
+                                "  ⚠️  ClassLevel cycle detected - bundling may fail if imports \
+                                 are used before definition"
+                            );
+                            warn!(
+                                "  Suggestion: Consider refactoring to avoid module-level \
+                                 circular imports"
+                            );
+                        }
+                        CircularDependencyType::ModuleConstants => {
+                            warn!(
+                                "  ⚠️  ModuleConstants cycle detected - likely unresolvable due \
+                                 to temporal paradox"
+                            );
+                        }
+                        CircularDependencyType::ImportTime => {
+                            warn!("  ⚠️  ImportTime cycle detected - depends on execution order");
+                        }
+                        CircularDependencyType::FunctionLevel => {
+                            info!("  ✓ FunctionLevel cycle - should be safely resolvable");
+                        }
+                    }
+                }
+
+                warn!(
+                    "Proceeding with bundling despite circular dependencies - output may require \
+                     manual verification"
+                );
                 circular_dep_analysis = Some(analysis);
-            } else {
-                // We have unresolvable cycles or complex resolvable cycles - still fail for now
-                warn!(
-                    "Detected {} circular dependencies (including {} potentially resolvable)",
-                    analysis.total_cycles_detected,
-                    analysis.resolvable_cycles.len()
-                );
-
-                let error_msg = Self::build_cycle_error_message(&analysis);
-                return Err(anyhow!(error_msg));
             }
         }
 
@@ -219,20 +243,9 @@ impl BundleOrchestrator {
         circular_dep_analysis: Option<&CircularDependencyAnalysis>,
     ) -> Result<Vec<(String, PathBuf, Vec<String>)>> {
         let module_ids = if let Some(analysis) = circular_dep_analysis {
-            // We already have the analysis from bundle_core
-            let all_resolvable = analysis
-                .resolvable_cycles
-                .iter()
-                .all(|cycle| matches!(cycle.cycle_type, CircularDependencyType::FunctionLevel))
-                && analysis.unresolvable_cycles.is_empty();
-
-            if all_resolvable {
-                // For resolvable cycles, use a custom ordering that breaks cycles
-                self.get_modules_with_cycle_resolution(graph, analysis)?
-            } else {
-                // This should have been caught earlier, but be safe
-                return Err(anyhow!("Unresolvable circular dependencies detected"));
-            }
+            // We have circular dependencies but they're potentially resolvable
+            // Use a custom ordering that attempts to break cycles
+            self.get_modules_with_cycle_resolution(graph, analysis)?
         } else {
             graph.topological_sort()?
         };
@@ -548,7 +561,12 @@ impl BundleOrchestrator {
             }
 
             // Parse the module and extract imports (including module imports)
-            let imports = self.extract_all_imports(&module_path, Some(params.resolver))?;
+            let imports_with_context =
+                self.extract_all_imports_with_context(&module_path, Some(params.resolver))?;
+            let imports: Vec<String> = imports_with_context
+                .iter()
+                .map(|(m, _)| m.clone())
+                .collect();
             debug!("Extracted imports from {module_name}: {imports:?}");
 
             // Store module data for later processing
@@ -556,14 +574,18 @@ impl BundleOrchestrator {
             processed_modules.insert(module_name.clone());
 
             // Find and queue first-party imports for discovery
-            for import in imports {
+            for (import, is_in_error_handler) in imports_with_context {
                 let mut discovery_params = DiscoveryParams {
                     resolver: params.resolver,
                     modules_to_process: &mut modules_to_process,
                     processed_modules: &processed_modules,
                     queued_modules: &mut queued_modules,
                 };
-                self.process_import_for_discovery(&import, &mut discovery_params);
+                self.process_import_for_discovery_with_context(
+                    &import,
+                    is_in_error_handler,
+                    &mut discovery_params,
+                )?;
             }
         }
 
@@ -672,6 +694,93 @@ impl BundleOrchestrator {
         Ok(imports)
     }
 
+    /// Extract ALL imports from a Python file with full context information
+    pub fn extract_all_imports_with_context(
+        &self,
+        file_path: &Path,
+        mut resolver: Option<&mut ModuleResolver>,
+    ) -> Result<Vec<(String, bool)>> {
+        let source = fs::read_to_string(file_path)
+            .with_context(|| format!("Failed to read file: {file_path:?}"))?;
+        let source = normalize_line_endings(source);
+
+        let parsed = ruff_python_parser::parse_module(&source)
+            .with_context(|| format!("Failed to parse Python file: {file_path:?}"))?;
+
+        let mut visitor = ImportDiscoveryVisitor::new();
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
+
+        let discovered_imports = visitor.into_imports();
+        let mut imports_with_context = Vec::new();
+
+        // Process each import and track if it's in an error-handling context
+        for import in &discovered_imports {
+            let is_in_error_handler = Self::is_import_in_error_handler(&import.location);
+
+            if import.level > 0 {
+                // Handle relative imports
+                let mut imports_set = IndexSet::new();
+                self.process_relative_import_set(
+                    import,
+                    file_path,
+                    &mut resolver,
+                    &mut imports_set,
+                );
+                for module in imports_set {
+                    imports_with_context.push((module, is_in_error_handler));
+                }
+            } else if let Some(ref module_name) = import.module_name {
+                // Absolute imports
+                imports_with_context.push((module_name.clone(), is_in_error_handler));
+
+                // Check if any imported names are actually submodules
+                let mut imports_set = IndexSet::new();
+                self.check_submodule_imports_set(
+                    module_name,
+                    import,
+                    &mut resolver,
+                    &mut imports_set,
+                );
+                for module in imports_set {
+                    if module != *module_name {
+                        imports_with_context.push((module, is_in_error_handler));
+                    }
+                }
+            } else if import.names.len() == 1 {
+                let mut imports_set = IndexSet::new();
+                self.process_single_name_import_set(import, &mut resolver, &mut imports_set);
+                for module in imports_set {
+                    imports_with_context.push((module, is_in_error_handler));
+                }
+            }
+        }
+
+        Ok(imports_with_context)
+    }
+
+    /// Check if an import is in an error-handling context (try/except or with suppress)
+    fn is_import_in_error_handler(location: &ImportLocation) -> bool {
+        match location {
+            ImportLocation::Nested(scopes) => {
+                for scope in scopes {
+                    match scope {
+                        ScopeElement::Try => return true,
+                        ScopeElement::With => {
+                            // TODO: Ideally we'd check if it's specifically "with suppress"
+                            // For now, assume any import in a with block might be suppressed
+                            return true;
+                        }
+                        _ => {}
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
     /// Extract ALL imports from a Python file, including those nested in functions and classes
     pub fn extract_all_imports(
         &self,
@@ -699,7 +808,12 @@ impl BundleOrchestrator {
         for import in &discovered_imports {
             // All import locations are valid for discovery
             if import.level > 0 {
-                self.process_relative_import_set(import, file_path, &mut imports_set);
+                self.process_relative_import_set(
+                    import,
+                    file_path,
+                    &mut resolver,
+                    &mut imports_set,
+                );
             } else if let Some(ref module_name) = import.module_name {
                 // Absolute imports
                 imports_set.insert(module_name.clone());
@@ -742,6 +856,7 @@ impl BundleOrchestrator {
         &self,
         import: &crate::visitors::DiscoveredImport,
         file_path: &Path,
+        resolver: &mut Option<&mut ModuleResolver>,
         imports: &mut IndexSet<String>,
     ) {
         let base_module = match self.resolve_relative_import(file_path, import.level) {
@@ -772,14 +887,20 @@ impl BundleOrchestrator {
             };
             imports.insert(full_module);
         } else if !import.names.is_empty() && !base_module.is_empty() {
-            // Add the base module
-            imports.insert(base_module.clone());
-
             // For "from . import X", check if X is actually a submodule
-            for (name, _) in &import.names {
-                let potential_submodule = format!("{base_module}.{name}");
-                imports.insert(potential_submodule);
-                debug!("Added potential submodule from relative import: {name}");
+            // Note: We don't add the base module itself to avoid self-imports
+            if let Some(resolver) = resolver {
+                for (name, _) in &import.names {
+                    let potential_submodule = format!("{base_module}.{name}");
+                    // Only add if it's actually resolvable as a module
+                    if resolver
+                        .resolve_module_path(&potential_submodule)
+                        .is_ok_and(|path| path.is_some())
+                    {
+                        imports.insert(potential_submodule);
+                        debug!("Added verified submodule from relative import: {name}");
+                    }
+                }
             }
         }
     }
@@ -1104,8 +1225,13 @@ impl BundleOrchestrator {
         }
     }
 
-    /// Process an import during discovery phase
-    fn process_import_for_discovery(&self, import: &str, params: &mut DiscoveryParams) {
+    /// Process an import during discovery phase with error handling context
+    fn process_import_for_discovery_with_context(
+        &self,
+        import: &str,
+        is_in_error_handler: bool,
+        params: &mut DiscoveryParams,
+    ) -> Result<()> {
         match params.resolver.classify_import(import) {
             ImportType::FirstParty => {
                 debug!("'{import}' classified as FirstParty");
@@ -1118,11 +1244,38 @@ impl BundleOrchestrator {
                     // "greetings.irrelevant", also add "greetings"
                     self.add_parent_packages_to_discovery(import, params);
                 } else {
-                    warn!("Failed to resolve path for first-party module: {import}");
+                    // If the import is not in an error handler, this is a fatal error
+                    if !is_in_error_handler {
+                        return Err(anyhow!(
+                            "Failed to resolve first-party module '{}'. \nThis import would fail \
+                             at runtime with: ModuleNotFoundError: No module named '{}'",
+                            import,
+                            import
+                        ));
+                    } else {
+                        debug!(
+                            "Failed to resolve first-party module '{import}' but it's in an error \
+                             handler (try/except or with suppress)"
+                        );
+                    }
                 }
             }
             ImportType::ThirdParty | ImportType::StandardLibrary => {
                 debug!("'{import}' classified as external (preserving)");
+            }
+        }
+        Ok(())
+    }
+
+    /// Process an import during discovery phase (legacy method, delegates to context-aware version)
+    fn process_import_for_discovery(&self, import: &str, params: &mut DiscoveryParams) {
+        // Legacy method - assumes imports are not in error handlers
+        // This is used by other parts of the code that don't track context
+        match self.process_import_for_discovery_with_context(import, false, params) {
+            Ok(()) => {}
+            Err(e) => {
+                // For backward compatibility, just warn instead of failing
+                warn!("Failed to process import: {e}");
             }
         }
     }

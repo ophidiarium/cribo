@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/cross-package-mixed-import/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Connection: Connection to user_test_db_processed\nConnection info: {'status': 'connected', 'connection': 'Connection to user_test_db_processed', 'validated_by': 'helper_validate', 'processed_by': 'process_user'}\nFinal result: {'status': 'connected', 'connection': 'Connection to user_test_db_processed', 'validated_by': 'helper_validate', 'processed_by': 'process_user'}",
+    stderr: "",
+}
