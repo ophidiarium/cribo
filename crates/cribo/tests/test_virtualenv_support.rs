@@ -54,7 +54,7 @@ fn test_virtualenv_import_classification() {
 
     // Create resolver with VIRTUAL_ENV override
     let virtualenv_str = virtualenv_dir.to_string_lossy();
-    let resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
 
     // Test that src modules are classified as first-party
     assert_eq!(
@@ -114,7 +114,7 @@ fn test_virtualenv_without_env_set() {
     };
 
     // Create resolver without VIRTUAL_ENV
-    let resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
 
     // Test that src modules are still classified as first-party
     assert_eq!(
@@ -238,7 +238,8 @@ fn test_virtualenv_empty_or_nonexistent() {
     assert!(scan_dirs1.contains(&expected_path));
 
     // Test with nonexistent VIRTUAL_ENV directory
-    let resolver2 = ModuleResolver::new_with_virtualenv(config, Some("/nonexistent/venv")).unwrap();
+    let mut resolver2 =
+        ModuleResolver::new_with_virtualenv(config, Some("/nonexistent/venv")).unwrap();
     let unknown_classification = resolver2.classify_import("unknown_module");
 
     // Should still classify unknown modules as third-party
@@ -280,7 +281,8 @@ fn test_virtualenv_multiple_python_versions() {
 
         // Create resolver with VIRTUAL_ENV override
         let virtualenv_str = virtualenv_dir.to_string_lossy();
-        let resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
+        let mut resolver =
+            ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
 
         // Both modules should be classified as third-party
         assert_eq!(
@@ -335,7 +337,7 @@ fn test_combined_pythonpath_and_virtualenv() {
     // Create resolver with both PYTHONPATH and VIRTUAL_ENV overrides
     let virtualenv_str = virtualenv_dir.to_string_lossy();
     let pythonpath_str = pythonpath_dir.to_string_lossy();
-    let resolver =
+    let mut resolver =
         ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), Some(&virtualenv_str))
             .unwrap();
 
@@ -422,7 +424,7 @@ fn test_module_shadowing_priority() {
     // Test with resolver that includes both PYTHONPATH and VIRTUAL_ENV
     let virtualenv_str = virtualenv_dir.to_string_lossy();
     let pythonpath_str = pythonpath_dir.to_string_lossy();
-    let resolver =
+    let mut resolver =
         ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), Some(&virtualenv_str))
             .unwrap();
 
@@ -535,7 +537,7 @@ fn test_package_vs_module_shadowing() {
     };
 
     let virtualenv_str = virtualenv_dir.to_string_lossy();
-    let resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
 
     // Test Case 1: Local module mylib.py shadows venv package mylib/
     assert_eq!(
@@ -624,7 +626,7 @@ fn test_venv_fallback_detection() {
     };
 
     // Create resolver without VIRTUAL_ENV override (should use fallback detection)
-    let resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
 
     // Test that packages from .venv are detected as third-party
     assert_eq!(
@@ -706,7 +708,7 @@ fn test_venv_fallback_priority_order() {
         ..Default::default()
     };
 
-    let resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
 
     // Both packages should be detected since we scan all found virtual environments
     assert_eq!(
@@ -776,7 +778,8 @@ fn test_explicit_virtualenv_overrides_fallback() {
 
     // Test with explicit VIRTUAL_ENV override
     let explicit_venv_str = explicit_venv.to_string_lossy();
-    let resolver = ModuleResolver::new_with_virtualenv(config, Some(&explicit_venv_str)).unwrap();
+    let mut resolver =
+        ModuleResolver::new_with_virtualenv(config, Some(&explicit_venv_str)).unwrap();
 
     // Should only find package from explicit virtual environment
     assert_eq!(
@@ -822,7 +825,7 @@ fn test_no_virtualenv_fallback_when_none_exist() {
         ..Default::default()
     };
 
-    let resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
 
     // Should still work for first-party modules
     assert_eq!(
@@ -894,7 +897,7 @@ fn test_invalid_venv_directories_ignored() {
         ..Default::default()
     };
 
-    let resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
 
     // Should find package from valid virtual environment
     assert_eq!(

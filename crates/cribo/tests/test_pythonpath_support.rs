@@ -125,7 +125,7 @@ fn test_pythonpath_module_classification() {
 
     // Create resolver with PYTHONPATH override
     let pythonpath_str = pythonpath_dir.to_string_lossy();
-    let resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str)).unwrap();
+    let mut resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str)).unwrap();
 
     // Test that PYTHONPATH modules are classified as first-party
     use cribo::resolver::ImportType;

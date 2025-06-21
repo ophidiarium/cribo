@@ -63,7 +63,7 @@ struct StaticBundleParams<'a> {
 
 /// Context for dependency building operations
 struct DependencyContext<'a> {
-    resolver: &'a ModuleResolver,
+    resolver: &'a mut ModuleResolver,
     graph: &'a mut CriboGraph,
     module_id_map: &'a indexmap::IndexMap<String, crate::cribo_graph::ModuleId>,
     current_module: &'a str,
@@ -313,7 +313,7 @@ impl BundleOrchestrator {
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
-        let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
+        let mut resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
         let sorted_modules =
             self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
@@ -337,7 +337,7 @@ impl BundleOrchestrator {
 
         // Generate requirements.txt if requested
         if emit_requirements {
-            self.write_requirements_file_for_stdout(&module_data, &resolver)?;
+            self.write_requirements_file_for_stdout(&module_data, &mut resolver)?;
         }
 
         Ok(bundled_code)
@@ -362,7 +362,7 @@ impl BundleOrchestrator {
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
-        let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
+        let mut resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
         let sorted_modules =
             self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
@@ -380,7 +380,7 @@ impl BundleOrchestrator {
 
         // Generate requirements.txt if requested
         if emit_requirements {
-            self.write_requirements_file(&sorted_modules, &resolver, output_path)?;
+            self.write_requirements_file(&sorted_modules, &mut resolver, output_path)?;
         }
 
         // Write output file
@@ -1343,7 +1343,7 @@ impl BundleOrchestrator {
     fn write_requirements_file_for_stdout(
         &self,
         sorted_modules: &[(String, PathBuf, Vec<String>)],
-        resolver: &ModuleResolver,
+        resolver: &mut ModuleResolver,
     ) -> Result<()> {
         let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
         if !requirements_content.is_empty() {
@@ -1364,7 +1364,7 @@ impl BundleOrchestrator {
     fn write_requirements_file(
         &self,
         sorted_modules: &[(String, PathBuf, Vec<String>)],
-        resolver: &ModuleResolver,
+        resolver: &mut ModuleResolver,
         output_path: &Path,
     ) -> Result<()> {
         let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
@@ -1551,7 +1551,7 @@ impl BundleOrchestrator {
     fn generate_requirements(
         &self,
         modules: &[(String, PathBuf, Vec<String>)],
-        resolver: &ModuleResolver,
+        resolver: &mut ModuleResolver,
     ) -> Result<String> {
         let mut third_party_imports = IndexSet::new();
 

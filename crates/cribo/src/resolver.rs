@@ -537,7 +537,7 @@ impl ModuleResolver {
     }
 
     /// Classify an import as first-party, third-party, or standard library
-    pub fn classify_import(&self, module_name: &str) -> ImportType {
+    pub fn classify_import(&mut self, module_name: &str) -> ImportType {
         // Check cache first
         if let Some(cached_type) = self.classification_cache.get(module_name) {
             return cached_type.clone();
@@ -545,31 +545,44 @@ impl ModuleResolver {
 
         // Check if it's a relative import (starts with a dot)
         if module_name.starts_with('.') {
-            return ImportType::FirstParty;
+            let import_type = ImportType::FirstParty;
+            self.classification_cache
+                .insert(module_name.to_string(), import_type.clone());
+            return import_type;
         }
 
         // Check explicit classifications from config
         if self.config.known_first_party.contains(module_name) {
-            return ImportType::FirstParty;
+            let import_type = ImportType::FirstParty;
+            self.classification_cache
+                .insert(module_name.to_string(), import_type.clone());
+            return import_type;
         }
         if self.config.known_third_party.contains(module_name) {
-            return ImportType::ThirdParty;
+            let import_type = ImportType::ThirdParty;
+            self.classification_cache
+                .insert(module_name.to_string(), import_type.clone());
+            return import_type;
         }
 
         // Check if it's a standard library module
         if is_stdlib_module(module_name, self.python_version) {
-            return ImportType::StandardLibrary;
+            let import_type = ImportType::StandardLibrary;
+            self.classification_cache
+                .insert(module_name.to_string(), import_type.clone());
+            return import_type;
         }
 
         // Try to resolve the module to determine if it's first-party
-        // We need to use a mutable reference, but classify_import takes &self
-        // For now, we'll check if the module exists in our search paths
         let search_dirs = self.get_search_directories();
         let descriptor = ImportModuleDescriptor::from_module_name(module_name);
 
         for search_dir in &search_dirs {
             if let Ok(Some(_)) = self.resolve_in_directory(search_dir, &descriptor) {
-                return ImportType::FirstParty;
+                let import_type = ImportType::FirstParty;
+                self.classification_cache
+                    .insert(module_name.to_string(), import_type.clone());
+                return import_type;
             }
         }
 
@@ -583,18 +596,27 @@ impl ModuleResolver {
                 let parent_classification = self.classify_import(parent_module);
                 if parent_classification == ImportType::FirstParty {
                     // If the parent is first-party, the submodule is too
-                    return ImportType::FirstParty;
+                    let import_type = ImportType::FirstParty;
+                    self.classification_cache
+                        .insert(module_name.to_string(), import_type.clone());
+                    return import_type;
                 }
             }
         }
 
         // Check if it's in the virtual environment (third-party)
         if self.is_virtualenv_package(module_name) {
-            return ImportType::ThirdParty;
+            let import_type = ImportType::ThirdParty;
+            self.classification_cache
+                .insert(module_name.to_string(), import_type.clone());
+            return import_type;
         }
 
         // Default to third-party if we can't determine otherwise
-        ImportType::ThirdParty
+        let import_type = ImportType::ThirdParty;
+        self.classification_cache
+            .insert(module_name.to_string(), import_type.clone());
+        import_type
     }
 
     /// Get the set of third-party packages installed in the virtual environment
@@ -900,7 +922,7 @@ mod tests {
             known_third_party: IndexSet::from(["requests".to_string()]),
             ..Default::default()
         };
-        let resolver = ModuleResolver::new(config)?;
+        let mut resolver = ModuleResolver::new(config)?;
 
         // Test classifications
         assert_eq!(resolver.classify_import("os"), ImportType::StandardLibrary);
