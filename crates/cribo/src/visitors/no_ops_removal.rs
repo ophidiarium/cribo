@@ -268,7 +268,7 @@ x = x
 y = "hello"
 y = y
 "#;
-        let module = parse_and_transform(code).unwrap();
+        let module = parse_and_transform(code).expect("failed to parse and transform test code");
 
         // Should have only 2 statements left (the initial assignments)
         assert_eq!(module.body.len(), 2);
@@ -283,7 +283,7 @@ x -= 0
 x *= 1
 x //= 1
 "#;
-        let module = parse_and_transform(code).unwrap();
+        let module = parse_and_transform(code).expect("failed to parse and transform test code");
 
         // Should have only 1 statement left (the initial assignment)
         assert_eq!(module.body.len(), 1);
@@ -298,7 +298,7 @@ True
 [1, 2, 3]
 x = 10
 "#;
-        let module = parse_and_transform(code).unwrap();
+        let module = parse_and_transform(code).expect("failed to parse and transform test code");
 
         // Should have only 1 statement left (the assignment)
         assert_eq!(module.body.len(), 1);
@@ -310,7 +310,7 @@ x = 10
 def empty():
     pass
 "#;
-        let module = parse_and_transform(code).unwrap();
+        let module = parse_and_transform(code).expect("failed to parse and transform test code");
 
         // Should keep the function with pass
         assert_eq!(module.body.len(), 1);

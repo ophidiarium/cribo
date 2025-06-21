@@ -209,8 +209,8 @@ impl SemanticImportVisitor {
                         self.visit_stmt(stmt);
                     }
                     for elif in &if_stmt.elif_else_clauses {
-                        if let Some(test) = &elif.test {
-                            self.visit_expr(test);
+                        if let Some(condition) = &elif.test {
+                            self.visit_expr(condition);
                         }
                         for stmt in &elif.body {
                             self.visit_stmt(stmt);

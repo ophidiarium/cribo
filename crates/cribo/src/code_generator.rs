@@ -1,3 +1,5 @@
+#![allow(clippy::excessive_nesting)]
+
 use std::{
     hash::BuildHasherDefault,
     path::{Path, PathBuf},
@@ -399,6 +401,18 @@ impl GlobalsLifter {
     }
 }
 
+/// Parameters for creating a RecursiveImportTransformer
+struct RecursiveImportTransformerParams<'a> {
+    bundler: &'a HybridStaticBundler,
+    module_name: &'a str,
+    module_path: Option<&'a Path>,
+    symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
+    deferred_imports: &'a mut Vec<Stmt>,
+    is_entry_module: bool,
+    is_wrapper_init: bool,
+    global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
+}
+
 /// Transformer that recursively transforms all imports in the AST
 struct RecursiveImportTransformer<'a> {
     bundler: &'a HybridStaticBundler,
@@ -421,26 +435,17 @@ struct RecursiveImportTransformer<'a> {
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
-    fn new(
-        bundler: &'a HybridStaticBundler,
-        module_name: &'a str,
-        module_path: Option<&'a Path>,
-        symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
-        deferred_imports: &'a mut Vec<Stmt>,
-        is_entry_module: bool,
-        is_wrapper_init: bool,
-        global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
-    ) -> Self {
+    fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
         Self {
-            bundler,
-            module_name,
-            module_path,
-            symbol_renames,
+            bundler: params.bundler,
+            module_name: params.module_name,
+            module_path: params.module_path,
+            symbol_renames: params.symbol_renames,
             import_aliases: FxIndexMap::default(),
-            deferred_imports,
-            is_entry_module,
-            is_wrapper_init,
-            global_deferred_imports,
+            deferred_imports: params.deferred_imports,
+            is_entry_module: params.is_entry_module,
+            is_wrapper_init: params.is_wrapper_init,
+            global_deferred_imports: params.global_deferred_imports,
             local_variables: FxIndexSet::default(),
         }
     }
@@ -1610,6 +1615,7 @@ impl Default for HybridStaticBundler {
     }
 }
 
+#[allow(dead_code)]
 impl HybridStaticBundler {
     pub fn new() -> Self {
         Self {
@@ -1651,7 +1657,7 @@ impl HybridStaticBundler {
             // Nested module access (e.g., schemas.user)
             Expr::Attribute(_attr) => {
                 // Check if this represents a module path
-                let module_path = self.expr_to_module_path(expr);
+                let module_path = Self::expr_to_module_path(expr);
                 if let Some(path) = module_path {
                     self.bundled_modules.contains(&path)
                         || self.namespace_imported_modules.contains_key(&path)
@@ -1665,22 +1671,21 @@ impl HybridStaticBundler {
     }
 
     /// Convert an expression to a module path if it represents one
-    fn expr_to_module_path(&self, expr: &Expr) -> Option<String> {
+    fn expr_to_module_path(expr: &Expr) -> Option<String> {
         match expr {
             Expr::Name(name) => Some(name.id.to_string()),
-            Expr::Attribute(attr) => self
-                .expr_to_module_path(&attr.value)
+            Expr::Attribute(attr) => Self::expr_to_module_path(&attr.value)
                 .map(|base_path| format!("{}.{}", base_path, attr.attr.as_str())),
             _ => None,
         }
     }
 
     /// Compare two expressions for equality
-    fn expr_equals(&self, expr1: &Expr, expr2: &Expr) -> bool {
+    fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
         match (expr1, expr2) {
             (Expr::Name(n1), Expr::Name(n2)) => n1.id == n2.id,
             (Expr::Attribute(a1), Expr::Attribute(a2)) => {
-                a1.attr == a2.attr && self.expr_equals(&a1.value, &a2.value)
+                a1.attr == a2.attr && Self::expr_equals(&a1.value, &a2.value)
             }
             _ => false,
         }
@@ -2868,7 +2873,10 @@ impl HybridStaticBundler {
                                     && existing_target.id.as_str() == target_name
                                 {
                                     // Check if the values are the same
-                                    return self.expr_equals(&existing_assign.value, &assign.value);
+                                    return Self::expr_equals(
+                                        &existing_assign.value,
+                                        &assign.value,
+                                    );
                                 }
                                 false
                             })
@@ -3255,14 +3263,16 @@ impl HybridStaticBundler {
             log::debug!("Creating RecursiveImportTransformer for entry module '{module_name}'");
             let mut entry_deferred_imports = Vec::new();
             let mut transformer = RecursiveImportTransformer::new(
-                self,
-                &module_name,
-                Some(&module_path),
-                &symbol_renames,
-                &mut entry_deferred_imports,
-                true,                                // This is the entry module
-                false,                               // Not a wrapper init
-                Some(&self.global_deferred_imports), // Pass global deferred imports for checking
+                RecursiveImportTransformerParams {
+                    bundler: self,
+                    module_name: &module_name,
+                    module_path: Some(&module_path),
+                    symbol_renames: &symbol_renames,
+                    deferred_imports: &mut entry_deferred_imports,
+                    is_entry_module: true,  // This is the entry module
+                    is_wrapper_init: false, // Not a wrapper init
+                    global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports for checking */
+                },
             );
             log::debug!(
                 "Transforming entry module '{module_name}' with RecursiveImportTransformer"
@@ -3321,8 +3331,10 @@ impl HybridStaticBundler {
                                             {
                                                 // Check if it's the same assignment
                                                 existing_target.id == target.id
-                                                    && self
-                                                        .expr_equals(&existing.value, &assign.value)
+                                                    && Self::expr_equals(
+                                                        &existing.value,
+                                                        &assign.value,
+                                                    )
                                             } else {
                                                 false
                                             }
@@ -3417,7 +3429,7 @@ impl HybridStaticBundler {
                                 && existing_target.id.as_str() == target_name
                             {
                                 // Check if the values are the same
-                                return self.expr_equals(&existing_assign.value, &assign.value);
+                                return Self::expr_equals(&existing_assign.value, &assign.value);
                             }
                             false
                         })
@@ -3688,16 +3700,16 @@ impl HybridStaticBundler {
         // First, recursively transform all imports in the AST
         // For wrapper modules, we don't need to defer imports since they run in their own scope
         let mut wrapper_deferred_imports = Vec::new();
-        let mut transformer = RecursiveImportTransformer::new(
-            self,
-            ctx.module_name,
-            Some(ctx.module_path),
+        let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
+            bundler: self,
+            module_name: ctx.module_name,
+            module_path: Some(ctx.module_path),
             symbol_renames,
-            &mut wrapper_deferred_imports,
-            false, // This is not the entry module
-            true,  // This IS a wrapper init function
-            None,  // No need for global deferred imports in wrapper modules
-        );
+            deferred_imports: &mut wrapper_deferred_imports,
+            is_entry_module: false,        // This is not the entry module
+            is_wrapper_init: true,         // This IS a wrapper init function
+            global_deferred_imports: None, // No need for global deferred imports in wrapper modules
+        });
 
         // Track imports from inlined modules before transformation
         let mut imports_from_inlined = Vec::new();
@@ -4344,8 +4356,8 @@ impl HybridStaticBundler {
                     self.transform_stmt_for_module_vars(stmt, module_level_vars);
                 }
                 for clause in &mut if_stmt.elif_else_clauses {
-                    if let Some(test) = &mut clause.test {
-                        self.transform_expr_for_module_vars(test, module_level_vars);
+                    if let Some(condition) = &mut clause.test {
+                        self.transform_expr_for_module_vars(condition, module_level_vars);
                     }
                     for stmt in &mut clause.body {
                         self.transform_stmt_for_module_vars(stmt, module_level_vars);
@@ -4366,6 +4378,7 @@ impl HybridStaticBundler {
     }
 
     /// Transform an expression to use module attributes for module-level variables
+    #[allow(clippy::only_used_in_recursion)]
     fn transform_expr_for_module_vars(
         &self,
         expr: &mut Expr,
@@ -6482,6 +6495,7 @@ impl HybridStaticBundler {
     }
 }
 
+#[allow(dead_code)]
 impl HybridStaticBundler {
     /// Collect Import statements
     fn collect_import(&mut self, import_stmt: &StmtImport, stmt: &Stmt) {
@@ -6663,8 +6677,8 @@ impl HybridStaticBundler {
                 self.collect_vars_in_expr(&if_stmt.test, vars);
                 self.collect_referenced_vars(&if_stmt.body, vars);
                 for clause in &if_stmt.elif_else_clauses {
-                    if let Some(test) = &clause.test {
-                        self.collect_vars_in_expr(test, vars);
+                    if let Some(condition) = &clause.test {
+                        self.collect_vars_in_expr(condition, vars);
                     }
                     self.collect_referenced_vars(&clause.body, vars);
                 }
@@ -6699,6 +6713,7 @@ impl HybridStaticBundler {
     }
 
     /// Collect variable names referenced in an expression
+    #[allow(clippy::only_used_in_recursion)]
     fn collect_vars_in_expr(&self, expr: &Expr, vars: &mut FxIndexSet<String>) {
         match expr {
             Expr::Name(name) => {
@@ -7077,17 +7092,12 @@ impl HybridStaticBundler {
             // So we should prefer the attribute unless we have evidence it's not re-exported
             let importing_submodule = if parent_is_wrapper && submodule_exists {
                 // Check if the parent module explicitly exports this name
-                if let Some(exports) = self.module_exports.get(module_name) {
-                    if let Some(export_list) = exports {
-                        // If __all__ is defined and doesn't include this name, it's the submodule
-                        !export_list.contains(&imported_name.to_string())
-                    } else {
-                        // No __all__ defined - we can't know for sure
-                        // For now, assume it's an attribute (matches Python behavior)
-                        false
-                    }
+                if let Some(Some(export_list)) = self.module_exports.get(module_name) {
+                    // If __all__ is defined and doesn't include this name, it's the submodule
+                    !export_list.contains(&imported_name.to_string())
                 } else {
-                    // No export info - assume it's an attribute (safer default)
+                    // No __all__ defined or no export info - assume it's an attribute (safer
+                    // default)
                     false
                 }
             } else {
@@ -8194,7 +8204,10 @@ impl HybridStaticBundler {
     ) {
         match stmt {
             Stmt::ImportFrom(import_from) if import_from.module.is_some() => {
-                let module = import_from.module.as_ref().unwrap();
+                let module = import_from
+                    .module
+                    .as_ref()
+                    .expect("module was checked to be Some");
                 let module_name = module.as_str();
                 log::debug!(
                     "  Found import from '{}' with names: {:?} in '{}'",
@@ -8551,16 +8564,16 @@ impl HybridStaticBundler {
         let mut module_renames = FxIndexMap::default();
 
         // First, apply recursive import transformation to the module
-        let mut transformer = RecursiveImportTransformer::new(
-            self,
+        let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
+            bundler: self,
             module_name,
-            Some(module_path),
-            ctx.module_renames,
-            ctx.deferred_imports,
-            false,                               // This is not the entry module
-            false,                               // Not a wrapper init
-            Some(&self.global_deferred_imports), // Pass global registry
-        );
+            module_path: Some(module_path),
+            symbol_renames: ctx.module_renames,
+            deferred_imports: ctx.deferred_imports,
+            is_entry_module: false, // This is not the entry module
+            is_wrapper_init: false, // Not a wrapper init
+            global_deferred_imports: Some(&self.global_deferred_imports), // Pass global registry
+        });
         transformer.transform_module(&mut ast);
 
         // Reorder statements to ensure proper declaration order
@@ -10449,10 +10462,8 @@ impl HybridStaticBundler {
         // This method is called by create_namespace_statements which already
         // filters based on required_namespaces, so we don't need to check again
 
-        let mut statements = vec![];
-
         // Create the namespace
-        statements.push(Stmt::Assign(StmtAssign {
+        let mut statements = vec![Stmt::Assign(StmtAssign {
             targets: vec![Expr::Name(ExprName {
                 id: module_name.into(),
                 ctx: ExprContext::Store,
@@ -10477,7 +10488,7 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })),
             range: TextRange::default(),
-        }));
+        })];
 
         // Set the __name__ attribute to match real module behavior
         statements.push(Stmt::Assign(StmtAssign {
@@ -10507,10 +10518,8 @@ impl HybridStaticBundler {
 
     /// Create a namespace with a specific variable name and module path for __name__
     fn create_namespace_with_name(&self, var_name: &str, module_path: &str) -> Vec<Stmt> {
-        let mut statements = vec![];
-
         // Create: var_name = types.SimpleNamespace()
-        statements.push(Stmt::Assign(StmtAssign {
+        let mut statements = vec![Stmt::Assign(StmtAssign {
             targets: vec![Expr::Name(ExprName {
                 id: var_name.into(),
                 ctx: ExprContext::Store,
@@ -10535,7 +10544,7 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })),
             range: TextRange::default(),
-        }));
+        })];
 
         // Set the __name__ attribute
         statements.push(Stmt::Assign(StmtAssign {
@@ -10740,10 +10749,10 @@ impl HybridStaticBundler {
                 });
 
                 // Build up the chain up to but not including the last part
-                for j in 1..(i - 1) {
+                for part in &parts[1..(i - 1)] {
                     target = Expr::Attribute(ExprAttribute {
                         value: Box::new(target),
-                        attr: Identifier::new(parts[j], TextRange::default()),
+                        attr: Identifier::new(&**part, TextRange::default()),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     });
@@ -10817,10 +10826,10 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             });
 
-            for i in 1..parts.len() {
+            for part in &parts[1..] {
                 all_target = Expr::Attribute(ExprAttribute {
                     value: Box::new(all_target),
-                    attr: Identifier::new(parts[i], TextRange::default()),
+                    attr: Identifier::new(&**part, TextRange::default()),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 });
@@ -10887,10 +10896,10 @@ impl HybridStaticBundler {
                         range: TextRange::default(),
                     });
 
-                    for i in 1..parts.len() {
+                    for part in &parts[1..] {
                         base = Expr::Attribute(ExprAttribute {
                             value: Box::new(base),
-                            attr: Identifier::new(parts[i], TextRange::default()),
+                            attr: Identifier::new(&**part, TextRange::default()),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
                         });

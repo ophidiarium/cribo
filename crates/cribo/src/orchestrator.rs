@@ -1268,6 +1268,7 @@ impl BundleOrchestrator {
     }
 
     /// Process an import during discovery phase (legacy method, delegates to context-aware version)
+    #[allow(dead_code)]
     fn process_import_for_discovery(&self, import: &str, params: &mut DiscoveryParams) {
         // Legacy method - assumes imports are not in error handlers
         // This is used by other parts of the code that don't track context
@@ -1399,6 +1400,7 @@ impl BundleOrchestrator {
     }
 
     /// Helper method to build detailed error message for cycles with resolvable cycles handling
+    #[allow(dead_code)]
     fn build_cycle_error_message(
         analysis: &crate::cribo_graph::CircularDependencyAnalysis,
     ) -> String {
@@ -1426,6 +1428,7 @@ impl BundleOrchestrator {
     }
 
     /// Helper method to append unresolvable cycles to error message
+    #[allow(dead_code)]
     fn append_unresolvable_cycles_to_error(
         error_msg: &mut String,
         unresolvable_cycles: &[CircularDependencyGroup],
@@ -1441,6 +1444,7 @@ impl BundleOrchestrator {
     }
 
     /// Helper method to append resolvable cycles to error message
+    #[allow(dead_code)]
     fn append_resolvable_cycles_to_error(
         error_msg: &mut String,
         resolvable_cycles: &[CircularDependencyGroup],
@@ -1464,6 +1468,7 @@ impl BundleOrchestrator {
     }
 
     /// Helper method to append cycle resolution suggestions to error message
+    #[allow(dead_code)]
     fn append_cycle_resolution_suggestions(
         error_msg: &mut String,
         suggested_resolution: &ResolutionStrategy,
@@ -1493,6 +1498,7 @@ impl BundleOrchestrator {
     }
 
     /// Helper method to log resolvable cycles
+    #[allow(dead_code)]
     fn log_resolvable_cycles(cycles: &[CircularDependencyGroup]) {
         for cycle in cycles {
             info!("Resolving cycle: {}", cycle.modules.join(" → "));

@@ -706,7 +706,12 @@ mod tests {
         // Resolve foo - should prefer foo/__init__.py
         let result = resolver.resolve_module_path("foo")?;
         let expected = root.join("foo/__init__.py").canonicalize()?;
-        assert_eq!(result.map(|p| p.canonicalize().unwrap()), Some(expected));
+        assert_eq!(
+            result.map(|p| p
+                .canonicalize()
+                .expect("failed to canonicalize resolved path")),
+            Some(expected)
+        );
 
         Ok(())
     }
@@ -736,7 +741,12 @@ mod tests {
         // Resolve helper - should find the one in entry dir, not lib
         let result = resolver.resolve_module_path("helper")?;
         let expected = entry_dir.join("helper.py").canonicalize()?;
-        assert_eq!(result.map(|p| p.canonicalize().unwrap()), Some(expected));
+        assert_eq!(
+            result.map(|p| p
+                .canonicalize()
+                .expect("failed to canonicalize resolved path")),
+            Some(expected)
+        );
 
         // Verify search path order
         let search_dirs = resolver.get_search_directories();
@@ -765,21 +775,23 @@ mod tests {
 
         // Test various imports
         assert_eq!(
-            resolver
-                .resolve_module_path("myapp")?
-                .map(|p| p.canonicalize().unwrap()),
+            resolver.resolve_module_path("myapp")?.map(|p| p
+                .canonicalize()
+                .expect("failed to canonicalize resolved path")),
             Some(root.join("myapp/__init__.py").canonicalize()?)
         );
         assert_eq!(
-            resolver
-                .resolve_module_path("myapp.utils")?
-                .map(|p| p.canonicalize().unwrap()),
+            resolver.resolve_module_path("myapp.utils")?.map(|p| p
+                .canonicalize()
+                .expect("failed to canonicalize resolved path")),
             Some(root.join("myapp/utils/__init__.py").canonicalize()?)
         );
         assert_eq!(
             resolver
                 .resolve_module_path("myapp.utils.helpers")?
-                .map(|p| p.canonicalize().unwrap()),
+                .map(|p| p
+                    .canonicalize()
+                    .expect("failed to canonicalize resolved path")),
             Some(root.join("myapp/utils/helpers.py").canonicalize()?)
         );
 
@@ -830,7 +842,10 @@ mod tests {
 
         {
             let _guard = PythonPathGuard::new("/test/path");
-            assert_eq!(std::env::var("PYTHONPATH").unwrap(), "/test/path");
+            assert_eq!(
+                std::env::var("PYTHONPATH").expect("PYTHONPATH should be set"),
+                "/test/path"
+            );
         }
 
         // Should be restored
@@ -859,7 +874,7 @@ mod tests {
         // Namespace packages should be resolved to the directory
         let result = resolver.resolve_module_path("namespace_pkg")?;
         assert!(result.is_some());
-        let resolved_path = result.unwrap();
+        let resolved_path = result.expect("namespace_pkg should resolve to a path");
         assert!(resolved_path.is_dir());
         let expected = root.join("namespace_pkg").canonicalize()?;
         assert_eq!(resolved_path.canonicalize()?, expected);
