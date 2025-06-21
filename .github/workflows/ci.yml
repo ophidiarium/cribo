@@ -50,6 +50,10 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-insta
+      - name: 'Install cargo nextest'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
@@ -61,9 +65,11 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --all-groups
 
-      - name: Run Rust tests
-        run: cargo test --workspace
+      - name: 'Run tests'
         shell: bash
+        env:
+          NEXTEST_PROFILE: 'ci'
+        run: cargo insta test --all-features --unreferenced reject --test-runner nextest
 
       - name: Install Cribo (development)
         run: uv run --with maturin -- maturin develop --release
