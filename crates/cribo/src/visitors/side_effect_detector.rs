@@ -17,6 +17,8 @@ pub struct SideEffectDetector {
     has_side_effects: bool,
     /// Whether we're currently analyzing an expression for side effects
     in_expression_context: bool,
+    /// Whether we're currently analyzing a type annotation
+    in_annotation_context: bool,
 }
 
 /// Simple expression visitor for checking side effects in a single expression
@@ -31,6 +33,7 @@ impl SideEffectDetector {
             imported_names: FxHashSet::default(),
             has_side_effects: false,
             in_expression_context: false,
+            in_annotation_context: false,
         }
     }
 
@@ -84,6 +87,13 @@ impl SideEffectDetector {
 
     /// Helper to collect names from import-from statements
     fn collect_import_from_names(&mut self, import_from: &ruff_python_ast::StmtImportFrom) {
+        // Skip typing imports - they're not side effects
+        if let Some(module) = &import_from.module
+            && module.as_str() == "typing"
+        {
+            return;
+        }
+
         for alias in &import_from.names {
             let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
@@ -144,10 +154,100 @@ impl<'a> Visitor<'a> for SideEffectDetector {
         }
 
         match stmt {
-            // Function definitions are pure, no side effects
-            Stmt::FunctionDef(_) => {
-                // Don't recurse into function bodies
-                // Their execution is deferred
+            // Function definitions need to check decorators and defaults for side effects
+            Stmt::FunctionDef(func) => {
+                // Check decorators for side effects (executed at import time)
+                self.in_expression_context = true;
+                for decorator in &func.decorator_list {
+                    self.visit_expr(&decorator.expression);
+                    if self.has_side_effects {
+                        self.in_expression_context = false;
+                        return;
+                    }
+                }
+
+                // Check return annotation for side effects
+                if let Some(returns) = &func.returns {
+                    self.in_annotation_context = true;
+                    self.visit_expr(returns);
+                    self.in_annotation_context = false;
+                    if self.has_side_effects {
+                        self.in_expression_context = false;
+                        return;
+                    }
+                }
+
+                // Check default argument values for side effects
+                for param in &func.parameters.args {
+                    if let Some(default) = &param.default {
+                        self.visit_expr(default);
+                        if self.has_side_effects {
+                            self.in_expression_context = false;
+                            return;
+                        }
+                    }
+                }
+
+                for param in &func.parameters.posonlyargs {
+                    if let Some(default) = &param.default {
+                        self.visit_expr(default);
+                        if self.has_side_effects {
+                            self.in_expression_context = false;
+                            return;
+                        }
+                    }
+                }
+
+                for param in &func.parameters.kwonlyargs {
+                    if let Some(default) = &param.default {
+                        self.visit_expr(default);
+                        if self.has_side_effects {
+                            self.in_expression_context = false;
+                            return;
+                        }
+                    }
+                }
+
+                // Check parameter annotations for side effects
+                for param in &func.parameters.args {
+                    if let Some(annotation) = &param.parameter.annotation {
+                        self.in_annotation_context = true;
+                        self.visit_expr(annotation);
+                        self.in_annotation_context = false;
+                        if self.has_side_effects {
+                            self.in_expression_context = false;
+                            return;
+                        }
+                    }
+                }
+
+                for param in &func.parameters.posonlyargs {
+                    if let Some(annotation) = &param.parameter.annotation {
+                        self.in_annotation_context = true;
+                        self.visit_expr(annotation);
+                        self.in_annotation_context = false;
+                        if self.has_side_effects {
+                            self.in_expression_context = false;
+                            return;
+                        }
+                    }
+                }
+
+                for param in &func.parameters.kwonlyargs {
+                    if let Some(annotation) = &param.parameter.annotation {
+                        self.in_annotation_context = true;
+                        self.visit_expr(annotation);
+                        self.in_annotation_context = false;
+                        if self.has_side_effects {
+                            self.in_expression_context = false;
+                            return;
+                        }
+                    }
+                }
+
+                self.in_expression_context = false;
+
+                // Skip the function body - its execution is deferred
                 return; // Important: don't call walk_stmt
             }
 
@@ -300,9 +400,17 @@ impl<'a> Visitor<'a> for SideEffectDetector {
 
                 // These expressions have side effects
                 // Lambda expressions are considered to have side effects to match old behavior
-                Expr::Call(_) | Expr::Attribute(_) | Expr::Subscript(_) | Expr::Lambda(_) => {
+                Expr::Call(_) | Expr::Lambda(_) => {
                     self.has_side_effects = true;
                     return;
+                }
+
+                // Attribute and subscript expressions are only side effects outside annotations
+                Expr::Attribute(_) | Expr::Subscript(_) => {
+                    if !self.in_annotation_context {
+                        self.has_side_effects = true;
+                        return;
+                    }
                 }
 
                 // For other expressions, continue walking to check nested expressions
@@ -564,5 +672,73 @@ process = lambda data: data.upper()
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(SideEffectDetector::check_module(&module));
+    }
+
+    #[test]
+    fn test_decorator_side_effects() {
+        let source = r#"
+def side_effect_decorator():
+    print("Side effect!")  # This would execute at import time
+    return lambda f: f
+
+@side_effect_decorator()  # Function call in decorator - side effect!
+def my_function():
+    pass
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        assert!(SideEffectDetector::check_module(&module));
+    }
+
+    #[test]
+    fn test_default_argument_side_effects() {
+        let source = r#"
+def get_default():
+    print("Getting default value")  # Side effect!
+    return 42
+
+def my_function(x=get_default()):  # This executes at import time
+    pass
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        assert!(SideEffectDetector::check_module(&module));
+    }
+
+    #[test]
+    fn test_annotation_side_effects() {
+        let source = r#"
+def get_type():
+    print("Getting type")  # Side effect!
+    return int
+
+def my_function(x: get_type()) -> get_type():  # Annotations execute at import time
+    pass
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        assert!(SideEffectDetector::check_module(&module));
+    }
+
+    #[test]
+    fn test_no_side_effects_simple_decorator() {
+        let source = r#"
+@property  # Built-in decorator, no side effect
+def my_property(self):
+    return self._value
+
+@staticmethod  # Built-in decorator, no side effect
+def my_static_method():
+    pass
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        assert!(!SideEffectDetector::check_module(&module));
+    }
+
+    #[test]
+    fn test_no_side_effects_simple_defaults() {
+        let source = r#"
+def my_function(x=42, y="hello", z=None, w=[]):  # Literal defaults, no side effects
+    pass
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        assert!(!SideEffectDetector::check_module(&module));
     }
 }
