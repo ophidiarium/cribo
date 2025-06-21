@@ -210,8 +210,11 @@ impl<'a> GraphBuilder<'a> {
                 level: import_from.level,
                 is_star,
             },
-            var_decls: imported_names.clone(), /* FromImport declares the imported names as
-                                                * variables */
+            var_decls: if is_star {
+                FxHashSet::default() // star-import declares nothing explicitly
+            } else {
+                imported_names.clone() // FromImport declares the imported names as variables
+            },
             read_vars: FxHashSet::default(),
             eventual_read_vars: FxHashSet::default(),
             write_vars: FxHashSet::default(),
