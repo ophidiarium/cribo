@@ -1267,20 +1267,6 @@ impl BundleOrchestrator {
         Ok(())
     }
 
-    /// Process an import during discovery phase (legacy method, delegates to context-aware version)
-    #[allow(dead_code)]
-    fn process_import_for_discovery(&self, import: &str, params: &mut DiscoveryParams) {
-        // Legacy method - assumes imports are not in error handlers
-        // This is used by other parts of the code that don't track context
-        match self.process_import_for_discovery_with_context(import, false, params) {
-            Ok(()) => {}
-            Err(e) => {
-                // For backward compatibility, just warn instead of failing
-                warn!("Failed to process import: {e}");
-            }
-        }
-    }
-
     /// Process an import during dependency graph creation phase
     fn process_import_for_dependency(&self, import: &str, context: &mut DependencyContext<'_>) {
         match context.resolver.classify_import(import) {
@@ -1397,112 +1383,6 @@ impl BundleOrchestrator {
             info!("No third-party dependencies found, skipping requirements.txt");
         }
         Ok(())
-    }
-
-    /// Helper method to build detailed error message for cycles with resolvable cycles handling
-    #[allow(dead_code)]
-    fn build_cycle_error_message(
-        analysis: &crate::cribo_graph::CircularDependencyAnalysis,
-    ) -> String {
-        let mut error_msg = String::from("Circular dependencies detected in the module graph:\n\n");
-
-        // First, show unresolvable cycles if any
-        if !analysis.unresolvable_cycles.is_empty() {
-            error_msg.push_str("UNRESOLVABLE CYCLES:\n");
-            Self::append_unresolvable_cycles_to_error(
-                &mut error_msg,
-                &analysis.unresolvable_cycles,
-            );
-        }
-
-        // Then show resolvable cycles that are not yet supported
-        if !analysis.resolvable_cycles.is_empty() {
-            Self::append_resolvable_cycles_to_error(
-                &mut error_msg,
-                &analysis.resolvable_cycles,
-                &analysis.unresolvable_cycles,
-            );
-        }
-
-        error_msg
-    }
-
-    /// Helper method to append unresolvable cycles to error message
-    #[allow(dead_code)]
-    fn append_unresolvable_cycles_to_error(
-        error_msg: &mut String,
-        unresolvable_cycles: &[CircularDependencyGroup],
-    ) {
-        for (i, cycle) in unresolvable_cycles.iter().enumerate() {
-            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, cycle.modules.join(" → ")));
-            error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
-            if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
-                error_msg.push_str(&format!("  Reason: {reason}\n"));
-            }
-            error_msg.push('\n');
-        }
-    }
-
-    /// Helper method to append resolvable cycles to error message
-    #[allow(dead_code)]
-    fn append_resolvable_cycles_to_error(
-        error_msg: &mut String,
-        resolvable_cycles: &[CircularDependencyGroup],
-        unresolvable_cycles: &[CircularDependencyGroup],
-    ) {
-        if !unresolvable_cycles.is_empty() {
-            error_msg.push_str("RESOLVABLE CYCLES (not yet implemented):\n");
-        }
-        for (i, cycle) in resolvable_cycles.iter().enumerate() {
-            let cycle_num = i + 1 + unresolvable_cycles.len();
-            error_msg.push_str(&format!(
-                "Cycle {}: {}\n",
-                cycle_num,
-                cycle.modules.join(" → ")
-            ));
-            error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
-
-            Self::append_cycle_resolution_suggestions(error_msg, &cycle.suggested_resolution);
-            error_msg.push('\n');
-        }
-    }
-
-    /// Helper method to append cycle resolution suggestions to error message
-    #[allow(dead_code)]
-    fn append_cycle_resolution_suggestions(
-        error_msg: &mut String,
-        suggested_resolution: &ResolutionStrategy,
-    ) {
-        match suggested_resolution {
-            ResolutionStrategy::LazyImport { modules: _ } => {
-                error_msg.push_str(
-                    "  Suggestion: Move imports inside functions to enable lazy loading\n",
-                );
-            }
-            ResolutionStrategy::FunctionScopedImport { import_statements } => {
-                error_msg.push_str("  Suggestions:\n");
-                for suggestion in import_statements {
-                    error_msg.push_str(&format!("    {suggestion}\n"));
-                }
-            }
-            ResolutionStrategy::ModuleSplit { suggestions } => {
-                error_msg.push_str("  Suggestions:\n");
-                for suggestion in suggestions {
-                    error_msg.push_str(&format!("    {suggestion}\n"));
-                }
-            }
-            ResolutionStrategy::Unresolvable { .. } => {
-                // This shouldn't happen in resolvable cycles
-            }
-        }
-    }
-
-    /// Helper method to log resolvable cycles
-    #[allow(dead_code)]
-    fn log_resolvable_cycles(cycles: &[CircularDependencyGroup]) {
-        for cycle in cycles {
-            info!("Resolving cycle: {}", cycle.modules.join(" → "));
-        }
     }
 
     /// Helper method to check and add module imports to reduce nesting
