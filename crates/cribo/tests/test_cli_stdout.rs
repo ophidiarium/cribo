@@ -13,13 +13,12 @@ fn get_fixture_path(relative_path: &str) -> String {
 
 /// Run cribo with given arguments and return (stdout, stderr, exit_code)
 fn run_cribo(args: &[&str]) -> (String, String, i32) {
-    let output = Command::new("cargo")
-        .args(["run", "--bin", "cribo", "--quiet", "--"])
+    // Use the pre-built binary instead of cargo run for performance
+    let cribo_exe = env!("CARGO_BIN_EXE_cribo");
+
+    let output = Command::new(cribo_exe)
         .args(args)
         .env("RUST_LOG", "off")
-        .env("CARGO_TERM_QUIET", "true")
-        .env("CARGO_TERM_COLOR", "never")
-        .env("RUSTFLAGS", "-Awarnings")
         .output()
         .expect("Failed to execute command");
 
