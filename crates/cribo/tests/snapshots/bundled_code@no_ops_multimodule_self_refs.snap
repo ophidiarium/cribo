@@ -404,8 +404,11 @@ def __cribo_init___cribo_b84d0d_utils_helpers():
         conditional_var = conditional_var
     return module
 core = types.SimpleNamespace()
+core.__name__ = 'core'
 models = types.SimpleNamespace()
+models.__name__ = 'models'
 utils = types.SimpleNamespace()
+utils.__name__ = 'utils'
 _cribo_temp_utils_helpers = __cribo_init___cribo_b84d0d_utils_helpers()
 _cribo_temp_models_user = __cribo_init___cribo_2811ba_models_user()
 _cribo_temp_models = __cribo_init___cribo_a34acc_models()

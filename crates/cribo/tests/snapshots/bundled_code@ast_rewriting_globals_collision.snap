@@ -36,6 +36,8 @@ class Logger_6:
 
     def get_message(self):
         return f"utils_logger_{self.name}"
+Logger_6.__module__ = 'core.utils.helpers'
+Logger_6.__name__ = 'Logger'
 class Connection_6:
     """Connection class in utils - different from database Connection"""
 
@@ -44,6 +46,8 @@ class Connection_6:
 
     def connect(self):
         return "utils_connection_established"
+Connection_6.__module__ = 'core.utils.helpers'
+Connection_6.__name__ = 'Connection'
 def sanitize(text):
     """Utility function without conflicts"""
     return text.strip().lower()
@@ -329,10 +333,13 @@ def __cribo_init___cribo_df9c8d_core_database_connection():
     module.create_connection = create_connection
     return module
 core = types.SimpleNamespace()
+core.__name__ = 'core'
 core.database = types.SimpleNamespace()
 core.utils = types.SimpleNamespace()
 models = types.SimpleNamespace()
+models.__name__ = 'models'
 services = types.SimpleNamespace()
+services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
 _cribo_temp_models_base = __cribo_init___cribo_0a162a_models_base()
 _cribo_temp_core_database_connection = __cribo_init___cribo_df9c8d_core_database_connection()

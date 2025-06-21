@@ -34,6 +34,7 @@ class Worker:
         status = "working"
         counter += 1
         return f"Started task: {tasks[-1]} (total: {len(tasks)}, status: {status.upper()})"
+Worker.__module__ = 'worker'
 """Worker module with globals that need lifting when using f-strings"""
 """Test f-string transformation with module globals lifting"""
 def main():

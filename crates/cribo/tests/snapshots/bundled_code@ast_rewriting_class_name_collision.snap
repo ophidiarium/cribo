@@ -16,6 +16,8 @@ class User_1:
 
     def __str__(self) -> str:
         return f"Entity User(name='{self.name}', age={self.age})"
+User_1.__module__ = 'entities'
+User_1.__name__ = 'User'
 class Product_1:
     """Product entity for business logic."""
 
@@ -26,6 +28,8 @@ class Product_1:
 
     def __str__(self) -> str:
         return f"Entity Product(sku='{self.sku}', name='{self.name}')"
+Product_1.__module__ = 'entities'
+Product_1.__name__ = 'Product'
 def create_product(sku: str, name: str) -> Product_1:
     """Factory function for creating products."""
     return Product_1(sku, name)
@@ -40,6 +44,8 @@ class User_2:
 
     def __str__(self) -> str:
         return f"Model User(name='{self.name}', email='{self.email}')"
+User_2.__module__ = 'models'
+User_2.__name__ = 'User'
 class Product_2:
     """Product model for catalog."""
 
@@ -50,6 +56,8 @@ class Product_2:
 
     def __str__(self) -> str:
         return f"Model Product(name='{self.name}', price={self.price})"
+Product_2.__module__ = 'models'
+Product_2.__name__ = 'Product'
 def create_user(name: str, email: str) -> User_2:
     """Factory function for creating users."""
     return User_2(name, email)

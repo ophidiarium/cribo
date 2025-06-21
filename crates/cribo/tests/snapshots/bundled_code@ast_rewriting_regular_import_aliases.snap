@@ -29,6 +29,7 @@ class UtilityClass:
 
     def get_value(self):
         return self.value
+UtilityClass.__module__ = 'utils.helpers'
 """Utility module for testing regular import aliases."""
 '''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
 helper_utils = types.SimpleNamespace()

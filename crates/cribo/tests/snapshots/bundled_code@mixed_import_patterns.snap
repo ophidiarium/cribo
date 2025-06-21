@@ -26,6 +26,7 @@ class Application:
         print(format_message("Mixed import patterns working correctly!"))
         local_logger = get_logger()
         local_logger.log("Function-level import gives same logger instance", "DEBUG")
+Application.__module__ = 'app'
 """\nApplication module that uses both config and logger.\nNo circular dependencies here - just normal imports.\n"""
 def get_logger():
     global _logger
@@ -50,6 +51,7 @@ class Logger:
     def _should_log(self, level):
         levels = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3}
         return levels.get(level, 1) >= levels.get(self.log_level, 1)
+Logger.__module__ = 'logger'
 _logger = None
 """\nLogger module that needs configuration to determine log level.\nThis creates a circular dependency: logger -> config -> logger\n"""
 class Config:
@@ -72,6 +74,7 @@ class Config:
 
     def get_setting(self, key):
         return getattr(self, key, None)
+Config.__module__ = 'config'
 def get_log_level():
     """Get log level from config - used by logger module"""
     if _config is None:

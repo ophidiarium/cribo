@@ -17,6 +17,7 @@ class UtilityClass:
 
     def get_value(self):
         return self.value
+UtilityClass.__module__ = 'utils'
 """\nUtility module that demonstrates __all__ handling.\nOnly exports helper_function and UtilityClass, not _internal_function.\n"""
 """\nTest fixture for __all__ handling in bundled modules.\nThis tests that modules with __all__ only expose listed symbols.\n"""
 def main():

@@ -37,6 +37,7 @@ class BaseModel:
         self.initialized = True
         new_result = f"base_initialized_{self.model_type}"
         return new_result
+BaseModel.__module__ = 'models.base'
 def initialize() -> str:
     """Module initialization function"""
     base = BaseModel("default")
@@ -71,6 +72,8 @@ class Logger_1:
         """Logger process method - conflicts with module-level process"""
         self.log(f"Processing: {log_data}")
         return f"base_logger_process: {log_data}"
+Logger_1.__module__ = 'models.base'
+Logger_1.__name__ = 'Logger'
 def connect_1() -> str:
     """Base connect function"""
     return "base_connected"
@@ -109,6 +112,8 @@ class Logger_2:
     def validate(self, entry: str) -> bool:
         """Method with name that conflicts with global functions"""
         return len(entry) > 0
+Logger_2.__module__ = 'models.user'
+Logger_2.__name__ = 'Logger'
 class User_2:
     """Model User class - major conflict with other User classes"""
 
@@ -156,6 +161,8 @@ class User_2:
         """Method with name that conflicts with global functions"""
         new_connection = f"user_model_connection_{self.name}"
         return new_connection
+User_2.__module__ = 'models.user'
+User_2.__name__ = 'User'
 def process_user(data: Any) -> str:
     """Module function with naming conflicts"""
     Logger_class = Logger_2
@@ -193,6 +200,8 @@ class Connection_2:
     def process(self, action: str) -> str:
         """Method with conflicted name"""
         return f"connection_process: {action} for {self.User.name}"
+Connection_2.__module__ = 'models.user'
+Connection_2.__name__ = 'Connection'
 def connect_2(User: "User") -> Connection_2:
     """Module connect function with parameter conflicts"""
     return Connection_2(User_2)
@@ -233,6 +242,8 @@ class Logger_3:
     def process(self, data: Any) -> str:
         """Method with same name as module functions"""
         return f"logger_process: {data}"
+Logger_3.__module__ = 'core.utils.helpers'
+Logger_3.__name__ = 'Logger'
 def process_5(data: Any) -> str:
     """Utility process function - major conflict with other process functions"""
     if isinstance(data, str):
@@ -266,6 +277,8 @@ class Connection_4:
     def connect(self) -> str:
         self.active = True
         return f"Utility connection: {self.connection_type}"
+Connection_4.__module__ = 'core.utils.helpers'
+Connection_4.__name__ = 'Connection'
 def connect_4() -> Connection_4:
     """Utility connect function"""
     return Connection_4("helper")
@@ -296,6 +309,8 @@ class Connection_5:
     def connect(self):
         self.connected = True
         return f"Connected to {self.host}:{self.port}"
+Connection_5.__module__ = 'core.database.connection'
+Connection_5.__name__ = 'Connection'
 def process_6(data):
     """Database process function - conflicts with other process functions"""
     validated = helper_validate(data)
@@ -442,10 +457,13 @@ def __cribo_init___cribo_6ccb3a_services_auth_manager():
     module.AuthManager = AuthManager
     return module
 core = types.SimpleNamespace()
+core.__name__ = 'core'
 core.database = types.SimpleNamespace()
 core.utils = types.SimpleNamespace()
 models = types.SimpleNamespace()
+models.__name__ = 'models'
 services = types.SimpleNamespace()
+services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
 _cribo_temp_services_auth_manager = __cribo_init___cribo_6ccb3a_services_auth_manager()
 services.auth.manager = _cribo_temp_services_auth_manager

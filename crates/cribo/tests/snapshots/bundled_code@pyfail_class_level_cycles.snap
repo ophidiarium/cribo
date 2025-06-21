@@ -17,6 +17,7 @@ class Admin(User):
     def demote_to_user(self):
         """Demote admin to regular user."""
         return User(self.name)
+Admin.__module__ = 'admin_class'
 """Admin class module with circular dependency."""
 class User:
     """User class that references Admin class."""
@@ -28,6 +29,7 @@ class User:
     def promote_to_admin(self):
         """Promote user to admin."""
         return self.admin_reference(self.name)
+User.__module__ = 'user_class'
 """User class module with circular dependency."""
 """Test case with class-level circular dependencies."""
 def main():

@@ -24,6 +24,7 @@ class BaseModel:
     def get_info(self):
         """Get model information."""
         return {"name": self.name, "type": "base", "model_version": self.version}
+BaseModel.__module__ = 'models.base'
 """Base model module."""
 _module_config = None
 def set_config_reference(config):
@@ -44,13 +45,13 @@ def is_debug():
 CORE_MODEL_VERSION = "1.0.0"
 """Version module separate from __init__ to avoid circular imports."""
 def validate(value: str) -> bool:
-    """Validate a string value.\n    \n    This function is imported by core.database.connection using\n    a relative import (..utils.helpers), demonstrating relative\n    imports within the same package hierarchy.\n    """
+    """Validate a string value.\n\n    This function is imported by core.database.connection using\n    a relative import (..utils.helpers), demonstrating relative\n    imports within the same package hierarchy.\n    """
     return bool(value and not value.startswith("_"))
 """Helper utilities for the core package."""
 _cribo_models__base_model = None
 _cribo_core__initialized = None
 _cribo_core__config = None
-def __cribo_init___cribo_4214ba_models():
+def __cribo_init___cribo_563ea2_models():
     module = types.SimpleNamespace()
     """Models package with conditional imports and circular dependency handling."""
     _VERSION = "1.0.0"
@@ -97,7 +98,7 @@ def __cribo_init___cribo_4214ba_models():
     module.__all__ = ['get_model_version', 'process_user', 'get_base_model', 'ModelID', 'DEFAULT_MODEL_CONFIG', 'HAS_ADVANCED']
     module.process_user = process_user
     return module
-def __cribo_init___cribo_dc3c25_core_database_connection():
+def __cribo_init___cribo_1f0c3d_core_database_connection():
     module = types.SimpleNamespace()
     helper_validate = validate
     get_full_config = get_config
@@ -142,7 +143,7 @@ def __cribo_init___cribo_dc3c25_core_database_connection():
         return info
     module.get_connection_info = get_connection_info
     return module
-def __cribo_init___cribo_c6b0f6_core_database():
+def __cribo_init___cribo_782908_core_database():
     module = types.SimpleNamespace()
     """Database subpackage with import-time initialization and re-exports."""
     _registered_types = []
@@ -178,7 +179,7 @@ def __cribo_init___cribo_c6b0f6_core_database():
     __all__ = ["connect", "get_connection_info", "safe_connect", "validate_db_name", "_registered_types"]
     module.__all__ = ['connect', 'get_connection_info', 'safe_connect', 'validate_db_name', '_registered_types']
     return module
-def __cribo_init___cribo_1836ee_core():
+def __cribo_init___cribo_f00e4b_core():
     module = types.SimpleNamespace()
     """Core package with initialization logic and cross-package imports."""
     _initialized = False
@@ -215,13 +216,15 @@ def __cribo_init___cribo_1836ee_core():
     module.get_config = get_config
     return module
 core = types.SimpleNamespace()
+core.__name__ = 'core'
 core.database = types.SimpleNamespace()
 core.utils = types.SimpleNamespace()
 models = types.SimpleNamespace()
-_cribo_temp_models = __cribo_init___cribo_4214ba_models()
-_cribo_temp_core_database_connection = __cribo_init___cribo_dc3c25_core_database_connection()
-_cribo_temp_core_database = __cribo_init___cribo_c6b0f6_core_database()
-_cribo_temp_core = __cribo_init___cribo_1836ee_core()
+models.__name__ = 'models'
+_cribo_temp_models = __cribo_init___cribo_563ea2_models()
+_cribo_temp_core_database_connection = __cribo_init___cribo_1f0c3d_core_database_connection()
+_cribo_temp_core_database = __cribo_init___cribo_782908_core_database()
+_cribo_temp_core = __cribo_init___cribo_f00e4b_core()
 models = _cribo_temp_models
 core.database.connection = _cribo_temp_core_database_connection
 for attr in dir(_cribo_temp_core_database):

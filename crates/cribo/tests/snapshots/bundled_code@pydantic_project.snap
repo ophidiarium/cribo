@@ -69,7 +69,9 @@ def __cribo_init___cribo_f275a8_schemas_user():
     module.UserResponse = UserResponse
     return module
 schemas = types.SimpleNamespace()
+schemas.__name__ = 'schemas'
 utils = types.SimpleNamespace()
+utils.__name__ = 'utils'
 _cribo_temp_schemas_user = __cribo_init___cribo_f275a8_schemas_user()
 schemas.user = _cribo_temp_schemas_user
 UserSchema = schemas.user.UserSchema

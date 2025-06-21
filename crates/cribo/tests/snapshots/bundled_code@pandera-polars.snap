@@ -14,6 +14,7 @@ class CitySchema(pa.DataFrameModel):
     state: str
     city: str
     price: int
+CitySchema.__module__ = 'schema'
 @pa.check_types(lazy=True)
 def keep_state_ca(df: DataFrame[CitySchema]) -> DataFrame[CitySchema]:
     keep_df = df.filter(pl.col("state") == "CA")

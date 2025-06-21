@@ -1784,7 +1784,7 @@ impl HybridStaticBundler {
 
                     if i == 1 {
                         // Top-level namespace
-                        statements.push(self.create_namespace_module(&namespace));
+                        statements.extend(self.create_namespace_module(&namespace));
                     } else {
                         // Nested namespace - create as attribute
                         let parent = parts[..i - 1].join(".");
@@ -1799,7 +1799,7 @@ impl HybridStaticBundler {
             // Simple namespace without dots
             if !self.created_namespaces.contains(namespace_path) {
                 debug!("Creating simple namespace dynamically: {namespace_path}");
-                statements.push(self.create_namespace_module(namespace_path));
+                statements.extend(self.create_namespace_module(namespace_path));
                 self.created_namespaces.insert(namespace_path.to_string());
             }
         }
@@ -3584,13 +3584,11 @@ impl HybridStaticBundler {
         let mut vars_used_by_exported_functions = FxIndexSet::default();
         for stmt in &ast.body {
             if let Stmt::FunctionDef(func_def) = stmt
-                && self.should_export_symbol(func_def.name.as_ref(), ctx.module_name) {
-                    // This function will be exported, collect variables it references
-                    self.collect_referenced_vars(
-                        &func_def.body,
-                        &mut vars_used_by_exported_functions,
-                    );
-                }
+                && self.should_export_symbol(func_def.name.as_ref(), ctx.module_name)
+            {
+                // This function will be exported, collect variables it references
+                self.collect_referenced_vars(&func_def.body, &mut vars_used_by_exported_functions);
+            }
         }
 
         // Now process the transformed module
@@ -3682,9 +3680,7 @@ impl HybridStaticBundler {
                             } else if let Some(name) = self.extract_simple_assign_target(assign) {
                                 // Check if this variable is used by exported functions
                                 if vars_used_by_exported_functions.contains(&name) {
-                                    debug!(
-                                        "Exporting '{name}' as it's used by exported functions"
-                                    );
+                                    debug!("Exporting '{name}' as it's used by exported functions");
                                     body.push(self.create_module_attr_assignment("module", &name));
                                 } else {
                                     // Regular assignment, use the normal export logic
@@ -3723,11 +3719,11 @@ impl HybridStaticBundler {
                     for stmt in &try_stmt.body {
                         if let Stmt::Assign(assign) = stmt
                             && let Some(name) = self.extract_simple_assign_target(assign)
-                                && self.should_export_symbol(&name, ctx.module_name)
-                            {
-                                additional_exports
-                                    .push(self.create_module_attr_assignment("module", &name));
-                            }
+                            && self.should_export_symbol(&name, ctx.module_name)
+                        {
+                            additional_exports
+                                .push(self.create_module_attr_assignment("module", &name));
+                        }
                     }
 
                     // Process assignments in except handlers
@@ -3736,11 +3732,11 @@ impl HybridStaticBundler {
                         for stmt in &eh.body {
                             if let Stmt::Assign(assign) = stmt
                                 && let Some(name) = self.extract_simple_assign_target(assign)
-                                    && self.should_export_symbol(&name, ctx.module_name)
-                                {
-                                    additional_exports
-                                        .push(self.create_module_attr_assignment("module", &name));
-                                }
+                                && self.should_export_symbol(&name, ctx.module_name)
+                            {
+                                additional_exports
+                                    .push(self.create_module_attr_assignment("module", &name));
+                            }
                         }
                     }
 
@@ -4761,7 +4757,7 @@ impl HybridStaticBundler {
             }
 
             debug!("Creating top-level namespace: {namespace}");
-            final_body.push(self.create_namespace_module(&namespace));
+            final_body.extend(self.create_namespace_module(&namespace));
             created_namespaces.insert(namespace);
         }
 
@@ -4866,7 +4862,7 @@ impl HybridStaticBundler {
                 final_body.push(Stmt::Assign(StmtAssign {
                     targets: vec![Expr::Attribute(ExprAttribute {
                         value: Box::new(Expr::Name(ExprName {
-                            id: parent.into(),
+                            id: parent.clone().into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
                         })),
@@ -4894,6 +4890,35 @@ impl HybridStaticBundler {
                     })),
                     range: TextRange::default(),
                 }));
+
+                // Set the __name__ attribute
+                final_body.push(Stmt::Assign(StmtAssign {
+                    targets: vec![Expr::Attribute(ExprAttribute {
+                        value: Box::new(Expr::Attribute(ExprAttribute {
+                            value: Box::new(Expr::Name(ExprName {
+                                id: parent.clone().into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            attr: Identifier::new(&attr, TextRange::default()),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new("__name__", TextRange::default()),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                        value: StringLiteralValue::single(StringLiteral {
+                            value: module_name.to_string().into(),
+                            range: TextRange::default(),
+                            flags: StringLiteralFlags::empty(),
+                        }),
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+
                 created_namespaces.insert(module_name);
             }
         }
@@ -9144,34 +9169,10 @@ impl HybridStaticBundler {
                      '{module_name}' - module was inlined"
                 );
 
-                // Create a SimpleNamespace-like object
-                // First, create the namespace: base = types.SimpleNamespace()
-                assignments.push(Stmt::Assign(StmtAssign {
-                    targets: vec![Expr::Name(ExprName {
-                        id: local_name.as_str().into(),
-                        ctx: ExprContext::Store,
-                        range: TextRange::default(),
-                    })],
-                    value: Box::new(Expr::Call(ExprCall {
-                        func: Box::new(Expr::Attribute(ExprAttribute {
-                            value: Box::new(Expr::Name(ExprName {
-                                id: "types".into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            attr: Identifier::new("SimpleNamespace", TextRange::default()),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        arguments: ruff_python_ast::Arguments {
-                            args: Box::from([]),
-                            keywords: Box::from([]),
-                            range: TextRange::default(),
-                        },
-                        range: TextRange::default(),
-                    })),
-                    range: TextRange::default(),
-                }));
+                // Create a SimpleNamespace-like object with __name__ set
+                let namespace_stmts =
+                    self.create_namespace_with_name(local_name, &full_module_path);
+                assignments.extend(namespace_stmts);
 
                 // Now add all symbols from the inlined module to the namespace
                 // This should come from semantic analysis of what symbols the module exports
@@ -9868,7 +9869,7 @@ impl HybridStaticBundler {
                 if !self.created_namespaces.contains(&parent_path) {
                     // Parent is not a wrapper module and not an inlined module, create a simple
                     // namespace
-                    result_stmts.push(self.create_namespace_module(&parent_path));
+                    result_stmts.extend(self.create_namespace_module(&parent_path));
                     // Track that we created this namespace
                     self.created_namespaces.insert(parent_path);
                 }
@@ -9910,7 +9911,7 @@ impl HybridStaticBundler {
                 if !already_created {
                     // Parent is not a wrapper module and not an inlined module, create a simple
                     // namespace
-                    result_stmts.push(self.create_namespace_module(&parent_path));
+                    result_stmts.extend(self.create_namespace_module(&parent_path));
                 }
             }
         }
@@ -10120,7 +10121,7 @@ impl HybridStaticBundler {
         statements.push(for_loop);
     }
 
-    fn create_namespace_module(&self, module_name: &str) -> Stmt {
+    fn create_namespace_module(&self, module_name: &str) -> Vec<Stmt> {
         // Create: module_name = types.SimpleNamespace()
         // Note: This should only be called with simple (non-dotted) module names
         debug_assert!(
@@ -10131,7 +10132,10 @@ impl HybridStaticBundler {
         // This method is called by create_namespace_statements which already
         // filters based on required_namespaces, so we don't need to check again
 
-        Stmt::Assign(StmtAssign {
+        let mut statements = vec![];
+
+        // Create the namespace
+        statements.push(Stmt::Assign(StmtAssign {
             targets: vec![Expr::Name(ExprName {
                 id: module_name.into(),
                 ctx: ExprContext::Store,
@@ -10156,7 +10160,90 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })),
             range: TextRange::default(),
-        })
+        }));
+
+        // Set the __name__ attribute to match real module behavior
+        statements.push(Stmt::Assign(StmtAssign {
+            targets: vec![Expr::Attribute(ExprAttribute {
+                value: Box::new(Expr::Name(ExprName {
+                    id: module_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("__name__", TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                value: StringLiteralValue::single(StringLiteral {
+                    value: module_name.to_string().into(),
+                    range: TextRange::default(),
+                    flags: StringLiteralFlags::empty(),
+                }),
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        }));
+
+        statements
+    }
+
+    /// Create a namespace with a specific variable name and module path for __name__
+    fn create_namespace_with_name(&self, var_name: &str, module_path: &str) -> Vec<Stmt> {
+        let mut statements = vec![];
+
+        // Create: var_name = types.SimpleNamespace()
+        statements.push(Stmt::Assign(StmtAssign {
+            targets: vec![Expr::Name(ExprName {
+                id: var_name.into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Call(ExprCall {
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    value: Box::new(Expr::Name(ExprName {
+                        id: "types".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: ruff_python_ast::Arguments {
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        }));
+
+        // Set the __name__ attribute
+        statements.push(Stmt::Assign(StmtAssign {
+            targets: vec![Expr::Attribute(ExprAttribute {
+                value: Box::new(Expr::Name(ExprName {
+                    id: var_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("__name__", TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                value: StringLiteralValue::single(StringLiteral {
+                    value: module_path.to_string().into(),
+                    range: TextRange::default(),
+                    flags: StringLiteralFlags::empty(),
+                }),
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        }));
+
+        statements
     }
 
     /// Create dotted attribute assignment (e.g., greetings.greeting = greeting)
@@ -10626,7 +10713,7 @@ impl HybridStaticBundler {
 
         // Clone and rename the class
         let mut class_def_clone = class_def.clone();
-        class_def_clone.name = Identifier::new(renamed_name, TextRange::default());
+        class_def_clone.name = Identifier::new(renamed_name.clone(), TextRange::default());
 
         // Apply renames to base classes
         // Apply renames and resolve import aliases in class body
@@ -10636,6 +10723,56 @@ impl HybridStaticBundler {
         }
 
         ctx.inlined_stmts.push(Stmt::ClassDef(class_def_clone));
+
+        // Set the __module__ attribute to preserve the original module name
+        let module_attr_stmt = Stmt::Assign(StmtAssign {
+            targets: vec![Expr::Attribute(ExprAttribute {
+                value: Box::new(Expr::Name(ExprName {
+                    id: renamed_name.clone().into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("__module__", TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                value: StringLiteralValue::single(StringLiteral {
+                    value: module_name.to_string().into(),
+                    range: TextRange::default(),
+                    flags: StringLiteralFlags::empty(),
+                }),
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        });
+        ctx.inlined_stmts.push(module_attr_stmt);
+
+        // If the class was renamed, also set __name__ to preserve the original class name
+        if renamed_name != class_name {
+            let name_attr_stmt = Stmt::Assign(StmtAssign {
+                targets: vec![Expr::Attribute(ExprAttribute {
+                    value: Box::new(Expr::Name(ExprName {
+                        id: renamed_name.clone().into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("__name__", TextRange::default()),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                    value: StringLiteralValue::single(StringLiteral {
+                        value: class_name.to_string().into(),
+                        range: TextRange::default(),
+                        flags: StringLiteralFlags::empty(),
+                    }),
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            });
+            ctx.inlined_stmts.push(name_attr_stmt);
+        }
     }
 
     /// Inline an assignment statement

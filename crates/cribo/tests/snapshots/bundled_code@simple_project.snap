@@ -27,6 +27,7 @@ class User:
         if self.email:
             return f"{self.name} <{self.email}>"
         return self.name
+User.__module__ = 'models.user'
 """User model for the test project."""
 """Utils package initialization."""
 def greet(name: str) -> str:
