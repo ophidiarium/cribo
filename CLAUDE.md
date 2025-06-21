@@ -557,7 +557,7 @@ Use `mcp__git__git_add`, `mcp__git__git_commit` and `mcp__git__git_push` MCP too
 
 ```bash
 gh api repos/ophidiarium/cribo/pulls/<PR#>/comments/<COMMENT_ID>/replies \
-  -X POST -f body="✅ Addressed in <hash>. Thanks!"
+  -X POST -f body='✅ Addressed in <hash>. Thanks!'
 ```
 
 *Replace `<hash>` with the short commit SHA.*
