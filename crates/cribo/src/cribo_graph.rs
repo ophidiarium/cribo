@@ -467,31 +467,6 @@ impl ModuleDepGraph {
     }
 }
 
-/// Incremental update to the graph (inspired by Rspack)
-#[derive(Debug, Clone)]
-pub struct GraphUpdate {
-    /// Module updates
-    pub module_updates: Vec<ModuleUpdate>,
-    /// New inter-module dependencies
-    pub new_deps: Vec<(ModuleId, ModuleId)>,
-    /// Removed inter-module dependencies
-    pub removed_deps: Vec<(ModuleId, ModuleId)>,
-}
-
-#[derive(Debug, Clone)]
-pub enum ModuleUpdate {
-    /// Add a new module
-    AddModule {
-        id: ModuleId,
-        name: String,
-        path: PathBuf,
-    },
-    /// Remove a module
-    RemoveModule { id: ModuleId },
-    /// Update module content
-    UpdateModule { id: ModuleId, items: Vec<ItemData> },
-}
-
 /// Module metadata for optimization
 #[derive(Debug, Clone)]
 pub struct ModuleMetadata {
@@ -625,8 +600,6 @@ pub struct CriboGraph {
     node_indices: FxHashMap<ModuleId, NodeIndex>,
     /// Next module ID to allocate
     next_module_id: u32,
-    /// Pending updates (for incremental processing)
-    pending_updates: Vec<GraphUpdate>,
 }
 
 impl CriboGraph {
@@ -662,7 +635,6 @@ impl CriboGraph {
             graph: DiGraph::new(),
             node_indices: FxHashMap::default(),
             next_module_id: 0,
-            pending_updates: Vec::new(),
         }
     }
 
@@ -701,13 +673,6 @@ impl CriboGraph {
                 content_hash: None,
             },
         );
-
-        // Queue update for incremental processing
-        self.pending_updates.push(GraphUpdate {
-            module_updates: vec![ModuleUpdate::AddModule { id, name, path }],
-            new_deps: vec![],
-            removed_deps: vec![],
-        });
 
         id
     }
@@ -750,13 +715,6 @@ impl CriboGraph {
             // Check if edge already exists to avoid duplicates
             if !self.graph.contains_edge(to_idx, from_idx) {
                 self.graph.add_edge(to_idx, from_idx, info);
-
-                // Queue update
-                self.pending_updates.push(GraphUpdate {
-                    module_updates: vec![],
-                    new_deps: vec![(from, to)],
-                    removed_deps: vec![],
-                });
             }
         }
     }
@@ -771,75 +729,6 @@ impl CriboGraph {
     /// Check if the graph has cycles
     pub fn has_cycles(&self) -> bool {
         is_cyclic_directed(&self.graph)
-    }
-
-    /// Apply incremental updates
-    pub fn apply_updates(&mut self) -> Result<()> {
-        let updates = std::mem::take(&mut self.pending_updates);
-
-        for update in updates {
-            // Process module updates
-            for module_update in update.module_updates {
-                match module_update {
-                    ModuleUpdate::RemoveModule { id } => {
-                        self.remove_module_internal(id)?;
-                    }
-                    ModuleUpdate::UpdateModule { id, items } => {
-                        self.update_module_items(id, items);
-                    }
-                    _ => {} // AddModule already handled
-                }
-            }
-
-            // Process dependency updates
-            for (from, to) in update.removed_deps {
-                self.remove_dependency_edge(from, to);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Remove dependency edge (internal helper)
-    fn remove_dependency_edge(&mut self, from: ModuleId, to: ModuleId) {
-        if let (Some(&from_idx), Some(&to_idx)) =
-            (self.node_indices.get(&from), self.node_indices.get(&to))
-            && let Some(edge) = self.graph.find_edge(from_idx, to_idx)
-        {
-            self.graph.remove_edge(edge);
-        }
-    }
-
-    /// Update module items (internal helper)
-    fn update_module_items(&mut self, id: ModuleId, items: Vec<ItemData>) {
-        if let Some(module) = self.modules.get_mut(&id) {
-            // Clear old items
-            module.items.clear();
-            module.deps.clear();
-            module.var_states.clear();
-            module.side_effect_items.clear();
-
-            // Add new items
-            for item_data in items {
-                module.add_item(item_data);
-            }
-        }
-    }
-
-    /// Remove a module (internal helper)
-    fn remove_module_internal(&mut self, id: ModuleId) -> Result<()> {
-        if let Some(node_idx) = self.node_indices.remove(&id) {
-            self.graph.remove_node(node_idx);
-        }
-
-        self.modules.remove(&id);
-        self.module_metadata.remove(&id);
-
-        // Update name and path mappings
-        self.module_names.retain(|_, &mut mid| mid != id);
-        self.module_paths.retain(|_, &mut mid| mid != id);
-
-        Ok(())
     }
 
     /// Get all modules that depend on a given module
