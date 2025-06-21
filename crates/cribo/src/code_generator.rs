@@ -3816,8 +3816,11 @@ impl HybridStaticBundler {
             if self.inlined_modules.contains(&full_name) {
                 // For inlined submodules, we create a types.SimpleNamespace with the exported
                 // symbols
-                let create_namespace_stmts =
-                    self.create_namespace_for_inlined_submodule(&full_name, &relative_name);
+                let create_namespace_stmts = self.create_namespace_for_inlined_submodule(
+                    &full_name,
+                    &relative_name,
+                    symbol_renames,
+                );
                 body.extend(create_namespace_stmts);
             } else {
                 // For wrapped submodules, we'll set them up later when they're initialized
@@ -3932,6 +3935,7 @@ impl HybridStaticBundler {
         &self,
         full_module_name: &str,
         attr_name: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
         let mut stmts = Vec::new();
 
@@ -3969,11 +3973,18 @@ impl HybridStaticBundler {
         // Add all exported symbols from the inlined module to the namespace
         if let Some(exports) = exported_symbols {
             for symbol in exports {
-                // For inlined modules, symbols are not renamed - they keep their original names
-                // The symbol should already be available in the current scope from the inlined
-                // module
+                // Get the renamed version of this symbol
+                let renamed_symbol =
+                    if let Some(module_renames) = symbol_renames.get(full_module_name) {
+                        module_renames
+                            .get(&symbol)
+                            .cloned()
+                            .unwrap_or_else(|| symbol.clone())
+                    } else {
+                        symbol.clone()
+                    };
 
-                // attr_name.symbol = symbol
+                // attr_name.symbol = renamed_symbol
                 stmts.push(Stmt::Assign(StmtAssign {
                     targets: vec![Expr::Attribute(ExprAttribute {
                         value: Box::new(Expr::Name(ExprName {
@@ -3986,7 +3997,7 @@ impl HybridStaticBundler {
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::Name(ExprName {
-                        id: symbol.clone().into(),
+                        id: renamed_symbol.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
@@ -8119,7 +8130,25 @@ impl HybridStaticBundler {
                 }
                 Stmt::Assign(assign) => {
                     if let Some(name) = self.extract_simple_assign_target(assign) {
-                        symbol_to_stmt.insert(name, stmt);
+                        // Skip self-referential assignments - they'll be handled later
+                        if self.is_self_referential_assignment(assign) {
+                            log::debug!(
+                                "Skipping self-referential assignment '{name}' in circular module \
+                                 reordering"
+                            );
+                            other_stmts.push(stmt);
+                        } else if symbol_to_stmt.contains_key(&name) {
+                            // If we already have a function/class with this name, keep the
+                            // function/class and treat the assignment
+                            // as a regular statement
+                            log::debug!(
+                                "Assignment '{name}' conflicts with existing function/class, keeping \
+                                 function/class"
+                            );
+                            other_stmts.push(stmt);
+                        } else {
+                            symbol_to_stmt.insert(name, stmt);
+                        }
                     } else {
                         other_stmts.push(stmt);
                     }
@@ -10794,6 +10823,42 @@ impl HybridStaticBundler {
         // Clone the assignment first
         let mut assign_clone = assign.clone();
 
+        // Check if this is a self-referential assignment
+        let is_self_referential = self.is_self_referential_assignment(assign);
+
+        // Skip self-referential assignments entirely - they're meaningless
+        if is_self_referential {
+            log::debug!(
+                "Skipping self-referential assignment '{name}' in module '{module_name}'"
+            );
+            // Still need to track the rename for the symbol so namespace creation works
+            // But we should check if there's already a rename for this symbol
+            // (e.g., from a function or class definition)
+            if !module_renames.contains_key(&name) {
+                // Only create a rename if we haven't seen this symbol yet
+                let renamed_name = if let Some(module_rename_map) =
+                    ctx.module_renames.get(module_name)
+                {
+                    if let Some(new_name) = module_rename_map.get(&name) {
+                        new_name.clone()
+                    } else if ctx.global_symbols.contains(&name) {
+                        let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
+                        self.get_unique_name(&base_name, ctx.global_symbols)
+                    } else {
+                        name.clone()
+                    }
+                } else if ctx.global_symbols.contains(&name) {
+                    let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
+                    self.get_unique_name(&base_name, ctx.global_symbols)
+                } else {
+                    name.clone()
+                };
+                module_renames.insert(name.clone(), renamed_name.clone());
+                ctx.global_symbols.insert(renamed_name);
+            }
+            return;
+        }
+
         // Apply existing renames to the RHS value BEFORE creating new rename for LHS
         self.resolve_import_aliases_in_expr(&mut assign_clone.value, &ctx.import_aliases);
         self.rewrite_aliases_in_expr(&mut assign_clone.value, module_renames);
@@ -11221,9 +11286,19 @@ impl HybridStaticBundler {
     ) -> Stmt {
         // Create a types.SimpleNamespace with all the module's symbols
         let mut keywords = Vec::new();
+        let mut seen_args = FxIndexSet::default();
 
-        // Add all renamed symbols as keyword arguments
+        // Add all renamed symbols as keyword arguments, avoiding duplicates
         for (original_name, renamed_name) in module_renames {
+            // Skip if we've already added this argument name
+            if seen_args.contains(original_name) {
+                log::debug!(
+                    "Skipping duplicate namespace argument '{original_name}' for module '{module_name}'"
+                );
+                continue;
+            }
+            seen_args.insert(original_name.clone());
+
             keywords.push(Keyword {
                 arg: Some(Identifier::new(original_name, TextRange::default())),
                 value: Expr::Name(ExprName {
@@ -11240,8 +11315,9 @@ impl HybridStaticBundler {
             && let Some(export_list) = exports
         {
             for export in export_list {
-                if !module_renames.contains_key(export) {
-                    // This export wasn't renamed, add it directly
+                if !module_renames.contains_key(export) && !seen_args.contains(export) {
+                    // This export wasn't renamed and wasn't already added, add it directly
+                    seen_args.insert(export.clone());
                     keywords.push(Keyword {
                         arg: Some(Identifier::new(export, TextRange::default())),
                         value: Expr::Name(ExprName {
