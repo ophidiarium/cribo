@@ -1,11 +1,10 @@
 [workspace]
+members  = ["crates/*"]
 resolver = "2"
-members = ["crates/*"]
 
 [workspace.package]
+authors     = ["Konstantin Vyatkin <tino@vtkn.io>"]
 version = "0.4.30"
-authors = ["Konstantin Vyatkin <tino@vtkn.io>"]
-default-run = "cribo"
 edition = "2024"
 homepage = "https://github.com/ophidiarium/cribo"
 license = "MIT"
@@ -19,160 +18,161 @@ once_cell = "1.21.3"
 clap = { version = "4.5.39", features = ["derive"] }
 
 # Python parsing - using git dependencies as ruff internals are not published to crates.io
-ruff_linter = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
-ruff_python_codegen = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
+ruff_linter          = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
+ruff_python_ast      = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
+ruff_python_codegen  = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
+ruff_python_parser   = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
 ruff_python_semantic = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
-ruff_python_stdlib = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
-ruff_python_trivia = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
-ruff_text_size = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
+ruff_python_stdlib   = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
+ruff_python_trivia   = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
+ruff_text_size       = { git = "https://github.com/astral-sh/ruff/", rev = "0.11.13" }
 
 # Serialization and configuration
 serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
+toml  = "0.8"
 
 # Error handling and logging
-anyhow = "1.0"
+anyhow     = "1.0"
 env_logger = "0.11"
-log = "0.4"
+log        = "0.4"
 
 # Graph and data structures
-indexmap = { version = "2", features = ["serde"] }
-petgraph = "0.8"
+indexmap   = { version = "2", features = ["serde"] }
+petgraph   = "0.8"
 rustc-hash = "2.1"
 
 # Utilities
 cow-utils = "0.1.3"
-etcetera = "0.10"
-regex = "1.11.1"
-walkdir = "2.5.0"
+etcetera  = "0.10"
+regex     = "1.11.1"
 
 # Python bindings (optional)
-pyo3 = "0.25"
+pyo3              = "0.25"
 pyo3-build-config = "0.25"
 
 # Testing
-insta = { version = "1.43.1", features = ["filters", "glob", "yaml"] }
+insta             = { version = "1.43.1", features = ["filters", "glob", "yaml"] }
 pretty_assertions = "1.4.1"
-serial_test = "3.2.0"
-tempfile = "3.20.0"
+serial_test       = "3.2.0"
+tempfile          = "3.20.0"
 
 # Benchmarking
 criterion = { version = "0.6", features = ["html_reports"] }
 
 [workspace.lints.rust]
-unsafe_code = "warn"
-unreachable_pub = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)", "cfg(codspeed)"] }
+unreachable_pub = "warn"
+unsafe_code     = "warn"
 # Add these for better AI-generated code catching:
+exported_private_dependencies = { level = "allow", priority = 10 }
 missing_debug_implementations = "warn"
-missing_docs = "warn" # Or "allow" if too noisy
-rust_2018_idioms = "warn"
-trivial_casts = "warn"
-trivial_numeric_casts = "warn"
-unused_extern_crates = "warn"
-unused_import_braces = "warn"
-unused_qualifications = "warn"
-variant_size_differences = "warn"
+missing_docs                  = "warn"                             # Or "allow" if too noisy
+rust_2018_idioms              = "warn"                             # Warns about 2015 idioms in 2018 edition
+trivial_casts                 = "warn"
+trivial_numeric_casts         = "warn"
+unused_extern_crates          = "warn"
+unused_import_braces          = "warn"
+unused_qualifications         = "warn"
+variant_size_differences      = "warn"
 
 [workspace.lints.clippy]
 # Categories
-perf = { level = "warn", priority = -1 }
+cargo    = { level = "warn", priority = -4 }
+nursery  = { level = "warn", priority = -3 }
 pedantic = { level = "warn", priority = -2 }
-nursery = { level = "warn", priority = -3 }
-cargo = { level = "warn", priority = -4 }
+perf     = { level = "warn", priority = -1 }
+
 
 # CHANGE THIS - it might be causing the issue
+manual_ok_or  = "warn" # Keep this
 map_unwrap_or = "warn" # Changed from "allow" to "warn"
-manual_ok_or = "warn" # Keep this
 
 # Your existing pedantic allows
-char_lit_as_u8 = "allow"
+char_lit_as_u8      = "allow"
 collapsible_else_if = "allow"
-collapsible_if = "allow"
-implicit_hasher = "allow"
+collapsible_if      = "allow"
+implicit_hasher     = "allow"
 # map_unwrap_or = "allow"  # REMOVED - this might be causing issues
-match_same_arms = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-module_name_repetitions = "allow"
-must_use_candidate = "allow"
-similar_names = "allow"
-single_match_else = "allow"
-too_many_lines = "allow"
-needless_continue = "allow"
+match_same_arms              = "allow"
+missing_errors_doc           = "allow"
+missing_panics_doc           = "allow"
+module_name_repetitions      = "allow"
+must_use_candidate           = "allow"
+needless_continue            = "allow"
+needless_raw_string_hashes   = "allow"
+similar_names                = "allow"
+single_match_else            = "allow"
+too_many_lines               = "allow"
 unnecessary_debug_formatting = "allow"
-needless_raw_string_hashes = "allow"
 
 # Additional allows for practical development
-cast_precision_loss = "allow"
 cast_possible_truncation = "allow"
-items_after_statements = "allow"
-uninlined_format_args = "allow"
-struct_excessive_bools = "allow"
+cast_precision_loss      = "allow"
+items_after_statements   = "allow"
+struct_excessive_bools   = "allow"
+uninlined_format_args    = "allow"
 
 # Your existing restriction warnings
-print_stdout = "warn"
-print_stderr = "warn"
-dbg_macro = "warn"
-empty_drop = "warn"
-empty_structs_with_brackets = "warn"
-exit = "warn"
-get_unwrap = "warn"
-rc_buffer = "warn"
-rc_mutex = "warn"
+dbg_macro                       = "warn"
+empty_drop                      = "warn"
+empty_structs_with_brackets     = "warn"
+exit                            = "warn"
+get_unwrap                      = "warn"
+print_stderr                    = "warn"
+print_stdout                    = "warn"
+rc_buffer                       = "warn"
+rc_mutex                        = "warn"
 rest_pat_in_fully_bound_structs = "warn"
 
 # Your nursery warnings
-redundant_clone = "warn"
 debug_assert_with_mut_call = "warn"
-unused_peekable = "warn"
+redundant_clone            = "warn"
+unused_peekable            = "warn"
 
 # Additional warnings for AI-generated code patterns
-create_dir = "warn"
-default_trait_access = "warn"
-expl_impl_clone_on_copy = "warn"
-if_not_else = "warn"
+create_dir                      = "warn"
+default_trait_access            = "warn"
+expl_impl_clone_on_copy         = "warn"
+if_not_else                     = "warn"
 inconsistent_struct_constructor = "warn"
-inefficient_to_string = "warn"
-manual_assert = "warn"
-manual_instant_elapsed = "warn"
-manual_let_else = "warn"
-mutex_integer = "warn"
-naive_bytecount = "warn"
-needless_bitwise_bool = "warn"
-needless_collect = "warn"
-needless_for_each = "warn"
-negative_feature_names = "warn"
-path_buf_push_overwrite = "warn"
-ptr_as_ptr = "warn"
-redundant_pub_crate = "warn"
-ref_binding_to_reference = "warn"
-ref_option_ref = "warn"
-semicolon_if_nothing_returned = "warn"
-str_to_string = "warn"
-string_add = "warn"
-string_add_assign = "warn"
-string_lit_as_bytes = "warn"
-string_to_string = "warn"
-type_repetition_in_bounds = "warn"
-unnecessary_self_imports = "warn"
-unnecessary_wraps = "warn"
-unneeded_field_pattern = "warn"
-unnested_or_patterns = "warn"
-unseparated_literal_suffix = "warn"
-unused_async = "warn"
-use_self = "warn"
-useless_let_if_seq = "warn"
-verbose_bit_mask = "warn"
-wildcard_imports = "warn"
+inefficient_to_string           = "warn"
+manual_assert                   = "warn"
+manual_instant_elapsed          = "warn"
+manual_let_else                 = "warn"
+mutex_integer                   = "warn"
+naive_bytecount                 = "warn"
+needless_bitwise_bool           = "warn"
+needless_collect                = "warn"
+needless_for_each               = "warn"
+negative_feature_names          = "warn"
+path_buf_push_overwrite         = "warn"
+ptr_as_ptr                      = "warn"
+redundant_pub_crate             = "warn"
+ref_binding_to_reference        = "warn"
+ref_option_ref                  = "warn"
+semicolon_if_nothing_returned   = "warn"
+str_to_string                   = "warn"
+string_add                      = "warn"
+string_add_assign               = "warn"
+string_lit_as_bytes             = "warn"
+string_to_string                = "warn"
+type_repetition_in_bounds       = "warn"
+unnecessary_self_imports        = "warn"
+unnecessary_wraps               = "warn"
+unneeded_field_pattern          = "warn"
+unnested_or_patterns            = "warn"
+unseparated_literal_suffix      = "warn"
+unused_async                    = "warn"
+use_self                        = "warn"
+useless_let_if_seq              = "warn"
+verbose_bit_mask                = "warn"
+wildcard_imports                = "warn"
 
 # Add these specific lints to catch .ok() misuse
-question_mark = "warn" # Encourages using ? operator
 if_let_some_result = "warn" # Catches if let Some(x) = result.ok()
-result_map_unit_fn = "warn" # Catches .map(|_| ())
 option_map_unit_fn = "warn" # Catches .map(|_| ())
+question_mark      = "warn" # Encourages using ? operator
+result_map_unit_fn = "warn" # Catches .map(|_| ())
 
 # https://github.com/rustwasm/wasm-bindgen/issues/3451#issuecomment-1562982835
 [profile.dev]
@@ -183,5 +183,5 @@ opt-level = "s"
 opt-level = 3
 
 [profile.release]
-lto = true
 codegen-units = 1
+lto           = true

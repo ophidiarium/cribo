@@ -1,5 +1,4 @@
-# Inlined @commitlint/config-conventional rules with increased limits for AI-generated messages
-# Removed parserPreset to use default parser (eliminates external dependency)
+# yaml-language-server: $schema=https://json.schemastore.org/commitlintrc.json
 
 rules:
   # Body rules

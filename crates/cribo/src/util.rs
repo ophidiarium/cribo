@@ -1,5 +1,6 @@
-use cow_utils::CowUtils;
 use std::path::{Path, PathBuf};
+
+use cow_utils::CowUtils;
 
 /// Convert a relative path to a Python module name, handling .py extension and __init__.py
 pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
@@ -142,8 +143,8 @@ mod tests {
         // properly in CI environments
         if std::env::var("VIRTUAL_ENV").is_ok() {
             eprintln!(
-                "Warning: VIRTUAL_ENV could not be unset (value: {:?}). \
-                 Skipping test due to environment variable cleanup issues.",
+                "Warning: VIRTUAL_ENV could not be unset (value: {:?}). Skipping test due to \
+                 environment variable cleanup issues.",
                 std::env::var("VIRTUAL_ENV").ok()
             );
             return;

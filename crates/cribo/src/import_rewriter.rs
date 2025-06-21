@@ -4,11 +4,16 @@ use anyhow::Result;
 use log::{debug, trace};
 use ruff_python_ast::{
     self as ast, Identifier, ModModule, Stmt, StmtFunctionDef, StmtImport, StmtImportFrom,
+    visitor::Visitor,
 };
 use ruff_text_size::TextRange;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::cribo_graph::{CriboGraph, ItemType, ModuleDepGraph};
+use crate::{
+    cribo_graph::{CriboGraph, ItemType, ModuleDepGraph, ModuleId},
+    semantic_bundler::SemanticBundler,
+    visitors::{DiscoveredImport, ImportDiscoveryVisitor},
+};
 
 /// Strategy for deduplicating imports within functions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +105,148 @@ impl ImportRewriter {
         movable_imports
     }
 
+    /// Analyze movable imports using semantic analysis for accurate context detection
+    pub fn analyze_movable_imports_semantic(
+        &mut self,
+        graph: &CriboGraph,
+        resolvable_cycles: &[crate::cribo_graph::CircularDependencyGroup],
+        semantic_bundler: &SemanticBundler,
+        module_asts: &[(String, &ModModule)],
+    ) -> Result<Vec<MovableImport>> {
+        let mut movable_imports = Vec::new();
+
+        // Cache to avoid re-analyzing modules that appear in multiple cycles
+        let mut module_import_cache: FxHashMap<ModuleId, Vec<DiscoveredImport>> =
+            FxHashMap::default();
+
+        for cycle in resolvable_cycles {
+            debug!(
+                "Analyzing cycle of type {:?} with {} modules using semantic analysis",
+                cycle.cycle_type,
+                cycle.modules.len()
+            );
+
+            // Only handle function-level cycles
+            if !matches!(
+                cycle.cycle_type,
+                crate::cribo_graph::CircularDependencyType::FunctionLevel
+            ) {
+                continue;
+            }
+
+            // For each module in the cycle, find imports that can be moved
+            for module_name in &cycle.modules {
+                if let Some(module_id) = graph.module_names.get(module_name) {
+                    // Check if we've already analyzed this module
+                    let discovered_imports =
+                        if let Some(cached_imports) = module_import_cache.get(module_id) {
+                            trace!("Using cached import analysis for module '{module_name}'");
+                            cached_imports.clone()
+                        } else {
+                            // Find the AST for this module
+                            if let Some((_, ast)) =
+                                module_asts.iter().find(|(name, _)| name == module_name)
+                            {
+                                // Perform semantic analysis using enhanced ImportDiscoveryVisitor
+                                let mut visitor = ImportDiscoveryVisitor::with_semantic_bundler(
+                                    semantic_bundler,
+                                    *module_id,
+                                );
+                                for stmt in &ast.body {
+                                    visitor.visit_stmt(stmt);
+                                }
+                                let imports = visitor.into_imports();
+
+                                // Cache the results for future use
+                                module_import_cache.insert(*module_id, imports.clone());
+                                imports
+                            } else {
+                                continue;
+                            }
+                        };
+
+                    // Find movable imports based on semantic analysis
+                    let candidates = self.find_movable_imports_from_discovered(
+                        &discovered_imports,
+                        module_name,
+                        &cycle.modules,
+                    );
+                    movable_imports.extend(candidates);
+                }
+            }
+        }
+
+        debug!(
+            "Found {} movable imports using semantic analysis",
+            movable_imports.len()
+        );
+        Ok(movable_imports)
+    }
+
+    /// Find movable imports based on discovered imports with semantic analysis
+    fn find_movable_imports_from_discovered(
+        &self,
+        discovered_imports: &[DiscoveredImport],
+        module_name: &str,
+        cycle_modules: &[String],
+    ) -> Vec<MovableImport> {
+        let mut movable = Vec::new();
+
+        for import_info in discovered_imports {
+            // Check if this import is part of the cycle
+            if let Some(imported_module) = &import_info.module_name {
+                if !self.is_import_in_cycle(imported_module, cycle_modules) {
+                    continue;
+                }
+
+                // Skip if not movable based on semantic analysis
+                if !import_info.is_movable {
+                    trace!(
+                        "Import {imported_module} in {module_name} has side effects, cannot move"
+                    );
+                    continue;
+                }
+
+                // Import is movable, now determine target functions
+                // For now, we'll move to all functions (could be enhanced later)
+                let target_functions = vec!["*".to_string()]; // Move to all functions
+
+                trace!("Import {imported_module} in {module_name} can be moved to functions");
+
+                // Convert to ImportStatement
+                let import_stmt =
+                    if import_info.names.len() == 1 && import_info.names[0].0 == *imported_module {
+                        // This is a regular import statement (e.g., "import foo" or "import foo as
+                        // bar") For regular imports, the module name
+                        // matches the first (and only) name in the names vector
+                        let alias = import_info.names[0].1.clone();
+
+                        ImportStatement::Import {
+                            module: imported_module.clone(),
+                            alias,
+                        }
+                    } else {
+                        // This is a from import statement
+                        ImportStatement::FromImport {
+                            module: import_info.module_name.clone(),
+                            names: import_info.names.clone(),
+                            level: import_info.level,
+                        }
+                    };
+
+                movable.push(MovableImport {
+                    import_stmt,
+                    target_functions,
+                    source_module: module_name.to_string(),
+                    line_number: import_info.range.start().to_usize(), /* Use byte offset as a
+                                                                        * placeholder */
+                });
+            }
+        }
+
+        movable
+    }
+
     /// Find imports in a module that can be moved to function scope
     fn find_movable_imports_in_module(
         &self,
@@ -176,7 +323,7 @@ impl ImportRewriter {
 
         // Check if it's a submodule of any cycle module
         for cycle_module in cycle_modules {
-            if imported_module.starts_with(&format!("{}.", cycle_module)) {
+            if imported_module.starts_with(&format!("{cycle_module}.")) {
                 return true;
             }
         }
@@ -229,10 +376,10 @@ impl ImportRewriter {
                     continue;
                 }
 
-                if let ItemType::FunctionDef { name } = &item_data.item_type {
-                    if !analysis.used_in_functions.contains(name) {
-                        analysis.used_in_functions.push(name.clone());
-                    }
+                if let ItemType::FunctionDef { name } = &item_data.item_type
+                    && !analysis.used_in_functions.contains(name)
+                {
+                    analysis.used_in_functions.push(name.clone());
                 }
             }
         }
@@ -246,15 +393,28 @@ impl ImportRewriter {
         matches!(
             name,
             // From is_safe_stdlib_module's exclusion list
-            "antigravity" | "this" | "__hello__" | "__phello__" |
-            "site" | "sitecustomize" | "usercustomize" |
-            "readline" | "rlcompleter" | 
-            "turtle" | "tkinter" |
-            "webbrowser" |
-            "platform" | "locale" |
-            // Additional modules with common side effects
-            "os" | "sys" | "logging" | "warnings" | "encodings" |
-            "pygame" | "matplotlib"
+            "antigravity"
+                | "this"
+                | "__hello__"
+                | "__phello__"
+                | "site"
+                | "sitecustomize"
+                | "usercustomize"
+                | "readline"
+                | "rlcompleter"
+                | "turtle"
+                | "tkinter"
+                | "webbrowser"
+                | "platform"
+                | "locale"
+                // Additional modules with common side effects
+                | "os"
+                | "sys"
+                | "logging"
+                | "warnings"
+                | "encodings"
+                | "pygame"
+                | "matplotlib"
         ) || name.starts_with("_") // Private modules often have initialization side effects
     }
 
@@ -479,8 +639,8 @@ impl ImportRewriter {
                 // and inserting imports just before their first use.
                 // For now, we fall back to FunctionStart behavior.
                 unimplemented!(
-                    "BeforeFirstUse import placement strategy is not yet implemented. \
-                     Use FunctionStart strategy instead."
+                    "BeforeFirstUse import placement strategy is not yet implemented. Use \
+                     FunctionStart strategy instead."
                 );
             }
         }

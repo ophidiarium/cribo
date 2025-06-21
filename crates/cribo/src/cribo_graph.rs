@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 /// CriboGraph: Advanced dependency graph implementation for Python bundling
 ///
 /// This module provides a sophisticated dependency tracking system that combines:
@@ -14,10 +16,11 @@
 use anyhow::{Result, anyhow};
 use indexmap::IndexSet;
 use log::debug;
-use petgraph::algo::{is_cyclic_directed, toposort};
-use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::{
+    algo::{is_cyclic_directed, toposort},
+    graph::{DiGraph, NodeIndex},
+};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::path::PathBuf;
 
 /// Unique identifier for a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -90,6 +93,13 @@ pub enum DepType {
 pub struct Dep {
     pub target: ItemId,
     pub dep_type: DepType,
+}
+
+/// Information about a module-level dependency edge
+#[derive(Debug, Clone, Default)]
+pub struct ModuleDependencyInfo {
+    /// Whether this dependency is only used in TYPE_CHECKING blocks
+    pub is_type_checking_only: bool,
 }
 
 /// Variable state tracking
@@ -378,12 +388,12 @@ impl ModuleDepGraph {
     fn is_in_module_exports(&self, name: &str) -> bool {
         // Look for __all__ assignment
         for item_data in self.items.values() {
-            if let ItemType::Assignment { targets } = &item_data.item_type {
-                if targets.contains(&"__all__".to_string()) {
-                    // Check if the name is in the reexported_names set
-                    // which contains the parsed __all__ list values
-                    return item_data.reexported_names.contains(name);
-                }
+            if let ItemType::Assignment { targets } = &item_data.item_type
+                && targets.contains(&"__all__".to_string())
+            {
+                // Check if the name is in the reexported_names set
+                // which contains the parsed __all__ list values
+                return item_data.reexported_names.contains(name);
             }
         }
         false
@@ -455,31 +465,6 @@ impl ModuleDepGraph {
             }
         }
     }
-}
-
-/// Incremental update to the graph (inspired by Rspack)
-#[derive(Debug, Clone)]
-pub struct GraphUpdate {
-    /// Module updates
-    pub module_updates: Vec<ModuleUpdate>,
-    /// New inter-module dependencies
-    pub new_deps: Vec<(ModuleId, ModuleId)>,
-    /// Removed inter-module dependencies
-    pub removed_deps: Vec<(ModuleId, ModuleId)>,
-}
-
-#[derive(Debug, Clone)]
-pub enum ModuleUpdate {
-    /// Add a new module
-    AddModule {
-        id: ModuleId,
-        name: String,
-        path: PathBuf,
-    },
-    /// Remove a module
-    RemoveModule { id: ModuleId },
-    /// Update module content
-    UpdateModule { id: ModuleId, items: Vec<ItemData> },
 }
 
 /// Module metadata for optimization
@@ -610,13 +595,11 @@ pub struct CriboGraph {
     /// Module metadata
     pub module_metadata: FxHashMap<ModuleId, ModuleMetadata>,
     /// Petgraph for efficient algorithms (inspired by Mako)
-    graph: DiGraph<ModuleId, ()>,
+    graph: DiGraph<ModuleId, ModuleDependencyInfo>,
     /// Node index mapping
     node_indices: FxHashMap<ModuleId, NodeIndex>,
     /// Next module ID to allocate
     next_module_id: u32,
-    /// Pending updates (for incremental processing)
-    pending_updates: Vec<GraphUpdate>,
 }
 
 impl CriboGraph {
@@ -625,20 +608,20 @@ impl CriboGraph {
         matches!(
             module_name,
             // Modules that modify global state - DO NOT HOIST
-            "antigravity"       // Opens web browser to xkcd comic
-                | "this"        // Prints "The Zen of Python" to stdout
-                | "__hello__"   // Prints "Hello world!" to stdout
-                | "__phello__"  // Frozen version of __hello__ that prints to stdout
-                | "site"        // Modifies sys.path and sets up site packages
-                | "sitecustomize"   // User-specific site customization
-                | "usercustomize"   // User-specific customization
-                | "readline"    // Initializes readline library and terminal settings
-                | "rlcompleter" // Configures readline tab completion
-                | "turtle"      // Initializes Tk graphics window
-                | "tkinter"     // Initializes Tk GUI framework
-                | "webbrowser"  // May launch web browser
-                | "platform"    // May execute external commands for system info
-                | "locale" // Modifies global locale settings
+            "antigravity" // Opens web browser to xkcd comic
+            | "this"    // Prints "The Zen of Python" to stdout
+            | "__hello__"   // Prints "Hello world!" to stdout
+            | "__phello__"  // Frozen version of __hello__ that prints to stdout
+            | "site"    // Modifies sys.path and sets up site packages
+            | "sitecustomize"   // User-specific site customization
+            | "usercustomize"   // User-specific customization
+            | "readline"    // Initializes readline library and terminal settings
+            | "rlcompleter"  // Configures readline tab completion
+            | "turtle"        // Initializes Tk graphics window
+            | "tkinter"       // Initializes Tk GUI framework
+            | "webbrowser"    // May launch web browser
+            | "platform"     // May execute external commands for system info
+            | "locale" // Modifies global locale settings
         )
     }
 
@@ -652,7 +635,6 @@ impl CriboGraph {
             graph: DiGraph::new(),
             node_indices: FxHashMap::default(),
             next_module_id: 0,
-            pending_updates: Vec::new(),
         }
     }
 
@@ -692,13 +674,6 @@ impl CriboGraph {
             },
         );
 
-        // Queue update for incremental processing
-        self.pending_updates.push(GraphUpdate {
-            module_updates: vec![ModuleUpdate::AddModule { id, name, path }],
-            new_deps: vec![],
-            removed_deps: vec![],
-        });
-
         id
     }
 
@@ -720,6 +695,16 @@ impl CriboGraph {
 
     /// Add a dependency between modules (from depends on to)
     pub fn add_module_dependency(&mut self, from: ModuleId, to: ModuleId) {
+        self.add_module_dependency_with_info(from, to, ModuleDependencyInfo::default());
+    }
+
+    /// Add a dependency between modules with additional information
+    pub fn add_module_dependency_with_info(
+        &mut self,
+        from: ModuleId,
+        to: ModuleId,
+        info: ModuleDependencyInfo,
+    ) {
         if let (Some(&from_idx), Some(&to_idx)) =
             (self.node_indices.get(&from), self.node_indices.get(&to))
         {
@@ -729,14 +714,7 @@ impl CriboGraph {
 
             // Check if edge already exists to avoid duplicates
             if !self.graph.contains_edge(to_idx, from_idx) {
-                self.graph.add_edge(to_idx, from_idx, ());
-
-                // Queue update
-                self.pending_updates.push(GraphUpdate {
-                    module_updates: vec![],
-                    new_deps: vec![(from, to)],
-                    removed_deps: vec![],
-                });
+                self.graph.add_edge(to_idx, from_idx, info);
             }
         }
     }
@@ -753,76 +731,6 @@ impl CriboGraph {
         is_cyclic_directed(&self.graph)
     }
 
-    /// Apply incremental updates
-    pub fn apply_updates(&mut self) -> Result<()> {
-        let updates = std::mem::take(&mut self.pending_updates);
-
-        for update in updates {
-            // Process module updates
-            for module_update in update.module_updates {
-                match module_update {
-                    ModuleUpdate::RemoveModule { id } => {
-                        self.remove_module_internal(id)?;
-                    }
-                    ModuleUpdate::UpdateModule { id, items } => {
-                        self.update_module_items(id, items);
-                    }
-                    _ => {} // AddModule already handled
-                }
-            }
-
-            // Process dependency updates
-            for (from, to) in update.removed_deps {
-                self.remove_dependency_edge(from, to);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Remove dependency edge (internal helper)
-    fn remove_dependency_edge(&mut self, from: ModuleId, to: ModuleId) {
-        if let (Some(&from_idx), Some(&to_idx)) =
-            (self.node_indices.get(&from), self.node_indices.get(&to))
-        {
-            if let Some(edge) = self.graph.find_edge(from_idx, to_idx) {
-                self.graph.remove_edge(edge);
-            }
-        }
-    }
-
-    /// Update module items (internal helper)
-    fn update_module_items(&mut self, id: ModuleId, items: Vec<ItemData>) {
-        if let Some(module) = self.modules.get_mut(&id) {
-            // Clear old items
-            module.items.clear();
-            module.deps.clear();
-            module.var_states.clear();
-            module.side_effect_items.clear();
-
-            // Add new items
-            for item_data in items {
-                module.add_item(item_data);
-            }
-        }
-    }
-
-    /// Remove a module (internal helper)
-    fn remove_module_internal(&mut self, id: ModuleId) -> Result<()> {
-        if let Some(node_idx) = self.node_indices.remove(&id) {
-            self.graph.remove_node(node_idx);
-        }
-
-        self.modules.remove(&id);
-        self.module_metadata.remove(&id);
-
-        // Update name and path mappings
-        self.module_names.retain(|_, &mut mid| mid != id);
-        self.module_paths.retain(|_, &mut mid| mid != id);
-
-        Ok(())
-    }
-
     /// Get all modules that depend on a given module
     pub fn get_dependents(&self, module_id: ModuleId) -> Vec<ModuleId> {
         if let Some(&node_idx) = self.node_indices.get(&module_id) {
@@ -834,6 +742,18 @@ impl CriboGraph {
         } else {
             vec![]
         }
+    }
+
+    /// Check if a module dependency is type-checking-only
+    pub fn is_type_checking_only_dependency(&self, from: ModuleId, to: ModuleId) -> bool {
+        if let (Some(&from_idx), Some(&to_idx)) =
+            (self.node_indices.get(&from), self.node_indices.get(&to))
+            && let Some(edge) = self.graph.find_edge(to_idx, from_idx)
+            && let Some(weight) = self.graph.edge_weight(edge)
+        {
+            return weight.is_type_checking_only;
+        }
+        false
     }
 
     /// Get all modules that a given module depends on
@@ -959,10 +879,10 @@ impl CriboGraph {
 
         // DFS from each unvisited node
         for &module_id in self.modules.keys() {
-            if let Some(&node_idx) = self.node_indices.get(&module_id) {
-                if state.visited[&node_idx] == Color::White {
-                    self.dfs_find_cycles(node_idx, &mut state);
-                }
+            if let Some(&node_idx) = self.node_indices.get(&module_id)
+                && state.visited[&node_idx] == Color::White
+            {
+                self.dfs_find_cycles(node_idx, &mut state);
             }
         }
 
@@ -1082,10 +1002,7 @@ impl CriboGraph {
 
         for &from_module_id in scc {
             let Some(from_module) = self.modules.get(&from_module_id) else {
-                log::warn!(
-                    "Module {:?} not found in build_import_chain_for_scc",
-                    from_module_id
-                );
+                log::warn!("Module {from_module_id:?} not found in build_import_chain_for_scc");
                 continue;
             };
             let from_name = &from_module.module_name;
@@ -1098,10 +1015,7 @@ impl CriboGraph {
                 }
 
                 let Some(to_module) = self.modules.get(&to_module_id) else {
-                    log::warn!(
-                        "Module {:?} not found in build_import_chain_for_scc",
-                        to_module_id
-                    );
+                    log::warn!("Module {to_module_id:?} not found in build_import_chain_for_scc");
                     continue;
                 };
                 let to_name = &to_module.module_name;
@@ -1176,7 +1090,8 @@ impl CriboGraph {
         import_chain: &[ImportEdge],
     ) -> CircularDependencyType {
         // Check if this is a parent-child package cycle
-        // These occur when a package imports from its subpackage (e.g., pkg/__init__.py imports from pkg.submodule)
+        // These occur when a package imports from its subpackage (e.g., pkg/__init__.py imports
+        // from pkg.submodule)
         if self.is_parent_child_package_cycle(module_names) {
             // This is a normal Python pattern, not a problematic cycle
             return CircularDependencyType::FunctionLevel; // Most permissive type
@@ -1357,10 +1272,11 @@ impl CriboGraph {
                     // For dotted imports like `import xml.etree.ElementTree`,
                     // also track the root module name (e.g., "xml")
                     // since that's what appears in read_vars
-                    if alias.is_none() && module.contains('.') {
-                        if let Some(root) = module.split('.').next() {
-                            imported_names.insert(root.to_string());
-                        }
+                    if alias.is_none()
+                        && module.contains('.')
+                        && let Some(root) = module.split('.').next()
+                    {
+                        imported_names.insert(root.to_string());
                     }
                 }
                 ItemType::FromImport { names, .. } => {
@@ -1408,8 +1324,7 @@ impl CriboGraph {
                 // Note: Usage in eventual_read_vars is OK - that's function-level usage
                 if item_data.eventual_read_vars.contains(imported_name) {
                     debug!(
-                        "  -> Import '{}' used inside function in item {:?}",
-                        imported_name, item_id
+                        "  -> Import '{imported_name}' used inside function in item {item_id:?}"
                     );
                 }
             }
@@ -1435,7 +1350,7 @@ impl CriboGraph {
         let mod2 = &module_names[1];
 
         // Check if mod1 is parent of mod2 or vice versa
-        mod2.starts_with(&format!("{}.", mod1)) || mod1.starts_with(&format!("{}.", mod2))
+        mod2.starts_with(&format!("{mod1}.")) || mod1.starts_with(&format!("{mod2}."))
     }
 
     /// Suggest resolution strategy for a circular dependency
@@ -1445,33 +1360,27 @@ impl CriboGraph {
         module_names: &[String],
     ) -> ResolutionStrategy {
         match cycle_type {
-            CircularDependencyType::FunctionLevel => {
-                ResolutionStrategy::FunctionScopedImport {
-                    import_statements: module_names
-                        .iter()
-                        .map(|name| format!("Move 'import {}' inside functions that use it", name))
-                        .collect(),
-                }
-            }
-            CircularDependencyType::ClassLevel => {
-                ResolutionStrategy::LazyImport {
-                    modules: module_names.to_vec(),
-                }
-            }
-            CircularDependencyType::ModuleConstants => {
-                ResolutionStrategy::Unresolvable {
-                    reason: "Module-level constants create temporal paradox - consider moving to a shared configuration module".into(),
-                }
-            }
-            CircularDependencyType::ImportTime => {
-                ResolutionStrategy::ModuleSplit {
-                    suggestions: vec![
-                        "Extract shared interfaces to a separate module".into(),
-                        "Use dependency injection pattern".into(),
-                        "Reorganize module structure to eliminate circular dependencies".into(),
-                    ],
-                }
-            }
+            CircularDependencyType::FunctionLevel => ResolutionStrategy::FunctionScopedImport {
+                import_statements: module_names
+                    .iter()
+                    .map(|name| format!("Move 'import {name}' inside functions that use it"))
+                    .collect(),
+            },
+            CircularDependencyType::ClassLevel => ResolutionStrategy::LazyImport {
+                modules: module_names.to_vec(),
+            },
+            CircularDependencyType::ModuleConstants => ResolutionStrategy::Unresolvable {
+                reason: "Module-level constants create temporal paradox - consider moving to a \
+                         shared configuration module"
+                    .into(),
+            },
+            CircularDependencyType::ImportTime => ResolutionStrategy::ModuleSplit {
+                suggestions: vec![
+                    "Extract shared interfaces to a separate module".into(),
+                    "Use dependency injection pattern".into(),
+                    "Reorganize module structure to eliminate circular dependencies".into(),
+                ],
+            },
         }
     }
 }

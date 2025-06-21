@@ -1,5 +1,6 @@
 # Codecov configuration for Rust project
 # Documentation: https://docs.codecov.com/docs/codecov-yaml
+# yaml-language-server: $schema=https://json.schemastore.org/codecov.json
 
 coverage:
   precision: 2

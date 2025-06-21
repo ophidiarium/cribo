@@ -1,21 +1,26 @@
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
 use anyhow::{Context, Result, anyhow};
 use indexmap::IndexSet;
 use log::{debug, info, warn};
-use ruff_python_ast::{ModModule, Stmt, StmtImportFrom};
-use std::fs;
-use std::path::{Path, PathBuf};
+use ruff_python_ast::{ModModule, Stmt, StmtImportFrom, visitor::Visitor};
 
-use crate::code_generator::HybridStaticBundler;
-use crate::config::Config;
-use crate::cribo_graph::{
-    CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType, CriboGraph,
-    ResolutionStrategy,
+use crate::{
+    code_generator::HybridStaticBundler,
+    config::Config,
+    cribo_graph::{
+        CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType, CriboGraph,
+        ResolutionStrategy,
+    },
+    import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
+    resolver::{ImportType, ModuleResolver},
+    semantic_bundler::SemanticBundler,
+    util::{module_name_from_relative, normalize_line_endings},
+    visitors::{ImportDiscoveryVisitor, ImportLocation, ScopeElement},
 };
-use crate::import_rewriter::{ImportDeduplicationStrategy, ImportRewriter};
-use crate::resolver::{ImportType, ModuleResolver};
-use crate::semantic_bundler::SemanticBundler;
-use crate::util::{module_name_from_relative, normalize_line_endings};
-use crate::visitors::{ImportDiscoveryVisitor, ImportLocation};
 
 /// Type alias for module processing queue
 type ModuleQueue = Vec<(String, PathBuf)>;
@@ -58,7 +63,7 @@ struct StaticBundleParams<'a> {
 
 /// Context for dependency building operations
 struct DependencyContext<'a> {
-    resolver: &'a ModuleResolver,
+    resolver: &'a mut ModuleResolver,
     graph: &'a mut CriboGraph,
     module_id_map: &'a indexmap::IndexMap<String, crate::cribo_graph::ModuleId>,
     current_module: &'a str,
@@ -95,7 +100,7 @@ impl BundleOrchestrator {
             error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
 
             if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
-                error_msg.push_str(&format!("  Reason: {}\n", reason));
+                error_msg.push_str(&format!("  Reason: {reason}\n"));
             }
             error_msg.push('\n');
         }
@@ -104,7 +109,8 @@ impl BundleOrchestrator {
     }
 
     /// Core bundling logic shared between file and string output modes
-    /// Returns the entry module name, parsed modules, and circular dependency analysis, with graph and resolver populated via mutable references
+    /// Returns the entry module name, parsed modules, and circular dependency analysis, with graph
+    /// and resolver populated via mutable references
     fn bundle_core(
         &mut self,
         entry_path: &Path,
@@ -115,7 +121,7 @@ impl BundleOrchestrator {
         Vec<ParsedModuleData>,
         Option<CircularDependencyAnalysis>,
     )> {
-        debug!("Entry: {:?}", entry_path);
+        debug!("Entry: {entry_path:?}");
         debug!(
             "Using target Python version: {} (Python 3.{})",
             self.config.target_version,
@@ -128,12 +134,13 @@ impl BundleOrchestrator {
             let entry_dir = match entry_dir.canonicalize() {
                 Ok(canonical_path) => canonical_path,
                 Err(_) => {
-                    // Fall back to the original path if canonicalization fails (e.g., path doesn't exist)
+                    // Fall back to the original path if canonicalization fails (e.g., path doesn't
+                    // exist)
                     entry_dir.to_path_buf()
                 }
             };
             if !self.config.src.contains(&entry_dir) {
-                debug!("Adding entry directory to src paths: {:?}", entry_dir);
+                debug!("Adding entry directory to src paths: {entry_dir:?}");
                 self.config.src.insert(0, entry_dir);
             }
         }
@@ -141,9 +148,12 @@ impl BundleOrchestrator {
         // Initialize resolver with the updated config
         let mut resolver = ModuleResolver::new(self.config.clone())?;
 
+        // Set the entry file to establish the primary search path
+        resolver.set_entry_file(entry_path);
+
         // Find the entry module name
         let entry_module_name = self.find_entry_module_name(entry_path, &resolver)?;
-        info!("Entry module: {}", entry_module_name);
+        info!("Entry module: {entry_module_name}");
 
         // Build dependency graph
         let mut build_params = GraphBuildParams {
@@ -162,37 +172,61 @@ impl BundleOrchestrator {
         if graph.has_cycles() {
             let analysis = graph.analyze_circular_dependencies();
 
+            // Check if we have unresolvable cycles - these we must fail on
             if !analysis.unresolvable_cycles.is_empty() {
                 let error_msg =
                     Self::format_unresolvable_cycles_error(&analysis.unresolvable_cycles);
                 return Err(anyhow!(error_msg));
             }
 
-            // Check if we can resolve the circular dependencies
-            let all_resolvable = analysis
-                .resolvable_cycles
-                .iter()
-                .all(|cycle| matches!(cycle.cycle_type, CircularDependencyType::FunctionLevel));
-
-            if all_resolvable && analysis.unresolvable_cycles.is_empty() {
-                // All cycles are function-level and resolvable - proceed with bundling
+            // For resolvable cycles, warn but proceed
+            if !analysis.resolvable_cycles.is_empty() {
                 warn!(
-                    "Detected {} resolvable circular dependencies - proceeding with bundling",
+                    "Detected {} potentially resolvable circular dependencies",
                     analysis.resolvable_cycles.len()
                 );
 
-                Self::log_resolvable_cycles(&analysis.resolvable_cycles);
+                // Log details about each resolvable cycle
+                for (i, cycle) in analysis.resolvable_cycles.iter().enumerate() {
+                    warn!(
+                        "Cycle {}: {} (Type: {:?})",
+                        i + 1,
+                        cycle.modules.join(" → "),
+                        cycle.cycle_type
+                    );
+
+                    // Provide specific warnings for non-function-level cycles
+                    match cycle.cycle_type {
+                        CircularDependencyType::ClassLevel => {
+                            warn!(
+                                "  ⚠️  ClassLevel cycle detected - bundling may fail if imports \
+                                 are used before definition"
+                            );
+                            warn!(
+                                "  Suggestion: Consider refactoring to avoid module-level \
+                                 circular imports"
+                            );
+                        }
+                        CircularDependencyType::ModuleConstants => {
+                            warn!(
+                                "  ⚠️  ModuleConstants cycle detected - likely unresolvable due \
+                                 to temporal paradox"
+                            );
+                        }
+                        CircularDependencyType::ImportTime => {
+                            warn!("  ⚠️  ImportTime cycle detected - depends on execution order");
+                        }
+                        CircularDependencyType::FunctionLevel => {
+                            info!("  ✓ FunctionLevel cycle - should be safely resolvable");
+                        }
+                    }
+                }
+
+                warn!(
+                    "Proceeding with bundling despite circular dependencies - output may require \
+                     manual verification"
+                );
                 circular_dep_analysis = Some(analysis);
-            } else {
-                // We have unresolvable cycles or complex resolvable cycles - still fail for now
-                warn!(
-                    "Detected {} circular dependencies (including {} potentially resolvable)",
-                    analysis.total_cycles_detected,
-                    analysis.resolvable_cycles.len()
-                );
-
-                let error_msg = Self::build_cycle_error_message(&analysis);
-                return Err(anyhow!(error_msg));
             }
         }
 
@@ -209,20 +243,9 @@ impl BundleOrchestrator {
         circular_dep_analysis: Option<&CircularDependencyAnalysis>,
     ) -> Result<Vec<(String, PathBuf, Vec<String>)>> {
         let module_ids = if let Some(analysis) = circular_dep_analysis {
-            // We already have the analysis from bundle_core
-            let all_resolvable = analysis
-                .resolvable_cycles
-                .iter()
-                .all(|cycle| matches!(cycle.cycle_type, CircularDependencyType::FunctionLevel))
-                && analysis.unresolvable_cycles.is_empty();
-
-            if all_resolvable {
-                // For resolvable cycles, use a custom ordering that breaks cycles
-                self.get_modules_with_cycle_resolution(graph, analysis)?
-            } else {
-                // This should have been caught earlier, but be safe
-                return Err(anyhow!("Unresolvable circular dependencies detected"));
-            }
+            // We have circular dependencies but they're potentially resolvable
+            // Use a custom ordering that attempts to break cycles
+            self.get_modules_with_cycle_resolution(graph, analysis)?
         } else {
             graph.topological_sort()?
         };
@@ -237,14 +260,14 @@ impl BundleOrchestrator {
                     .find(|(_, id)| **id == module_id)
                     .map(|(p, _)| p.clone())
                     .unwrap_or_else(|| {
-                        warn!("Module path not found for {}, using name as fallback", name);
+                        warn!("Module path not found for {name}, using name as fallback");
                         PathBuf::from(&name)
                     });
 
                 // Extract imports from module items
                 let imports = self.extract_imports_from_module_items(&module.items);
 
-                debug!("Module '{}' has imports: {:?}", name, imports);
+                debug!("Module '{name}' has imports: {imports:?}");
 
                 sorted_modules.push((name, path, imports));
             }
@@ -267,7 +290,7 @@ impl BundleOrchestrator {
         }
         debug!("=== TOPOLOGICAL SORT ORDER ===");
         for (i, (name, path, _)) in sorted_modules.iter().enumerate() {
-            debug!("Module {}: {} ({:?})", i, name, path);
+            debug!("Module {i}: {name} ({path:?})");
         }
         debug!("=== END DEBUG ===");
         Ok(sorted_modules)
@@ -290,7 +313,7 @@ impl BundleOrchestrator {
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
-        let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
+        let mut resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
         let sorted_modules =
             self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
@@ -314,11 +337,12 @@ impl BundleOrchestrator {
 
         // Generate requirements.txt if requested
         if emit_requirements {
-            self.write_requirements_file_for_stdout(&module_data, &resolver)?;
+            self.write_requirements_file_for_stdout(&module_data, &mut resolver)?;
         }
 
         Ok(bundled_code)
     }
+
     /// Main bundling function
     pub fn bundle(
         &mut self,
@@ -327,7 +351,7 @@ impl BundleOrchestrator {
         emit_requirements: bool,
     ) -> Result<()> {
         info!("Starting bundle process");
-        debug!("Output: {:?}", output_path);
+        debug!("Output: {output_path:?}");
 
         // Initialize empty graph - resolver will be created in bundle_core
         let mut graph = CriboGraph::new();
@@ -338,7 +362,7 @@ impl BundleOrchestrator {
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
-        let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
+        let mut resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
         let sorted_modules =
             self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
@@ -356,14 +380,14 @@ impl BundleOrchestrator {
 
         // Generate requirements.txt if requested
         if emit_requirements {
-            self.write_requirements_file(&sorted_modules, &resolver, output_path)?;
+            self.write_requirements_file(&sorted_modules, &mut resolver, output_path)?;
         }
 
         // Write output file
         fs::write(output_path, bundled_code)
-            .with_context(|| format!("Failed to write output file: {:?}", output_path))?;
+            .with_context(|| format!("Failed to write output file: {output_path:?}"))?;
 
-        info!("Bundle written to: {:?}", output_path);
+        info!("Bundle written to: {output_path:?}");
 
         Ok(())
     }
@@ -416,9 +440,9 @@ impl BundleOrchestrator {
             let b_depth = b_name.matches('.').count();
 
             // If one is a submodule of the other, put the submodule first
-            if a_name.starts_with(&format!("{}.", b_name)) {
+            if a_name.starts_with(&format!("{b_name}.")) {
                 std::cmp::Ordering::Less // a (submodule) before b (parent)
-            } else if b_name.starts_with(&format!("{}.", a_name)) {
+            } else if b_name.starts_with(&format!("{a_name}.")) {
                 std::cmp::Ordering::Greater // b (submodule) before a (parent)
             } else {
                 // Otherwise sort by depth (deeper modules first), then by name
@@ -520,29 +544,48 @@ impl BundleOrchestrator {
         // PHASE 1: Discover and collect all modules
         info!("Phase 1: Discovering all modules...");
         while let Some((module_name, module_path)) = modules_to_process.pop() {
-            debug!("Discovering module: {} ({:?})", module_name, module_path);
+            debug!("Discovering module: {module_name} ({module_path:?})");
             if processed_modules.contains(&module_name) {
-                debug!("Module {} already discovered, skipping", module_name);
+                debug!("Module {module_name} already discovered, skipping");
+                continue;
+            }
+
+            // Check if this is a namespace package (directory without __init__.py)
+            if module_path.is_dir() {
+                debug!(
+                    "Module {module_name} is a namespace package (directory), marking as processed"
+                );
+                processed_modules.insert(module_name.clone());
+                // Don't add namespace packages to discovered_modules since they have no code
                 continue;
             }
 
             // Parse the module and extract imports (including module imports)
-            let imports = self.extract_all_imports(&module_path, Some(params.resolver))?;
-            debug!("Extracted imports from {}: {:?}", module_name, imports);
+            let imports_with_context =
+                self.extract_all_imports_with_context(&module_path, Some(params.resolver))?;
+            let imports: Vec<String> = imports_with_context
+                .iter()
+                .map(|(m, _)| m.clone())
+                .collect();
+            debug!("Extracted imports from {module_name}: {imports:?}");
 
             // Store module data for later processing
             discovered_modules.push((module_name.clone(), module_path.clone(), imports.clone()));
             processed_modules.insert(module_name.clone());
 
             // Find and queue first-party imports for discovery
-            for import in imports {
+            for (import, is_in_error_handler) in imports_with_context {
                 let mut discovery_params = DiscoveryParams {
                     resolver: params.resolver,
                     modules_to_process: &mut modules_to_process,
                     processed_modules: &processed_modules,
                     queued_modules: &mut queued_modules,
                 };
-                self.process_import_for_discovery(&import, &mut discovery_params);
+                self.process_import_for_discovery_with_context(
+                    &import,
+                    is_in_error_handler,
+                    &mut discovery_params,
+                )?;
             }
         }
 
@@ -563,17 +606,14 @@ impl BundleOrchestrator {
                 .graph
                 .add_module(module_name.clone(), module_path.clone());
             module_id_map.insert(module_name.clone(), module_id);
-            debug!(
-                "Added module to graph: {} with ID {:?}",
-                module_name, module_id
-            );
+            debug!("Added module to graph: {module_name} with ID {module_id:?}");
 
             // Parse the module AST and build detailed graph
             let source = fs::read_to_string(module_path)
-                .with_context(|| format!("Failed to read file: {:?}", module_path))?;
+                .with_context(|| format!("Failed to read file: {module_path:?}"))?;
             let source = crate::util::normalize_line_endings(source);
             let parsed = ruff_python_parser::parse_module(&source)
-                .with_context(|| format!("Failed to parse Python file: {:?}", module_path))?;
+                .with_context(|| format!("Failed to parse Python file: {module_path:?}"))?;
 
             let ast = parsed.into_syntax();
 
@@ -581,6 +621,7 @@ impl BundleOrchestrator {
             self.semantic_bundler
                 .analyze_module(module_id, &ast, &source, module_path)?;
 
+            // Build dependency graph BEFORE no-ops removal
             if let Some(module) = params.graph.get_module_by_name_mut(module_name) {
                 let mut builder = crate::graph_builder::GraphBuilder::new(module);
                 builder.build_from_ast(&ast)?;
@@ -624,18 +665,19 @@ impl BundleOrchestrator {
     }
 
     /// Extract import statements from a Python file using AST parsing
-    /// This handles all import variations including multi-line, aliased, relative, and parenthesized imports
+    /// This handles all import variations including multi-line, aliased, relative, and
+    /// parenthesized imports
     pub fn extract_imports(
         &self,
         file_path: &Path,
         resolver: Option<&mut ModuleResolver>,
     ) -> Result<Vec<String>> {
         let source = fs::read_to_string(file_path)
-            .with_context(|| format!("Failed to read file: {:?}", file_path))?;
+            .with_context(|| format!("Failed to read file: {file_path:?}"))?;
         let source = normalize_line_endings(source);
 
         let parsed = ruff_python_parser::parse_module(&source)
-            .with_context(|| format!("Failed to parse Python file: {:?}", file_path))?;
+            .with_context(|| format!("Failed to parse Python file: {file_path:?}"))?;
 
         let mut imports = Vec::new();
 
@@ -652,6 +694,93 @@ impl BundleOrchestrator {
         Ok(imports)
     }
 
+    /// Extract ALL imports from a Python file with full context information
+    pub fn extract_all_imports_with_context(
+        &self,
+        file_path: &Path,
+        mut resolver: Option<&mut ModuleResolver>,
+    ) -> Result<Vec<(String, bool)>> {
+        let source = fs::read_to_string(file_path)
+            .with_context(|| format!("Failed to read file: {file_path:?}"))?;
+        let source = normalize_line_endings(source);
+
+        let parsed = ruff_python_parser::parse_module(&source)
+            .with_context(|| format!("Failed to parse Python file: {file_path:?}"))?;
+
+        let mut visitor = ImportDiscoveryVisitor::new();
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
+
+        let discovered_imports = visitor.into_imports();
+        let mut imports_with_context = Vec::new();
+
+        // Process each import and track if it's in an error-handling context
+        for import in &discovered_imports {
+            let is_in_error_handler = Self::is_import_in_error_handler(&import.location);
+
+            if import.level > 0 {
+                // Handle relative imports
+                let mut imports_set = IndexSet::new();
+                self.process_relative_import_set(
+                    import,
+                    file_path,
+                    &mut resolver,
+                    &mut imports_set,
+                );
+                for module in imports_set {
+                    imports_with_context.push((module, is_in_error_handler));
+                }
+            } else if let Some(ref module_name) = import.module_name {
+                // Absolute imports
+                imports_with_context.push((module_name.clone(), is_in_error_handler));
+
+                // Check if any imported names are actually submodules
+                let mut imports_set = IndexSet::new();
+                self.check_submodule_imports_set(
+                    module_name,
+                    import,
+                    &mut resolver,
+                    &mut imports_set,
+                );
+                for module in imports_set {
+                    if module != *module_name {
+                        imports_with_context.push((module, is_in_error_handler));
+                    }
+                }
+            } else if import.names.len() == 1 {
+                let mut imports_set = IndexSet::new();
+                self.process_single_name_import_set(import, &mut resolver, &mut imports_set);
+                for module in imports_set {
+                    imports_with_context.push((module, is_in_error_handler));
+                }
+            }
+        }
+
+        Ok(imports_with_context)
+    }
+
+    /// Check if an import is in an error-handling context (try/except or with suppress)
+    fn is_import_in_error_handler(location: &ImportLocation) -> bool {
+        match location {
+            ImportLocation::Nested(scopes) => {
+                for scope in scopes {
+                    match scope {
+                        ScopeElement::Try => return true,
+                        ScopeElement::With => {
+                            // TODO: Ideally we'd check if it's specifically "with suppress"
+                            // For now, assume any import in a with block might be suppressed
+                            return true;
+                        }
+                        _ => {}
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
     /// Extract ALL imports from a Python file, including those nested in functions and classes
     pub fn extract_all_imports(
         &self,
@@ -659,15 +788,18 @@ impl BundleOrchestrator {
         mut resolver: Option<&mut ModuleResolver>,
     ) -> Result<Vec<String>> {
         let source = fs::read_to_string(file_path)
-            .with_context(|| format!("Failed to read file: {:?}", file_path))?;
+            .with_context(|| format!("Failed to read file: {file_path:?}"))?;
         let source = normalize_line_endings(source);
 
         let parsed = ruff_python_parser::parse_module(&source)
-            .with_context(|| format!("Failed to parse Python file: {:?}", file_path))?;
+            .with_context(|| format!("Failed to parse Python file: {file_path:?}"))?;
 
         // Use the visitor to discover all imports
+        // Note: For simple import discovery, we don't need semantic analysis
         let mut visitor = ImportDiscoveryVisitor::new();
-        visitor.visit_module(parsed.syntax());
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
 
         let discovered_imports = visitor.into_imports();
         let mut imports_set = IndexSet::new();
@@ -676,7 +808,12 @@ impl BundleOrchestrator {
         for import in &discovered_imports {
             // All import locations are valid for discovery
             if import.level > 0 {
-                self.process_relative_import_set(import, file_path, &mut imports_set);
+                self.process_relative_import_set(
+                    import,
+                    file_path,
+                    &mut resolver,
+                    &mut imports_set,
+                );
             } else if let Some(ref module_name) = import.module_name {
                 // Absolute imports
                 imports_set.insert(module_name.clone());
@@ -719,6 +856,7 @@ impl BundleOrchestrator {
         &self,
         import: &crate::visitors::DiscoveredImport,
         file_path: &Path,
+        resolver: &mut Option<&mut ModuleResolver>,
         imports: &mut IndexSet<String>,
     ) {
         let base_module = match self.resolve_relative_import(file_path, import.level) {
@@ -737,7 +875,7 @@ impl BundleOrchestrator {
                 let full_module = if base_module.is_empty() {
                     module_name.clone()
                 } else {
-                    format!("{}.{}", base_module, module_name)
+                    format!("{base_module}.{module_name}")
                 };
                 imports.insert(full_module);
             }
@@ -745,18 +883,24 @@ impl BundleOrchestrator {
             let full_module = if base_module.is_empty() {
                 module_name.clone()
             } else {
-                format!("{}.{}", base_module, module_name)
+                format!("{base_module}.{module_name}")
             };
             imports.insert(full_module);
         } else if !import.names.is_empty() && !base_module.is_empty() {
-            // Add the base module
-            imports.insert(base_module.clone());
-
             // For "from . import X", check if X is actually a submodule
-            for (name, _) in &import.names {
-                let potential_submodule = format!("{}.{}", base_module, name);
-                imports.insert(potential_submodule);
-                debug!("Added potential submodule from relative import: {}", name);
+            // Note: We don't add the base module itself to avoid self-imports
+            if let Some(resolver) = resolver {
+                for (name, _) in &import.names {
+                    let potential_submodule = format!("{base_module}.{name}");
+                    // Only add if it's actually resolvable as a module
+                    if resolver
+                        .resolve_module_path(&potential_submodule)
+                        .is_ok_and(|path| path.is_some())
+                    {
+                        imports.insert(potential_submodule);
+                        debug!("Added verified submodule from relative import: {name}");
+                    }
+                }
             }
         }
     }
@@ -789,14 +933,14 @@ impl BundleOrchestrator {
         let Some(resolver) = resolver else { return };
 
         for (name, _) in &import.names {
-            let full_module_name = format!("{}.{}", module_name, name);
+            let full_module_name = format!("{module_name}.{name}");
             // Try to resolve the full module name to see if it's a module
             if resolver
                 .resolve_module_path(&full_module_name)
                 .is_ok_and(|path| path.is_some())
             {
                 imports.insert(full_module_name);
-                debug!("Detected submodule import: {} from {}", name, module_name);
+                debug!("Detected submodule import: {name} from {module_name}");
             }
         }
     }
@@ -918,7 +1062,7 @@ impl BundleOrchestrator {
         if base_module.is_empty() {
             target_module.to_owned()
         } else {
-            format!("{}.{}", base_module, target_module)
+            format!("{base_module}.{target_module}")
         }
     }
 
@@ -943,7 +1087,7 @@ impl BundleOrchestrator {
     fn format_module_name(&self, module: &str, level: u32) -> String {
         if level > 0 {
             let dots = ".".repeat(level as usize);
-            format!("{}{}", dots, module)
+            format!("{dots}{module}")
         } else {
             module.to_owned()
         }
@@ -976,7 +1120,8 @@ impl BundleOrchestrator {
                     Err(_) => None,
                 }
             } else {
-                // For relative source directories, we need to resolve them relative to the current working directory
+                // For relative source directories, we need to resolve them relative to the current
+                // working directory
                 let current_working_dir = match std::env::current_dir() {
                     Ok(dir) => dir,
                     Err(_) => return None,
@@ -1035,13 +1180,13 @@ impl BundleOrchestrator {
         if !discovery_params.processed_modules.contains(import)
             && !discovery_params.queued_modules.contains(import)
         {
-            debug!("Adding '{}' to discovery queue", import);
+            debug!("Adding '{import}' to discovery queue");
             discovery_params
                 .modules_to_process
                 .push((import.to_owned(), import_path));
             discovery_params.queued_modules.insert(import.to_owned());
         } else {
-            debug!("Module '{}' already processed or queued, skipping", import);
+            debug!("Module '{import}' already processed or queued, skipping");
         }
     }
 
@@ -1068,8 +1213,8 @@ impl BundleOrchestrator {
             ImportType::FirstParty => {
                 if let Ok(Some(parent_path)) = params.resolver.resolve_module_path(parent_module) {
                     debug!(
-                        "Adding parent package '{}' to discovery queue for import '{}'",
-                        parent_module, import
+                        "Adding parent package '{parent_module}' to discovery queue for import \
+                         '{import}'"
                     );
                     self.add_to_discovery_queue_if_new(parent_module, parent_path, params);
                 }
@@ -1080,26 +1225,46 @@ impl BundleOrchestrator {
         }
     }
 
-    /// Process an import during discovery phase
-    fn process_import_for_discovery(&self, import: &str, params: &mut DiscoveryParams) {
+    /// Process an import during discovery phase with error handling context
+    fn process_import_for_discovery_with_context(
+        &self,
+        import: &str,
+        is_in_error_handler: bool,
+        params: &mut DiscoveryParams,
+    ) -> Result<()> {
         match params.resolver.classify_import(import) {
             ImportType::FirstParty => {
-                debug!("'{}' classified as FirstParty", import);
+                debug!("'{import}' classified as FirstParty");
                 if let Ok(Some(import_path)) = params.resolver.resolve_module_path(import) {
-                    debug!("Resolved '{}' to path: {:?}", import, import_path);
+                    debug!("Resolved '{import}' to path: {import_path:?}");
                     self.add_to_discovery_queue_if_new(import, import_path, params);
 
-                    // Also add parent packages for submodules to ensure __init__.py files are included
-                    // For example, if importing "greetings.irrelevant", also add "greetings"
+                    // Also add parent packages for submodules to ensure __init__.py files are
+                    // included For example, if importing
+                    // "greetings.irrelevant", also add "greetings"
                     self.add_parent_packages_to_discovery(import, params);
                 } else {
-                    warn!("Failed to resolve path for first-party module: {}", import);
+                    // If the import is not in an error handler, this is a fatal error
+                    if !is_in_error_handler {
+                        return Err(anyhow!(
+                            "Failed to resolve first-party module '{}'. \nThis import would fail \
+                             at runtime with: ModuleNotFoundError: No module named '{}'",
+                            import,
+                            import
+                        ));
+                    } else {
+                        debug!(
+                            "Failed to resolve first-party module '{import}' but it's in an error \
+                             handler (try/except or with suppress)"
+                        );
+                    }
                 }
             }
             ImportType::ThirdParty | ImportType::StandardLibrary => {
-                debug!("'{}' classified as external (preserving)", import);
+                debug!("'{import}' classified as external (preserving)");
             }
         }
+        Ok(())
     }
 
     /// Process an import during dependency graph creation phase
@@ -1112,6 +1277,10 @@ impl BundleOrchestrator {
                         "Adding dependency edge: {} -> {}",
                         import, context.current_module
                     );
+                    // TODO: Properly track TYPE_CHECKING information from ImportDiscoveryVisitor
+                    // For now, we use the default (is_type_checking_only = false)
+                    // This should be updated to use the actual is_type_checking_only flag from
+                    // the DiscoveredImport when we refactor to preserve that information
                     context
                         .graph
                         .add_module_dependency(context.from_module_id, to_module_id);
@@ -1120,14 +1289,12 @@ impl BundleOrchestrator {
                         import, context.current_module
                     );
                 } else {
-                    debug!(
-                        "Module {} not found in graph, skipping dependency edge",
-                        import
-                    );
+                    debug!("Module {import} not found in graph, skipping dependency edge");
                 }
 
                 // Also add dependency edges for parent packages
-                // For example, if importing "greetings.irrelevant", also add dependency on "greetings"
+                // For example, if importing "greetings.irrelevant", also add dependency on
+                // "greetings"
                 self.add_parent_package_dependencies(import, context);
             }
             ImportType::ThirdParty | ImportType::StandardLibrary => {
@@ -1158,16 +1325,17 @@ impl BundleOrchestrator {
             return;
         }
 
-        if context.resolver.classify_import(parent_module) == ImportType::FirstParty {
-            if let Some(&parent_module_id) = context.module_id_map.get(parent_module) {
-                debug!(
-                    "Adding parent package dependency edge: {} -> {}",
-                    parent_module, context.current_module
-                );
-                context
-                    .graph
-                    .add_module_dependency(context.from_module_id, parent_module_id);
-            }
+        if context.resolver.classify_import(parent_module) == ImportType::FirstParty
+            && let Some(&parent_module_id) = context.module_id_map.get(parent_module)
+        {
+            debug!(
+                "Adding parent package dependency edge: {} -> {}",
+                parent_module, context.current_module
+            );
+            // TODO: Inherit TYPE_CHECKING information from child import
+            context
+                .graph
+                .add_module_dependency(context.from_module_id, parent_module_id);
         }
     }
 
@@ -1175,17 +1343,17 @@ impl BundleOrchestrator {
     fn write_requirements_file_for_stdout(
         &self,
         sorted_modules: &[(String, PathBuf, Vec<String>)],
-        resolver: &ModuleResolver,
+        resolver: &mut ModuleResolver,
     ) -> Result<()> {
         let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
         if !requirements_content.is_empty() {
             let requirements_path = Path::new("requirements.txt");
 
             fs::write(requirements_path, requirements_content).with_context(|| {
-                format!("Failed to write requirements file: {:?}", requirements_path)
+                format!("Failed to write requirements file: {requirements_path:?}")
             })?;
 
-            info!("Requirements written to: {:?}", requirements_path);
+            info!("Requirements written to: {requirements_path:?}");
         } else {
             info!("No third-party dependencies found, skipping requirements.txt");
         }
@@ -1196,7 +1364,7 @@ impl BundleOrchestrator {
     fn write_requirements_file(
         &self,
         sorted_modules: &[(String, PathBuf, Vec<String>)],
-        resolver: &ModuleResolver,
+        resolver: &mut ModuleResolver,
         output_path: &Path,
     ) -> Result<()> {
         let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
@@ -1207,115 +1375,14 @@ impl BundleOrchestrator {
                 .join("requirements.txt");
 
             fs::write(&requirements_path, requirements_content).with_context(|| {
-                format!("Failed to write requirements file: {:?}", requirements_path)
+                format!("Failed to write requirements file: {requirements_path:?}")
             })?;
 
-            info!("Requirements written to: {:?}", requirements_path);
+            info!("Requirements written to: {requirements_path:?}");
         } else {
             info!("No third-party dependencies found, skipping requirements.txt");
         }
         Ok(())
-    }
-
-    /// Helper method to build detailed error message for cycles with resolvable cycles handling
-    fn build_cycle_error_message(
-        analysis: &crate::cribo_graph::CircularDependencyAnalysis,
-    ) -> String {
-        let mut error_msg = String::from("Circular dependencies detected in the module graph:\n\n");
-
-        // First, show unresolvable cycles if any
-        if !analysis.unresolvable_cycles.is_empty() {
-            error_msg.push_str("UNRESOLVABLE CYCLES:\n");
-            Self::append_unresolvable_cycles_to_error(
-                &mut error_msg,
-                &analysis.unresolvable_cycles,
-            );
-        }
-
-        // Then show resolvable cycles that are not yet supported
-        if !analysis.resolvable_cycles.is_empty() {
-            Self::append_resolvable_cycles_to_error(
-                &mut error_msg,
-                &analysis.resolvable_cycles,
-                &analysis.unresolvable_cycles,
-            );
-        }
-
-        error_msg
-    }
-
-    /// Helper method to append unresolvable cycles to error message
-    fn append_unresolvable_cycles_to_error(
-        error_msg: &mut String,
-        unresolvable_cycles: &[CircularDependencyGroup],
-    ) {
-        for (i, cycle) in unresolvable_cycles.iter().enumerate() {
-            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, cycle.modules.join(" → ")));
-            error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
-            if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
-                error_msg.push_str(&format!("  Reason: {}\n", reason));
-            }
-            error_msg.push('\n');
-        }
-    }
-
-    /// Helper method to append resolvable cycles to error message
-    fn append_resolvable_cycles_to_error(
-        error_msg: &mut String,
-        resolvable_cycles: &[CircularDependencyGroup],
-        unresolvable_cycles: &[CircularDependencyGroup],
-    ) {
-        if !unresolvable_cycles.is_empty() {
-            error_msg.push_str("RESOLVABLE CYCLES (not yet implemented):\n");
-        }
-        for (i, cycle) in resolvable_cycles.iter().enumerate() {
-            let cycle_num = i + 1 + unresolvable_cycles.len();
-            error_msg.push_str(&format!(
-                "Cycle {}: {}\n",
-                cycle_num,
-                cycle.modules.join(" → ")
-            ));
-            error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
-
-            Self::append_cycle_resolution_suggestions(error_msg, &cycle.suggested_resolution);
-            error_msg.push('\n');
-        }
-    }
-
-    /// Helper method to append cycle resolution suggestions to error message
-    fn append_cycle_resolution_suggestions(
-        error_msg: &mut String,
-        suggested_resolution: &ResolutionStrategy,
-    ) {
-        match suggested_resolution {
-            ResolutionStrategy::LazyImport { modules: _ } => {
-                error_msg.push_str(
-                    "  Suggestion: Move imports inside functions to enable lazy loading\n",
-                );
-            }
-            ResolutionStrategy::FunctionScopedImport { import_statements } => {
-                error_msg.push_str("  Suggestions:\n");
-                for suggestion in import_statements {
-                    error_msg.push_str(&format!("    {}\n", suggestion));
-                }
-            }
-            ResolutionStrategy::ModuleSplit { suggestions } => {
-                error_msg.push_str("  Suggestions:\n");
-                for suggestion in suggestions {
-                    error_msg.push_str(&format!("    {}\n", suggestion));
-                }
-            }
-            ResolutionStrategy::Unresolvable { .. } => {
-                // This shouldn't happen in resolvable cycles
-            }
-        }
-    }
-
-    /// Helper method to log resolvable cycles
-    fn log_resolvable_cycles(cycles: &[CircularDependencyGroup]) {
-        for cycle in cycles {
-            info!("Resolving cycle: {}", cycle.modules.join(" → "));
-        }
     }
 
     /// Helper method to check and add module imports to reduce nesting
@@ -1377,7 +1444,7 @@ impl BundleOrchestrator {
                 let mut hasher = Sha256::new();
                 hasher.update(source.as_bytes());
                 let hash = hasher.finalize();
-                let content_hash = format!("{:x}", hash);
+                let content_hash = format!("{hash:x}");
 
                 module_asts.push((
                     module_name.clone(),
@@ -1390,18 +1457,18 @@ impl BundleOrchestrator {
             // Fall back to parsing modules if not pre-parsed
             for (module_name, module_path, _imports) in params.sorted_modules {
                 let source = fs::read_to_string(module_path)
-                    .with_context(|| format!("Failed to read module file: {:?}", module_path))?;
+                    .with_context(|| format!("Failed to read module file: {module_path:?}"))?;
                 let source = crate::util::normalize_line_endings(source);
                 // Calculate content hash for deterministic module naming
                 use sha2::{Digest, Sha256};
                 let mut hasher = Sha256::new();
                 hasher.update(source.as_bytes());
                 let hash = hasher.finalize();
-                let content_hash = format!("{:x}", hash);
+                let content_hash = format!("{hash:x}");
 
                 // Parse into AST
                 let ast = ruff_python_parser::parse_module(&source)
-                    .with_context(|| format!("Failed to parse module: {:?}", module_path))?;
+                    .with_context(|| format!("Failed to parse module: {module_path:?}"))?;
 
                 module_asts.push((
                     module_name.clone(),
@@ -1413,27 +1480,37 @@ impl BundleOrchestrator {
         }
 
         // Apply import rewriting if we have resolvable circular dependencies
-        if let Some(analysis) = params.circular_dep_analysis {
-            if !analysis.resolvable_cycles.is_empty() {
-                info!("Applying function-scoped import rewriting to resolve circular dependencies");
+        if let Some(analysis) = params.circular_dep_analysis
+            && !analysis.resolvable_cycles.is_empty()
+        {
+            info!("Applying function-scoped import rewriting to resolve circular dependencies");
 
-                // Create import rewriter
-                let mut import_rewriter =
-                    ImportRewriter::new(ImportDeduplicationStrategy::FunctionStart);
+            // Create import rewriter
+            let mut import_rewriter =
+                ImportRewriter::new(ImportDeduplicationStrategy::FunctionStart);
 
-                // Analyze movable imports
-                let movable_imports = import_rewriter
-                    .analyze_movable_imports(params.graph, &analysis.resolvable_cycles);
+            // Prepare module ASTs for semantic analysis
+            let module_ast_pairs: Vec<(String, &ModModule)> = module_asts
+                .iter()
+                .map(|(name, ast, _, _)| (name.clone(), ast))
+                .collect();
 
-                debug!(
-                    "Found {} imports that can be moved to function scope",
-                    movable_imports.len()
-                );
+            // Analyze movable imports using semantic analysis
+            let movable_imports = import_rewriter.analyze_movable_imports_semantic(
+                params.graph,
+                &analysis.resolvable_cycles,
+                &self.semantic_bundler,
+                &module_ast_pairs,
+            )?;
 
-                // Apply rewriting to each module AST
-                for (module_name, ast, _, _) in &mut module_asts {
-                    import_rewriter.rewrite_module(ast, &movable_imports, module_name)?;
-                }
+            debug!(
+                "Found {} imports that can be moved to function scope using semantic analysis",
+                movable_imports.len()
+            );
+
+            // Apply rewriting to each module AST
+            for (module_name, ast, _, _) in &mut module_asts {
+                import_rewriter.rewrite_module(ast, &movable_imports, module_name)?;
             }
         }
 
@@ -1444,6 +1521,7 @@ impl BundleOrchestrator {
             entry_module_name: params.entry_module_name,
             graph: params.graph,
             semantic_bundler: &self.semantic_bundler,
+            circular_dep_analysis: params.circular_dep_analysis,
         })?;
 
         // Generate Python code from AST
@@ -1473,20 +1551,21 @@ impl BundleOrchestrator {
     fn generate_requirements(
         &self,
         modules: &[(String, PathBuf, Vec<String>)],
-        resolver: &ModuleResolver,
+        resolver: &mut ModuleResolver,
     ) -> Result<String> {
         let mut third_party_imports = IndexSet::new();
 
+        // TODO: Use TYPE_CHECKING information from the dependency graph to filter out
+        // dependencies that are only used for type checking. These could be placed
+        // in a separate section or excluded entirely based on configuration.
+        // For now, all third-party imports are included.
         for (_module_name, _module_path, imports) in modules {
             for import in imports {
-                debug!("Checking import '{}' for requirements", import);
+                debug!("Checking import '{import}' for requirements");
                 if let ImportType::ThirdParty = resolver.classify_import(import) {
                     // Extract top-level package name
                     let package_name = import.split('.').next().unwrap_or(import);
-                    debug!(
-                        "Adding '{}' to requirements (from '{}')",
-                        package_name, import
-                    );
+                    debug!("Adding '{package_name}' to requirements (from '{import}')");
                     third_party_imports.insert(package_name.to_string());
                 }
             }

@@ -93,14 +93,15 @@ pub fn system_config_file() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod test {
+    use std::fs;
+
+    use tempfile::TempDir;
+
     #[cfg(windows)]
     use crate::dirs::locate_system_config_windows;
     #[cfg(not(windows))]
     use crate::dirs::locate_system_config_xdg;
     use crate::dirs::{CONFIG_DIR, CONFIG_FILE};
-
-    use std::fs;
-    use tempfile::TempDir;
 
     #[test]
     #[cfg(not(windows))]

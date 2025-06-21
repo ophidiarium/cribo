@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/module_first_resolution/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Successfully imported foo package\nImported foo from: foo/__init__.py (package)\nfoo.value = CORRECT - package",
+    stderr: "",
+}

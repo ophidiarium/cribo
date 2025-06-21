@@ -17,35 +17,39 @@ def keep_state_fl(df: pa.PolarsData) -> DataFrame[CitySchema]:
 
 
 def main() -> None:
-    lf = pl.LazyFrame({
-        "state": ["FL", "FL", "FL", "CA", "CA", "CA"],
-        "city": [
-            "Orlando",
-            "Miami",
-            "Tampa",
-            "San Francisco",
-            "Los Angeles",
-            "San Diego",
-        ],
-        "price": [8, 12, 10, 16, 20, 18],
-    })
+    lf = pl.LazyFrame(
+        {
+            "state": ["FL", "FL", "FL", "CA", "CA", "CA"],
+            "city": [
+                "Orlando",
+                "Miami",
+                "Tampa",
+                "San Francisco",
+                "Los Angeles",
+                "San Diego",
+            ],
+            "price": [8, 12, 10, 16, 20, 18],
+        }
+    )
     print("ca:")
     ca_lf = keep_state_ca(lf)
     print(ca_lf.collect())
     print()
 
-    lf2 = pl.LazyFrame({
-        "state": ["FL", "FL", "FL", "CA", "CA", "CA"],
-        "city": [
-            "Orlando",
-            "Miami",
-            "Tampa",
-            "San Francisco",
-            "Los Angeles",
-            "San Diego",
-        ],
-        "price": [8, 12, 10, 16, 20, 18],
-    })
+    lf2 = pl.LazyFrame(
+        {
+            "state": ["FL", "FL", "FL", "CA", "CA", "CA"],
+            "city": [
+                "Orlando",
+                "Miami",
+                "Tampa",
+                "San Francisco",
+                "Los Angeles",
+                "San Diego",
+            ],
+            "price": [8, 12, 10, 16, 20, 18],
+        }
+    )
     print("fl:")
     fl_lf = keep_state_fl(lf2)
     print(fl_lf.collect())

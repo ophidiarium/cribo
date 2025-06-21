@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/ast_rewriting_global/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Module with global keyword: module1_foo\nModule with globals() dict: module2_bar\nModule with mixed patterns: {'foo': 'module3_foo', 'bar': 'module3_bar', 'counter': 0}\n\nAfter modifications:\nModule with global keyword: module1_foo_modified\nModule with globals() dict: module2_bar_modified\nModule with mixed patterns: {'foo': 'module3_foo_modified', 'bar': 'module3_bar_modified', 'counter': 1}\n\nMain's globals remain unchanged:\nfoo = main_foo\nbar = main_bar",
+    stderr: "",
+}
