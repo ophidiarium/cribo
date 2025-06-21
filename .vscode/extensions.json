@@ -17,7 +17,9 @@
         "redhat.vscode-yaml",
         "joshbolduc.commitlint",
         "sonarsource.sonarlint-vscode",
-        "davidanson.vscode-markdownlint"
+        "davidanson.vscode-markdownlint",
+        "timonwong.shellcheck",
+        "charliermarsh.ruff"
     ],
     "unwantedRecommendations": [
         "ms-python.vscode-pylance",

@@ -1,11 +1,16 @@
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
+
 use anyhow::{Context, Result, anyhow};
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
-use std::env;
-use std::path::{Path, PathBuf};
 
-use crate::combine::Combine;
-use crate::dirs::{system_config_file, user_cribo_config_dir};
+use crate::{
+    combine::Combine,
+    dirs::{system_config_file, user_cribo_config_dir},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -35,7 +40,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            src: vec![PathBuf::from("src"), PathBuf::from(".")],
+            src: vec![], // Empty by default - entry directory will be added automatically
             known_first_party: IndexSet::new(),
             known_third_party: IndexSet::new(),
             preserve_comments: true,
@@ -48,8 +53,8 @@ impl Default for Config {
 impl Combine for Config {
     fn combine(self, other: Self) -> Self {
         Self {
-            // For collections, higher precedence (self) completely replaces lower precedence (other)
-            // if self has non-default values, otherwise use other
+            // For collections, higher precedence (self) completely replaces lower precedence
+            // (other) if self has non-default values, otherwise use other
             src: if self.src != Config::default().src {
                 self.src
             } else {
@@ -182,7 +187,8 @@ fn parse_bool(value: &str) -> Option<bool> {
 
 impl Config {
     /// Parse a Ruff-style target version string to u8 version number
-    /// Supports: "py38" -> 8, "py39" -> 9, "py310" -> 10, "py311" -> 11, "py312" -> 12, "py313" -> 13
+    /// Supports: "py38" -> 8, "py39" -> 9, "py310" -> 10, "py311" -> 11, "py312" -> 12, "py313" ->
+    /// 13
     pub fn parse_target_version(version_str: &str) -> Result<u8> {
         match version_str {
             "py38" => Ok(8),
@@ -192,7 +198,8 @@ impl Config {
             "py312" => Ok(12),
             "py313" => Ok(13),
             _ => Err(anyhow!(
-                "Invalid target version '{}'. Supported versions: py38, py39, py310, py311, py312, py313",
+                "Invalid target version '{}'. Supported versions: py38, py39, py310, py311, \
+                 py312, py313",
                 version_str
             )),
         }
@@ -215,10 +222,10 @@ impl Config {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Config> {
         let path = path.as_ref();
         let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read config file: {:?}", path))?;
+            .with_context(|| format!("Failed to read config file: {path:?}"))?;
 
         let config: Config = toml::from_str(&content)
-            .with_context(|| format!("Failed to parse config file: {:?}", path))?;
+            .with_context(|| format!("Failed to parse config file: {path:?}"))?;
 
         // Validate the target version
         config.python_version().with_context(|| {

@@ -3,8 +3,10 @@
 //! This module implements a visitor pattern for traversing Python AST nodes
 //! and detecting whether they contain side effects.
 
-use ruff_python_ast::visitor::{Visitor, walk_expr, walk_stmt};
-use ruff_python_ast::{Expr, ModModule, Stmt, StmtAssign};
+use ruff_python_ast::{
+    Expr, ModModule, Stmt, StmtAssign,
+    visitor::{Visitor, walk_expr, walk_stmt},
+};
 use rustc_hash::FxHashSet;
 
 /// Visitor for detecting side effects in Python code
@@ -90,10 +92,10 @@ impl SideEffectDetector {
 
             // For "from x import y", the binding is just "y", but
             // if it's a dotted name, also track the root
-            if name.contains('.') {
-                if let Some(root) = name.split('.').next() {
-                    self.imported_names.insert(root.to_string());
-                }
+            if name.contains('.')
+                && let Some(root) = name.split('.').next()
+            {
+                self.imported_names.insert(root.to_string());
             }
         }
     }
@@ -117,13 +119,12 @@ impl SideEffectDetector {
 
     /// Check if an expression is a method call on __all__
     fn is_all_method_call(&self, expr: &Expr) -> bool {
-        if let Expr::Call(call) = expr {
-            if let Expr::Attribute(attr) = &*call.func {
-                if let Expr::Name(name) = &*attr.value {
-                    // Check for __all__.extend(), __all__.append(), etc.
-                    return name.id.as_str() == "__all__";
-                }
-            }
+        if let Expr::Call(call) = expr
+            && let Expr::Attribute(attr) = &*call.func
+            && let Expr::Name(name) = &*attr.value
+        {
+            // Check for __all__.extend(), __all__.append(), etc.
+            return name.id.as_str() == "__all__";
         }
         false
     }
@@ -143,11 +144,42 @@ impl<'a> Visitor<'a> for SideEffectDetector {
         }
 
         match stmt {
-            // These statements are pure definitions, no side effects
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
-                // Don't recurse into function/class bodies
+            // Function definitions are pure, no side effects
+            Stmt::FunctionDef(_) => {
+                // Don't recurse into function bodies
                 // Their execution is deferred
                 return; // Important: don't call walk_stmt
+            }
+
+            // Class definitions need special handling
+            Stmt::ClassDef(class_def) => {
+                // Check class body for module-level side effects
+                // (but not method bodies - those are only executed when called)
+                for stmt in &class_def.body {
+                    match stmt {
+                        // Method definitions are not side effects
+                        Stmt::FunctionDef(_) => continue,
+
+                        // Assignments in class body could be side effects if they call functions
+                        Stmt::Assign(assign) => {
+                            self.in_expression_context = true;
+                            self.visit_expr(&assign.value);
+                            self.in_expression_context = false;
+                            if self.has_side_effects {
+                                return;
+                            }
+                        }
+
+                        // Other statements in class body
+                        _ => {
+                            self.visit_stmt(stmt);
+                            if self.has_side_effects {
+                                return;
+                            }
+                        }
+                    }
+                }
+                return; // Don't call walk_stmt
             }
 
             // Annotated assignments need checking if they have a value
@@ -341,8 +373,9 @@ impl<'a> Visitor<'a> for ExpressionSideEffectDetector {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ruff_python_parser::{ParseError, parse_module};
+
+    use super::*;
 
     fn parse_python(source: &str) -> Result<ModModule, ParseError> {
         parse_module(source).map(|parsed| parsed.into_syntax())

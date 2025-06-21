@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/mixed_import_patterns/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: ">>> === Application Starting === <<<\n>>> [Logger] Initializing logger system <<<\n[INFO] Initializing configuration system\n[INFO] Logger configured with level: INFO\n[INFO] Configuration system initialized\n>>> Configuration loaded: debug=True <<<\n[INFO] Initializing configuration system\n[INFO] Creating CircularImportDemo v1.0.0 application instance\n>>> Performing application tasks... <<<\n>>> Mixed import patterns working correctly! <<<\n[INFO] Application tasks completed\n>>> === Application Finished === <<<",
+    stderr: "",
+}

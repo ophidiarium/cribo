@@ -2,8 +2,9 @@
 
 #[cfg(test)]
 mod tests {
-    use cribo::config::Config;
     use std::io::Write;
+
+    use cribo::config::Config;
     use tempfile::NamedTempFile;
 
     #[test]

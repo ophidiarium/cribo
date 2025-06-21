@@ -1,10 +1,9 @@
-use clap::Parser;
-use env_logger::Env;
-use log::{debug, info};
 use std::path::PathBuf;
 
-use cribo::config::Config;
-use cribo::orchestrator::BundleOrchestrator;
+use clap::Parser;
+use cribo::{config::Config, orchestrator::BundleOrchestrator};
+use env_logger::Env;
+use log::{debug, info};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -71,7 +70,7 @@ fn main() -> anyhow::Result<()> {
         config.set_target_version(target_version)?;
     }
 
-    debug!("Configuration: {:?}", config);
+    debug!("Configuration: {config:?}");
 
     // Display target version for troubleshooting
     info!(
@@ -92,7 +91,7 @@ fn main() -> anyhow::Result<()> {
     if cli.stdout {
         // Output to stdout
         let bundled_code = bundler.bundle_to_string(&cli.entry, cli.emit_requirements)?;
-        print!("{}", bundled_code);
+        print!("{bundled_code}");
         info!("Bundle output to stdout");
     } else {
         // Output to file
@@ -101,7 +100,7 @@ fn main() -> anyhow::Result<()> {
             .as_ref()
             .expect("Output path should be present when not using stdout");
         bundler.bundle(&cli.entry, output_path, cli.emit_requirements)?;
-        info!("Bundle created successfully at {:?}", output_path);
+        info!("Bundle created successfully at {output_path:?}");
     }
 
     Ok(())

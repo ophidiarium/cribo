@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/cross_package_mixed_import/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "=== Import Pattern Demonstration ===\n\n1. Import-time values:\n   - Model version from models package: 1.0.0\n   - Core model version: 1.0.0\n   - Model config features: ['user_processing', 'lazy_loading']\n   - Has advanced model: False\n\n2. Pre-initialization state:\n   - Config before init: {'debug': False}\nCore initialized with version: 1.0.0\n\n3. Post-initialization state:\n   - Config after init: {'debug': True}\n\n4. Testing connections:\n   - Direct import: Connection to user_test_db_processed\n   - Package-level import: Connection to user_prod_db_processed\n   - With lazy import: Connection to user_model_user_db_processed\n\n5. Connection info shows all imports:\n   - Debug mode: True\n   - Available validators: ['validate_db_name', 'validate']\n   - Metadata processor: process_user\n   - Config included: True\n\n6. Package-level re-exports:\n   - validate('test'): True\n   - validate('_hidden'): False\n\n=== Final Result ===\nSuccessfully demonstrated cross-package mixed import patterns",
+    stderr: "",
+}

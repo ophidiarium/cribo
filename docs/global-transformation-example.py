@@ -101,7 +101,11 @@ def __cribo_init_module():
 
     def get_state():
         """No transformation needed - reads use dictionary"""
-        return {"result": __module_globals__["result"], "counter": __module_globals__["counter"], "data": __module_globals__["data"]}
+        return {
+            "result": __module_globals__["result"],
+            "counter": __module_globals__["counter"],
+            "data": __module_globals__["data"],
+        }
 
     class Processor:
         """Class methods also transformed"""
@@ -246,7 +250,11 @@ def test_transformed_module():
     module = __cribo_init_module()
 
     # Test 1: Initial state
-    assert module.get_state() == {"result": "base_result", "counter": 0, "data": {"key": "value"}}
+    assert module.get_state() == {
+        "result": "base_result",
+        "counter": 0,
+        "data": {"key": "value"},
+    }
 
     # Test 2: Increment modifies global
     assert module.increment() == 1

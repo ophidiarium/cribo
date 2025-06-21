@@ -27,7 +27,13 @@ def main():
     print(f"Database: {db.connection_string}")
     print(f"Total: {total}")
 
-    return {"user": user.name, "email": user.email, "role": user.role.value, "total": total, "message": message}
+    return {
+        "user": user.name,
+        "email": user.email,
+        "role": user.role.value,
+        "total": total,
+        "message": message,
+    }
 
 
 if __name__ == "__main__":

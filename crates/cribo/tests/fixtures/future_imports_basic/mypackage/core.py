@@ -8,7 +8,11 @@ def process_data(data: Dict[str, Any]) -> Dict[str, Any]:
 
     This function uses forward references in type hints.
     """
-    result: ProcessingResult = {"input": data, "processed": True, "output": _transform_data(data)}
+    result: ProcessingResult = {
+        "input": data,
+        "processed": True,
+        "output": _transform_data(data),
+    }
     return result
 
 

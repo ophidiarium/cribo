@@ -9,8 +9,8 @@ input_file: crates/cribo/tests/fixtures/pydantic_project/main.py
 from typing import Optional, Union
 from pydantic import BaseModel, EmailStr, Field, ValidationError
 import re
+import types
 """Utils package initialization."""
-"""Validation utilities."""
 def validate_email(email: str) -> bool:
     """Simple email validation."""
     pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -29,34 +29,54 @@ def validate_age(age: Union[int, str]) -> bool:
         return 0 <= age_int <= 150
     except (ValueError, TypeError):
         return False
+"""Validation utilities."""
 """Schemas package initialization."""
-"""User schema definitions using Pydantic."""
-class UserSchema(BaseModel):
-    """User model with Pydantic validation."""
-    name: str = Field(..., min_length=1, max_length=100, description="User's full name")
-    email: EmailStr = Field(..., description="User's email address")
-    age: int = Field(..., ge=0, le=150, description="User's age")
-    is_active: bool = Field(default=True, description="Whether the user is active")
-    bio: Optional[str] = Field(default=None, max_length=500, description="User's biography")
+def __cribo_init___cribo_f275a8_schemas_user():
+    module = types.SimpleNamespace()
+    """User schema definitions using Pydantic."""
+    from pydantic import BaseModel, EmailStr, Field
 
-    class Config:
-        """Pydantic configuration."""
-        json_encoders = {}
-        json_schema_extra = {"example": {"name": "John Doe", "email": "john@example.com", "age": 30, "is_active": True, "bio": "Software developer"}}
-class CreateUserRequest(BaseModel):
-    """Request model for creating a new user."""
-    name: str = Field(..., min_length=1, max_length=100)
-    email: EmailStr
-    age: Optional[int] = Field(default=None, ge=0, le=150)
-    bio: Optional[str] = Field(default=None, max_length=500)
-class UserResponse(BaseModel):
-    """Response model for user data."""
-    id: int
-    name: str
-    email: str
-    age: int
-    is_active: bool
-    bio: Optional[str] = None
+    class UserSchema(BaseModel):
+        """User model with Pydantic validation."""
+        name: str = Field(..., min_length=1, max_length=100, description="User's full name")
+        email: EmailStr = Field(..., description="User's email address")
+        age: int = Field(..., ge=0, le=150, description="User's age")
+        is_active: bool = Field(default=True, description="Whether the user is active")
+        bio: Optional[str] = Field(default=None, max_length=500, description="User's biography")
+
+        class Config:
+            """Pydantic configuration."""
+            json_encoders = {}
+            json_schema_extra = {"example": {"name": "John Doe", "email": "john@example.com", "age": 30, "is_active": True, "bio": "Software developer"}}
+    module.UserSchema = UserSchema
+
+    class CreateUserRequest(BaseModel):
+        """Request model for creating a new user."""
+        name: str = Field(..., min_length=1, max_length=100)
+        email: EmailStr
+        age: Optional[int] = Field(default=None, ge=0, le=150)
+        bio: Optional[str] = Field(default=None, max_length=500)
+    module.CreateUserRequest = CreateUserRequest
+
+    class UserResponse(BaseModel):
+        """Response model for user data."""
+        id: int
+        name: str
+        email: str
+        age: int
+        is_active: bool
+        bio: Optional[str] = None
+    module.UserResponse = UserResponse
+    return module
+schemas = types.SimpleNamespace()
+schemas.__name__ = 'schemas'
+utils = types.SimpleNamespace()
+utils.__name__ = 'utils'
+_cribo_temp_schemas_user = __cribo_init___cribo_f275a8_schemas_user()
+schemas.user = _cribo_temp_schemas_user
+UserSchema = schemas.user.UserSchema
+CreateUserRequest = schemas.user.CreateUserRequest
+UserResponse = schemas.user.UserResponse
 """Pydantic test project entry point."""
 def main():
     """Main function demonstrating Pydantic usage."""

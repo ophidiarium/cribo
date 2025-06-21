@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/function_level_module_import/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Result: 8\nCalculator description: A simple calculator module",
+    stderr: "",
+}

@@ -2,7 +2,8 @@
 # This file configures the Python source bundler
 
 # Source directories to scan for first-party modules
-src = ["src", ".", "lib"]
+# Empty by default - the entry file's directory is automatically added
+src = []
 
 # Known first-party module names (beyond what's discovered in src dirs)
 known_first_party = [

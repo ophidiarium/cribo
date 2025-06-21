@@ -7,6 +7,7 @@ pub mod graph_builder;
 pub mod import_rewriter;
 pub mod orchestrator;
 pub mod resolver;
+pub mod semantic_analysis;
 pub mod semantic_bundler;
 pub mod util;
 pub mod visitors;

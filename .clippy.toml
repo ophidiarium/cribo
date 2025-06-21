@@ -1,23 +1,21 @@
 # Complexity thresholds
-cognitive-complexity-threshold = 10
-excessive-nesting-threshold = 6
-too-many-arguments-threshold = 5
-too-many-lines-threshold = 80
-min-ident-chars-threshold = 2
+allowed-idents-below-min-chars      = ["..", "id", "x", "y", "z", "i", "j", "k", "n", "m"] # Added common loop/coord vars
+cognitive-complexity-threshold      = 10
+excessive-nesting-threshold         = 8
+min-ident-chars-threshold           = 2
 single-char-binding-names-threshold = 3
-allowed-idents-below-min-chars = ["..", "id", "x", "y", "z", "i", "j", "k", "n", "m"] # Added common loop/coord vars
+too-many-arguments-threshold        = 6
+too-many-lines-threshold            = 80
+trivial-copy-size-limit             = 16
+type-complexity-threshold           = 300
 
-# Keep your type complexity threshold - it's reasonable
-type-complexity-threshold = 300
-
-# Keep your 64-bit optimization
-trivial-copy-size-limit = 16
+avoid-breaking-exported-api = false
 
 # Testing allowances
-allow-expect-in-tests = true
-allow-print-in-tests = true
-allow-dbg-in-tests = true
-allow-unwrap-in-tests = true
+allow-dbg-in-tests                 = true
+allow-expect-in-tests              = true
+allow-print-in-tests               = true
+allow-unwrap-in-tests              = true
 suppress-restriction-lint-in-const = true
 
 # Trait implementations
@@ -65,6 +63,11 @@ disallowed-types = [
     { path = "std::collections::HashSet", reason = "Non-deterministic iter - use indexmap::IndexSet instead" },
     # Add more problematic types
     { path = "std::sync::Once", reason = "Use std::sync::OnceLock for lazy initialization (available since 1.70)" },
+
+    { path = "std::sync::Mutex", reason = "use tokio::sync::Mutex in async code" },
+    { path = "std::sync::RwLock", reason = "use tokio::sync::RwLock in async code" },
+
+    { path = "rand::rngs::ThreadRng", reason = "ThreadRng is inherently non‐deterministic; use a fixed‐seed or hash‐based approach instead." },
 ]
 
 # Methods - merging your excellent list with modern practices
@@ -72,9 +75,6 @@ disallowed-methods = [
     # Keep all your determinism rules
     { path = "rand::random", reason = "Use a deterministic hash (e.g. via a cryptographic hasher like Sha256) instead of `rand::random`." },
     { path = "rand::Rng::gen", reason = "Use a deterministic hash (e.g. via Sha256) rather than generating random bytes at runtime." },
-    { path = "rand::rngs::ThreadRng", reason = "ThreadRng is inherently non‐deterministic; use a fixed‐seed or hash‐based approach instead." },
-    { path = "rand::rngs::ThreadRng::gen", reason = "Use a deterministic hash (e.g. via Sha256) instead of `ThreadRng::gen`." },
-    { path = "rand::rngs::ThreadRng::gen_range", reason = "Use a deterministic hash (e.g. via Sha256) instead of `ThreadRng::gen_range`." },
 
     # Keep your cow_utils optimizations
     { path = "str::to_ascii_lowercase", reason = "To avoid memory allocation, use `use cow_utils::CowUtils; s.cow_to_ascii_lowercase()` instead." },
@@ -92,8 +92,6 @@ disallowed-methods = [
 
     # Keep your time determinism rules
     { path = "std::time::Instant::now", reason = "Do not use current date/time in code that must be deterministic" },
-    { path = "chrono::DateTime::now", reason = "Do not use current date/time in code that must be deterministic" },
-    { path = "chrono::Utc::now", reason = "Do not use current date/time in code that must be deterministic" },
     { path = "namada_core::time::DateTimeUtc::now", reason = "Do not use current date/time in code that must be deterministic" },
     { path = "wasmtimer::std::Instant", reason = "Do not use current date/time in code that must be deterministic" },
 
@@ -103,7 +101,6 @@ disallowed-methods = [
     # Add modern Rust best practices that AI often misses
     { path = "std::option::Option::unwrap", reason = "use `expect` with descriptive message or handle None case" },
     { path = "std::result::Result::unwrap", reason = "use `expect` with descriptive message or handle error case" },
-    { path = "std::vec::Vec::clone", reason = "avoid cloning vectors - use references, slices, or Arc<[T]>" },
     { path = "std::panic::catch_unwind", reason = "panics are not for control flow - use Result" },
     { path = "std::process::exit", reason = "return Result from main() instead of exiting" },
     { path = "std::thread::sleep", reason = "use async sleep in async contexts, or document why blocking is needed" },
@@ -111,18 +108,14 @@ disallowed-methods = [
     { path = "std::mem::uninitialized", reason = "deprecated - use MaybeUninit" },
     { path = "std::mem::zeroed", reason = "use MaybeUninit::zeroed or Default::default" },
 
-    # Prevent inefficient string operations that AI often generates
-    { path = "std::string::String::from", reason = "use String::from() only for &str, use to_string() for Display types" },
-    { path = "std::format", reason = "use write! for repeated formatting, format! allocates each time" },
-
     # Async footguns
     { path = "tokio::task::spawn_blocking", reason = "document why blocking is necessary - consider async alternatives" },
-    { path = "std::sync::Mutex", reason = "use tokio::sync::Mutex in async code" },
-    { path = "std::sync::RwLock", reason = "use tokio::sync::RwLock in async code" },
 ]
 
+# disallowed-macros = [
+#     # Prevent inefficient string operations that AI often generates
+#     # { path = "std::format", reason = "use write! for repeated formatting, format! allocates each time" },
+# ]
+
 # Keep your interior mutability allowlist
-ignore-interior-mutability = [
-    "ruff_formatter::format_element::Interned",
-    "ruff_python_ast::hashable::HashableExpr",
-]
+ignore-interior-mutability = ["ruff_formatter::format_element::Interned", "ruff_python_ast::hashable::HashableExpr"]

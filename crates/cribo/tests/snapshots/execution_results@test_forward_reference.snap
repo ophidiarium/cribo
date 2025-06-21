@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/test_forward_reference/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "local validate\nhelper validate",
+    stderr: "",
+}

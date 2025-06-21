@@ -1,9 +1,17 @@
+[registries.crates-io]
+protocol = "sparse"
+
 [build]
 rustflags = ["-Ctarget-cpu=native"]
 
+[unstable]
+cargo-lints       = true
+codegen-backend   = true
+public-dependency = true
+
 [net]
 git-fetch-with-cli = true
-retry = 10
+retry              = 10
 
 # statically link the C runtime so the executable does not depend on
 # that shared/dynamic library.
@@ -13,21 +21,21 @@ retry = 10
 rustflags = ["-C", "target-feature=+crt-static"]
 
 [alias]
-dev = "run --package cribo --bin cribo"
-bench-local = "bench --bench bundling"
-bench-save = "bench --bench bundling -- --save-baseline main"
 bench-compare = "bench --bench bundling -- --baseline main"
+bench-local   = "bench --bench bundling"
+bench-save    = "bench --bench bundling -- --save-baseline main"
+dev           = "run --package cribo --bin cribo"
 # Note: bench-bencher requires the bench-bencher.sh script
 # Run: ./scripts/bench-bencher.sh
 
 # Coverage commands using cargo-llvm-cov
-coverage = "llvm-cov --html --open"
-coverage-text = "llvm-cov --text"
-coverage-lcov = "llvm-cov --lcov --output-path target/llvm-cov/lcov.info"
-coverage-json = "llvm-cov --json --output-path target/llvm-cov/coverage.json"
+coverage       = "llvm-cov --html --open"
 coverage-clean = "llvm-cov clean"
+coverage-json  = "llvm-cov --json --output-path target/llvm-cov/coverage.json"
+coverage-lcov  = "llvm-cov --lcov --output-path target/llvm-cov/lcov.info"
+coverage-text  = "llvm-cov --text"
 
 # Branch coverage commands (requires nightly Rust)
-coverage-branch = "llvm-cov --html --open --branch"
-coverage-branch-text = "llvm-cov --text --branch"
+coverage-branch      = "llvm-cov --html --open --branch"
 coverage-branch-lcov = "llvm-cov --lcov --output-path target/llvm-cov/lcov-branch.info --branch"
+coverage-branch-text = "llvm-cov --text --branch"

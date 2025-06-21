@@ -339,6 +339,7 @@ dependencies = [
  "indexmap",
  "insta",
  "log",
+ "once_cell",
  "petgraph",
  "pretty_assertions",
  "ruff_linter",

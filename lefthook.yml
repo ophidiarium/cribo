@@ -1,0 +1,67 @@
+# yaml-language-server: =https://json.schemastore.org/lefthook.json
+output:
+  # - summary # Print summary block (successful and failed steps)
+  # - empty_summary # Print summary heading when there are no steps to run
+  - failure # Print failed steps printing
+# - skips # Print "skip" (i.e. no files matched)
+assert_lefthook_installed: true
+pre-commit:
+  commands:
+    install:
+      skip: true
+      run: rustup component add rustfmt clippy
+    format:
+      glob: '**/*.rs'
+      run: cargo fmt -- {staged_files}
+      stage_fixed: true
+    markdownlint:
+      glob: '*.md'
+      run: markdownlint-cli2 --fix --no-globs {staged_files} || true
+      stage_fixed: true
+    dprint:
+      glob: '*.{json,jsonc,yaml,yml,md,py}'
+      run: bunx dprint fmt {staged_files}
+      stage_fixed: true
+    lint:
+      glob: '**/*.rs'
+      run: cargo clippy --all-targets --all-features --fix --allow-dirty -- -D warnings
+      stage_fixed: true
+    taplo:
+      glob: '**/*.toml'
+      run: bunx taplo format {staged_files}
+      stage_fixed: true
+    yamllint:
+      glob: '*.{yml,yaml}'
+      run: uvx yamllint {staged_files}
+    update-index:
+      glob: '**/*.rs'
+      run: git update-index --again
+    ruff-format:
+      glob: '**/*.py'
+      run: uv tool run ruff format --config pyproject.toml {staged_files}
+      stage_fixed: true
+    codecov:
+      glob: '.codecov.yml'
+      run: curl --fail --data-binary @.codecov.yml https://codecov.io/validate
+    renovate:
+      glob: 'renovate.json'
+      run: npx -y --package renovate renovate-config-validator renovate.json
+    actionlint:
+      glob: '.github/workflows/*.{yaml,yml}'
+      run: actionlint {staged_files}
+    release-please:
+      glob: release-please-config.json
+      run: uvx check-jsonschema --schemafile https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json release-please-config.json
+
+commit-msg:
+  commands:
+    'lint commit message':
+      run: bunx commitlint --edit {1}
+    'check spelling':
+      run: uvx typos {1}
+
+post-checkout:
+  commands:
+    dependencies:
+      glob: 'uv.lock'
+      run: uv sync

@@ -21,7 +21,12 @@ def main():
     print(f"Model Product: {model_product}")
     print(f"Entity Product: {entity_product}")
 
-    return {"model_user": str(model_user), "entity_user": str(entity_user), "model_product": str(model_product), "entity_product": str(entity_product)}
+    return {
+        "model_user": str(model_user),
+        "entity_user": str(entity_user),
+        "model_product": str(model_product),
+        "entity_product": str(entity_product),
+    }
 
 
 if __name__ == "__main__":

@@ -57,7 +57,9 @@ def main():
     # Use non-aliased imports
     result = math.sqrt(16)
     # Use deterministic "random" number based on stable hash
-    deterministic_num = int(hashlib.md5(b"alias_transformation_test").hexdigest()[:2], 16)
+    deterministic_num = int(
+        hashlib.md5(b"alias_transformation_test").hexdigest()[:2], 16
+    )
     print(f"Math result: {result}, Deterministic: {deterministic_num}")
 
     # Use mixed from-import

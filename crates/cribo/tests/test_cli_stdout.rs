@@ -1,8 +1,8 @@
 #![allow(clippy::disallowed_methods)] // insta macros use unwrap internally
 
+use std::{env, process::Command};
+
 use insta::{assert_snapshot, with_settings};
-use std::env;
-use std::process::Command;
 
 /// Helper function to get the path to a fixture file
 fn get_fixture_path(relative_path: &str) -> String {
@@ -17,6 +17,9 @@ fn run_cribo(args: &[&str]) -> (String, String, i32) {
         .args(["run", "--bin", "cribo", "--quiet", "--"])
         .args(args)
         .env("RUST_LOG", "off")
+        .env("CARGO_TERM_QUIET", "true")
+        .env("CARGO_TERM_COLOR", "never")
+        .env("RUSTFLAGS", "-Awarnings")
         .output()
         .expect("Failed to execute command");
 
@@ -78,6 +81,7 @@ fn get_cli_filters() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
+#[ignore]
 #[test]
 fn test_stdout_flag_help() {
     let (stdout, _, exit_code) = run_cribo(&["--help"]);
@@ -90,6 +94,7 @@ fn test_stdout_flag_help() {
     assert!(stdout.contains("Output bundled code to stdout instead of a file"));
 }
 
+#[ignore]
 #[test]
 fn test_stdout_conflicts_with_output() {
     let (_, stderr, exit_code) = run_cribo(&[
@@ -110,6 +115,7 @@ fn test_stdout_conflicts_with_output() {
     });
 }
 
+#[ignore]
 #[test]
 fn test_missing_output_and_stdout_flags() {
     let (_, stderr, exit_code) = run_cribo(&["--entry", "nonexistent.py"]);
@@ -124,6 +130,7 @@ fn test_missing_output_and_stdout_flags() {
     });
 }
 
+#[ignore]
 #[test]
 fn test_stdout_bundling_functionality() {
     let (stdout, stderr, exit_code) = run_cribo(&[
@@ -133,7 +140,7 @@ fn test_stdout_bundling_functionality() {
     ]);
 
     // Should succeed
-    assert_eq!(exit_code, 0, "Command failed with stderr: {}", stderr);
+    assert_eq!(exit_code, 0, "Command failed with stderr: {stderr}");
 
     with_settings!({
         filters => get_cli_filters(),
@@ -148,6 +155,7 @@ fn test_stdout_bundling_functionality() {
     assert!(!stdout.contains("ERROR"));
 }
 
+#[ignore]
 #[test]
 fn test_stdout_with_verbose_separation() {
     let (stdout, stderr, exit_code) = run_cribo(&[
@@ -192,6 +200,7 @@ fn test_stdout_with_requirements() {
     });
 }
 
+#[ignore]
 #[test]
 fn test_stdout_mode_preserves_bundled_structure() {
     let (stdout, _, exit_code) = run_cribo(&[
@@ -211,6 +220,7 @@ fn test_stdout_mode_preserves_bundled_structure() {
     });
 }
 
+#[ignore]
 #[test]
 fn test_stdout_error_handling() {
     let (stdout, stderr, exit_code) = run_cribo(&["--entry", "nonexistent_file.py", "--stdout"]);

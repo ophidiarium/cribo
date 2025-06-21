@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/simple_nested_handler/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Hello from foo.py\nHello from boo.py",
+    stderr: "",
+}

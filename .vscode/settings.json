@@ -10,6 +10,7 @@
         "RUSTC_BOOTSTRAP": "1",
         "RUSTFLAGS": "--cfg proc_macro_span --cfg verus_keep_ghost"
     },
+    "markdownlint.configFile": ".markdownlint-cli2.yaml",
     "rust-analyzer.runnableEnv": {
         "RUSTC_BOOTSTRAP": "1"
     },
@@ -26,12 +27,34 @@
     "rust-analyzer.imports.group.enable": true,
     "rust-analyzer.debug.engine": "llvm-vs-code-extensions.lldb-dap",
     "python.languageServer": "None",
-    "[json][jsonc][yaml][github-actions-workflow][python][toml][markdown]": {
+    "[json][jsonc][yaml][github-actions-workflow][python][markdown]": {
         "editor.defaultFormatter": "dprint.dprint",
         "editor.formatOnSave": true
     },
-    "ruff.enable": false,
+    "[markdown]": {
+        "editor.quickSuggestions": {
+            "comments": "off",
+            "strings": "off",
+            "other": "off"
+        },
+        "editor.codeActionsOnSave": {
+            "source.fixAll.markdownlint": "explicit"
+        }
+    },
+    "[toml]": {
+        "editor.quickSuggestions": {
+            "strings": "on"
+        },
+        "editor.defaultFormatter": "tamasfe.even-better-toml",
+        "editor.formatOnSave": true
+    },
     "evenBetterToml.schema.enabled": true,
+    "evenBetterToml.taplo.configFile.path": ".taplo.toml",
+    "[python]": {
+        "diffEditor.ignoreTrimWhitespace": false,
+        "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+    "ruff.lint.enable": false, // only format
     "cSpell.enabled": false,
     "chat.agent.enabled": true,
     "chat.promptFiles": true,
@@ -44,14 +67,6 @@
     },
     "chat.mcp.enabled": true,
     "mcp": {
-        "inputs": [
-            {
-                "type": "promptString",
-                "id": "github_token",
-                "description": "GitHub Personal Access Token",
-                "password": true
-            }
-        ],
         "servers": {
             "context7": {
                 "command": "npx",
@@ -61,18 +76,8 @@
                 ]
             },
             "github": {
-                "command": "docker",
-                "args": [
-                    "run",
-                    "-i",
-                    "--rm",
-                    "-e",
-                    "GITHUB_PERSONAL_ACCESS_TOKEN",
-                    "ghcr.io/github/github-mcp-server"
-                ],
-                "env": {
-                    "GITHUB_PERSONAL_ACCESS_TOKEN": "${input:github_token}"
-                }
+                "type": "http",
+                "url": "https://api.githubcopilot.com/mcp/"
             }
         }
     },
