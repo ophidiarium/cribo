@@ -2865,13 +2865,11 @@ impl HybridStaticBundler {
                                 if let Stmt::Assign(existing_assign) = existing
                                     && let [Expr::Name(existing_target)] =
                                         existing_assign.targets.as_slice()
-                                        && existing_target.id.as_str() == target_name {
-                                            // Check if the values are the same
-                                            return self.expr_equals(
-                                                &existing_assign.value,
-                                                &assign.value,
-                                            );
-                                        }
+                                    && existing_target.id.as_str() == target_name
+                                {
+                                    // Check if the values are the same
+                                    return self.expr_equals(&existing_assign.value, &assign.value);
+                                }
                                 false
                             })
                         } else {
@@ -2884,30 +2882,32 @@ impl HybridStaticBundler {
                     if !is_duplicate {
                         // Log what we're adding to deferred imports
                         if let Stmt::Assign(assign) = &stmt
-                            && let Expr::Name(target) = &assign.targets[0] {
-                                if let Expr::Attribute(attr) = &assign.value.as_ref() {
-                                    let attr_path = self.extract_attribute_path(attr);
-                                    log::debug!(
-                                        "Adding to all_deferred_imports: {} = {} (from inlined \
-                                         module '{}')",
-                                        target.id.as_str(),
-                                        attr_path,
-                                        module_name
-                                    );
-                                } else if let Expr::Name(value) = &assign.value.as_ref() {
-                                    log::debug!(
-                                        "Adding to all_deferred_imports: {} = {} (from inlined \
-                                         module '{}')",
-                                        target.id.as_str(),
-                                        value.id.as_str(),
-                                        module_name
-                                    );
-                                }
+                            && let Expr::Name(target) = &assign.targets[0]
+                        {
+                            if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                                let attr_path = self.extract_attribute_path(attr);
+                                log::debug!(
+                                    "Adding to all_deferred_imports: {} = {} (from inlined module \
+                                     '{}')",
+                                    target.id.as_str(),
+                                    attr_path,
+                                    module_name
+                                );
+                            } else if let Expr::Name(value) = &assign.value.as_ref() {
+                                log::debug!(
+                                    "Adding to all_deferred_imports: {} = {} (from inlined module \
+                                     '{}')",
+                                    target.id.as_str(),
+                                    value.id.as_str(),
+                                    module_name
+                                );
                             }
+                        }
                         all_deferred_imports.push(stmt);
                     } else {
                         log::debug!(
-                            "Skipping duplicate deferred import from module '{module_name}': {stmt:?}"
+                            "Skipping duplicate deferred import from module '{module_name}': \
+                             {stmt:?}"
                         );
                     }
                 }
@@ -3393,16 +3393,47 @@ impl HybridStaticBundler {
             for stmt in &entry_deferred_imports {
                 if let Stmt::Assign(assign) = stmt
                     && let Expr::Name(target) = &assign.targets[0]
-                        && let Expr::Attribute(attr) = &assign.value.as_ref() {
-                            let attr_path = self.extract_attribute_path(attr);
-                            log::debug!(
-                                "Entry module deferred import: {} = {}",
-                                target.id.as_str(),
-                                attr_path
-                            );
-                        }
+                    && let Expr::Attribute(attr) = &assign.value.as_ref()
+                {
+                    let attr_path = self.extract_attribute_path(attr);
+                    log::debug!(
+                        "Entry module deferred import: {} = {}",
+                        target.id.as_str(),
+                        attr_path
+                    );
+                }
             }
-            all_deferred_imports.extend(entry_deferred_imports);
+            // Add entry module's deferred imports with deduplication
+            for stmt in entry_deferred_imports {
+                let is_duplicate = if let Stmt::Assign(assign) = &stmt {
+                    if let Expr::Name(target) = &assign.targets[0] {
+                        let target_name = target.id.as_str();
+
+                        // Check against existing deferred imports
+                        all_deferred_imports.iter().any(|existing| {
+                            if let Stmt::Assign(existing_assign) = existing
+                                && let [Expr::Name(existing_target)] =
+                                    existing_assign.targets.as_slice()
+                                && existing_target.id.as_str() == target_name
+                            {
+                                // Check if the values are the same
+                                return self.expr_equals(&existing_assign.value, &assign.value);
+                            }
+                            false
+                        })
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                if !is_duplicate {
+                    all_deferred_imports.push(stmt);
+                } else {
+                    log::debug!("Skipping duplicate deferred import from entry module");
+                }
+            }
         }
 
         // Add any remaining deferred imports from the entry module
