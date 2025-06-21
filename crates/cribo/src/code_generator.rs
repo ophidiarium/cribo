@@ -2837,8 +2837,8 @@ impl HybridStaticBundler {
 
                             if has_conflict {
                                 log::debug!(
-                                    "Skipping deferred import '{symbol_name}' from module '{module_name}' due to \
-                                     conflict"
+                                    "Skipping deferred import '{symbol_name}' from module \
+                                     '{module_name}' due to conflict"
                                 );
                                 false
                             } else {
@@ -2855,7 +2855,61 @@ impl HybridStaticBundler {
                 };
 
                 if should_include {
-                    all_deferred_imports.push(stmt);
+                    // Check if this deferred import already exists in all_deferred_imports
+                    let is_duplicate = if let Stmt::Assign(assign) = &stmt {
+                        if let Expr::Name(target) = &assign.targets[0] {
+                            let target_name = target.id.as_str();
+
+                            // Check against existing deferred imports
+                            all_deferred_imports.iter().any(|existing| {
+                                if let Stmt::Assign(existing_assign) = existing
+                                    && let [Expr::Name(existing_target)] =
+                                        existing_assign.targets.as_slice()
+                                        && existing_target.id.as_str() == target_name {
+                                            // Check if the values are the same
+                                            return self.expr_equals(
+                                                &existing_assign.value,
+                                                &assign.value,
+                                            );
+                                        }
+                                false
+                            })
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if !is_duplicate {
+                        // Log what we're adding to deferred imports
+                        if let Stmt::Assign(assign) = &stmt
+                            && let Expr::Name(target) = &assign.targets[0] {
+                                if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                                    let attr_path = self.extract_attribute_path(attr);
+                                    log::debug!(
+                                        "Adding to all_deferred_imports: {} = {} (from inlined \
+                                         module '{}')",
+                                        target.id.as_str(),
+                                        attr_path,
+                                        module_name
+                                    );
+                                } else if let Expr::Name(value) = &assign.value.as_ref() {
+                                    log::debug!(
+                                        "Adding to all_deferred_imports: {} = {} (from inlined \
+                                         module '{}')",
+                                        target.id.as_str(),
+                                        value.id.as_str(),
+                                        module_name
+                                    );
+                                }
+                            }
+                        all_deferred_imports.push(stmt);
+                    } else {
+                        log::debug!(
+                            "Skipping duplicate deferred import from module '{module_name}': {stmt:?}"
+                        );
+                    }
                 }
             }
         }
@@ -3115,6 +3169,15 @@ impl HybridStaticBundler {
                 all_deferred_imports.len()
             );
 
+            // Log what deferred imports we have
+            for (i, stmt) in all_deferred_imports.iter().enumerate() {
+                if let Stmt::Assign(assign) = stmt
+                    && let Expr::Name(target) = &assign.targets[0]
+                {
+                    log::debug!("  Deferred import {}: {} = ...", i, target.id.as_str());
+                }
+            }
+
             // Filter out init calls - they should already be added when wrapper modules were
             // initialized
             let imports_without_init_calls: Vec<Stmt> = all_deferred_imports
@@ -3134,9 +3197,20 @@ impl HybridStaticBundler {
 
             // Then add the deferred imports (without init calls)
             // Pass the current final_body so we can check for existing assignments
+            let num_imports_before = imports_without_init_calls.len();
+            log::debug!(
+                "About to deduplicate {} deferred imports against {} existing statements",
+                num_imports_before,
+                final_body.len()
+            );
             let deduped_imports = self.deduplicate_deferred_imports_with_existing(
                 imports_without_init_calls,
                 &final_body,
+            );
+            log::debug!(
+                "After deduplication: {} imports remain from {} original",
+                deduped_imports.len(),
+                num_imports_before
             );
             final_body.extend(deduped_imports);
 
@@ -3312,6 +3386,22 @@ impl HybridStaticBundler {
                 }
             }
             // Add entry module's deferred imports to the collection
+            log::debug!(
+                "Adding {} deferred imports from entry module",
+                entry_deferred_imports.len()
+            );
+            for stmt in &entry_deferred_imports {
+                if let Stmt::Assign(assign) = stmt
+                    && let Expr::Name(target) = &assign.targets[0]
+                        && let Expr::Attribute(attr) = &assign.value.as_ref() {
+                            let attr_path = self.extract_attribute_path(attr);
+                            log::debug!(
+                                "Entry module deferred import: {} = {}",
+                                target.id.as_str(),
+                                attr_path
+                            );
+                        }
+            }
             all_deferred_imports.extend(entry_deferred_imports);
         }
 
@@ -3365,7 +3455,10 @@ impl HybridStaticBundler {
                 })
                 .collect();
 
-            let deduped_imports = self.deduplicate_deferred_imports(imports_without_init_calls);
+            let deduped_imports = self.deduplicate_deferred_imports_with_existing(
+                imports_without_init_calls,
+                &final_body,
+            );
             log::debug!(
                 "Total deferred imports after deduplication: {}",
                 deduped_imports.len()
@@ -4305,6 +4398,30 @@ impl HybridStaticBundler {
         }
     }
 
+    /// Extract the full attribute path from an ExprAttribute
+    /// e.g., services.auth.manager.User -> "services.auth.manager.User"
+    fn extract_attribute_path(&self, attr: &ExprAttribute) -> String {
+        let mut parts = vec![attr.attr.as_str()];
+        let mut current = &attr.value;
+
+        loop {
+            match current.as_ref() {
+                Expr::Attribute(inner_attr) => {
+                    parts.push(inner_attr.attr.as_str());
+                    current = &inner_attr.value;
+                }
+                Expr::Name(name) => {
+                    parts.push(name.id.as_str());
+                    break;
+                }
+                _ => break,
+            }
+        }
+
+        parts.reverse();
+        parts.join(".")
+    }
+
     /// Deduplicate deferred import statements
     /// This prevents duplicate init calls and symbol assignments
     fn deduplicate_deferred_imports(&self, imports: Vec<Stmt>) -> Vec<Stmt> {
@@ -4422,8 +4539,19 @@ impl HybridStaticBundler {
                                     // Handle attribute assignments like User =
                                     // services.auth.manager.User
                                     let target_str = target.id.as_str();
-                                    let value_str = format!("{:?}", assign.value);
-                                    let key = format!("{target_str} = {value_str}");
+
+                                    // For attribute assignments, extract the actual attribute path
+                                    let key = if let Expr::Attribute(attr) = &assign.value.as_ref()
+                                    {
+                                        // Extract the full attribute path (e.g.,
+                                        // services.auth.manager.User)
+                                        let attr_path = self.extract_attribute_path(attr);
+                                        format!("{target_str} = {attr_path}")
+                                    } else {
+                                        // Fallback to debug format for other types
+                                        let value_str = format!("{:?}", assign.value);
+                                        format!("{target_str} = {value_str}")
+                                    };
 
                                     if seen_assignments.insert(key.clone()) {
                                         log::debug!(
@@ -4463,16 +4591,25 @@ impl HybridStaticBundler {
         let mut seen_assignments = FxIndexSet::default();
         let mut result = Vec::new();
 
-        // First, collect all existing simple assignments from the body
+        // First, collect all existing assignments from the body
         for stmt in existing_body {
             if let Stmt::Assign(assign) = stmt
                 && assign.targets.len() == 1
                 && let Expr::Name(target) = &assign.targets[0]
-                && let Expr::Name(value) = &assign.value.as_ref()
             {
-                // Track existing simple assignments
-                let key = format!("{} = {}", target.id.as_str(), value.id.as_str());
-                seen_assignments.insert(key);
+                let target_str = target.id.as_str();
+
+                // Handle simple name assignments
+                if let Expr::Name(value) = &assign.value.as_ref() {
+                    let key = format!("{} = {}", target_str, value.id.as_str());
+                    seen_assignments.insert(key);
+                }
+                // Handle attribute assignments like User = services.auth.manager.User
+                else if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                    let attr_path = self.extract_attribute_path(attr);
+                    let key = format!("{target_str} = {attr_path}");
+                    seen_assignments.insert(key);
+                }
             }
         }
 
@@ -4591,8 +4728,19 @@ impl HybridStaticBundler {
                                     // Handle attribute assignments like User =
                                     // services.auth.manager.User
                                     let target_str = target.id.as_str();
-                                    let value_str = format!("{:?}", assign.value);
-                                    let key = format!("{target_str} = {value_str}");
+
+                                    // For attribute assignments, extract the actual attribute path
+                                    let key = if let Expr::Attribute(attr) = &assign.value.as_ref()
+                                    {
+                                        // Extract the full attribute path (e.g.,
+                                        // services.auth.manager.User)
+                                        let attr_path = self.extract_attribute_path(attr);
+                                        format!("{target_str} = {attr_path}")
+                                    } else {
+                                        // Fallback to debug format for other types
+                                        let value_str = format!("{:?}", assign.value);
+                                        format!("{target_str} = {value_str}")
+                                    };
 
                                     if seen_assignments.insert(key.clone()) {
                                         log::debug!(
@@ -6805,13 +6953,15 @@ impl HybridStaticBundler {
         inside_wrapper_init: bool,
     ) -> Vec<Stmt> {
         log::debug!(
-            "transform_bundled_import_from_multiple: module_name={}, imports={:?}",
+            "transform_bundled_import_from_multiple: module_name={}, imports={:?}, \
+             inside_wrapper_init={}",
             module_name,
             import_from
                 .names
                 .iter()
                 .map(|a| a.name.as_str())
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
+            inside_wrapper_init
         );
         let mut assignments = Vec::new();
         let mut initialized_modules = FxIndexSet::default();
@@ -7019,7 +7169,7 @@ impl HybridStaticBundler {
                     })
                 };
 
-                assignments.push(Stmt::Assign(StmtAssign {
+                let assignment = Stmt::Assign(StmtAssign {
                     targets: vec![Expr::Name(ExprName {
                         id: target_name.as_str().into(),
                         ctx: ExprContext::Store,
@@ -7032,7 +7182,17 @@ impl HybridStaticBundler {
                         range: TextRange::default(),
                     })),
                     range: TextRange::default(),
-                }));
+                });
+
+                log::debug!(
+                    "Generating attribute assignment: {} = {}.{} (inside_wrapper_init: {})",
+                    target_name.as_str(),
+                    module_name,
+                    imported_name,
+                    inside_wrapper_init
+                );
+
+                assignments.push(assignment);
             }
         }
 
