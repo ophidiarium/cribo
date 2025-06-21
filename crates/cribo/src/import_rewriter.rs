@@ -111,7 +111,7 @@ impl ImportRewriter {
         graph: &CriboGraph,
         resolvable_cycles: &[crate::cribo_graph::CircularDependencyGroup],
         semantic_bundler: &SemanticBundler,
-        module_asts: &[(String, ModModule)],
+        module_asts: &[(String, &ModModule)],
     ) -> Result<Vec<MovableImport>> {
         let mut movable_imports = Vec::new();
 

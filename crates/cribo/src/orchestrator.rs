@@ -1490,9 +1490,9 @@ impl BundleOrchestrator {
                 ImportRewriter::new(ImportDeduplicationStrategy::FunctionStart);
 
             // Prepare module ASTs for semantic analysis
-            let module_ast_pairs: Vec<(String, ModModule)> = module_asts
+            let module_ast_pairs: Vec<(String, &ModModule)> = module_asts
                 .iter()
-                .map(|(name, ast, _, _)| (name.clone(), ast.clone()))
+                .map(|(name, ast, _, _)| (name.clone(), ast))
                 .collect();
 
             // Analyze movable imports using semantic analysis
