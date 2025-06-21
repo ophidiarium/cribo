@@ -9,7 +9,10 @@ status-level = "skip"
 
 # Mark tests that take longer than 2s as slow.
 # Terminate after 5min as a stop-gap measure to terminate on deadlock.
-slow-timeout = { period = "2s", terminate-after = "300s" }
+slow-timeout = { period = "2s", terminate-after = 300 }
 
 # Show slow jobs in the final summary
 final-status-level = "slow"
+
+[profile.ci.junit] # this can be some other profile, too
+path = "junit.xml"
