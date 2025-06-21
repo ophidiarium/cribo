@@ -52,8 +52,8 @@ pub struct ImportUsage {
 pub struct ImportInfo {
     /// The module being imported
     pub module_name: String,
-    /// Names imported from the module
-    pub imported_names: Vec<String>,
+    /// Names imported from the module with their aliases (name, alias)
+    pub imported_names: Vec<(String, Option<String>)>,
     /// Type of import (stdlib, first-party, third-party)
     pub import_type: ImportType,
     /// Line number where import occurs
@@ -318,8 +318,11 @@ pub fn analyze_imports_semantic(imports: Vec<ImportInfo>, ast: &[Stmt]) -> Vec<E
         visitor.register_import(import_name, &import.module_name);
 
         // Also register any imported names from 'from' imports
-        for name in &import.imported_names {
+        for (name, alias) in &import.imported_names {
             visitor.register_import(name, &import.module_name);
+            if let Some(a) = alias {
+                visitor.register_import(a, &import.module_name);
+            }
         }
     }
 
