@@ -6,6 +6,6 @@ ExecutionResults {
     status: Failed(
         1,
     ),
-    stdout: "Loading first-party pandera module\nStarting test_import.py\nSuccessfully imported pandera.polars: <module 'pandera.polars' from '/Volumes/workplace/GitHub/ophidiarium/cribo/.venv/lib/python3.12/site-packages/pandera/polars.py'>\npandera.polars module: pandera.polars",
+    stdout: "Loading first-party pandera module\nStarting test_import.py\nSuccessfully imported pandera.polars\npandera.polars module: pandera.polars\n\nImported pandera successfully",
     stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 40, in <module>",
 }

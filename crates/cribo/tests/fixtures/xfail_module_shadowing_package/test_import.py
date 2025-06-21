@@ -11,7 +11,7 @@ try:
     # This should fail because our local pandera package doesn't have a 'polars' submodule
     import pandera.polars as pa
 
-    print(f"Successfully imported pandera.polars: {pa}")
+    print("Successfully imported pandera.polars")
     print(f"pandera.polars module: {pa.__name__}")
 except ImportError as e:
     print(f"ImportError: {e}")
@@ -22,7 +22,7 @@ except AttributeError as e:
 try:
     import pandera
 
-    print(f"\nImported pandera: {pandera}")
+    print("\nImported pandera successfully")
     print(f"pandera.__version__: {pandera.__version__}")
     if hasattr(pandera, "local_function"):
         print(f"This is the local pandera package: {pandera.local_function()}")
