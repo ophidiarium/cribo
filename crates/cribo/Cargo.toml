@@ -28,7 +28,6 @@ rustc-hash           = { workspace = true }
 serde                = { workspace = true }
 sha2                 = "0.10"
 toml                 = { workspace = true }
-walkdir              = { workspace = true }
 
 # Binary target only - no library for Python bindings following Ruff's pattern
 [[bin]]

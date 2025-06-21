@@ -355,7 +355,6 @@ dependencies = [
  "sha2",
  "tempfile",
  "toml",
- "walkdir",
 ]
 
 [[package]]
