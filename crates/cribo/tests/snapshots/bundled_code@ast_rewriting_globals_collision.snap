@@ -56,6 +56,7 @@ Logger_7 = "core_logger_string"
 _cribo_models_base_Connection = None
 def __cribo_init___cribo_0a162a_models_base():
     module = types.SimpleNamespace()
+    util_validate = validate_6
     """Base models module - imports only from core to avoid circular dependencies"""
     process = lambda x: f"base_process: {x}"
     module.process = process
@@ -97,7 +98,6 @@ def __cribo_init___cribo_0a162a_models_base():
     module.initialize = initialize
     global _cribo_models_base_Connection
     _cribo_models_base_Connection = Connection
-    util_validate = validate_6
     return module
 def __cribo_init___cribo_293a98_models():
     module = types.SimpleNamespace()
@@ -116,6 +116,8 @@ def __cribo_init___cribo_293a98_models():
     return module
 def __cribo_init___cribo_1f9e6c_models_user():
     module = types.SimpleNamespace()
+    util_process = process_7
+    UtilLogger = Logger_6
     """User models module - imports from core and base, no circular dependencies"""
     _cribo_module_models_base = _cribo_temp_models_base
     BaseLogger = _cribo_module_models_base.Logger
@@ -179,8 +181,6 @@ def __cribo_init___cribo_1f9e6c_models_user():
         def add_rule(self, rule):
             self.rules.append(rule)
     module.UserValidator = UserValidator
-    util_process = process_7
-    UtilLogger = Logger_6
     return module
 def __cribo_init___cribo_84bf42_services_auth():
     module = types.SimpleNamespace()
@@ -367,7 +367,7 @@ auth_validate = services.auth.manager.validate
 UserModel = models.user.User
 process_user = models.user.process_user
 Logger = models.user.Logger
-_cribo_module_models = models
+_cribo_module_models = _cribo_temp_models
 __cribo_init___cribo_0a162a_models_base()
 base = models.base
 result = 42

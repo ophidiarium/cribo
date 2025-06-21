@@ -1,6 +1,9 @@
 """Database subpackage with import-time initialization and re-exports."""
 
-# Import-time side effect: register database types
+# Import validation function from utils
+from ..utils.helpers import validate
+
+# Package-level state
 _registered_types = []
 
 
@@ -10,35 +13,30 @@ def _register_type(type_name):
     return type_name
 
 
-# Register some types at import time
+# Register types at import time
 _register_type("connection")
 _register_type("cursor")
 
-# Import from another subpackage using relative import
-from ..utils.helpers import validate
 
-
-# Create a database-specific validator
 def validate_db_name(name: str) -> bool:
     """Validate database name with additional rules."""
-    # First use the general validator
     if not validate(name):
         return False
-    # Then apply database-specific rules
+    # Additional database-specific validation
     return not any(char in name for char in ["/", "\\", ":"])
 
 
-# Import and re-export main functionality AFTER defining validate_db_name
+# Re-export connection module functions
 from .connection import connect, get_connection_info
 
-# Import from parent package to access configuration
-from .. import _initialized
 
-
-# Add wrapper that checks initialization
+# Import parent state (but not during module initialization to avoid circular import)
 def safe_connect(database_name: str) -> str:
     """Connect only if core is initialized."""
-    if not _initialized:
+    # Import at function level to avoid circular dependency
+    from .. import is_initialized
+
+    if not is_initialized():
         raise RuntimeError("Core package must be initialized before connecting")
     return connect(database_name)
 

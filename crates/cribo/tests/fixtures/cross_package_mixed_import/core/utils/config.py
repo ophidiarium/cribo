@@ -1,6 +1,6 @@
 """Configuration utilities for the core package."""
 
-# Module-level config storage to avoid circular import
+# Module-level state that will be set by parent package
 _module_config = None
 
 
@@ -13,7 +13,6 @@ def set_config_reference(config):
 def get_config():
     """Get the current configuration."""
     if _module_config is None:
-        # Default config if not yet initialized
         return {"debug": False}
     return _module_config.copy()
 

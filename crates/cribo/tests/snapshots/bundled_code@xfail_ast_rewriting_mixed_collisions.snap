@@ -298,6 +298,7 @@ models_base = types.SimpleNamespace(validate=validate_2, connect=connect_1, Base
 _cribo_services_auth_manager_result = None
 def __cribo_init___cribo_ee1d45_services_auth_manager():
     module = types.SimpleNamespace()
+    DBConnection = Connection_6
     """\nAuthentication manager with complex naming conflicts\n"""
     base = models_base
     module.base = base
@@ -421,10 +422,11 @@ def __cribo_init___cribo_ee1d45_services_auth_manager():
     module.AuthManager = AuthManager
     global _cribo_services_auth_manager_result
     _cribo_services_auth_manager_result = result
-    DBConnection = Connection_6
     return module
 def __cribo_init___cribo_62c387_core():
     module = types.SimpleNamespace()
+    CoreLogger = Logger_4
+    core_process = process_6
     result = "core_package_result"
     module.result = result
     Logger = CoreLogger
@@ -433,8 +435,6 @@ def __cribo_init___cribo_62c387_core():
     utils.Connection = Connection
     database = types.SimpleNamespace()
     database.User = User
-    CoreLogger = Logger_4
-    core_process = process_6
     return module
 core = types.SimpleNamespace()
 core.database = types.SimpleNamespace()

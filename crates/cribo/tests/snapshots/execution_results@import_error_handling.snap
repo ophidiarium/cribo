@@ -1,9 +1,0 @@
----
-source: crates/cribo/tests/test_bundling_snapshots.rs
-input_file: crates/cribo/tests/fixtures/import_error_handling/main.py
----
-ExecutionResults {
-    status: Success,
-    stdout: "=== Import Error Handling Test ===\n\n1. Testing try/except block:\n  - ImportError caught for nonexistent_module (expected)\n\n2. Testing with suppress:\n  - Continued after suppressed import\n\n3. Testing nested imports in try block:\n  - Caught ImportError: No module named 'fake_package'\n\n4. Testing conditional import:\n  - Skipped winreg import (not Windows)\n\n=== All tests completed successfully ===",
-    stderr: "",
-}

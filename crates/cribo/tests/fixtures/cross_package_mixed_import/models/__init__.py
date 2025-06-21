@@ -11,20 +11,15 @@ def get_model_version():
     return _VERSION
 
 
-# Conditional import based on Python version
+# Conditional type alias based on Python version
 if sys.version_info >= (3, 9):
-    # Use newer typing features
     from typing import TypeAlias
 
     ModelID: TypeAlias = str
 else:
-    # Fallback for older Python
     ModelID = str
 
-# Import user module functionality
-from .user import process_user
-
-# Lazy import to avoid circular dependency
+# Lazy import holder for BaseModel
 _base_model = None
 
 
@@ -38,15 +33,18 @@ def get_base_model():
     return _base_model
 
 
-# Import-time computation
+# Re-export from user module
+from .user import process_user
+
+# Import-time configuration
 DEFAULT_MODEL_CONFIG = {
     "version": _VERSION,
     "features": ["user_processing", "lazy_loading"],
 }
 
-# Try to import optional dependencies
+# Try to import advanced model (may not exist)
 try:
-    from .advanced import AdvancedModel
+    from models.advanced import AdvancedModel
 
     HAS_ADVANCED = True
     DEFAULT_MODEL_CONFIG["features"].append("advanced_model")
@@ -54,6 +52,7 @@ except ImportError:
     HAS_ADVANCED = False
     AdvancedModel = None
 
+# Export list
 __all__ = [
     "get_model_version",
     "process_user",
@@ -62,5 +61,6 @@ __all__ = [
     "DEFAULT_MODEL_CONFIG",
     "HAS_ADVANCED",
 ]
+
 if HAS_ADVANCED:
     __all__.append("AdvancedModel")

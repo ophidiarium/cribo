@@ -5,7 +5,6 @@ class BaseModel:
     """Base model class."""
 
     def __init__(self, name: str):
-        # Simple validation without cross-package import
         if not name or name.startswith("_"):
             raise ValueError(f"Invalid model name: {name}")
         self.name = name
@@ -13,4 +12,8 @@ class BaseModel:
 
     def get_info(self):
         """Get model information."""
-        return {"name": self.name, "type": "base", "model_version": self.version}
+        return {
+            "name": self.name,
+            "type": "base",
+            "model_version": self.version,
+        }

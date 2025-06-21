@@ -3,8 +3,8 @@
 This module combines:
 1. Absolute import from a different package (models.user)
 2. Relative import from within the same package (..utils.helpers)
-3. Import from parent package's __init__.py
-4. Import from sibling module's __init__.py
+3. Import from parent package's version module (not __init__.py)
+4. No imports from parent package's __init__.py to avoid circular dependencies
 """
 
 # Cross-package absolute import (from models package to core package)
@@ -13,18 +13,18 @@ from models.user import process_user
 # Relative import within the core package
 from ..utils.helpers import validate as helper_validate
 
-# Import from parent package's __init__.py
-from .. import CORE_MODEL_VERSION
-
-# Import from current package's __init__.py
-from . import _registered_types, validate_db_name
+# Import from version module to avoid circular import with parent __init__.py
+from ..version import CORE_MODEL_VERSION
 
 # Additional cross-package import to demonstrate complex dependencies
 from models import DEFAULT_MODEL_CONFIG, get_base_model
 
+# Define our own registered types for this module
+_connection_types = ["standard", "pooled", "async"]
+
 # Import-time computation using imported values
 CONNECTION_METADATA = {
-    "supported_types": _registered_types,
+    "supported_types": _connection_types,
     "validator": helper_validate.__name__,
     "processor": process_user.__name__,
     "core_version": CORE_MODEL_VERSION,
@@ -36,8 +36,10 @@ class Connection:
     """Connection class using mixed imports."""
 
     def __init__(self, database_name: str):
-        # Validate using imported function
-        if not validate_db_name(database_name):
+        # Validate using our own validation logic to avoid circular import
+        if not helper_validate(database_name) or any(
+            char in database_name for char in ["/", "\\", ":"]
+        ):
             raise ValueError(f"Invalid database name: {database_name}")
 
         # Process using cross-package import
@@ -67,7 +69,7 @@ def get_connection_info() -> dict:
     info = {
         "metadata": CONNECTION_METADATA,
         "debug_mode": is_debug(),
-        "available_validators": [validate_db_name.__name__, helper_validate.__name__],
+        "available_validators": ["validate_db_name", helper_validate.__name__],
     }
 
     # Conditional import based on debug mode

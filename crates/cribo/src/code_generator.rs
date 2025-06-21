@@ -670,15 +670,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     }
                                 } else if self.bundler.inlined_modules.contains(resolved) {
                                     // Importing from an inlined module
-                                    if alias.asname.is_some() || imported_name != local_name {
-                                        log::debug!(
-                                            "Tracking ImportFrom alias: {local_name} -> \
-                                             {resolved}.{imported_name}"
-                                        );
-                                        // For ImportFrom, we need to track the symbol path
-                                        self.import_aliases
-                                            .insert(local_name.to_string(), resolved.clone());
-                                    }
+                                    // Don't track symbol imports as module aliases!
+                                    // import_aliases should only contain actual module imports,
+                                    // not "from module import symbol" style imports
+                                    log::debug!(
+                                        "Not tracking symbol import as module alias: {local_name} \
+                                         is a symbol from {resolved}, not a module alias"
+                                    );
                                 }
                             }
                         }
@@ -1225,16 +1223,34 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                 }))
                                             }
                                         } else {
-                                            // No rename information available, use the direct name
-                                            log::debug!(
-                                                "Rewrote {base}.{attr_name} to {attr_name} (no \
-                                                 rename info)"
-                                            );
-                                            Some(Expr::Name(ExprName {
-                                                id: attr_name.clone().into(),
-                                                ctx: attr_expr.ctx,
-                                                range: attr_expr.range,
-                                            }))
+                                            // No rename information available
+                                            // Only transform if we're certain this symbol exists in
+                                            // the inlined module
+                                            // Otherwise, leave the attribute access unchanged
+                                            if let Some(exports) =
+                                                self.bundler.module_exports.get(&actual_module)
+                                                && let Some(export_list) = exports
+                                                && export_list.contains(&attr_name.to_string())
+                                            {
+                                                // This symbol is exported by the module, use direct
+                                                // name
+                                                log::debug!(
+                                                    "Rewrote {base}.{attr_name} to {attr_name} \
+                                                     (exported symbol)"
+                                                );
+                                                Some(Expr::Name(ExprName {
+                                                    id: attr_name.clone().into(),
+                                                    ctx: attr_expr.ctx,
+                                                    range: attr_expr.range,
+                                                }))
+                                            } else {
+                                                // Not an exported symbol - don't transform
+                                                log::debug!(
+                                                    "Not transforming {base}.{attr_name} - not an \
+                                                     exported symbol"
+                                                );
+                                                None
+                                            }
                                         };
 
                                         if let Some(new_expr) = new_expr {
@@ -3547,6 +3563,36 @@ impl HybridStaticBundler {
         // Store deferred imports to add after module body
         let deferred_imports_to_add = wrapper_deferred_imports.clone();
 
+        // IMPORTANT: Add import alias assignments FIRST, before processing the module body
+        // This ensures that aliases like 'helper_validate = validate' are available when
+        // the module body code tries to use them (e.g., helper_validate.__name__)
+        for stmt in &deferred_imports_to_add {
+            if let Stmt::Assign(assign) = stmt {
+                // Check if this is a simple name-to-name assignment (import alias)
+                if let [Expr::Name(_target)] = assign.targets.as_slice()
+                    && let Expr::Name(_value) = &*assign.value
+                {
+                    // This is an import alias assignment, add it immediately
+                    body.push(stmt.clone());
+                }
+            }
+        }
+
+        // Collect all variables that are referenced by exported functions
+        // This is needed because some private variables (like _VERSION) might be used by exported
+        // functions
+        let mut vars_used_by_exported_functions = FxIndexSet::default();
+        for stmt in &ast.body {
+            if let Stmt::FunctionDef(func_def) = stmt
+                && self.should_export_symbol(func_def.name.as_ref(), ctx.module_name) {
+                    // This function will be exported, collect variables it references
+                    self.collect_referenced_vars(
+                        &func_def.body,
+                        &mut vars_used_by_exported_functions,
+                    );
+                }
+        }
+
         // Now process the transformed module
         for stmt in ast.body {
             match &stmt {
@@ -3633,8 +3679,23 @@ impl HybridStaticBundler {
                                 // This was imported from an inlined module, export it
                                 debug!("Exporting imported symbol '{name}' as module attribute");
                                 body.push(self.create_module_attr_assignment("module", &name));
+                            } else if let Some(name) = self.extract_simple_assign_target(assign) {
+                                // Check if this variable is used by exported functions
+                                if vars_used_by_exported_functions.contains(&name) {
+                                    debug!(
+                                        "Exporting '{name}' as it's used by exported functions"
+                                    );
+                                    body.push(self.create_module_attr_assignment("module", &name));
+                                } else {
+                                    // Regular assignment, use the normal export logic
+                                    self.add_module_attr_if_exported(
+                                        assign,
+                                        ctx.module_name,
+                                        &mut body,
+                                    );
+                                }
                             } else {
-                                // Regular assignment, use the normal export logic
+                                // Not a simple assignment
                                 self.add_module_attr_if_exported(
                                     assign,
                                     ctx.module_name,
@@ -3652,6 +3713,42 @@ impl HybridStaticBundler {
                             })
                         );
                     }
+                }
+                Stmt::Try(try_stmt) => {
+                    // Clone the try statement
+                    let try_clone = try_stmt.clone();
+
+                    // Process assignments in try body
+                    let mut additional_exports = Vec::new();
+                    for stmt in &try_stmt.body {
+                        if let Stmt::Assign(assign) = stmt
+                            && let Some(name) = self.extract_simple_assign_target(assign)
+                                && self.should_export_symbol(&name, ctx.module_name)
+                            {
+                                additional_exports
+                                    .push(self.create_module_attr_assignment("module", &name));
+                            }
+                    }
+
+                    // Process assignments in except handlers
+                    for handler in &try_stmt.handlers {
+                        let ExceptHandler::ExceptHandler(eh) = handler;
+                        for stmt in &eh.body {
+                            if let Stmt::Assign(assign) = stmt
+                                && let Some(name) = self.extract_simple_assign_target(assign)
+                                    && self.should_export_symbol(&name, ctx.module_name)
+                                {
+                                    additional_exports
+                                        .push(self.create_module_attr_assignment("module", &name));
+                                }
+                        }
+                    }
+
+                    // Add the try statement
+                    body.push(Stmt::Try(try_clone));
+
+                    // Add any module attribute assignments after the try block
+                    body.extend(additional_exports);
                 }
                 _ => {
                     // Other statements execute normally
@@ -3733,9 +3830,23 @@ impl HybridStaticBundler {
             }
         }
 
-        // Add deferred imports after submodule namespaces are created
-        // This is needed for cases where the deferred imports reference submodules
+        // Add remaining deferred imports after submodule namespaces are created
+        // Skip import alias assignments since they were already added at the beginning
         for stmt in &deferred_imports_to_add {
+            // Skip simple name-to-name assignments (import aliases) as they were already added
+            let is_import_alias = if let Stmt::Assign(assign) = stmt {
+                matches!(
+                    (assign.targets.as_slice(), &*assign.value),
+                    ([Expr::Name(_)], Expr::Name(_))
+                )
+            } else {
+                false
+            };
+
+            if is_import_alias {
+                continue; // Already added at the beginning
+            }
+
             if let Stmt::Assign(assign) = stmt
                 && !self.is_self_referential_assignment(assign)
             {
@@ -6217,6 +6328,131 @@ impl HybridStaticBundler {
         }
     }
 
+    /// Collect all variable names referenced in a list of statements
+    fn collect_referenced_vars(&self, stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
+        for stmt in stmts {
+            self.collect_vars_in_stmt(stmt, vars);
+        }
+    }
+
+    /// Collect variable names referenced in a statement
+    fn collect_vars_in_stmt(&self, stmt: &Stmt, vars: &mut FxIndexSet<String>) {
+        match stmt {
+            Stmt::Expr(expr_stmt) => self.collect_vars_in_expr(&expr_stmt.value, vars),
+            Stmt::Return(ret) => {
+                if let Some(value) = &ret.value {
+                    self.collect_vars_in_expr(value, vars);
+                }
+            }
+            Stmt::Assign(assign) => {
+                self.collect_vars_in_expr(&assign.value, vars);
+            }
+            Stmt::If(if_stmt) => {
+                self.collect_vars_in_expr(&if_stmt.test, vars);
+                self.collect_referenced_vars(&if_stmt.body, vars);
+                for clause in &if_stmt.elif_else_clauses {
+                    if let Some(test) = &clause.test {
+                        self.collect_vars_in_expr(test, vars);
+                    }
+                    self.collect_referenced_vars(&clause.body, vars);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                self.collect_vars_in_expr(&for_stmt.iter, vars);
+                self.collect_referenced_vars(&for_stmt.body, vars);
+                self.collect_referenced_vars(&for_stmt.orelse, vars);
+            }
+            Stmt::While(while_stmt) => {
+                self.collect_vars_in_expr(&while_stmt.test, vars);
+                self.collect_referenced_vars(&while_stmt.body, vars);
+                self.collect_referenced_vars(&while_stmt.orelse, vars);
+            }
+            Stmt::Try(try_stmt) => {
+                self.collect_referenced_vars(&try_stmt.body, vars);
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(eh) = handler;
+                    self.collect_referenced_vars(&eh.body, vars);
+                }
+                self.collect_referenced_vars(&try_stmt.orelse, vars);
+                self.collect_referenced_vars(&try_stmt.finalbody, vars);
+            }
+            Stmt::With(with_stmt) => {
+                for item in &with_stmt.items {
+                    self.collect_vars_in_expr(&item.context_expr, vars);
+                }
+                self.collect_referenced_vars(&with_stmt.body, vars);
+            }
+            _ => {}
+        }
+    }
+
+    /// Collect variable names referenced in an expression
+    fn collect_vars_in_expr(&self, expr: &Expr, vars: &mut FxIndexSet<String>) {
+        match expr {
+            Expr::Name(name) => {
+                vars.insert(name.id.to_string());
+            }
+            Expr::Call(call) => {
+                self.collect_vars_in_expr(&call.func, vars);
+                for arg in call.arguments.args.iter() {
+                    self.collect_vars_in_expr(arg, vars);
+                }
+                for keyword in call.arguments.keywords.iter() {
+                    self.collect_vars_in_expr(&keyword.value, vars);
+                }
+            }
+            Expr::Attribute(attr) => {
+                self.collect_vars_in_expr(&attr.value, vars);
+            }
+            Expr::BinOp(binop) => {
+                self.collect_vars_in_expr(&binop.left, vars);
+                self.collect_vars_in_expr(&binop.right, vars);
+            }
+            Expr::UnaryOp(unaryop) => {
+                self.collect_vars_in_expr(&unaryop.operand, vars);
+            }
+            Expr::BoolOp(boolop) => {
+                for value in boolop.values.iter() {
+                    self.collect_vars_in_expr(value, vars);
+                }
+            }
+            Expr::Compare(compare) => {
+                self.collect_vars_in_expr(&compare.left, vars);
+                for comparator in compare.comparators.iter() {
+                    self.collect_vars_in_expr(comparator, vars);
+                }
+            }
+            Expr::List(list) => {
+                for elt in list.elts.iter() {
+                    self.collect_vars_in_expr(elt, vars);
+                }
+            }
+            Expr::Tuple(tuple) => {
+                for elt in tuple.elts.iter() {
+                    self.collect_vars_in_expr(elt, vars);
+                }
+            }
+            Expr::Dict(dict) => {
+                for item in dict.items.iter() {
+                    if let Some(key) = &item.key {
+                        self.collect_vars_in_expr(key, vars);
+                    }
+                    self.collect_vars_in_expr(&item.value, vars);
+                }
+            }
+            Expr::Subscript(subscript) => {
+                self.collect_vars_in_expr(&subscript.value, vars);
+                self.collect_vars_in_expr(&subscript.slice, vars);
+            }
+            Expr::If(if_expr) => {
+                self.collect_vars_in_expr(&if_expr.test, vars);
+                self.collect_vars_in_expr(&if_expr.body, vars);
+                self.collect_vars_in_expr(&if_expr.orelse, vars);
+            }
+            _ => {}
+        }
+    }
+
     /// Check if an assignment is self-referential (e.g., `x = x`)
     fn is_self_referential_assignment(&self, assign: &StmtAssign) -> bool {
         // Check if this is a simple assignment with a single target and value
@@ -6473,13 +6709,21 @@ impl HybridStaticBundler {
                 module_name.cow_replace('.', "_").as_ref()
             );
 
-            // For dotted modules, reference the temporary variable if it exists
-            let source_var = if module_name.contains('.') {
-                format!("_cribo_temp_{}", module_name.cow_replace(".", "_"))
-            } else {
-                // For top-level modules, reference the module directly
-                module_name.to_string()
-            };
+            // We need to determine the correct source variable to reference
+            let source_var =
+                if inside_wrapper_init || self.module_registry.contains_key(module_name) {
+                    // Inside wrapper init OR when importing from a wrapper module,
+                    // use the temporary variable which will contain the initialized module
+                    format!("_cribo_temp_{}", module_name.cow_replace(".", "_"))
+                } else if module_name.contains('.') {
+                    // For dotted modules outside wrapper init, reference the temporary variable if
+                    // it exists
+                    format!("_cribo_temp_{}", module_name.cow_replace(".", "_"))
+                } else {
+                    // For top-level modules outside wrapper init that are not wrapper modules,
+                    // reference the module directly
+                    module_name.to_string()
+                };
 
             // Add: _cribo_module_xxx = source_var (either the module or temp variable)
             assignments.push(Stmt::Assign(StmtAssign {

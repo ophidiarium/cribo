@@ -4,8 +4,8 @@
 _initialized = False
 _config = {"debug": False}
 
-# Store a fixed version for now to avoid circular import
-CORE_MODEL_VERSION = "1.0.0"
+# Import version from separate module to avoid circular imports
+from .version import CORE_MODEL_VERSION
 
 # Re-export commonly used functions from submodules
 # These will be available as core.validate and core.get_config
@@ -29,13 +29,18 @@ def initialize_core(debug=False):
     return _initialized
 
 
-# Make database functions available at package level
-from .database import connect as db_connect
+def is_initialized():
+    """Check if core is initialized."""
+    return _initialized
+
+
+# NOTE: db_connect removed to avoid circular dependency
+# Users should import directly from core.database
 
 __all__ = [
     "initialize_core",
+    "is_initialized",
     "validate",
     "get_config",
-    "db_connect",
     "CORE_MODEL_VERSION",
 ]

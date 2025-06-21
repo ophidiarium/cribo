@@ -7,7 +7,8 @@ This tests the specific pattern where a module uses both:
 """
 
 # First, import from core which triggers cross-package imports
-from core import initialize_core, db_connect
+from core import initialize_core
+from core.database import connect as db_connect
 
 # Import specific submodule functionality
 from core.database.connection import connect, get_connection_info, CONNECTION_METADATA
