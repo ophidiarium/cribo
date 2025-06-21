@@ -2802,7 +2802,62 @@ impl HybridStaticBundler {
                 }
             }
 
-            all_deferred_imports.extend(deferred_imports);
+            // Filter deferred imports to avoid conflicts
+            // If an inlined module imports a symbol but doesn't export it,
+            // and that symbol would conflict with other imports, skip it
+            for stmt in deferred_imports {
+                let should_include = if let Stmt::Assign(assign) = &stmt {
+                    if let [Expr::Name(target)] = assign.targets.as_slice()
+                        && let Expr::Name(_value) = &*assign.value
+                    {
+                        let symbol_name = target.id.as_str();
+
+                        // Check if this module exports the symbol
+                        let exports_symbol =
+                            if let Some(Some(exports)) = module_exports_map.get(module_name) {
+                                exports.contains(&symbol_name.to_string())
+                            } else {
+                                // No explicit __all__, check if it's a module-level definition
+                                // For now, assume it's not exported if there's no __all__
+                                false
+                            };
+
+                        if !exports_symbol {
+                            // Check if this would conflict with existing deferred imports
+                            let has_conflict = all_deferred_imports.iter().any(|existing| {
+                                if let Stmt::Assign(existing_assign) = existing
+                                    && let [Expr::Name(existing_target)] =
+                                        existing_assign.targets.as_slice()
+                                {
+                                    existing_target.id.as_str() == symbol_name
+                                } else {
+                                    false
+                                }
+                            });
+
+                            if has_conflict {
+                                log::debug!(
+                                    "Skipping deferred import '{symbol_name}' from module '{module_name}' due to \
+                                     conflict"
+                                );
+                                false
+                            } else {
+                                true
+                            }
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    }
+                } else {
+                    true
+                };
+
+                if should_include {
+                    all_deferred_imports.push(stmt);
+                }
+            }
         }
 
         // Create namespace objects for inlined modules that are imported as namespaces
@@ -4300,8 +4355,14 @@ impl HybridStaticBundler {
                                             let module_name = lit.value.to_str();
                                             let attr_name = attr.attr.as_str();
                                             if let Expr::Name(target) = &assign.targets[0] {
-                                                let _symbol_name = target.id.as_str();
-                                                let key = format!("{module_name}.{attr_name}");
+                                                let symbol_name = target.id.as_str();
+                                                // Include the target variable name in the key to
+                                                // properly deduplicate
+                                                // assignments like User =
+                                                // services.auth.manager.User
+                                                let key = format!(
+                                                    "{symbol_name} = {module_name}.{attr_name}"
+                                                );
                                                 log::debug!("Checking assignment key: {key}");
                                                 if seen_assignments.insert(key.clone()) {
                                                     log::debug!(
@@ -4311,7 +4372,7 @@ impl HybridStaticBundler {
                                                 } else {
                                                     log::debug!(
                                                         "Skipping duplicate assignment: \
-                                                         {_symbol_name} = \
+                                                         {symbol_name} = \
                                                          sys.modules['{module_name}'].{attr_name}"
                                                     );
                                                 }
@@ -4357,8 +4418,23 @@ impl HybridStaticBundler {
                                         log::debug!("Skipping duplicate simple assignment: {key}");
                                     }
                                 } else {
-                                    // Not a simple name assignment, include it
-                                    result.push(stmt);
+                                    // Not a simple name assignment, check for duplicates
+                                    // Handle attribute assignments like User =
+                                    // services.auth.manager.User
+                                    let target_str = target.id.as_str();
+                                    let value_str = format!("{:?}", assign.value);
+                                    let key = format!("{target_str} = {value_str}");
+
+                                    if seen_assignments.insert(key.clone()) {
+                                        log::debug!(
+                                            "First occurrence of attribute assignment: {key}"
+                                        );
+                                        result.push(stmt);
+                                    } else {
+                                        log::debug!(
+                                            "Skipping duplicate attribute assignment: {key}"
+                                        );
+                                    }
                                 }
                             } else {
                                 // Target is not a simple name, include it
@@ -4448,8 +4524,14 @@ impl HybridStaticBundler {
                                             let module_name = lit.value.to_str();
                                             let attr_name = attr.attr.as_str();
                                             if let Expr::Name(target) = &assign.targets[0] {
-                                                let _symbol_name = target.id.as_str();
-                                                let key = format!("{module_name}.{attr_name}");
+                                                let symbol_name = target.id.as_str();
+                                                // Include the target variable name in the key to
+                                                // properly deduplicate
+                                                // assignments like User =
+                                                // services.auth.manager.User
+                                                let key = format!(
+                                                    "{symbol_name} = {module_name}.{attr_name}"
+                                                );
                                                 log::debug!("Checking assignment key: {key}");
                                                 if seen_assignments.insert(key.clone()) {
                                                     log::debug!(
@@ -4459,7 +4541,7 @@ impl HybridStaticBundler {
                                                 } else {
                                                     log::debug!(
                                                         "Skipping duplicate assignment: \
-                                                         {_symbol_name} = \
+                                                         {symbol_name} = \
                                                          sys.modules['{module_name}'].{attr_name}"
                                                     );
                                                 }
@@ -4505,8 +4587,23 @@ impl HybridStaticBundler {
                                         log::debug!("Skipping duplicate simple assignment: {key}");
                                     }
                                 } else {
-                                    // Not a simple name assignment, include it
-                                    result.push(stmt);
+                                    // Not a simple name assignment, check for duplicates
+                                    // Handle attribute assignments like User =
+                                    // services.auth.manager.User
+                                    let target_str = target.id.as_str();
+                                    let value_str = format!("{:?}", assign.value);
+                                    let key = format!("{target_str} = {value_str}");
+
+                                    if seen_assignments.insert(key.clone()) {
+                                        log::debug!(
+                                            "First occurrence of attribute assignment: {key}"
+                                        );
+                                        result.push(stmt);
+                                    } else {
+                                        log::debug!(
+                                            "Skipping duplicate attribute assignment: {key}"
+                                        );
+                                    }
                                 }
                             } else {
                                 // Target is not a simple name, include it
@@ -8142,8 +8239,8 @@ impl HybridStaticBundler {
                             // function/class and treat the assignment
                             // as a regular statement
                             log::debug!(
-                                "Assignment '{name}' conflicts with existing function/class, keeping \
-                                 function/class"
+                                "Assignment '{name}' conflicts with existing function/class, \
+                                 keeping function/class"
                             );
                             other_stmts.push(stmt);
                         } else {
@@ -10748,7 +10845,22 @@ impl HybridStaticBundler {
         // Apply renames and resolve import aliases in class body
         for body_stmt in &mut class_def_clone.body {
             self.resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);
-            self.rewrite_aliases_in_stmt(body_stmt, module_renames);
+
+            // Build a combined rename map that includes renames from all modules
+            // This is needed because global variables from other modules might be renamed
+            let mut combined_renames = module_renames.clone();
+
+            // Add renames from all modules to handle cross-module global variable renames
+            for (_other_module, other_renames) in ctx.module_renames.iter() {
+                for (original_name, renamed_name) in other_renames {
+                    // Only add if not already present (local module renames take precedence)
+                    if !combined_renames.contains_key(original_name) {
+                        combined_renames.insert(original_name.clone(), renamed_name.clone());
+                    }
+                }
+            }
+
+            self.rewrite_aliases_in_stmt(body_stmt, &combined_renames);
         }
 
         ctx.inlined_stmts.push(Stmt::ClassDef(class_def_clone));
@@ -10828,9 +10940,7 @@ impl HybridStaticBundler {
 
         // Skip self-referential assignments entirely - they're meaningless
         if is_self_referential {
-            log::debug!(
-                "Skipping self-referential assignment '{name}' in module '{module_name}'"
-            );
+            log::debug!("Skipping self-referential assignment '{name}' in module '{module_name}'");
             // Still need to track the rename for the symbol so namespace creation works
             // But we should check if there's already a rename for this symbol
             // (e.g., from a function or class definition)
@@ -11293,7 +11403,8 @@ impl HybridStaticBundler {
             // Skip if we've already added this argument name
             if seen_args.contains(original_name) {
                 log::debug!(
-                    "Skipping duplicate namespace argument '{original_name}' for module '{module_name}'"
+                    "Skipping duplicate namespace argument '{original_name}' for module \
+                     '{module_name}'"
                 );
                 continue;
             }

@@ -88,10 +88,6 @@ def shadow_test(validate: Any=None, process: Any=None, Logger: Any=None, result:
     logger = Logger_class("shadow_test") if Logger_class else None
     shadows.update({"validate_result": validation_result, "process_result": process_result, "logger_source": logger.source if logger else None})
     return shadows
-validate_2 = validate_2
-process_2 = process_2
-Logger_1 = Logger_1
-initialize_models_base = initialize
 """\nBase model functionality with relative import conflicts\n"""
 result_3 = {"model": "user"}
 connection_2 = None
@@ -144,15 +140,15 @@ class User_2:
 
     def authenticate(self, password: str) -> Dict[str, Any]:
         """Method with complex internal conflicts"""
-        validate = self.validate
-        process = self.process
+        validate_1 = self.validate
+        process_1 = self.process
         Logger_2 = self.Logger
         result_3 = {}
-        name_valid = validate("name", self.name)
-        email_valid = validate("email", self.email)
+        name_valid = validate_1("name", self.name)
+        email_valid = validate_1("email", self.email)
         password_valid = len(password) >= 4
         auth_data = {"name": self.name, "email": self.email, "password_length": len(password)}
-        process_result = process(auth_data)
+        process_result = process_1(auth_data)
         Logger_2.validate(f"auth_{self.name}")
         result_3 = {"user": self.name, "valid": name_valid and email_valid and password_valid, "process_result": process_result, "logger_context": Logger_2.context}
         return result_3
@@ -218,10 +214,6 @@ def complex_operation(User: Any=None, Logger: Any=None, process: Any=None, valid
         if logger:
             operation_result["created_logger"] = logger.context
     return operation_result
-process_3 = process_3
-validate_3 = validate_3
-User_2 = User_2
-Logger_2 = Logger_2
 """\nUser model with extensive naming conflicts across the project\n"""
 result_5 = 0
 User_4 = "helper_user_string"
@@ -288,8 +280,6 @@ def process_with_conflicts(data: Any, User: str="param_user", result: int=100, L
     validate_result = validate_5(data)
     local_result = {"data": data, "user_param": User_4, "result_param": result_5, "logger_param": Logger_3, "validation": validate_result, "connection_type": connection.connection_type}
     return local_result
-validate_5 = validate_5
-process_5 = process_5
 """\nUtility helpers module with extensive naming conflicts\n"""
 result_6 = []
 connection_3 = None
@@ -330,9 +320,8 @@ def connect_5():
     else:
         new_connection = connection_3
     return new_connection.connect()
-process_6 = process_6
 """\nDatabase connection module with naming conflicts\n"""
-models_base = types.SimpleNamespace(result=result_2, process=process_2, BaseModel=BaseModel, initialize=initialize_models_base, validate=validate_2, Logger=Logger_1, connect=connect_1, shadow_test=shadow_test)
+models_base = types.SimpleNamespace(result=result_2, process=process_2, BaseModel=BaseModel, initialize=initialize, validate=validate_2, Logger=Logger_1, connect=connect_1, shadow_test=shadow_test)
 def __cribo_init___cribo_6ccb3a_services_auth_manager():
     module = types.SimpleNamespace()
     DBConnection = Connection_5
