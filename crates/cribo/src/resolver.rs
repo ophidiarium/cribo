@@ -4,9 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use indexmap::{IndexMap, IndexSet};
-use log::debug;
+use log::{debug, warn};
 use ruff_python_stdlib::sys;
 
 use crate::config::Config;
@@ -350,6 +350,23 @@ impl ModuleResolver {
     /// 2. Check for file module (foo.py)
     /// 3. Check for namespace package (foo/ directory without __init__.py)
     pub fn resolve_module_path(&mut self, module_name: &str) -> Result<Option<PathBuf>> {
+        // For absolute imports, delegate to the context-aware version
+        if !module_name.starts_with('.') {
+            return self.resolve_module_path_with_context(module_name, None);
+        }
+
+        // Relative imports without context cannot be resolved
+        // Don't cache this result since it might be resolvable with context
+        warn!("Cannot resolve relative import '{module_name}' without module context");
+        Ok(None)
+    }
+
+    /// Resolve a module with optional current module context for relative imports
+    pub fn resolve_module_path_with_context(
+        &mut self,
+        module_name: &str,
+        current_module_path: Option<&Path>,
+    ) -> Result<Option<PathBuf>> {
         // Check cache first
         if let Some(cached_path) = self.module_cache.get(module_name) {
             return Ok(cached_path.clone());
@@ -357,13 +374,18 @@ impl ModuleResolver {
 
         let descriptor = ImportModuleDescriptor::from_module_name(module_name);
 
-        // For relative imports, we need the current module context
-        // For now, we'll handle only absolute imports
+        // Handle relative imports
         if descriptor.leading_dots > 0 {
-            // Relative imports need special handling with the current module context
-            // For now, cache as not found
-            self.module_cache.insert(module_name.to_string(), None);
-            return Ok(None);
+            if let Some(current_path) = current_module_path {
+                let resolved = self.resolve_relative_import(&descriptor, current_path)?;
+                // Don't cache relative imports as they depend on context
+                // Different modules might resolve the same relative import differently
+                return Ok(resolved);
+            } else {
+                // No context for relative import - don't cache this negative result
+                warn!("Cannot resolve relative import '{module_name}' without module context");
+                return Ok(None);
+            }
         }
 
         // Try each search directory in order
@@ -378,6 +400,72 @@ impl ModuleResolver {
 
         // Not found - cache the negative result
         self.module_cache.insert(module_name.to_string(), None);
+        Ok(None)
+    }
+
+    /// Resolve a relative import given the current module's path
+    fn resolve_relative_import(
+        &self,
+        descriptor: &ImportModuleDescriptor,
+        current_module_path: &Path,
+    ) -> Result<Option<PathBuf>> {
+        // Determine the base directory for the relative import
+        let mut base_dir = if current_module_path.is_file() {
+            // If current module is a file, start from its parent directory
+            current_module_path.parent().ok_or_else(|| {
+                anyhow!("Cannot get parent directory of {:?}", current_module_path)
+            })?
+        } else {
+            // If current module is a package directory, start from the directory itself
+            current_module_path
+        };
+
+        // Go up directories based on the number of dots
+        // One dot = current directory, two dots = parent directory, etc.
+        for _ in 1..descriptor.leading_dots {
+            base_dir = base_dir
+                .parent()
+                .ok_or_else(|| anyhow!("Too many dots in relative import - went above root"))?;
+        }
+
+        // If there are no name parts, we're importing the parent package itself
+        if descriptor.name_parts.is_empty() {
+            // Check if it's a package directory with __init__.py
+            let init_path = base_dir.join("__init__.py");
+            if init_path.exists() {
+                return Ok(Some(init_path));
+            }
+            // Otherwise, it might be a namespace package
+            if base_dir.is_dir() {
+                return Ok(Some(base_dir.to_path_buf()));
+            }
+            return Ok(None);
+        }
+
+        // Build the target path from the name parts
+        let target_path = descriptor
+            .name_parts
+            .iter()
+            .fold(base_dir.to_path_buf(), |path, part| path.join(part));
+
+        // Try the standard resolution order
+        // 1. Check for package (__init__.py)
+        let init_path = target_path.join("__init__.py");
+        if init_path.exists() {
+            return Ok(Some(init_path));
+        }
+
+        // 2. Check for module file (.py)
+        let py_path = target_path.with_extension("py");
+        if py_path.exists() {
+            return Ok(Some(py_path));
+        }
+
+        // 3. Check for namespace package (directory without __init__.py)
+        if target_path.is_dir() {
+            return Ok(Some(target_path));
+        }
+
         Ok(None)
     }
 
@@ -884,6 +972,101 @@ mod tests {
             resolver.classify_import("namespace_pkg"),
             ImportType::FirstParty
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_relative_import_resolution() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let root = temp_dir.path();
+
+        // Create a package structure:
+        // mypackage/
+        //   __init__.py
+        //   module1.py
+        //   subpackage/
+        //     __init__.py
+        //     module2.py
+        //     deeper/
+        //       __init__.py
+        //       module3.py
+
+        fs::create_dir_all(root.join("mypackage/subpackage/deeper"))?;
+        create_test_file(&root.join("mypackage/__init__.py"), "# Package init")?;
+        create_test_file(&root.join("mypackage/module1.py"), "# Module 1")?;
+        create_test_file(
+            &root.join("mypackage/subpackage/__init__.py"),
+            "# Subpackage init",
+        )?;
+        create_test_file(&root.join("mypackage/subpackage/module2.py"), "# Module 2")?;
+        create_test_file(
+            &root.join("mypackage/subpackage/deeper/__init__.py"),
+            "# Deeper init",
+        )?;
+        create_test_file(
+            &root.join("mypackage/subpackage/deeper/module3.py"),
+            "# Module 3",
+        )?;
+
+        let config = Config {
+            src: vec![root.to_path_buf()],
+            ..Default::default()
+        };
+        let mut resolver = ModuleResolver::new(config)?;
+
+        // Test relative import from module3.py
+        let module3_path = root.join("mypackage/subpackage/deeper/module3.py");
+
+        // Test "from . import module3" (same directory)
+        assert_eq!(
+            resolver.resolve_module_path_with_context(".module3", Some(&module3_path))?,
+            Some(root.join("mypackage/subpackage/deeper/module3.py"))
+        );
+
+        // Test "from .. import module2" (parent directory)
+        assert_eq!(
+            resolver.resolve_module_path_with_context("..module2", Some(&module3_path))?,
+            Some(root.join("mypackage/subpackage/module2.py"))
+        );
+
+        // Test "from ... import module1" (grandparent directory)
+        assert_eq!(
+            resolver.resolve_module_path_with_context("...module1", Some(&module3_path))?,
+            Some(root.join("mypackage/module1.py"))
+        );
+
+        // Test "from . import" (current package)
+        assert_eq!(
+            resolver.resolve_module_path_with_context(".", Some(&module3_path))?,
+            Some(root.join("mypackage/subpackage/deeper/__init__.py"))
+        );
+
+        // Test "from .. import" (parent package)
+        assert_eq!(
+            resolver.resolve_module_path_with_context("..", Some(&module3_path))?,
+            Some(root.join("mypackage/subpackage/__init__.py"))
+        );
+
+        // Test relative import from a package __init__.py
+        let subpackage_init = root.join("mypackage/subpackage/__init__.py");
+
+        // Test "from . import module2" from __init__.py
+        assert_eq!(
+            resolver.resolve_module_path_with_context(".module2", Some(&subpackage_init))?,
+            Some(root.join("mypackage/subpackage/module2.py"))
+        );
+
+        // Test "from .deeper import module3"
+        assert_eq!(
+            resolver.resolve_module_path_with_context(".deeper.module3", Some(&subpackage_init))?,
+            Some(root.join("mypackage/subpackage/deeper/module3.py"))
+        );
+
+        // Test error case: too many dots
+        let result =
+            resolver.resolve_module_path_with_context("....toomanydots", Some(&module3_path));
+        assert!(result.is_err() || result.expect("result should be Ok").is_none());
 
         Ok(())
     }
