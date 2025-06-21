@@ -34,6 +34,11 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --all-groups
 
+      - name: 'Install cargo nextest'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
