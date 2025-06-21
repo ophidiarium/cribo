@@ -7,7 +7,7 @@ input_file: crates/cribo/tests/fixtures/xfail_module_shadowing/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-def __cribo_init___cribo_f506fe_test_import():
+def __cribo_init___cribo_580ff9_test_import():
     module = types.SimpleNamespace()
     """Test module that tries to import pandera.polars.\n\nThis demonstrates what happens when we have a local 'pandera' module\nthat shadows the third-party pandera package, and we try to import\na submodule that only exists in the third-party package.\n"""
     print("Starting test_import.py")
@@ -22,14 +22,14 @@ def __cribo_init___cribo_f506fe_test_import():
     try:
         print(f"\nImported pandera: {pandera}")
         print(f"pandera.__version__: {pandera.__version__}")
-        if hasattr(pandera, 'local_function'):
+        if hasattr(pandera, "local_function"):
             print(f"This is the local pandera module: {pandera.local_function()}")
         else:
             print("This is the third-party pandera module")
     except ImportError as e:
         print(f"\nFailed to import pandera: {e}")
     return module
-def __cribo_init___cribo_c0a6cc_pandera():
+def __cribo_init___cribo_b061eb_pandera():
     module = types.SimpleNamespace()
     """First-party module that shadows the third-party pandera package."""
     print("Loading first-party pandera module")
@@ -40,8 +40,8 @@ def __cribo_init___cribo_c0a6cc_pandera():
         return "This is from the local pandera module"
     module.local_function = local_function
     return module
-_cribo_temp_pandera = __cribo_init___cribo_c0a6cc_pandera()
-_cribo_temp_test_import = __cribo_init___cribo_f506fe_test_import()
+_cribo_temp_pandera = __cribo_init___cribo_b061eb_pandera()
+_cribo_temp_test_import = __cribo_init___cribo_580ff9_test_import()
 pandera = _cribo_temp_pandera
 test_import = _cribo_temp_test_import
 """Main entry point that imports test_import to demonstrate module shadowing behavior."""
