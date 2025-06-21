@@ -339,6 +339,7 @@ dependencies = [
  "indexmap",
  "insta",
  "log",
+ "once_cell",
  "petgraph",
  "pretty_assertions",
  "ruff_linter",
@@ -354,7 +355,6 @@ dependencies = [
  "sha2",
  "tempfile",
  "toml",
- "walkdir",
 ]
 
 [[package]]

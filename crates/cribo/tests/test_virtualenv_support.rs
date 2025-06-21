@@ -1,11 +1,13 @@
 #![allow(clippy::disallowed_methods)]
 
-use serial_test::serial;
 use std::fs;
-use tempfile::TempDir;
 
-use cribo::config::Config;
-use cribo::resolver::{ImportType, ModuleResolver, VirtualEnvGuard};
+use cribo::{
+    config::Config,
+    resolver::{ImportType, ModuleResolver, VirtualEnvGuard},
+};
+use serial_test::serial;
+use tempfile::TempDir;
 
 #[test]
 fn test_virtualenv_import_classification() {
@@ -52,7 +54,7 @@ fn test_virtualenv_import_classification() {
 
     // Create resolver with VIRTUAL_ENV override
     let virtualenv_str = virtualenv_dir.to_string_lossy();
-    let resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
 
     // Test that src modules are classified as first-party
     assert_eq!(
@@ -112,7 +114,7 @@ fn test_virtualenv_without_env_set() {
     };
 
     // Create resolver without VIRTUAL_ENV
-    let resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
 
     // Test that src modules are still classified as first-party
     assert_eq!(
@@ -163,9 +165,9 @@ fn test_virtualenv_scan_directories_exclusion() {
     // Create resolver with VIRTUAL_ENV override
     let virtualenv_str = virtualenv_dir.to_string_lossy();
     let resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
-    let scan_dirs = resolver.get_scan_directories_with_overrides(None, Some(&virtualenv_str));
+    let scan_dirs = resolver.get_search_directories();
 
-    // VIRTUAL_ENV directories should NOT be in scan directories (they're for classification only)
+    // Entry directory would be first if set, then src directories
     let expected_src = src_dir.canonicalize().unwrap_or(src_dir);
     assert!(
         scan_dirs.contains(&expected_src),
@@ -202,9 +204,9 @@ fn test_virtualenv_guard() {
                 // Log the restoration failure but don't fail the test
                 // The core functionality (unset working) was already verified
                 eprintln!(
-                    "Warning: VIRTUAL_ENV restoration may have failed. Expected '{}', got {:?}. \
-                     This is a known flaky behavior in environment variable cleanup.",
-                    expected_value, restored_value
+                    "Warning: VIRTUAL_ENV restoration may have failed. Expected \
+                     '{expected_value}', got {restored_value:?}. This is a known flaky behavior \
+                     in environment variable cleanup."
                 );
             }
         }
@@ -228,7 +230,7 @@ fn test_virtualenv_empty_or_nonexistent() {
 
     // Test with empty VIRTUAL_ENV
     let resolver1 = ModuleResolver::new_with_virtualenv(config.clone(), Some("")).unwrap();
-    let scan_dirs1 = resolver1.get_scan_directories_with_overrides(None, Some(""));
+    let scan_dirs1 = resolver1.get_search_directories();
 
     // Should only contain configured src directories
     assert_eq!(scan_dirs1.len(), 1);
@@ -236,7 +238,8 @@ fn test_virtualenv_empty_or_nonexistent() {
     assert!(scan_dirs1.contains(&expected_path));
 
     // Test with nonexistent VIRTUAL_ENV directory
-    let resolver2 = ModuleResolver::new_with_virtualenv(config, Some("/nonexistent/venv")).unwrap();
+    let mut resolver2 =
+        ModuleResolver::new_with_virtualenv(config, Some("/nonexistent/venv")).unwrap();
     let unknown_classification = resolver2.classify_import("unknown_module");
 
     // Should still classify unknown modules as third-party
@@ -278,7 +281,8 @@ fn test_virtualenv_multiple_python_versions() {
 
         // Create resolver with VIRTUAL_ENV override
         let virtualenv_str = virtualenv_dir.to_string_lossy();
-        let resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
+        let mut resolver =
+            ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
 
         // Both modules should be classified as third-party
         assert_eq!(
@@ -333,7 +337,7 @@ fn test_combined_pythonpath_and_virtualenv() {
     // Create resolver with both PYTHONPATH and VIRTUAL_ENV overrides
     let virtualenv_str = virtualenv_dir.to_string_lossy();
     let pythonpath_str = pythonpath_dir.to_string_lossy();
-    let resolver =
+    let mut resolver =
         ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), Some(&virtualenv_str))
             .unwrap();
 
@@ -420,15 +424,17 @@ fn test_module_shadowing_priority() {
     // Test with resolver that includes both PYTHONPATH and VIRTUAL_ENV
     let virtualenv_str = virtualenv_dir.to_string_lossy();
     let pythonpath_str = pythonpath_dir.to_string_lossy();
-    let resolver =
+    let mut resolver =
         ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), Some(&virtualenv_str))
             .unwrap();
 
-    // Test shadowing cases - first-party modules should take priority over virtual environment packages
+    // Test shadowing cases - first-party modules should take priority over virtual environment
+    // packages
     assert_eq!(
         resolver.classify_import("requests"),
         ImportType::FirstParty,
-        "Local src/requests.py should shadow virtual environment requests package (first-party wins)"
+        "Local src/requests.py should shadow virtual environment requests package (first-party \
+         wins)"
     );
 
     assert_eq!(
@@ -463,20 +469,27 @@ fn test_module_shadowing_priority() {
         "Submodule of non-shadowed virtual environment package should be third-party"
     );
 
-    // Verify that the first-party modules are actually discovered
-    let first_party_modules = resolver.get_first_party_modules();
+    // Verify that the first-party modules can be resolved
+    let config2 = Config {
+        src: vec![src_dir.clone()],
+        ..Default::default()
+    };
+    let mut resolver_mut =
+        ModuleResolver::new_with_overrides(config2, Some(&pythonpath_str), Some(&virtualenv_str))
+            .unwrap();
     assert!(
-        first_party_modules.contains("requests"),
-        "requests should be discovered as first-party module"
+        resolver_mut
+            .resolve_module_path("requests")
+            .unwrap()
+            .is_some(),
+        "requests should be resolvable as first-party module"
     );
     assert!(
-        first_party_modules.contains("numpy"),
-        "numpy should be discovered as first-party module"
+        resolver_mut.resolve_module_path("numpy").unwrap().is_some(),
+        "numpy should be resolvable as first-party module"
     );
-    assert!(
-        !first_party_modules.contains("flask"),
-        "flask should NOT be discovered as first-party module"
-    );
+    // flask is in virtual environment, but we can't resolve it directly (it's just for
+    // classification)
 }
 
 #[test]
@@ -524,7 +537,7 @@ fn test_package_vs_module_shadowing() {
     };
 
     let virtualenv_str = virtualenv_dir.to_string_lossy();
-    let resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, Some(&virtualenv_str)).unwrap();
 
     // Test Case 1: Local module mylib.py shadows venv package mylib/
     assert_eq!(
@@ -549,15 +562,23 @@ fn test_package_vs_module_shadowing() {
         "Local anotherlib package should shadow virtual environment anotherlib.py module"
     );
 
-    // Verify first-party discovery
-    let first_party_modules = resolver.get_first_party_modules();
+    // Verify first-party modules can be resolved
+    let config2 = Config {
+        src: vec![src_dir.clone()],
+        ..Default::default()
+    };
+    let mut resolver_mut =
+        ModuleResolver::new_with_virtualenv(config2, Some(&virtualenv_str)).unwrap();
     assert!(
-        first_party_modules.contains("mylib"),
-        "mylib should be discovered as first-party"
+        resolver_mut.resolve_module_path("mylib").unwrap().is_some(),
+        "mylib should be resolvable as first-party"
     );
     assert!(
-        first_party_modules.contains("anotherlib"),
-        "anotherlib should be discovered as first-party"
+        resolver_mut
+            .resolve_module_path("anotherlib")
+            .unwrap()
+            .is_some(),
+        "anotherlib should be resolvable as first-party"
     );
 }
 
@@ -605,7 +626,7 @@ fn test_venv_fallback_detection() {
     };
 
     // Create resolver without VIRTUAL_ENV override (should use fallback detection)
-    let resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
 
     // Test that packages from .venv are detected as third-party
     assert_eq!(
@@ -628,10 +649,10 @@ fn test_venv_fallback_detection() {
     );
 
     // Restore original directory (do this before temp_dir is dropped)
-    if let Some(dir) = original_dir {
-        if dir.exists() {
-            let _ = std::env::set_current_dir(&dir);
-        }
+    if let Some(dir) = original_dir
+        && dir.exists()
+    {
+        let _ = std::env::set_current_dir(&dir);
     }
 }
 
@@ -687,7 +708,7 @@ fn test_venv_fallback_priority_order() {
         ..Default::default()
     };
 
-    let resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
 
     // Both packages should be detected since we scan all found virtual environments
     assert_eq!(
@@ -703,10 +724,10 @@ fn test_venv_fallback_priority_order() {
     );
 
     // Restore original directory - handle case where it might not exist
-    if let Some(dir) = original_dir {
-        if dir.exists() {
-            let _ = std::env::set_current_dir(&dir);
-        }
+    if let Some(dir) = original_dir
+        && dir.exists()
+    {
+        let _ = std::env::set_current_dir(&dir);
     }
 }
 
@@ -757,7 +778,8 @@ fn test_explicit_virtualenv_overrides_fallback() {
 
     // Test with explicit VIRTUAL_ENV override
     let explicit_venv_str = explicit_venv.to_string_lossy();
-    let resolver = ModuleResolver::new_with_virtualenv(config, Some(&explicit_venv_str)).unwrap();
+    let mut resolver =
+        ModuleResolver::new_with_virtualenv(config, Some(&explicit_venv_str)).unwrap();
 
     // Should only find package from explicit virtual environment
     assert_eq!(
@@ -774,10 +796,10 @@ fn test_explicit_virtualenv_overrides_fallback() {
     );
 
     // Restore original directory
-    if let Some(dir) = original_dir {
-        if dir.exists() {
-            let _ = std::env::set_current_dir(dir);
-        }
+    if let Some(dir) = original_dir
+        && dir.exists()
+    {
+        let _ = std::env::set_current_dir(dir);
     }
 }
 
@@ -803,7 +825,7 @@ fn test_no_virtualenv_fallback_when_none_exist() {
         ..Default::default()
     };
 
-    let resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
 
     // Should still work for first-party modules
     assert_eq!(
@@ -827,10 +849,10 @@ fn test_no_virtualenv_fallback_when_none_exist() {
     );
 
     // Restore original directory
-    if let Some(dir) = original_dir {
-        if dir.exists() {
-            let _ = std::env::set_current_dir(dir);
-        }
+    if let Some(dir) = original_dir
+        && dir.exists()
+    {
+        let _ = std::env::set_current_dir(dir);
     }
 }
 
@@ -875,7 +897,7 @@ fn test_invalid_venv_directories_ignored() {
         ..Default::default()
     };
 
-    let resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
+    let mut resolver = ModuleResolver::new_with_virtualenv(config, None).unwrap();
 
     // Should find package from valid virtual environment
     assert_eq!(
@@ -892,9 +914,9 @@ fn test_invalid_venv_directories_ignored() {
     );
 
     // Restore original directory
-    if let Some(dir) = original_dir {
-        if dir.exists() {
-            let _ = std::env::set_current_dir(dir);
-        }
+    if let Some(dir) = original_dir
+        && dir.exists()
+    {
+        let _ = std::env::set_current_dir(dir);
     }
 }

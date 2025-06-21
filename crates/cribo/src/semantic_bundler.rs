@@ -3,6 +3,8 @@
 //! This module leverages ruff's existing semantic analysis infrastructure
 //! to detect symbol conflicts across modules during bundling.
 
+use std::path::Path;
+
 use anyhow::Result;
 use log;
 use ruff_linter::source_kind::SourceKind;
@@ -13,9 +15,7 @@ use ruff_python_semantic::{
 };
 use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use ruff_text_size::{Ranged, TextRange};
-use rustc_hash::FxHashMap as FxIndexMap;
-use rustc_hash::FxHashSet as FxIndexSet;
-use std::path::Path;
+use rustc_hash::{FxHashMap as FxIndexMap, FxHashSet as FxIndexSet};
 
 use crate::cribo_graph::ModuleId;
 
@@ -204,7 +204,7 @@ impl<'a> SemanticModelBuilder<'a> {
         let scope = self.semantic.current_scope_mut();
         scope.add(name, binding_id);
 
-        log::trace!("Added binding '{}' with ID {:?}", name, binding_id);
+        log::trace!("Added binding '{name}' with ID {binding_id:?}");
         Ok(binding_id)
     }
 
@@ -229,26 +229,26 @@ impl<'a> SemanticModelBuilder<'a> {
             match &binding.kind {
                 BindingKind::ClassDefinition(_) => {
                     if !name.starts_with('_') || name.starts_with("__") {
-                        log::trace!("Adding class symbol: {}", name);
+                        log::trace!("Adding class symbol: {name}");
                         symbols.insert(name.to_string());
                     }
                 }
                 BindingKind::FunctionDefinition(_) => {
                     if !name.starts_with('_') || name.starts_with("__") {
-                        log::trace!("Adding function symbol: {}", name);
+                        log::trace!("Adding function symbol: {name}");
                         symbols.insert(name.to_string());
                     }
                 }
                 BindingKind::Assignment => {
                     // Include module-level assignments (variables)
                     if !name.starts_with('_') {
-                        log::trace!("Adding assignment symbol: {}", name);
+                        log::trace!("Adding assignment symbol: {name}");
                         symbols.insert(name.to_string());
                     }
                 }
                 // Skip imports, builtins, and other binding types for symbol extraction
                 BindingKind::Builtin | BindingKind::Import(_) | BindingKind::FromImport(_) => {
-                    log::trace!("Skipping import/builtin binding: {}", name);
+                    log::trace!("Skipping import/builtin binding: {name}");
                 }
                 _ => {
                     log::trace!(
@@ -260,7 +260,7 @@ impl<'a> SemanticModelBuilder<'a> {
             }
         }
 
-        log::trace!("Final extracted symbols: {:?}", symbols);
+        log::trace!("Final extracted symbols: {symbols:?}");
         Ok(symbols)
     }
 }
@@ -375,7 +375,7 @@ impl SymbolRegistry {
         original: &str,
         suffix: usize,
     ) -> String {
-        let new_name = format!("{}_{}", original, suffix);
+        let new_name = format!("{original}_{suffix}");
         self.renames
             .insert((module_id, original.to_string()), new_name.clone());
         new_name
@@ -429,7 +429,7 @@ pub struct ModuleGlobalInfo {
     /// Locations where globals are read
     pub global_reads: FxIndexMap<String, Vec<TextRange>>,
 
-    /// Locations where globals are written  
+    /// Locations where globals are written
     pub global_writes: FxIndexMap<String, Vec<TextRange>>,
 
     /// Functions that use global statements
@@ -645,6 +645,14 @@ impl<'a> GlobalUsageVisitor<'a> {
                 // Check if we're assigning to a global
                 if self.current_function.is_some() {
                     self.track_global_assignments(&assign.targets);
+                }
+                // Statement processed
+            }
+            Stmt::AugAssign(aug_assign) => {
+                // Check if we're augmented assigning to a global
+                if self.current_function.is_some() {
+                    // AugAssign has a single target, not a list
+                    self.track_global_assignments(&[(*aug_assign.target).clone()]);
                 }
                 // Statement processed
             }

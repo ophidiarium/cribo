@@ -1,5 +1,6 @@
-use indexmap::IndexSet;
 use std::path::PathBuf;
+
+use indexmap::IndexSet;
 
 pub trait Combine {
     /// Combine two values, preferring the values in `self`.

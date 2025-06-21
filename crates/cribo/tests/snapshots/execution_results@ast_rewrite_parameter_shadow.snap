@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/ast_rewrite_parameter_shadow/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Processing: Alice\nConnection string: postgres://localhost\n20\nAdded user: Alice\nAdded connection: localhost\nParam: parameter_value, Global: global_result\nComplex shadowing result: {'user_type': 'DynamicUser', 'connection_callable': 'dynamic_connection', 'result_list': 3}\nGlobal result value: global_result\nUser class accessible: <class 'models.User'>\nConnection class accessible: <class 'models.Connection'>",
+    stderr: "",
+}

@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/ast_rewriting_globals_collision/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Comprehensive AST rewriter test completed\nFinal results: {'process_results': ['db_process: database_data', 'main_process: utility_data', 'auth_process: auth_data'], 'validation_results': ['main_validate: local_data', 'auth_validate: auth_data', 'main_validate: util_data'], 'user_types': ['auth_type', 'model_type', 'service_type'], 'logger_messages': ['utils_logger_util', 'user_logger_model'], 'base_init': 'base_initialized', 'total': 'db_process: database_datamain_process: utility_dataauth_process: auth_data42'}",
+    stderr: "",
+}

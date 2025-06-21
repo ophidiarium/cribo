@@ -33,4 +33,6 @@ class Worker:
         status = "working"
         counter += 1
         # Nested f-string expressions with globals
-        return f"Started task: {tasks[-1]} (total: {len(tasks)}, status: {status.upper()})"
+        return (
+            f"Started task: {tasks[-1]} (total: {len(tasks)}, status: {status.upper()})"
+        )
