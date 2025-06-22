@@ -2437,6 +2437,7 @@ impl HybridStaticBundler {
         &mut self,
         modules: Vec<(String, ModModule, PathBuf, String)>,
         graph: &DependencyGraph,
+        tree_shaker: Option<&crate::tree_shaking::TreeShaker>,
     ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
         let mut trimmed_modules = Vec::new();
 
@@ -2449,7 +2450,118 @@ impl HybridStaticBundler {
 
             // Get unused imports from the graph
             if let Some(module_dep_graph) = graph.get_module_by_name(&module_name) {
-                let unused_imports = module_dep_graph.find_unused_imports(is_init_py);
+                let mut unused_imports = module_dep_graph.find_unused_imports(is_init_py);
+
+                // If tree shaking is enabled, also check if imported symbols were removed
+                // Note: We only apply tree-shaking logic to "from module import symbol" style
+                // imports, not to "import module" style imports, since module
+                // imports set up namespace objects
+                if let Some(shaker) = tree_shaker {
+                    // Only apply tree-shaking-aware import removal if tree shaking is actually
+                    // enabled Get the symbols that survive tree-shaking for
+                    // this module
+                    let used_symbols = shaker.get_used_symbols_for_module(&module_name);
+
+                    // Check each import to see if it's only used by tree-shaken code
+                    let import_items = module_dep_graph.get_all_import_items();
+                    for (item_id, import_item) in import_items {
+                        match &import_item.item_type {
+                            crate::cribo_graph::ItemType::FromImport {
+                                module: from_module,
+                                names,
+                                ..
+                            } => {
+                                // For from imports, check each imported name
+                                for (imported_name, alias_opt) in names {
+                                    let local_name = alias_opt.as_ref().unwrap_or(imported_name);
+
+                                    // Skip if already marked as unused
+                                    if unused_imports.iter().any(|u| u.name == *local_name) {
+                                        continue;
+                                    }
+
+                                    // Skip if this is a re-export (in __all__ or explicit
+                                    // re-export)
+                                    if import_item.reexported_names.contains(local_name)
+                                        || module_dep_graph.is_in_all_export(local_name)
+                                    {
+                                        log::debug!(
+                                            "Skipping tree-shaking for re-exported import \
+                                             '{local_name}' from '{from_module}'"
+                                        );
+                                        continue;
+                                    }
+
+                                    // Check if this import is only used by symbols that were
+                                    // tree-shaken
+                                    let mut used_by_surviving_code = false;
+
+                                    // First check if any surviving symbol uses this import
+                                    for symbol in &used_symbols {
+                                        if module_dep_graph
+                                            .does_symbol_use_import(symbol, local_name)
+                                        {
+                                            used_by_surviving_code = true;
+                                            break;
+                                        }
+                                    }
+
+                                    // Also check if the module has side effects and uses this
+                                    // import at module level
+                                    if !used_by_surviving_code
+                                        && shaker.module_has_side_effects(&module_name)
+                                    {
+                                        // Check if any module-level code uses this import
+                                        for item in module_dep_graph.items.values() {
+                                            if matches!(
+                                                item.item_type,
+                                                crate::cribo_graph::ItemType::Expression
+                                                    | crate::cribo_graph::ItemType::Assignment { .. }
+                                            ) && item.read_vars.contains(local_name)
+                                            {
+                                                used_by_surviving_code = true;
+                                                log::debug!(
+                                                    "Import '{local_name}' is used by \
+                                                     module-level code in module with side effects"
+                                                );
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    if !used_by_surviving_code {
+                                        // This import is not used by any surviving symbol or
+                                        // module-level code
+                                        log::debug!(
+                                            "Import '{local_name}' from '{from_module}' is not \
+                                             used by surviving code after tree-shaking"
+                                        );
+                                        unused_imports.push(crate::cribo_graph::UnusedImportInfo {
+                                            item_id,
+                                            name: local_name.clone(),
+                                            module: from_module.clone(),
+                                            is_reexport: import_item
+                                                .reexported_names
+                                                .contains(local_name),
+                                        });
+                                    }
+                                }
+                            }
+                            crate::cribo_graph::ItemType::Import { .. } => {
+                                // Skip regular imports (import module) - they should not be subject
+                                // to tree-shaking because they set
+                                // up namespace objects.
+                                // They will be handled by the regular unused import detection
+                                // above.
+                                log::debug!(
+                                    "Skipping tree-shaking analysis for regular import (handled \
+                                     by regular unused detection)"
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
 
                 if !unused_imports.is_empty() {
                     log::debug!(
@@ -2597,7 +2709,11 @@ impl HybridStaticBundler {
         }
 
         // Trim unused imports from all modules
-        let mut modules = self.trim_unused_imports_from_modules(params.modules, params.graph)?;
+        let mut modules = self.trim_unused_imports_from_modules(
+            params.modules,
+            params.graph,
+            params.tree_shaker,
+        )?;
 
         // Index all module ASTs to assign node indices and initialize transformation context
         log::debug!("Indexing {} modules", modules.len());
@@ -4472,7 +4588,8 @@ impl HybridStaticBundler {
 
                         if module_has_all_export {
                             log::debug!(
-                                "Including re-exported symbol {symbol} from module {full_module_name} (in __all__)"
+                                "Including re-exported symbol {symbol} from module \
+                                 {full_module_name} (in __all__)"
                             );
                             true
                         } else {
@@ -4507,8 +4624,8 @@ impl HybridStaticBundler {
                 // tree-shaking
                 if !self.renamed_symbol_exists(&renamed_symbol, symbol_renames) {
                     log::warn!(
-                        "Skipping namespace assignment {attr_name}.{symbol} = {renamed_symbol} - renamed symbol doesn't exist \
-                         after tree-shaking"
+                        "Skipping namespace assignment {attr_name}.{symbol} = {renamed_symbol} - \
+                         renamed symbol doesn't exist after tree-shaking"
                     );
                     continue;
                 }
@@ -11454,7 +11571,8 @@ impl HybridStaticBundler {
 
                         if module_has_all_export {
                             log::debug!(
-                                "Including re-exported symbol {symbol} from module {module_name} (in __all__)"
+                                "Including re-exported symbol {symbol} from module {module_name} \
+                                 (in __all__)"
                             );
                             true
                         } else {

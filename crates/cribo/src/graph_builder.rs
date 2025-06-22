@@ -534,7 +534,8 @@ impl<'a> GraphBuilder<'a> {
         self.collect_vars_in_expr_with_attrs(expr, &mut read_vars, &mut attribute_accesses);
 
         log::debug!(
-            "Processing expression statement, read_vars: {read_vars:?}, attribute_accesses: {attribute_accesses:?}"
+            "Processing expression statement, read_vars: {read_vars:?}, attribute_accesses: \
+             {attribute_accesses:?}"
         );
 
         // Check if this is a docstring or other constant expression

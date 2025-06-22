@@ -393,17 +393,6 @@ def __cribo_init___cribo_ee1d45_services_auth_manager():
     global _cribo_services_auth_manager_result
     _cribo_services_auth_manager_result = result
     return module
-def __cribo_init___cribo_62c387_core():
-    module = types.SimpleNamespace()
-    CoreLogger = Logger_4
-    core_process = process_6
-    result = "core_package_result"
-    module.result = result
-    Logger = CoreLogger
-    module.Logger = Logger
-    utils = types.SimpleNamespace()
-    database = types.SimpleNamespace()
-    return module
 core = types.SimpleNamespace()
 core.__name__ = 'core'
 core.database = types.SimpleNamespace()
@@ -414,25 +403,18 @@ services = types.SimpleNamespace()
 services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
 _cribo_temp_services_auth_manager = __cribo_init___cribo_ee1d45_services_auth_manager()
-_cribo_temp_core = __cribo_init___cribo_62c387_core()
 services.auth.manager = _cribo_temp_services_auth_manager
-core = _cribo_temp_core
 core_validate = validate_6
 UserLogger = Logger_2
-User = User_2
-Logger = Logger_2
 util_process = process_6
 UtilLogger = Logger_4
-User = services.auth.manager.User
-process = services.auth.manager.process
-validate = services.auth.manager.validate
-Connection = Connection_6
 helper_validate = validate_6
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
 auth_process = services.auth.manager.process
 auth_validate = services.auth.manager.validate
 UserModel = User_2
+Logger = Logger_2
 base = models_base
 result_1 = 42
 result = result_1

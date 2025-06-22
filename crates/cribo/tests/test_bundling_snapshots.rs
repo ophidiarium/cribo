@@ -129,6 +129,7 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
 
     for message in &result.messages {
         let location = message.compute_start_location();
+        let rule_code = message.noqa_code().map(|c| c.to_string());
         let rule_name = message.name();
         let violation_info = format!(
             "Line {}: {} - {}",
@@ -137,9 +138,9 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
             message.body()
         );
 
-        match rule_name {
-            "F401" => f401_violations.push(violation_info),
-            "F404" => f404_violations.push(violation_info),
+        match rule_code.as_deref() {
+            Some("F401") => f401_violations.push(violation_info),
+            Some("F404") => f404_violations.push(violation_info),
             _ => other_violations.push(violation_info),
         }
     }

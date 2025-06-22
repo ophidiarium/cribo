@@ -190,8 +190,9 @@ impl TreeShaker {
         let is_package = has_submodules || (level > 1 && parts.len() > 1);
 
         debug!(
-            "resolve_relative_module: current_module='{current_module}', relative_module='{relative_module}', level={level}, \
-             parts={parts:?}, is_package={is_package}"
+            "resolve_relative_module: current_module='{current_module}', \
+             relative_module='{relative_module}', level={level}, parts={parts:?}, \
+             is_package={is_package}"
         );
 
         // Calculate how many levels to actually remove
@@ -221,7 +222,8 @@ impl TreeShaker {
         let relative_part = relative_module.trim_start_matches('.');
 
         debug!(
-            "levels_to_remove={levels_to_remove}, parent_parts={parent_parts:?}, relative_part='{relative_part}'"
+            "levels_to_remove={levels_to_remove}, parent_parts={parent_parts:?}, \
+             relative_part='{relative_part}'"
         );
 
         // Combine parent parts with relative module
@@ -295,9 +297,7 @@ impl TreeShaker {
                     if let Some((source_module, original_name)) =
                         self.resolve_import_alias(entry_module, var)
                     {
-                        debug!(
-                            "Found import alias: {var} -> {source_module}::{original_name}"
-                        );
+                        debug!("Found import alias: {var} -> {source_module}::{original_name}");
                         worklist.push_back((source_module, original_name));
                     } else if let Some(module) = self.find_defining_module(var) {
                         debug!("Found direct symbol usage: {var} in module {module}");
@@ -336,16 +336,15 @@ impl TreeShaker {
                         // This is an imported symbol with attribute access
                         for attr in accessed_attrs {
                             debug!(
-                                "Found attribute access: {base_var}.{attr} -> marking {source_module}::{attr} as used"
+                                "Found attribute access: {base_var}.{attr} -> marking \
+                                 {source_module}::{attr} as used"
                             );
                             worklist.push_back((source_module.clone(), attr.clone()));
                         }
                     } else if self.module_items.contains_key(base_var) {
                         // Direct module import like `import greetings`
                         for attr in accessed_attrs {
-                            debug!(
-                                "Found direct module attribute access: {base_var}.{attr}"
-                            );
+                            debug!("Found direct module attribute access: {base_var}.{attr}");
                             worklist.push_back((base_var.clone(), attr.clone()));
                         }
                     }
@@ -382,15 +381,17 @@ impl TreeShaker {
                                     for exported_symbol in &item.read_vars {
                                         if !exported_symbol.starts_with('_') {
                                             debug!(
-                                                "Marking re-exported symbol {exported_symbol} from directly \
-                                                 imported module {module_name} as used (from __all__)"
+                                                "Marking re-exported symbol {exported_symbol} \
+                                                 from directly imported module {module_name} as \
+                                                 used (from __all__)"
                                             );
                                             // First, try to find where this symbol comes from
                                             if let Some((source_module, original_name)) = self
                                                 .resolve_import_alias(module_name, exported_symbol)
                                             {
                                                 debug!(
-                                                    "Re-exported symbol {exported_symbol} comes from {source_module}::{original_name}"
+                                                    "Re-exported symbol {exported_symbol} comes \
+                                                     from {source_module}::{original_name}"
                                                 );
                                                 worklist.push_back((source_module, original_name));
                                             }
@@ -424,7 +425,8 @@ impl TreeShaker {
                                 self.resolve_import_alias(module_name, var)
                             {
                                 debug!(
-                                    "Found import alias in side-effect module: {var} -> {source_module}::{original_name}"
+                                    "Found import alias in side-effect module: {var} -> \
+                                     {source_module}::{original_name}"
                                 );
                                 worklist.push_back((source_module, original_name));
                             } else if let Some(module) = self.find_defining_module(var) {
@@ -502,7 +504,8 @@ impl TreeShaker {
                             from_module.clone()
                         };
                         debug!(
-                            "Symbol {symbol} is re-exported from {resolved_module}::{original_name}"
+                            "Symbol {symbol} is re-exported from \
+                             {resolved_module}::{original_name}"
                         );
                         worklist.push_back((resolved_module, original_name.clone()));
                         // Also mark the import itself as used
@@ -641,7 +644,8 @@ impl TreeShaker {
                 // This is an imported symbol with attribute access
                 for attr in accessed_attrs {
                     debug!(
-                        "Found attribute access in {current_module}: {base_var}.{attr} -> marking {source_module}::{attr} as used"
+                        "Found attribute access in {current_module}: {base_var}.{attr} -> marking \
+                         {source_module}::{attr} as used"
                     );
                     worklist.push_back((source_module.clone(), attr.clone()));
                 }
@@ -649,7 +653,8 @@ impl TreeShaker {
                 // Direct module reference
                 for attr in accessed_attrs {
                     debug!(
-                        "Found direct module attribute access in {current_module}: {base_var}.{attr}"
+                        "Found direct module attribute access in {current_module}: \
+                         {base_var}.{attr}"
                     );
                     worklist.push_back((base_var.clone(), attr.clone()));
                 }
@@ -760,11 +765,34 @@ impl TreeShaker {
 
                 // 3. It's an import that's still needed
                 let is_needed_import = match &item.item_type {
-                    ItemType::Import { module, .. } | ItemType::FromImport { module, .. } => {
-                        // Check if any imported name is still used
+                    ItemType::Import { module, .. } => {
+                        // For regular imports, check if the module is used
                         item.imported_names
                             .iter()
                             .any(|name| self.is_import_required(module_name, name, module))
+                    }
+                    ItemType::FromImport { module, names, .. } => {
+                        // For from imports, check both:
+                        // a) If any imported name is used by surviving symbols
+                        // b) If the imported name itself is a surviving symbol (for imports of
+                        // classes/functions)
+                        names.iter().any(|(imported_name, alias_opt)| {
+                            let local_name = alias_opt.as_ref().unwrap_or(imported_name);
+
+                            // Check if this import is required by other surviving symbols
+                            if self.is_import_required(module_name, local_name, module) {
+                                return true;
+                            }
+
+                            // Check if the imported symbol itself is marked as used
+                            // This handles cases where we import a class/function that gets removed
+                            if let Some(source_module) = self.find_defining_module(imported_name) {
+                                return self.is_symbol_used(&source_module, imported_name);
+                            }
+
+                            // For third-party imports, check if the local name is in used symbols
+                            self.is_symbol_used(module_name, local_name)
+                        })
                     }
                     _ => false,
                 };

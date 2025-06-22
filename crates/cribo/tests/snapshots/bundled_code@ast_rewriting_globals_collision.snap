@@ -91,14 +91,6 @@ def __cribo_init___cribo_0a162a_models_base():
     return module
 def __cribo_init___cribo_293a98_models():
     module = types.SimpleNamespace()
-    _cribo_module_models_user = _cribo_temp_models_user
-    User = _cribo_module_models_user.User
-    module.User = User
-    process_user = _cribo_module_models_user.process_user
-    module.process_user = process_user
-    _cribo_module_models_base = _cribo_temp_models_base
-    initialize = _cribo_module_models_base.initialize
-    module.initialize = initialize
     Logger = lambda x: f"models_logger_{x}"
     module.Logger = Logger
     process = "models_process"
@@ -174,13 +166,6 @@ def __cribo_init___cribo_1f9e6c_models_user():
     return module
 def __cribo_init___cribo_84bf42_services_auth():
     module = types.SimpleNamespace()
-    _cribo_module_services_auth_manager = _cribo_temp_services_auth_manager
-    User = _cribo_module_services_auth_manager.User
-    module.User = User
-    process = _cribo_module_services_auth_manager.process
-    module.process = process
-    validate = _cribo_module_services_auth_manager.validate
-    module.validate = validate
     Connection = lambda: "auth_package_connection"
     module.Connection = Connection
     Logger = 42
@@ -188,8 +173,6 @@ def __cribo_init___cribo_84bf42_services_auth():
     return module
 def __cribo_init___cribo_b2dda7_services():
     module = types.SimpleNamespace()
-    _cribo_module_services_auth = _cribo_temp_services_auth
-    ServiceUser = _cribo_module_services_auth.User
     process = lambda x, y: f"services_process: {x}, {y}"
     module.process = process
     validate = "services_validate"
@@ -200,8 +183,6 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
     """Authentication manager - imports from core and models only, no circular dependencies"""
     _cribo_module_core_database_connection = _cribo_temp_core_database_connection
     DBConnection = _cribo_module_core_database_connection.Connection
-    _cribo_module_models_base = _cribo_temp_models_base
-    base_init = _cribo_module_models_base.initialize
     process = [1, 2, 3]
     module.process = process
     validate = None
@@ -347,11 +328,6 @@ for attr in dir(_cribo_temp_models):
 for attr in dir(_cribo_temp_services):
     if not attr.startswith('_'):
         setattr(services, attr, getattr(_cribo_temp_services, attr))
-process = process_7
-validate = validate_6
-Logger = Logger_6
-Connection = core.database.connection.Connection
-process = core.database.connection.process
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\nWITHOUT circular dependencies\n"""
 db_process = core.database.connection.process
 UtilLogger = Logger_6
