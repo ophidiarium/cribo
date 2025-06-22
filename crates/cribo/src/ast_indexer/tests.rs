@@ -221,3 +221,23 @@ class AsyncProcessor:
     assert!(indexed.node_registry.imports.contains_key("typing"));
     assert!(indexed.node_registry.imports.contains_key("asyncio"));
 }
+
+#[test]
+#[should_panic(expected = "Module index overflow")]
+fn test_module_index_overflow() {
+    // Create a visitor that starts near the module boundary
+    let base_index = 1_000_000;
+    let visitor = IndexingVisitor {
+        current_index: RefCell::new(base_index + MODULE_INDEX_RANGE - 1),
+        base_index,
+        registry: RefCell::new(NodeRegistry::default()),
+    };
+
+    // First assignment should succeed
+    let node1 = AtomicNodeIndex::dummy();
+    visitor.assign_index(&node1);
+
+    // Second assignment should panic due to overflow
+    let node2 = AtomicNodeIndex::dummy();
+    visitor.assign_index(&node2);
+}

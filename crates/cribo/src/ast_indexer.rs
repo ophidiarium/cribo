@@ -80,6 +80,17 @@ impl IndexingVisitor {
     /// Assign an index to a node
     fn assign_index(&self, node_index: &AtomicNodeIndex) -> NodeIndex {
         let mut current = self.current_index.borrow_mut();
+
+        // Check for overflow within module range
+        let relative_index = *current - self.base_index;
+        if relative_index >= MODULE_INDEX_RANGE {
+            panic!(
+                "Module index overflow: attempted to assign index {} (relative: {}) which exceeds \
+                 MODULE_INDEX_RANGE ({})",
+                *current, relative_index, MODULE_INDEX_RANGE
+            );
+        }
+
         node_index.set(*current);
         let index = AtomicNodeIndex::from(*current).load();
         *current += 1;
