@@ -1,5 +1,7 @@
 //! Tests for the AST indexing module
 
+use std::path::PathBuf;
+
 use ruff_python_parser::parse_module;
 
 use super::*;
@@ -139,17 +141,19 @@ z = 3
 
 #[test]
 fn test_node_index_map() {
+    use std::sync::Arc;
+
     let mut map = NodeIndexMap::new();
-    let module1 = PathBuf::from("module1.py");
-    let module2 = PathBuf::from("module2.py");
+    let module1: Arc<Path> = PathBuf::from("module1.py").into();
+    let module2: Arc<Path> = PathBuf::from("module2.py").into();
 
     let orig1 = AtomicNodeIndex::from(10).load();
     let orig2 = AtomicNodeIndex::from(20).load();
     let trans1 = AtomicNodeIndex::from(100).load();
     let trans2 = AtomicNodeIndex::from(200).load();
 
-    map.add_mapping(module1.clone(), orig1, trans1);
-    map.add_mapping(module2.clone(), orig2, trans2);
+    map.add_mapping(Arc::clone(&module1), orig1, trans1);
+    map.add_mapping(Arc::clone(&module2), orig2, trans2);
 
     // Test forward mapping
     assert_eq!(map.get_transformed(&module1, orig1), Some(trans1));
@@ -157,8 +161,14 @@ fn test_node_index_map() {
     assert_eq!(map.get_transformed(&module1, orig2), None);
 
     // Test reverse mapping
-    assert_eq!(map.get_original(trans1), Some(&(module1.clone(), orig1)));
-    assert_eq!(map.get_original(trans2), Some(&(module2.clone(), orig2)));
+    assert_eq!(
+        map.get_original(trans1),
+        Some(&(Arc::clone(&module1), orig1))
+    );
+    assert_eq!(
+        map.get_original(trans2),
+        Some(&(Arc::clone(&module2), orig2))
+    );
 }
 
 #[test]

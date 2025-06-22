@@ -7,10 +7,7 @@
 //! - Foundation for source map generation
 //! - Memory-efficient AST management
 
-use std::{
-    cell::RefCell,
-    path::{Path, PathBuf},
-};
+use std::{cell::RefCell, path::Path, sync::Arc};
 
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, Comprehension, Decorator, ExceptHandler, Expr, Keyword,
@@ -343,9 +340,9 @@ pub fn index_module(module: &mut ModModule) -> IndexedAst {
 #[derive(Debug, Default)]
 pub struct NodeIndexMap {
     /// Map from (original_module, original_index) to transformed_index
-    mappings: FxHashMap<(PathBuf, NodeIndex), NodeIndex>,
+    mappings: FxHashMap<(Arc<Path>, NodeIndex), NodeIndex>,
     /// Reverse mapping for debugging
-    reverse_mappings: FxHashMap<NodeIndex, (PathBuf, NodeIndex)>,
+    reverse_mappings: FxHashMap<NodeIndex, (Arc<Path>, NodeIndex)>,
 }
 
 impl NodeIndexMap {
@@ -356,25 +353,25 @@ impl NodeIndexMap {
     /// Record a mapping between original and transformed node
     pub fn add_mapping(
         &mut self,
-        original_module: PathBuf,
+        original_module: Arc<Path>,
         original_index: NodeIndex,
         transformed_index: NodeIndex,
     ) {
-        self.mappings
-            .insert((original_module.clone(), original_index), transformed_index);
+        self.mappings.insert(
+            (Arc::clone(&original_module), original_index),
+            transformed_index,
+        );
         self.reverse_mappings
             .insert(transformed_index, (original_module, original_index));
     }
 
     /// Get the transformed index for an original node
-    pub fn get_transformed(&self, module: &Path, original: NodeIndex) -> Option<NodeIndex> {
-        self.mappings
-            .get(&(module.to_path_buf(), original))
-            .copied()
+    pub fn get_transformed(&self, module: &Arc<Path>, original: NodeIndex) -> Option<NodeIndex> {
+        self.mappings.get(&(Arc::clone(module), original)).copied()
     }
 
     /// Get the original location for a transformed node
-    pub fn get_original(&self, transformed: NodeIndex) -> Option<&(PathBuf, NodeIndex)> {
+    pub fn get_original(&self, transformed: NodeIndex) -> Option<&(Arc<Path>, NodeIndex)> {
         self.reverse_mappings.get(&transformed)
     }
 }

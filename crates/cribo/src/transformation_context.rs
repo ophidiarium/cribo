@@ -4,8 +4,11 @@
 //! during the bundling process, enabling future source map generation.
 
 use std::{
-    path::PathBuf,
-    sync::atomic::{AtomicU32, Ordering},
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
 };
 
 use ruff_python_ast::{AtomicNodeIndex, NodeIndex};
@@ -27,7 +30,7 @@ pub struct TransformationContext {
 #[derive(Debug, Clone)]
 pub struct TransformationRecord {
     /// Original module and node
-    pub original: Option<(PathBuf, NodeIndex)>,
+    pub original: Option<(Arc<Path>, NodeIndex)>,
     /// Transformed node index
     pub transformed: NodeIndex,
     /// Type of transformation applied
@@ -80,15 +83,18 @@ impl TransformationContext {
     /// Record a direct copy transformation
     pub fn record_copy(
         &mut self,
-        original_module: PathBuf,
+        original_module: Arc<Path>,
         original_node: NodeIndex,
         transformed_node: &AtomicNodeIndex,
     ) -> NodeIndex {
         let transformed_index = AtomicNodeIndex::from(self.next_node_index()).load();
         transformed_node.set(transformed_index.as_usize() as u32);
 
-        self.node_mappings
-            .add_mapping(original_module.clone(), original_node, transformed_index);
+        self.node_mappings.add_mapping(
+            Arc::clone(&original_module),
+            original_node,
+            transformed_index,
+        );
 
         self.transformations.push(TransformationRecord {
             original: Some((original_module, original_node)),
@@ -102,7 +108,7 @@ impl TransformationContext {
     /// Record a transformation with a specific type
     pub fn record_transformation(
         &mut self,
-        original: Option<(PathBuf, NodeIndex)>,
+        original: Option<(Arc<Path>, NodeIndex)>,
         transformed_node: &AtomicNodeIndex,
         transformation_type: TransformationType,
     ) -> NodeIndex {
@@ -111,7 +117,7 @@ impl TransformationContext {
 
         if let Some((module, orig_idx)) = &original {
             self.node_mappings
-                .add_mapping(module.clone(), *orig_idx, transformed_index);
+                .add_mapping(Arc::clone(module), *orig_idx, transformed_index);
         }
 
         self.transformations.push(TransformationRecord {

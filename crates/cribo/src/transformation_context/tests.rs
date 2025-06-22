@@ -1,6 +1,6 @@
 //! Tests for the transformation context module
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use super::*;
 
@@ -20,11 +20,15 @@ fn test_create_node_index() {
 fn test_record_copy_transformation() {
     let mut ctx = TransformationContext::new();
 
-    let original_module = PathBuf::from("original.py");
+    let original_module: Arc<Path> = PathBuf::from("original.py").into();
     let original_idx = AtomicNodeIndex::from(42).load();
     let transformed_node = AtomicNodeIndex::dummy();
 
-    let transformed_idx = ctx.record_copy(original_module.clone(), original_idx, &transformed_node);
+    let transformed_idx = ctx.record_copy(
+        Arc::clone(&original_module),
+        original_idx,
+        &transformed_node,
+    );
 
     // Should have recorded the mapping
     assert_eq!(
@@ -41,7 +45,7 @@ fn test_record_copy_transformation() {
     );
     assert_eq!(
         ctx.transformations[0].original,
-        Some((original_module, original_idx))
+        Some((Arc::clone(&original_module), original_idx))
     );
     assert_eq!(ctx.transformations[0].transformed, transformed_idx);
 }
@@ -50,7 +54,7 @@ fn test_record_copy_transformation() {
 fn test_record_import_rewrite() {
     let mut ctx = TransformationContext::new();
 
-    let original_module = PathBuf::from("imports.py");
+    let original_module: Arc<Path> = PathBuf::from("imports.py").into();
     let original_idx = AtomicNodeIndex::from(10).load();
     let transformed_node = AtomicNodeIndex::dummy();
 
@@ -60,7 +64,7 @@ fn test_record_import_rewrite() {
     };
 
     let _transformed_idx = ctx.record_transformation(
-        Some((original_module.clone(), original_idx)),
+        Some((Arc::clone(&original_module), original_idx)),
         &transformed_node,
         transformation_type.clone(),
     );
@@ -101,19 +105,19 @@ fn test_transformation_stats() {
     ctx.create_new_node("Node 1".to_string());
     ctx.create_new_node("Node 2".to_string());
 
-    let module = PathBuf::from("test.py");
+    let module: Arc<Path> = PathBuf::from("test.py").into();
     ctx.record_copy(
-        module.clone(),
+        Arc::clone(&module),
         AtomicNodeIndex::from(1).load(),
         &AtomicNodeIndex::dummy(),
     );
     ctx.record_copy(
-        module.clone(),
+        Arc::clone(&module),
         AtomicNodeIndex::from(2).load(),
         &AtomicNodeIndex::dummy(),
     );
     ctx.record_copy(
-        module.clone(),
+        Arc::clone(&module),
         AtomicNodeIndex::from(3).load(),
         &AtomicNodeIndex::dummy(),
     );
@@ -157,18 +161,18 @@ fn test_transformation_stats() {
 fn test_get_transformation() {
     let mut ctx = TransformationContext::new();
 
-    let module = PathBuf::from("test.py");
+    let module: Arc<Path> = PathBuf::from("test.py").into();
     let original_idx = AtomicNodeIndex::from(5).load();
     let transformed_node = AtomicNodeIndex::dummy();
 
-    let transformed_idx = ctx.record_copy(module.clone(), original_idx, &transformed_node);
+    let transformed_idx = ctx.record_copy(Arc::clone(&module), original_idx, &transformed_node);
 
     // Should be able to retrieve the transformation
     let transformation = ctx.get_transformation(transformed_idx);
     assert!(transformation.is_some());
 
     let trans = transformation.expect("transformation should exist");
-    assert_eq!(trans.original, Some((module, original_idx)));
+    assert_eq!(trans.original, Some((Arc::clone(&module), original_idx)));
     assert_eq!(trans.transformed, transformed_idx);
     assert_eq!(trans.transformation_type, TransformationType::DirectCopy);
 }
@@ -178,13 +182,13 @@ fn test_multiple_transformations() {
     let mut ctx = TransformationContext::new();
 
     // Simulate transforming multiple nodes from different modules
-    let module1 = PathBuf::from("module1.py");
-    let module2 = PathBuf::from("module2.py");
+    let module1: Arc<Path> = PathBuf::from("module1.py").into();
+    let module2: Arc<Path> = PathBuf::from("module2.py").into();
 
     // Transform nodes from module1
     for i in 0..5 {
         ctx.record_copy(
-            module1.clone(),
+            Arc::clone(&module1),
             AtomicNodeIndex::from(i).load(),
             &AtomicNodeIndex::dummy(),
         );
@@ -192,7 +196,7 @@ fn test_multiple_transformations() {
 
     // Transform nodes from module2 with different transformation types
     ctx.record_transformation(
-        Some((module2.clone(), AtomicNodeIndex::from(0).load())),
+        Some((Arc::clone(&module2), AtomicNodeIndex::from(0).load())),
         &AtomicNodeIndex::dummy(),
         TransformationType::ImportRewritten {
             from_module: "old_pkg".to_string(),
@@ -201,7 +205,7 @@ fn test_multiple_transformations() {
     );
 
     ctx.record_transformation(
-        Some((module2.clone(), AtomicNodeIndex::from(1).load())),
+        Some((Arc::clone(&module2), AtomicNodeIndex::from(1).load())),
         &AtomicNodeIndex::dummy(),
         TransformationType::GlobalsReplaced,
     );
