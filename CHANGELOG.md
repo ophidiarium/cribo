@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/ophidiarium/cribo/compare/v0.4.30...v0.5.0) (2025-06-22)
+
+
+### Performance Improvements
+
+* **test:** fix slow cli_stdout tests by using pre-built binary ([#149](https://github.com/ophidiarium/cribo/issues/149)) ([6c4c71c](https://github.com/ophidiarium/cribo/commit/6c4c71ce56792ccf71e0ce6778b2b44db64de32b))
+
+
+### Miscellaneous Chores
+
+* release 0.5.0 ([34cfa41](https://github.com/ophidiarium/cribo/commit/34cfa413069445ee81d5017ffa8d239e804221b9))
+
 ## [0.4.30](https://github.com/ophidiarium/cribo/compare/v0.4.29...v0.4.30) (2025-06-16)
 
 

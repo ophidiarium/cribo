@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.package]
 authors     = ["Konstantin Vyatkin <tino@vtkn.io>"]
-version = "0.4.30"
+version = "0.5.0"
 edition = "2024"
 homepage = "https://github.com/ophidiarium/cribo"
 license = "MIT"
