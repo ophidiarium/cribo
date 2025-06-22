@@ -5,7 +5,8 @@
 //! unnecessary pass statements, and empty expression statements.
 
 use ruff_python_ast::{
-    self as ast, Expr, ExprContext, Operator, Stmt, StmtAssign, StmtAugAssign, StmtExpr,
+    self as ast, AtomicNodeIndex, Expr, ExprContext, Operator, Stmt, StmtAssign, StmtAugAssign,
+    StmtExpr,
     visitor::transformer::{Transformer, walk_body, walk_stmt},
 };
 use ruff_text_size::TextRange;
@@ -168,6 +169,7 @@ impl NoOpsRemovalTransformer {
         // If the body is now empty but wasn't before, add a pass statement
         if body.is_empty() && original_len > 0 {
             body.push(Stmt::Pass(ast::StmtPass {
+                node_index: AtomicNodeIndex::default(),
                 range: TextRange::default(),
             }));
         }

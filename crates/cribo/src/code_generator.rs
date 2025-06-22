@@ -11,9 +11,9 @@ use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use ruff_python_ast::{
-    Arguments, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext, ExprFString, ExprList,
-    ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, FString, FStringFlags,
-    FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
+    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
+    ExprFString, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, FString,
+    FStringFlags, FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
     InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef,
     StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
     StringLiteralValue,
@@ -249,7 +249,9 @@ fn transform_globals_in_expr(expr: &mut Expr) {
             {
                 // Replace the entire expression with module.__dict__
                 *expr = Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "module".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -369,12 +371,15 @@ impl GlobalsLifter {
 
                 // Create assignment: __cribo_module_var = None (will be set by init function)
                 lifted_declarations.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: lifted_name.into(),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
+                        node_index: AtomicNodeIndex::dummy(),
                         range: TextRange::default(),
                     })),
                     range: TextRange::default(),
@@ -790,12 +795,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                             "  Creating namespace assignment: {local_name} = {namespace_var}"
                         );
                         result_stmts.push(Stmt::Assign(StmtAssign {
+                            node_index: AtomicNodeIndex::dummy(),
                             targets: vec![Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
                                 id: local_name.into(),
                                 ctx: ExprContext::Store,
                                 range: TextRange::default(),
                             })],
                             value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
                                 id: namespace_var.into(),
                                 ctx: ExprContext::Load,
                                 range: TextRange::default(),
@@ -832,14 +840,19 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // Create the namespace and populate it as deferred imports
                                 // Create: local_name = types.SimpleNamespace()
                                 self.deferred_imports.push(Stmt::Assign(StmtAssign {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     targets: vec![Expr::Name(ExprName {
+                                        node_index: AtomicNodeIndex::dummy(),
                                         id: local_name.into(),
                                         ctx: ExprContext::Store,
                                         range: TextRange::default(),
                                     })],
                                     value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
+                                        node_index: AtomicNodeIndex::dummy(),
                                         func: Box::new(Expr::Attribute(ExprAttribute {
+                                            node_index: AtomicNodeIndex::dummy(),
                                             value: Box::new(Expr::Name(ExprName {
+                                                node_index: AtomicNodeIndex::dummy(),
                                                 id: "types".into(),
                                                 ctx: ExprContext::Load,
                                                 range: TextRange::default(),
@@ -852,6 +865,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             range: TextRange::default(),
                                         })),
                                         arguments: Arguments {
+                                            node_index: AtomicNodeIndex::dummy(),
                                             args: Box::from([]),
                                             keywords: Box::from([]),
                                             range: TextRange::default(),
@@ -873,8 +887,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     for symbol in exports {
                                         // local_name.symbol = symbol
                                         self.deferred_imports.push(Stmt::Assign(StmtAssign {
+                                            node_index: AtomicNodeIndex::dummy(),
                                             targets: vec![Expr::Attribute(ExprAttribute {
+                                                node_index: AtomicNodeIndex::dummy(),
                                                 value: Box::new(Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
                                                     id: local_name.into(),
                                                     ctx: ExprContext::Load,
                                                     range: TextRange::default(),
@@ -887,6 +904,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                 range: TextRange::default(),
                                             })],
                                             value: Box::new(Expr::Name(ExprName {
+                                                node_index: AtomicNodeIndex::dummy(),
                                                 // The symbol should use the renamed version if it
                                                 // exists
                                                 id: if let Some(renames) =
@@ -916,14 +934,19 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                                 // Create: local_name = types.SimpleNamespace()
                                 result_stmts.push(Stmt::Assign(StmtAssign {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     targets: vec![Expr::Name(ExprName {
+                                        node_index: AtomicNodeIndex::dummy(),
                                         id: local_name.into(),
                                         ctx: ExprContext::Store,
                                         range: TextRange::default(),
                                     })],
                                     value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
+                                        node_index: AtomicNodeIndex::dummy(),
                                         func: Box::new(Expr::Attribute(ExprAttribute {
+                                            node_index: AtomicNodeIndex::dummy(),
                                             value: Box::new(Expr::Name(ExprName {
+                                                node_index: AtomicNodeIndex::dummy(),
                                                 id: "types".into(),
                                                 ctx: ExprContext::Load,
                                                 range: TextRange::default(),
@@ -936,6 +959,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             range: TextRange::default(),
                                         })),
                                         arguments: Arguments {
+                                            node_index: AtomicNodeIndex::dummy(),
                                             args: Box::from([]),
                                             keywords: Box::from([]),
                                             range: TextRange::default(),
@@ -957,8 +981,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     for symbol in exports {
                                         // local_name.symbol = symbol
                                         result_stmts.push(Stmt::Assign(StmtAssign {
+                                            node_index: AtomicNodeIndex::dummy(),
                                             targets: vec![Expr::Attribute(ExprAttribute {
+                                                node_index: AtomicNodeIndex::dummy(),
                                                 value: Box::new(Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
                                                     id: local_name.into(),
                                                     ctx: ExprContext::Load,
                                                     range: TextRange::default(),
@@ -971,6 +998,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                 range: TextRange::default(),
                                             })],
                                             value: Box::new(Expr::Name(ExprName {
+                                                node_index: AtomicNodeIndex::dummy(),
                                                 // The symbol should use the renamed version if it
                                                 // exists
                                                 id: if let Some(renames) =
@@ -1210,6 +1238,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                      (renamed)"
                                                 );
                                                 Some(Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
                                                     id: renamed_str.into(),
                                                     ctx: attr_expr.ctx,
                                                     range: attr_expr.range,
@@ -1222,6 +1251,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                      (not renamed)"
                                                 );
                                                 Some(Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
                                                     id: attr_name.clone().into(),
                                                     ctx: attr_expr.ctx,
                                                     range: attr_expr.range,
@@ -1244,6 +1274,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                      (exported symbol)"
                                                 );
                                                 Some(Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
                                                     id: attr_name.clone().into(),
                                                     ctx: attr_expr.ctx,
                                                     range: attr_expr.range,
@@ -1290,6 +1321,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                 attr_path[0]
                                             );
                                             *expr = Expr::Name(ExprName {
+                                                node_index: AtomicNodeIndex::dummy(),
                                                 id: renamed.clone().into(),
                                                 ctx: attr_expr.ctx,
                                                 range: attr_expr.range,
@@ -1307,6 +1339,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             attr_path[0]
                                         );
                                         *expr = Expr::Name(ExprName {
+                                            node_index: AtomicNodeIndex::dummy(),
                                             id: direct_name.into(),
                                             ctx: attr_expr.ctx,
                                             range: attr_expr.range,
@@ -1467,6 +1500,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                             }
 
                             let new_element = InterpolatedElement {
+                                node_index: AtomicNodeIndex::dummy(),
                                 expression: new_expr,
                                 debug_text: expr_elem.debug_text.clone(),
                                 conversion: expr_elem.conversion,
@@ -1481,6 +1515,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                 if any_transformed {
                     let new_fstring = FString {
+                        node_index: AtomicNodeIndex::dummy(),
                         elements: InterpolatedStringElements::from(transformed_elements),
                         range: TextRange::default(),
                         flags: FStringFlags::empty(),
@@ -1489,6 +1524,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     let new_value = FStringValue::single(new_fstring);
 
                     *expr = Expr::FString(ExprFString {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: new_value,
                         range: fstring_range,
                     });
@@ -1815,8 +1851,11 @@ impl HybridStaticBundler {
     /// Create a namespace as an attribute of a parent namespace
     fn create_namespace_attribute(&self, parent: &str, attr: &str) -> Stmt {
         Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: parent.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -1826,8 +1865,11 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "types".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -1837,6 +1879,7 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })),
                 arguments: ruff_python_ast::Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
                     args: Box::from([]),
                     keywords: Box::from([]),
                     range: TextRange::default(),
@@ -2735,12 +2778,15 @@ impl HybridStaticBundler {
                          forward reference"
                     );
                     circular_predeclarations.push(Stmt::Assign(StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
                         targets: vec![Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: renamed_name.clone().into(),
                             ctx: ExprContext::Store,
                             range: TextRange::default(),
                         })],
                         value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
+                            node_index: AtomicNodeIndex::dummy(),
                             range: TextRange::default(),
                         })),
                         range: TextRange::default(),
@@ -3083,6 +3129,7 @@ impl HybridStaticBundler {
 
                         // Create the namespace assignment: models.base = _cribo_temp_models_base
                         let mut target_expr = Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: parts[0].into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
@@ -3095,6 +3142,7 @@ impl HybridStaticBundler {
                                 ExprContext::Load
                             };
                             target_expr = Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
                                 value: Box::new(target_expr),
                                 attr: Identifier::new(*part, TextRange::default()),
                                 ctx,
@@ -3104,8 +3152,10 @@ impl HybridStaticBundler {
 
                         // models.base = _cribo_temp_models_base
                         final_body.push(Stmt::Assign(StmtAssign {
+                            node_index: AtomicNodeIndex::dummy(),
                             targets: vec![target_expr],
                             value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
                                 id: temp_var_name.into(),
                                 ctx: ExprContext::Load,
                                 range: TextRange::default(),
@@ -3131,12 +3181,15 @@ impl HybridStaticBundler {
                         // Simple assignment for non-parent modules
                         debug!("Assigning simple module '{module_name}' = '{temp_var_name}'");
                         final_body.push(Stmt::Assign(StmtAssign {
+                            node_index: AtomicNodeIndex::dummy(),
                             targets: vec![Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
                                 id: module_name.into(),
                                 ctx: ExprContext::Store,
                                 range: TextRange::default(),
                             })],
                             value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
                                 id: temp_var_name.into(),
                                 ctx: ExprContext::Load,
                                 range: TextRange::default(),
@@ -3510,6 +3563,7 @@ impl HybridStaticBundler {
         }
 
         Ok(ModModule {
+            node_index: AtomicNodeIndex::dummy(),
             range: TextRange::default(),
             body: final_body,
         })
@@ -3949,18 +4003,22 @@ impl HybridStaticBundler {
             for (original_name, lifted_name) in lifted_names {
                 // global __cribo_module_var
                 body.push(Stmt::Global(ruff_python_ast::StmtGlobal {
+                    node_index: AtomicNodeIndex::dummy(),
                     names: vec![Identifier::new(lifted_name, TextRange::default())],
                     range: TextRange::default(),
                 }));
 
                 // __cribo_module_var = original_var
                 body.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: lifted_name.clone().into(),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: original_name.clone().into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -4077,7 +4135,9 @@ impl HybridStaticBundler {
 
         // Return the module object
         body.push(Stmt::Return(ruff_python_ast::StmtReturn {
+            node_index: AtomicNodeIndex::dummy(),
             value: Some(Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: "module".into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
@@ -4092,9 +4152,11 @@ impl HybridStaticBundler {
 
         // Create the init function
         Ok(Stmt::FunctionDef(StmtFunctionDef {
+            node_index: AtomicNodeIndex::dummy(),
             name: Identifier::new(init_func_name, TextRange::default()),
             type_params: None,
             parameters: Box::new(ruff_python_ast::Parameters {
+                node_index: AtomicNodeIndex::dummy(),
                 posonlyargs: vec![],
                 args: vec![],
                 vararg: None,
@@ -4132,14 +4194,19 @@ impl HybridStaticBundler {
 
         // Create a types.SimpleNamespace() for the inlined module
         stmts.push(Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: attr_name.into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "types".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -4149,6 +4216,7 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })),
                 arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
                     args: Box::from([]),
                     keywords: Box::from([]),
                     range: TextRange::default(),
@@ -4177,8 +4245,11 @@ impl HybridStaticBundler {
 
                 // attr_name.symbol = renamed_symbol
                 stmts.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: attr_name.into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
@@ -4188,6 +4259,7 @@ impl HybridStaticBundler {
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: renamed_symbol.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -4216,8 +4288,11 @@ impl HybridStaticBundler {
         value: &str,
     ) -> Stmt {
         Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: namespace_var.to_string().into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -4227,6 +4302,7 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: value.to_string().into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
@@ -4238,7 +4314,9 @@ impl HybridStaticBundler {
     /// Create a string literal expression
     fn create_string_literal(&self, value: &str) -> Expr {
         Expr::StringLiteral(ExprStringLiteral {
+            node_index: AtomicNodeIndex::dummy(),
             value: StringLiteralValue::single(ruff_python_ast::StringLiteral {
+                node_index: AtomicNodeIndex::dummy(),
                 value: value.to_string().into(),
                 flags: ruff_python_ast::StringLiteralFlags::empty(),
                 range: TextRange::default(),
@@ -4250,6 +4328,7 @@ impl HybridStaticBundler {
     /// Create a number literal expression
     fn create_number_literal(&self, value: i32) -> Expr {
         Expr::NumberLiteral(ruff_python_ast::ExprNumberLiteral {
+            node_index: AtomicNodeIndex::dummy(),
             value: ruff_python_ast::Number::Int(ruff_python_ast::Int::from(value as u32)),
             range: TextRange::default(),
         })
@@ -4258,8 +4337,11 @@ impl HybridStaticBundler {
     /// Create module object
     fn create_module_object_stmt(&self, _synthetic_name: &str, _module_path: &Path) -> Vec<Stmt> {
         let module_call = Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
             func: Box::new(Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: "types".into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -4269,6 +4351,7 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })),
             arguments: ruff_python_ast::Arguments {
+                node_index: AtomicNodeIndex::dummy(),
                 args: Box::from([]),
                 keywords: Box::from([]),
                 range: TextRange::default(),
@@ -4279,7 +4362,9 @@ impl HybridStaticBundler {
         vec![
             // module = types.SimpleNamespace()
             Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
                 targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: "module".into(),
                     ctx: ExprContext::Store,
                     range: TextRange::default(),
@@ -4293,8 +4378,11 @@ impl HybridStaticBundler {
     /// Create module attribute assignment
     fn create_module_attr_assignment(&self, module_var: &str, attr_name: &str) -> Stmt {
         Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: module_var.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -4304,6 +4392,7 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: attr_name.into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
@@ -4392,7 +4481,9 @@ impl HybridStaticBundler {
                 {
                     // Transform foo -> module.foo
                     *expr = Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: "module".into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
@@ -4857,18 +4948,23 @@ impl HybridStaticBundler {
 
             // _cribo_temp_module_name = __cribo_init_synthetic_name()
             statements.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
                 targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: temp_var_name.into(),
                     ctx: ExprContext::Store,
                     range: TextRange::default(),
                 })],
                 value: Box::new(Expr::Call(ExprCall {
+                    node_index: AtomicNodeIndex::dummy(),
                     func: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: init_func_name.as_str().into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
                     arguments: ruff_python_ast::Arguments {
+                        node_index: AtomicNodeIndex::dummy(),
                         args: Box::from([]),
                         keywords: Box::from([]),
                         range: TextRange::default(),
@@ -4879,6 +4975,7 @@ impl HybridStaticBundler {
             }));
         } else {
             statements.push(Stmt::Pass(ruff_python_ast::StmtPass {
+                node_index: AtomicNodeIndex::dummy(),
                 range: TextRange::default(),
             }));
         }
@@ -5160,8 +5257,11 @@ impl HybridStaticBundler {
                     "Creating intermediate namespace: {parent}.{attr} = types.SimpleNamespace()"
                 );
                 final_body.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: parent.clone().into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
@@ -5171,8 +5271,11 @@ impl HybridStaticBundler {
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::Call(ExprCall {
+                        node_index: AtomicNodeIndex::dummy(),
                         func: Box::new(Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
                             value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
                                 id: "types".into(),
                                 ctx: ExprContext::Load,
                                 range: TextRange::default(),
@@ -5182,6 +5285,7 @@ impl HybridStaticBundler {
                             range: TextRange::default(),
                         })),
                         arguments: ruff_python_ast::Arguments {
+                            node_index: AtomicNodeIndex::dummy(),
                             args: Box::from([]),
                             keywords: Box::from([]),
                             range: TextRange::default(),
@@ -5193,9 +5297,13 @@ impl HybridStaticBundler {
 
                 // Set the __name__ attribute
                 final_body.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
                             value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
                                 id: parent.clone().into(),
                                 ctx: ExprContext::Load,
                                 range: TextRange::default(),
@@ -5209,7 +5317,9 @@ impl HybridStaticBundler {
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: StringLiteralValue::single(StringLiteral {
+                            node_index: AtomicNodeIndex::dummy(),
                             value: module_name.to_string().into(),
                             range: TextRange::default(),
                             flags: StringLiteralFlags::empty(),
@@ -5235,6 +5345,7 @@ impl HybridStaticBundler {
             let aliases: Vec<ruff_python_ast::Alias> = sorted_imports
                 .into_iter()
                 .map(|import| ruff_python_ast::Alias {
+                    node_index: AtomicNodeIndex::dummy(),
                     name: Identifier::new(&import, TextRange::default()),
                     asname: None,
                     range: TextRange::default(),
@@ -5242,6 +5353,7 @@ impl HybridStaticBundler {
                 .collect();
 
             final_body.push(Stmt::ImportFrom(StmtImportFrom {
+                node_index: AtomicNodeIndex::dummy(),
                 module: Some(Identifier::new("__future__", TextRange::default())),
                 names: aliases,
                 level: 0,
@@ -5261,6 +5373,7 @@ impl HybridStaticBundler {
             let aliases: Vec<ruff_python_ast::Alias> = sorted_names
                 .into_iter()
                 .map(|name| ruff_python_ast::Alias {
+                    node_index: AtomicNodeIndex::dummy(),
                     name: Identifier::new(&name, TextRange::default()),
                     asname: None,
                     range: TextRange::default(),
@@ -5268,6 +5381,7 @@ impl HybridStaticBundler {
                 .collect();
 
             final_body.push(Stmt::ImportFrom(StmtImportFrom {
+                node_index: AtomicNodeIndex::dummy(),
                 module: Some(Identifier::new(module_name, TextRange::default())),
                 names: aliases,
                 level: 0,
@@ -5288,6 +5402,7 @@ impl HybridStaticBundler {
             let aliases: Vec<ruff_python_ast::Alias> = sorted_names
                 .into_iter()
                 .map(|name| ruff_python_ast::Alias {
+                    node_index: AtomicNodeIndex::dummy(),
                     name: Identifier::new(&name, TextRange::default()),
                     asname: None,
                     range: TextRange::default(),
@@ -5295,6 +5410,7 @@ impl HybridStaticBundler {
                 .collect();
 
             final_body.push(Stmt::ImportFrom(StmtImportFrom {
+                node_index: AtomicNodeIndex::dummy(),
                 module: Some(Identifier::new(module_name, TextRange::default())),
                 names: aliases,
                 level: 0,
@@ -5485,7 +5601,9 @@ impl HybridStaticBundler {
             unique_imports.push((
                 module_name.to_string(),
                 Stmt::Import(StmtImport {
+                    node_index: AtomicNodeIndex::dummy(),
                     names: vec![ruff_python_ast::Alias {
+                        node_index: AtomicNodeIndex::dummy(),
                         name: Identifier::new(module_name, TextRange::default()),
                         asname: alias.asname.clone(),
                         range: TextRange::default(),
@@ -5669,12 +5787,15 @@ impl HybridStaticBundler {
     /// Create a reassignment statement: original_name = renamed_name
     fn create_reassignment(&self, original_name: &str, renamed_name: &str) -> Stmt {
         Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: original_name.into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: renamed_name.into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
@@ -6534,7 +6655,9 @@ impl HybridStaticBundler {
         }
 
         let import_stmt = Stmt::Import(StmtImport {
+            node_index: AtomicNodeIndex::dummy(),
             names: vec![ruff_python_ast::Alias {
+                node_index: AtomicNodeIndex::dummy(),
                 name: Identifier::new(module_name, TextRange::default()),
                 asname: None,
                 range: TextRange::default(),
@@ -6899,8 +7022,11 @@ impl HybridStaticBundler {
 
         // Create: module.__all__ = [exported_symbols...]
         Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: "module".into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -6910,6 +7036,7 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::List(ExprList {
+                node_index: AtomicNodeIndex::dummy(),
                 elts: elements,
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
@@ -7056,12 +7183,15 @@ impl HybridStaticBundler {
 
             // Add: _cribo_module_xxx = source_var (either the module or temp variable)
             assignments.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
                 targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: local_module_var.clone().into(),
                     ctx: ExprContext::Store,
                     range: TextRange::default(),
                 })],
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: source_var.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -7114,13 +7244,17 @@ impl HybridStaticBundler {
                         // Add initialization call: __cribo_init_<synthetic>()
                         let init_func_name = format!("__cribo_init_{synthetic_name}");
                         assignments.push(Stmt::Expr(ruff_python_ast::StmtExpr {
+                            node_index: AtomicNodeIndex::dummy(),
                             value: Box::new(Expr::Call(ExprCall {
+                                node_index: AtomicNodeIndex::dummy(),
                                 func: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     id: init_func_name.into(),
                                     ctx: ExprContext::Load,
                                     range: TextRange::default(),
                                 })),
                                 arguments: Arguments {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     args: Box::from([]),
                                     keywords: Box::from([]),
                                     range: TextRange::default(),
@@ -7143,12 +7277,14 @@ impl HybridStaticBundler {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = full_module_path.split('.').collect();
                     let mut expr = Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: parts[0].into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     });
                     for part in &parts[1..] {
                         expr = Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
                             value: Box::new(expr),
                             attr: Identifier::new(*part, TextRange::default()),
                             ctx: ExprContext::Load,
@@ -7159,6 +7295,7 @@ impl HybridStaticBundler {
                 } else {
                     // Top-level module
                     Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: full_module_path.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -7166,7 +7303,9 @@ impl HybridStaticBundler {
                 };
 
                 assignments.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: target_name.as_str().into(),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
@@ -7180,6 +7319,7 @@ impl HybridStaticBundler {
                 let module_expr = if let Some(ref var_name) = module_var_name {
                     // We initialized the module locally, use the local variable
                     Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: var_name.clone().into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -7188,12 +7328,14 @@ impl HybridStaticBundler {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = module_name.split('.').collect();
                     let mut expr = Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: parts[0].into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     });
                     for part in &parts[1..] {
                         expr = Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
                             value: Box::new(expr),
                             attr: Identifier::new(*part, TextRange::default()),
                             ctx: ExprContext::Load,
@@ -7204,6 +7346,7 @@ impl HybridStaticBundler {
                 } else {
                     // Top-level module
                     Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: module_name.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -7211,12 +7354,15 @@ impl HybridStaticBundler {
                 };
 
                 let assignment = Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: target_name.as_str().into(),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(module_expr),
                         attr: Identifier::new(imported_name, TextRange::default()),
                         ctx: ExprContext::Load,
@@ -7355,13 +7501,17 @@ impl HybridStaticBundler {
                     // First ensure the module is initialized by calling its init function
                     let init_func_name = &self.init_functions[synthetic_name];
                     body.push(Stmt::Expr(ruff_python_ast::StmtExpr {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
+                            node_index: AtomicNodeIndex::dummy(),
                             func: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
                                 id: init_func_name.into(),
                                 ctx: ExprContext::Load,
                                 range: TextRange::default(),
                             })),
                             arguments: Arguments {
+                                node_index: AtomicNodeIndex::dummy(),
                                 args: Box::new([]),
                                 keywords: Box::new([]),
                                 range: TextRange::default(),
@@ -7373,14 +7523,19 @@ impl HybridStaticBundler {
 
                     // Then access it via sys.modules using the real module name
                     body.push(Stmt::Assign(StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
                         targets: vec![Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: local_name.into(),
                             ctx: ExprContext::Store,
                             range: TextRange::default(),
                         })],
                         value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
+                            node_index: AtomicNodeIndex::dummy(),
                             value: Box::new(Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
                                 value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     id: "sys".into(),
                                     ctx: ExprContext::Load,
                                     range: TextRange::default(),
@@ -7473,14 +7628,19 @@ impl HybridStaticBundler {
 
         // Create a SimpleNamespace-like object
         body.push(Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: params.local_name.into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "types".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -7490,6 +7650,7 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })),
                 arguments: ruff_python_ast::Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
                     args: Box::from([]),
                     keywords: Box::from([]),
                     range: TextRange::default(),
@@ -7562,8 +7723,11 @@ impl HybridStaticBundler {
         body: &mut Vec<Stmt>,
     ) {
         body.push(Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: namespace_name.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -7573,6 +7737,7 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: target_name.into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
@@ -7619,12 +7784,15 @@ impl HybridStaticBundler {
         // Only create assignment if local name differs from the symbol
         if params.local_name != renamed_symbol {
             body.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
                 targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: params.local_name.into(),
                     ctx: ExprContext::Store,
                     range: TextRange::default(),
                 })],
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: renamed_symbol.clone().into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -8868,6 +9036,7 @@ impl HybridStaticBundler {
                             Self::rename_references_in_expr(&mut new_expr, module_renames);
 
                             let new_element = InterpolatedElement {
+                                node_index: AtomicNodeIndex::dummy(),
                                 expression: new_expr,
                                 debug_text: expr_elem.debug_text.clone(),
                                 conversion: expr_elem.conversion,
@@ -8883,6 +9052,7 @@ impl HybridStaticBundler {
 
                 if any_transformed {
                     let new_fstring = FString {
+                        node_index: AtomicNodeIndex::dummy(),
                         elements: InterpolatedStringElements::from(transformed_elements),
                         range: TextRange::default(),
                         flags: FStringFlags::empty(),
@@ -8891,6 +9061,7 @@ impl HybridStaticBundler {
                     let new_value = FStringValue::single(new_fstring);
 
                     *expr = Expr::FString(ExprFString {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: new_value,
                         range: fstring_range,
                     });
@@ -8960,9 +9131,12 @@ impl HybridStaticBundler {
                                 "Rewriting globals()[{symbol_name:?}] to globals()[{renamed:?}]"
                             );
                             *expr = Expr::Subscript(ExprSubscript {
+                                node_index: AtomicNodeIndex::dummy(),
                                 value: subscript.value.clone(),
                                 slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     value: StringLiteralValue::single(StringLiteral {
+                                        node_index: AtomicNodeIndex::dummy(),
                                         value: renamed.clone().into_boxed_str(),
                                         range: TextRange::default(),
                                         flags: StringLiteralFlags::empty(),
@@ -9202,8 +9376,11 @@ impl HybridStaticBundler {
                         );
                         // Add: module.<original_name> = <lifted_name>
                         new_body.push(Stmt::Assign(StmtAssign {
+                            node_index: AtomicNodeIndex::dummy(),
                             targets: vec![Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
                                 value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     id: "module".into(),
                                     ctx: ExprContext::Load,
                                     range: TextRange::default(),
@@ -9213,6 +9390,7 @@ impl HybridStaticBundler {
                                 range: TextRange::default(),
                             })],
                             value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
                                 id: var_name.into(),
                                 ctx: ExprContext::Load,
                                 range: TextRange::default(),
@@ -9246,8 +9424,11 @@ impl HybridStaticBundler {
                         );
                         // Add: module.<original_name> = <lifted_name>
                         new_body.push(Stmt::Assign(StmtAssign {
+                            node_index: AtomicNodeIndex::dummy(),
                             targets: vec![Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
                                 value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     id: "module".into(),
                                     ctx: ExprContext::Load,
                                     range: TextRange::default(),
@@ -9257,6 +9438,7 @@ impl HybridStaticBundler {
                                 range: TextRange::default(),
                             })],
                             value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
                                 id: var_name.into(),
                                 ctx: ExprContext::Load,
                                 range: TextRange::default(),
@@ -9312,6 +9494,7 @@ impl HybridStaticBundler {
             if any_transformed {
                 // Create a new FString with our transformed elements
                 let new_fstring = FString {
+                    node_index: AtomicNodeIndex::dummy(),
                     elements: InterpolatedStringElements::from(transformed_elements),
                     range: TextRange::default(),
                     flags: FStringFlags::empty(),
@@ -9322,6 +9505,7 @@ impl HybridStaticBundler {
 
                 // Replace the entire expression with the new f-string
                 *expr = Expr::FString(ExprFString {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: new_value,
                     range: fstring_range,
                 });
@@ -9355,6 +9539,7 @@ impl HybridStaticBundler {
 
         // Create a new expression element with the transformed expression
         let new_element = InterpolatedElement {
+            node_index: AtomicNodeIndex::dummy(),
             expression: Box::new(new_expr),
             debug_text: expr_elem.debug_text.clone(),
             conversion: expr_elem.conversion,
@@ -9511,8 +9696,11 @@ impl HybridStaticBundler {
                     for (original_name, renamed_name) in module_renames {
                         // base.original_name = renamed_name
                         assignments.push(Stmt::Assign(StmtAssign {
+                            node_index: AtomicNodeIndex::dummy(),
                             targets: vec![Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
                                 value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     id: local_name.as_str().into(),
                                     ctx: ExprContext::Load,
                                     range: TextRange::default(),
@@ -9522,6 +9710,7 @@ impl HybridStaticBundler {
                                 range: TextRange::default(),
                             })],
                             value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
                                 id: renamed_name.clone().into(),
                                 ctx: ExprContext::Load,
                                 range: TextRange::default(),
@@ -9550,12 +9739,15 @@ impl HybridStaticBundler {
                     );
 
                     let assignment = StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
                         targets: vec![Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: local_name.as_str().into(),
                             ctx: ExprContext::Store,
                             range: TextRange::default(),
                         })],
                         value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: actual_name.into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
@@ -9696,14 +9888,19 @@ impl HybridStaticBundler {
                 if self.module_registry.contains_key(&full_module_path) {
                     // Wrapper module - create sys.modules access
                     result_stmts.push(Stmt::Assign(StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
                         targets: vec![Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: local_name.into(),
                             ctx: ExprContext::Store,
                             range: TextRange::default(),
                         })],
                         value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
+                            node_index: AtomicNodeIndex::dummy(),
                             value: Box::new(Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
                                 value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     id: "sys".into(),
                                     ctx: ExprContext::Load,
                                     range: TextRange::default(),
@@ -9734,14 +9931,19 @@ impl HybridStaticBundler {
                     // Since the module was inlined, we need to map the original names to the
                     // renamed ones
                     result_stmts.push(Stmt::Assign(StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
                         targets: vec![Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: local_name.into(),
                             ctx: ExprContext::Store,
                             range: TextRange::default(),
                         })],
                         value: Box::new(Expr::Call(ExprCall {
+                            node_index: AtomicNodeIndex::dummy(),
                             func: Box::new(Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
                                 value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     id: "types".into(),
                                     ctx: ExprContext::Load,
                                     range: TextRange::default(),
@@ -9751,6 +9953,7 @@ impl HybridStaticBundler {
                                 range: TextRange::default(),
                             })),
                             arguments: Arguments {
+                                node_index: AtomicNodeIndex::dummy(),
                                 args: Box::new([]),
                                 keywords: Box::new([]),
                                 range: TextRange::default(),
@@ -9780,8 +9983,11 @@ impl HybridStaticBundler {
 
                             // base.original_name = actual_renamed_name
                             result_stmts.push(Stmt::Assign(StmtAssign {
+                                node_index: AtomicNodeIndex::dummy(),
                                 targets: vec![Expr::Attribute(ExprAttribute {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     value: Box::new(Expr::Name(ExprName {
+                                        node_index: AtomicNodeIndex::dummy(),
                                         id: local_name.into(),
                                         ctx: ExprContext::Load,
                                         range: TextRange::default(),
@@ -9791,6 +9997,7 @@ impl HybridStaticBundler {
                                     range: TextRange::default(),
                                 })],
                                 value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
                                     id: actual_renamed_name.into(),
                                     ctx: ExprContext::Load,
                                     range: TextRange::default(),
@@ -10142,12 +10349,15 @@ impl HybridStaticBundler {
             // Only create assignment if the names are different
             if local_name != renamed_symbol {
                 result_stmts.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: local_name.into(),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: renamed_symbol.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -10211,12 +10421,15 @@ impl HybridStaticBundler {
     fn create_module_reference_assignment(&self, target_name: &str, module_name: &str) -> Stmt {
         // Simply assign the module reference: target_name = module_name
         Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: target_name.into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: module_name.into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
@@ -10290,8 +10503,10 @@ impl HybridStaticBundler {
         if let Some(Some(exports)) = self.module_exports.get(full_module_path) {
             for symbol in exports {
                 keywords.push(Keyword {
+                    node_index: AtomicNodeIndex::dummy(),
                     arg: Some(Identifier::new(symbol.as_str(), TextRange::default())),
                     value: Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: format!("{symbol}_{inlined_key}").into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -10319,6 +10534,7 @@ impl HybridStaticBundler {
 
         let attr_var = "attr";
         let loop_target = Expr::Name(ExprName {
+            node_index: AtomicNodeIndex::dummy(),
             id: attr_var.into(),
             ctx: ExprContext::Store,
             range: TextRange::default(),
@@ -10326,13 +10542,17 @@ impl HybridStaticBundler {
 
         // dir(_cribo_temp_mypackage)
         let dir_call = Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
             func: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: "dir".into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
             })),
             arguments: Arguments {
+                node_index: AtomicNodeIndex::dummy(),
                 args: Box::from([Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: temp_module_name.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -10345,10 +10565,14 @@ impl HybridStaticBundler {
 
         // not attr.startswith('_')
         let condition = Expr::UnaryOp(ruff_python_ast::ExprUnaryOp {
+            node_index: AtomicNodeIndex::dummy(),
             op: ruff_python_ast::UnaryOp::Not,
             operand: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: attr_var.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -10358,8 +10582,11 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })),
                 arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
                     args: Box::from([Expr::StringLiteral(ExprStringLiteral {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: StringLiteralValue::single(StringLiteral {
+                            node_index: AtomicNodeIndex::dummy(),
                             value: "_".into(),
                             range: TextRange::default(),
                             flags: StringLiteralFlags::empty(),
@@ -10376,19 +10603,24 @@ impl HybridStaticBundler {
 
         // getattr(_cribo_temp_mypackage, attr)
         let getattr_call = Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
             func: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: "getattr".into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
             })),
             arguments: Arguments {
+                node_index: AtomicNodeIndex::dummy(),
                 args: Box::from([
                     Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: temp_module_name.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     }),
                     Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: attr_var.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -10402,20 +10634,26 @@ impl HybridStaticBundler {
 
         // setattr(mypackage, attr, getattr(...))
         let setattr_call = Stmt::Expr(ruff_python_ast::StmtExpr {
+            node_index: AtomicNodeIndex::dummy(),
             value: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: "setattr".into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 })),
                 arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
                     args: Box::from([
                         Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: namespace_name.into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
                         }),
                         Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: attr_var.into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
@@ -10432,6 +10670,7 @@ impl HybridStaticBundler {
 
         // if not attr.startswith('_'): setattr(...)
         let if_stmt = Stmt::If(ruff_python_ast::StmtIf {
+            node_index: AtomicNodeIndex::dummy(),
             test: Box::new(condition),
             body: vec![setattr_call],
             elif_else_clauses: vec![],
@@ -10440,6 +10679,7 @@ impl HybridStaticBundler {
 
         // for attr in dir(...): if ...
         let for_loop = Stmt::For(ruff_python_ast::StmtFor {
+            node_index: AtomicNodeIndex::dummy(),
             target: Box::new(loop_target),
             iter: Box::new(dir_call),
             body: vec![if_stmt],
@@ -10464,14 +10704,19 @@ impl HybridStaticBundler {
 
         // Create the namespace
         let mut statements = vec![Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: module_name.into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "types".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -10481,6 +10726,7 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })),
                 arguments: ruff_python_ast::Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
                     args: Box::from([]),
                     keywords: Box::from([]),
                     range: TextRange::default(),
@@ -10492,8 +10738,11 @@ impl HybridStaticBundler {
 
         // Set the __name__ attribute to match real module behavior
         statements.push(Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: module_name.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -10503,7 +10752,9 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                node_index: AtomicNodeIndex::dummy(),
                 value: StringLiteralValue::single(StringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: module_name.to_string().into(),
                     range: TextRange::default(),
                     flags: StringLiteralFlags::empty(),
@@ -10520,14 +10771,19 @@ impl HybridStaticBundler {
     fn create_namespace_with_name(&self, var_name: &str, module_path: &str) -> Vec<Stmt> {
         // Create: var_name = types.SimpleNamespace()
         let mut statements = vec![Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: var_name.into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "types".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -10537,6 +10793,7 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })),
                 arguments: ruff_python_ast::Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
                     args: Box::from([]),
                     keywords: Box::from([]),
                     range: TextRange::default(),
@@ -10548,8 +10805,11 @@ impl HybridStaticBundler {
 
         // Set the __name__ attribute
         statements.push(Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: var_name.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -10559,7 +10819,9 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                node_index: AtomicNodeIndex::dummy(),
                 value: StringLiteralValue::single(StringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: module_path.to_string().into(),
                     range: TextRange::default(),
                     flags: StringLiteralFlags::empty(),
@@ -10580,8 +10842,11 @@ impl HybridStaticBundler {
         full_module_name: &str,
     ) -> Stmt {
         Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: parent_module.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -10591,6 +10856,7 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: full_module_name.into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
@@ -10711,8 +10977,11 @@ impl HybridStaticBundler {
 
             // Create empty namespace object
             let namespace_expr = Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "types".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -10722,6 +10991,7 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })),
                 arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
                     args: vec![].into(),
                     keywords: vec![].into(),
                     range: TextRange::default(),
@@ -10732,7 +11002,9 @@ impl HybridStaticBundler {
             // Assign to the first part of the name
             if i == 1 {
                 result_stmts.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: parts[0].into(),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
@@ -10743,6 +11015,7 @@ impl HybridStaticBundler {
             } else {
                 // For deeper levels, create attribute assignments
                 let mut target = Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: parts[0].into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -10751,6 +11024,7 @@ impl HybridStaticBundler {
                 // Build up the chain up to but not including the last part
                 for part in &parts[1..(i - 1)] {
                     target = Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(target),
                         attr: Identifier::new(&**part, TextRange::default()),
                         ctx: ExprContext::Load,
@@ -10759,7 +11033,9 @@ impl HybridStaticBundler {
                 }
 
                 result_stmts.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(target),
                         attr: Identifier::new(parts[i - 1], TextRange::default()),
                         ctx: ExprContext::Store,
@@ -10821,6 +11097,7 @@ impl HybridStaticBundler {
             // First, add __all__ attribute to the namespace
             // Create the target expression for __all__
             let mut all_target = Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: parts[0].into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
@@ -10828,6 +11105,7 @@ impl HybridStaticBundler {
 
             for part in &parts[1..] {
                 all_target = Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(all_target),
                     attr: Identifier::new(&**part, TextRange::default()),
                     ctx: ExprContext::Load,
@@ -10837,11 +11115,14 @@ impl HybridStaticBundler {
 
             // Create __all__ = [...] assignment
             let all_list = Expr::List(ExprList {
+                node_index: AtomicNodeIndex::dummy(),
                 elts: exports
                     .iter()
                     .map(|name| {
                         Expr::StringLiteral(ExprStringLiteral {
+                            node_index: AtomicNodeIndex::dummy(),
                             value: StringLiteralValue::single(StringLiteral {
+                                node_index: AtomicNodeIndex::dummy(),
                                 value: name.as_str().into(),
                                 flags: StringLiteralFlags::empty(),
                                 range: TextRange::default(),
@@ -10855,7 +11136,9 @@ impl HybridStaticBundler {
             });
 
             result_stmts.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
                 targets: vec![Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(all_target),
                     attr: Identifier::new("__all__", TextRange::default()),
                     ctx: ExprContext::Store,
@@ -10884,6 +11167,7 @@ impl HybridStaticBundler {
                 let target = if parts.len() == 1 {
                     // Simple module - use the name directly
                     Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: parts[0].into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -10891,6 +11175,7 @@ impl HybridStaticBundler {
                 } else {
                     // Dotted module - build the attribute chain
                     let mut base = Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: parts[0].into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -10898,6 +11183,7 @@ impl HybridStaticBundler {
 
                     for part in &parts[1..] {
                         base = Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
                             value: Box::new(base),
                             attr: Identifier::new(&**part, TextRange::default()),
                             ctx: ExprContext::Load,
@@ -10910,13 +11196,16 @@ impl HybridStaticBundler {
                 // Now add the symbol as an attribute (e.g., greetings.greeting.get_greeting =
                 // get_greeting)
                 let attr_assignment = Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(target),
                         attr: Identifier::new(symbol, TextRange::default()),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: actual_symbol_name.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -10940,8 +11229,11 @@ impl HybridStaticBundler {
 
         // First, create the empty namespace
         let namespace_expr = Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
             func: Box::new(Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: "types".into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -10951,6 +11243,7 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })),
             arguments: Arguments {
+                node_index: AtomicNodeIndex::dummy(),
                 args: vec![].into(),
                 keywords: vec![].into(),
                 range: TextRange::default(),
@@ -10963,7 +11256,9 @@ impl HybridStaticBundler {
         // For now, return just the namespace creation
         // The actual symbol population needs to happen after all symbols are available
         Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: target_name.into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
@@ -11067,8 +11362,11 @@ impl HybridStaticBundler {
 
         // Set the __module__ attribute to preserve the original module name
         let module_attr_stmt = Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: renamed_name.clone().into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -11078,7 +11376,9 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                node_index: AtomicNodeIndex::dummy(),
                 value: StringLiteralValue::single(StringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: module_name.to_string().into(),
                     range: TextRange::default(),
                     flags: StringLiteralFlags::empty(),
@@ -11092,8 +11392,11 @@ impl HybridStaticBundler {
         // If the class was renamed, also set __name__ to preserve the original class name
         if renamed_name != class_name {
             let name_attr_stmt = Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
                 targets: vec![Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: renamed_name.clone().into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -11103,7 +11406,9 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })],
                 value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: StringLiteralValue::single(StringLiteral {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: class_name.to_string().into(),
                         range: TextRange::default(),
                         flags: StringLiteralFlags::empty(),
@@ -11535,8 +11840,10 @@ impl HybridStaticBundler {
                 // For now, just use the export name directly
                 // The symbol should already be available in the global scope after inlining
                 keywords.push(Keyword {
+                    node_index: AtomicNodeIndex::dummy(),
                     arg: Some(Identifier::new(export.clone(), TextRange::default())),
                     value: Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: export.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -11547,14 +11854,19 @@ impl HybridStaticBundler {
 
             // Create: target_name = types.SimpleNamespace(**kwargs)
             Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
                 targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: target_name.into(),
                     ctx: ExprContext::Store,
                     range: TextRange::default(),
                 })],
                 value: Box::new(Expr::Call(ExprCall {
+                    node_index: AtomicNodeIndex::dummy(),
                     func: Box::new(Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: "types".into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
@@ -11564,6 +11876,7 @@ impl HybridStaticBundler {
                         range: TextRange::default(),
                     })),
                     arguments: Arguments {
+                        node_index: AtomicNodeIndex::dummy(),
                         args: Box::from([]),
                         keywords: keywords.into_boxed_slice(),
                         range: TextRange::default(),
@@ -11575,12 +11888,15 @@ impl HybridStaticBundler {
         } else {
             // No symbols to export, just assign None
             Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
                 targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: target_name.into(),
                     ctx: ExprContext::Store,
                     range: TextRange::default(),
                 })],
                 value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
                     range: TextRange::default(),
                 })),
                 range: TextRange::default(),
@@ -11611,8 +11927,10 @@ impl HybridStaticBundler {
             seen_args.insert(original_name.clone());
 
             keywords.push(Keyword {
+                node_index: AtomicNodeIndex::dummy(),
                 arg: Some(Identifier::new(original_name, TextRange::default())),
                 value: Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
                     id: renamed_name.clone().into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -11630,8 +11948,10 @@ impl HybridStaticBundler {
                     // This export wasn't renamed and wasn't already added, add it directly
                     seen_args.insert(export.clone());
                     keywords.push(Keyword {
+                        node_index: AtomicNodeIndex::dummy(),
                         arg: Some(Identifier::new(export, TextRange::default())),
                         value: Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
                             id: export.clone().into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
@@ -11647,14 +11967,19 @@ impl HybridStaticBundler {
 
         // Create namespace = types.SimpleNamespace(**kwargs) assignment
         Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
                 id: namespace_var.into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "types".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -11664,6 +11989,7 @@ impl HybridStaticBundler {
                     range: TextRange::default(),
                 })),
                 arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
                     args: Box::from([]),
                     keywords: keywords.into_boxed_slice(),
                     range: TextRange::default(),

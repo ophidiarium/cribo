@@ -3,8 +3,8 @@
 use anyhow::Result;
 use log::{debug, trace};
 use ruff_python_ast::{
-    self as ast, Identifier, ModModule, Stmt, StmtFunctionDef, StmtImport, StmtImportFrom,
-    visitor::Visitor,
+    self as ast, AtomicNodeIndex, Identifier, ModModule, Stmt, StmtFunctionDef, StmtImport,
+    StmtImportFrom, visitor::Visitor,
 };
 use ruff_text_size::TextRange;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -653,6 +653,7 @@ impl ImportRewriter {
         match import {
             ImportStatement::Import { module, alias } => {
                 let alias_stmt = ast::Alias {
+                    node_index: AtomicNodeIndex::dummy(),
                     name: Identifier::new(module.clone(), TextRange::default()),
                     asname: alias
                         .as_ref()
@@ -661,6 +662,7 @@ impl ImportRewriter {
                 };
 
                 Ok(Stmt::Import(StmtImport {
+                    node_index: AtomicNodeIndex::dummy(),
                     names: vec![alias_stmt],
                     range: TextRange::default(),
                 }))
@@ -673,6 +675,7 @@ impl ImportRewriter {
                 let aliases: Vec<_> = names
                     .iter()
                     .map(|(name, alias)| ast::Alias {
+                        node_index: AtomicNodeIndex::dummy(),
                         name: Identifier::new(name.clone(), TextRange::default()),
                         asname: alias
                             .as_ref()
@@ -682,6 +685,7 @@ impl ImportRewriter {
                     .collect();
 
                 Ok(Stmt::ImportFrom(StmtImportFrom {
+                    node_index: AtomicNodeIndex::dummy(),
                     module: module
                         .as_ref()
                         .map(|m| Identifier::new(m.clone(), TextRange::default())),
