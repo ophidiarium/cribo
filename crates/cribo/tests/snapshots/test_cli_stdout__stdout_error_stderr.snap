@@ -1,0 +1,8 @@
+---
+source: crates/cribo/tests/test_cli_stdout.rs
+expression: stderr
+---
+Error: Failed to read file: "nonexistent_file.py"
+
+Caused by:
+    No such file or directory (os error 2)

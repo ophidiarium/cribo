@@ -1,0 +1,5 @@
+---
+source: crates/cribo/tests/test_cli_stdout.rs
+expression: stdout
+---
+
