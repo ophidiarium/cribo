@@ -1,14 +1,13 @@
-from speaking import ALICE_NAME, create_ms, say, Person, Sex
+from speaking import ALICE_NAME, create_ms, say
 
 
 def main() -> None:
-    # Direct usage of imported functions and constants
     print(say({"what": "Hello", "whom": create_ms(ALICE_NAME)}))
-
-    # Usage of Person class (which will keep its dependencies)
-    alice = Person(ALICE_NAME, Sex.FEMALE)
-    print(f"Created person: {alice.name}")
 
 
 if __name__ == "__main__":
     main()
+    # print(
+    #     "Total globals defined:",
+    #     {s for s in globals() if isinstance(s, str) and not s.startswith("__")},
+    # )

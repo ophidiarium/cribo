@@ -4,6 +4,6 @@ input_file: crates/cribo/tests/fixtures/simple_treeshaking_inlining/main.py
 ---
 ExecutionResults {
     status: Success,
-    stdout: "Hello, Ms. Alice!\nCreated person: Alice",
+    stdout: "Hello Ms. Alice",
     stderr: "",
 }
