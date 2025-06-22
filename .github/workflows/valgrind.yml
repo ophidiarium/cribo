@@ -41,6 +41,12 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libc6-dbg valgrind
+
       - name: Install cargo-valgrind
         uses: taiki-e/install-action@cargo-valgrind
 
