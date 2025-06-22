@@ -333,6 +333,18 @@ fn test_bundling_fixtures() {
         // Run ruff linting for cross-validation
         let ruff_results = run_ruff_lint_on_bundle(&bundled_code);
 
+        // Check for F401 violations (unused imports) - fail if any are found
+        // This ensures we catch regressions where imports aren't properly removed
+        if !ruff_results.f401_violations.is_empty() {
+            panic!(
+                "F401 violations (unused imports) detected in bundled code for fixture \
+                 '{}':\n{}\n\nThis indicates a regression in import handling. The bundler should \
+                 remove all unused imports.",
+                fixture_name,
+                ruff_results.f401_violations.join("\n")
+            );
+        }
+
         // Execute the bundled code via stdin for consistent snapshots
         let python_output = Command::new(&python_cmd)
             .arg("-")

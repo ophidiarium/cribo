@@ -2881,6 +2881,10 @@ impl HybridStaticBundler {
         }
 
         // Second pass: collect imports from ALL modules (for hoisting)
+        // TODO: This currently collects imports from wrapper modules that are only used
+        // inside the wrapped functions, causing duplicate imports. We should only collect
+        // module-level imports from wrapper modules, not imports used inside functions/classes.
+        // See pydantic_project fixture for an example of this issue.
         for (module_name, ast, module_path, _) in &modules_normalized {
             self.collect_imports_from_module(ast, module_name, module_path);
         }
@@ -2898,7 +2902,7 @@ impl HybridStaticBundler {
         }
 
         // Check if entry module has direct imports or dotted imports that might create namespace
-        // objects
+        // objects - but only for first-party modules that we're actually bundling
         let needs_types_for_entry_imports = if let Some((_, entry_path, _)) = params
             .sorted_modules
             .iter()
@@ -2913,9 +2917,22 @@ impl HybridStaticBundler {
                         if let Stmt::Import(import_stmt) = stmt {
                             import_stmt.names.iter().any(|alias| {
                                 let module_name = alias.name.as_str();
-                                // Check for dotted imports
+                                // Check for dotted imports - but only first-party ones
                                 if module_name.contains('.') {
-                                    return true;
+                                    // Check if this dotted import refers to a first-party module
+                                    // by checking if any bundled module matches this dotted path
+                                    let is_first_party_dotted =
+                                        modules_normalized.iter().any(|(name, _, _, _)| {
+                                            name == module_name
+                                                || module_name.starts_with(&format!("{name}."))
+                                        });
+                                    if is_first_party_dotted {
+                                        log::debug!(
+                                            "Found first-party dotted import '{module_name}' that \
+                                             requires namespace"
+                                        );
+                                        return true;
+                                    }
                                 }
                                 // Check for direct imports of inlined modules that have exports
                                 if self.inlined_modules.contains(module_name) {

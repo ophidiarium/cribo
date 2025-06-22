@@ -7,7 +7,6 @@ input_file: crates/cribo/tests/fixtures/pandera-polars/main.py
 # https://github.com/ophidiarium/cribo
 
 from pandera.typing import DataFrame
-import types
 import pandera.polars as pa
 import polars as pl
 class CitySchema(pa.DataFrameModel):
