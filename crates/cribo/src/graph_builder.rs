@@ -14,6 +14,7 @@ struct ForStmtContext<'a, 'b> {
     read_vars: &'a mut FxHashSet<String>,
     write_vars: &'a mut FxHashSet<String>,
     stack: &'a mut Vec<&'b [Stmt]>,
+    attribute_accesses: &'a mut FxHashMap<String, FxHashSet<String>>,
 }
 
 /// Builds a ModuleDepGraph from a Python AST
@@ -282,10 +283,12 @@ impl<'a> GraphBuilder<'a> {
         // Collect variables that will be read within the function
         let mut eventual_read_vars = FxHashSet::default();
         let mut eventual_write_vars = FxHashSet::default();
+        let mut eventual_attribute_accesses = FxHashMap::default();
         self.collect_vars_in_body(
             &func_def.body,
             &mut eventual_read_vars,
             &mut eventual_write_vars,
+            &mut eventual_attribute_accesses,
         );
 
         // Build symbol dependencies - the function depends on all variables it reads
@@ -315,7 +318,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names: FxHashSet::default(),
             defined_symbols: [func_name].into_iter().collect(),
             symbol_dependencies,
-            attribute_accesses: FxHashMap::default(),
+            attribute_accesses: eventual_attribute_accesses,
         };
 
         self.graph.add_item(item_data);
@@ -360,6 +363,7 @@ impl<'a> GraphBuilder<'a> {
         // Collect all variables used in methods to add as eventual dependencies
         let mut method_read_vars = FxHashSet::default();
         let mut method_write_vars = FxHashSet::default();
+        let mut method_attribute_accesses = FxHashMap::default();
         for stmt in &class_def.body {
             if let Stmt::FunctionDef(method_def) = stmt {
                 // Collect variables from method parameter annotations
@@ -389,6 +393,7 @@ impl<'a> GraphBuilder<'a> {
                     &method_def.body,
                     &mut method_read_vars,
                     &mut method_write_vars,
+                    &mut method_attribute_accesses,
                 );
             }
         }
@@ -408,7 +413,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names: FxHashSet::default(),
             defined_symbols: [class_name].into_iter().collect(),
             symbol_dependencies,
-            attribute_accesses: FxHashMap::default(),
+            attribute_accesses: method_attribute_accesses,
         };
 
         self.graph.add_item(item_data);
@@ -1055,6 +1060,7 @@ impl<'a> GraphBuilder<'a> {
         body: &[Stmt],
         read_vars: &mut FxHashSet<String>,
         write_vars: &mut FxHashSet<String>,
+        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
     ) {
         let mut stack: Vec<&[Stmt]> = vec![body];
 
@@ -1062,10 +1068,18 @@ impl<'a> GraphBuilder<'a> {
             for stmt in current_body {
                 match stmt {
                     Stmt::Expr(expr_stmt) => {
-                        self.collect_vars_in_expr(&expr_stmt.value, read_vars);
+                        self.collect_vars_in_expr_with_attrs(
+                            &expr_stmt.value,
+                            read_vars,
+                            attribute_accesses,
+                        );
                     }
                     Stmt::Assign(assign) => {
-                        self.collect_vars_in_expr(&assign.value, read_vars);
+                        self.collect_vars_in_expr_with_attrs(
+                            &assign.value,
+                            read_vars,
+                            attribute_accesses,
+                        );
                         // Handle assignment targets to collect reads from subscripts/attributes
                         let mut dummy_write_vars = FxHashSet::default();
                         self.handle_assign_targets(
@@ -1081,26 +1095,31 @@ impl<'a> GraphBuilder<'a> {
                         }
                     }
                     Stmt::Return(ret) => {
-                        self.handle_return_stmt(ret, read_vars);
+                        self.handle_return_stmt(ret, read_vars, attribute_accesses);
                     }
                     Stmt::If(if_stmt) => {
-                        self.handle_if_stmt(if_stmt, read_vars, &mut stack);
+                        self.handle_if_stmt(if_stmt, read_vars, &mut stack, attribute_accesses);
                     }
                     Stmt::For(for_stmt) => {
                         let mut ctx = ForStmtContext {
                             read_vars,
                             write_vars,
                             stack: &mut stack,
+                            attribute_accesses,
                         };
                         self.handle_for_stmt(for_stmt, &mut ctx);
                     }
                     Stmt::While(while_stmt) => {
-                        self.collect_vars_in_expr(&while_stmt.test, read_vars);
+                        self.collect_vars_in_expr_with_attrs(
+                            &while_stmt.test,
+                            read_vars,
+                            attribute_accesses,
+                        );
                         stack.push(&while_stmt.body);
                         stack.push(&while_stmt.orelse);
                     }
                     Stmt::With(with_stmt) => {
-                        self.handle_with_stmt(with_stmt, read_vars, &mut stack);
+                        self.handle_with_stmt(with_stmt, read_vars, &mut stack, attribute_accesses);
                     }
                     Stmt::Try(try_stmt) => {
                         // Process the try body
@@ -1111,7 +1130,11 @@ impl<'a> GraphBuilder<'a> {
                                 ast::ExceptHandler::ExceptHandler(except_handler) => {
                                     // Process the test expression if present
                                     if let Some(test_expr) = &except_handler.type_ {
-                                        self.collect_vars_in_expr(test_expr, read_vars);
+                                        self.collect_vars_in_expr_with_attrs(
+                                            test_expr,
+                                            read_vars,
+                                            attribute_accesses,
+                                        );
                                     }
                                     // Process the handler body
                                     stack.push(&except_handler.body);
@@ -1198,9 +1221,14 @@ impl<'a> GraphBuilder<'a> {
     }
 
     /// Handle return statement variable collection
-    fn handle_return_stmt(&self, ret: &ast::StmtReturn, read_vars: &mut FxHashSet<String>) {
+    fn handle_return_stmt(
+        &self,
+        ret: &ast::StmtReturn,
+        read_vars: &mut FxHashSet<String>,
+        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
+    ) {
         if let Some(value) = &ret.value {
-            self.collect_vars_in_expr(value, read_vars);
+            self.collect_vars_in_expr_with_attrs(value, read_vars, attribute_accesses);
         }
     }
 
@@ -1262,12 +1290,13 @@ impl<'a> GraphBuilder<'a> {
         if_stmt: &'b ast::StmtIf,
         read_vars: &mut FxHashSet<String>,
         stack: &mut Vec<&'b [Stmt]>,
+        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
     ) {
-        self.collect_vars_in_expr(&if_stmt.test, read_vars);
+        self.collect_vars_in_expr_with_attrs(&if_stmt.test, read_vars, attribute_accesses);
         stack.push(&if_stmt.body);
         for clause in &if_stmt.elif_else_clauses {
             if let Some(condition) = &clause.test {
-                self.collect_vars_in_expr(condition, read_vars);
+                self.collect_vars_in_expr_with_attrs(condition, read_vars, attribute_accesses);
             }
             stack.push(&clause.body);
         }
@@ -1275,7 +1304,7 @@ impl<'a> GraphBuilder<'a> {
 
     /// Handle for statement variable collection
     fn handle_for_stmt<'b>(&self, for_stmt: &'b ast::StmtFor, ctx: &mut ForStmtContext<'_, 'b>) {
-        self.collect_vars_in_expr(&for_stmt.iter, ctx.read_vars);
+        self.collect_vars_in_expr_with_attrs(&for_stmt.iter, ctx.read_vars, ctx.attribute_accesses);
         if let Some(names) = self.extract_assignment_targets(&for_stmt.target) {
             ctx.write_vars.extend(names);
         }
@@ -1289,9 +1318,10 @@ impl<'a> GraphBuilder<'a> {
         with_stmt: &'b ast::StmtWith,
         read_vars: &mut FxHashSet<String>,
         stack: &mut Vec<&'b [Stmt]>,
+        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
     ) {
         for item in &with_stmt.items {
-            self.collect_vars_in_expr(&item.context_expr, read_vars);
+            self.collect_vars_in_expr_with_attrs(&item.context_expr, read_vars, attribute_accesses);
         }
         stack.push(&with_stmt.body);
     }

@@ -155,6 +155,7 @@ impl TreeShaker {
                             } else {
                                 module.clone()
                             };
+
                             return Some((resolved_module, original_name.clone()));
                         }
                     }
@@ -177,6 +178,43 @@ impl TreeShaker {
                     if alias_name == alias {
                         // Found the import with matching alias
                         return Some(module.clone());
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Resolve a from import that imports a module (e.g., from utils import calculator)
+    fn resolve_from_module_import(&self, current_module: &str, alias: &str) -> Option<String> {
+        if let Some(items) = self.module_items.get(current_module) {
+            for item in items {
+                if let ItemType::FromImport {
+                    module,
+                    names,
+                    level,
+                    ..
+                } = &item.item_type
+                {
+                    // Check if this import defines the alias
+                    for (original_name, alias_opt) in names {
+                        let local_name = alias_opt.as_ref().unwrap_or(original_name);
+                        if local_name == alias {
+                            // Resolve relative imports to absolute module names
+                            let resolved_module = if *level > 0 {
+                                self.resolve_relative_module(current_module, module, *level)
+                            } else {
+                                module.clone()
+                            };
+
+                            // Check if we're importing a submodule
+                            let potential_full_module =
+                                format!("{resolved_module}.{original_name}");
+                            if self.module_items.contains_key(&potential_full_module) {
+                                // This is importing a module
+                                return Some(potential_full_module);
+                            }
+                        }
                     }
                 }
             }
@@ -305,47 +343,18 @@ impl TreeShaker {
 
                                 if has_all {
                                     // Mark only symbols in __all__ for star imports
-                                    for item in target_items {
-                                        if item.defined_symbols.contains("__all__")
-                                            && let ItemType::Assignment { targets, .. } =
-                                                &item.item_type
-                                        {
-                                            for target in targets {
-                                                if target == "__all__" {
-                                                    // Mark all symbols listed in __all__
-                                                    for symbol in &item.read_vars {
-                                                        if !symbol.starts_with('_') {
-                                                            debug!(
-                                                                "Marking {symbol} from star \
-                                                                 import of {resolved_from_module} \
-                                                                 as used"
-                                                            );
-                                                            worklist.push_back((
-                                                                resolved_from_module.clone(),
-                                                                symbol.clone(),
-                                                            ));
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                                    self.mark_all_defined_symbols_as_used(
+                                        target_items,
+                                        &resolved_from_module,
+                                        &mut worklist,
+                                    );
                                 } else {
                                     // No __all__ defined, mark all non-private symbols
-                                    for item in target_items {
-                                        for symbol in &item.defined_symbols {
-                                            if !symbol.starts_with('_') {
-                                                debug!(
-                                                    "Marking {symbol} from star import of \
-                                                     {resolved_from_module} as used"
-                                                );
-                                                worklist.push_back((
-                                                    resolved_from_module.clone(),
-                                                    symbol.clone(),
-                                                ));
-                                            }
-                                        }
-                                    }
+                                    self.mark_non_private_symbols_as_used(
+                                        target_items,
+                                        &resolved_from_module,
+                                        &mut worklist,
+                                    );
                                 }
                             }
                         } else {
@@ -419,6 +428,17 @@ impl TreeShaker {
                             debug!(
                                 "Found attribute access on module alias: {base_var}.{attr} -> \
                                  marking {source_module}::{attr} as used"
+                            );
+                            worklist.push_back((source_module.clone(), attr.clone()));
+                        }
+                    } else if let Some(source_module) =
+                        self.resolve_from_module_import(entry_module, base_var)
+                    {
+                        // This is a from import of a module (e.g., from utils import calculator)
+                        for attr in accessed_attrs {
+                            debug!(
+                                "Found attribute access on from-imported module: \
+                                 {base_var}.{attr} -> marking {source_module}::{attr} as used"
                             );
                             worklist.push_back((source_module.clone(), attr.clone()));
                         }
@@ -693,6 +713,17 @@ impl TreeShaker {
                     );
                     worklist.push_back((source_module.clone(), attr.clone()));
                 }
+            } else if let Some(source_module) =
+                self.resolve_from_module_import(current_module, base_var)
+            {
+                // This is a from import of a module (e.g., from utils import calculator)
+                for attr in accessed_attrs {
+                    debug!(
+                        "Found attribute access on from-imported module in {current_module}: \
+                         {base_var}.{attr} -> marking {source_module}::{attr} as used"
+                    );
+                    worklist.push_back((source_module.clone(), attr.clone()));
+                }
             } else if let Some((source_module, _)) =
                 self.resolve_import_alias(current_module, base_var)
             {
@@ -859,6 +890,53 @@ impl TreeShaker {
         }
 
         items_to_keep
+    }
+
+    /// Mark symbols defined in __all__ as used for star imports
+    fn mark_all_defined_symbols_as_used(
+        &self,
+        target_items: &[ItemData],
+        resolved_from_module: &str,
+        worklist: &mut VecDeque<(String, String)>,
+    ) {
+        for item in target_items {
+            if item.defined_symbols.contains("__all__")
+                && let ItemType::Assignment { targets, .. } = &item.item_type
+            {
+                for target in targets {
+                    if target == "__all__" {
+                        // Mark all symbols listed in __all__
+                        for symbol in &item.read_vars {
+                            if !symbol.starts_with('_') {
+                                debug!(
+                                    "Marking {symbol} from star import of {resolved_from_module} \
+                                     as used"
+                                );
+                                worklist
+                                    .push_back((resolved_from_module.to_string(), symbol.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Mark all non-private symbols as used when no __all__ is defined
+    fn mark_non_private_symbols_as_used(
+        &self,
+        target_items: &[ItemData],
+        resolved_from_module: &str,
+        worklist: &mut VecDeque<(String, String)>,
+    ) {
+        for item in target_items {
+            for symbol in &item.defined_symbols {
+                if !symbol.starts_with('_') {
+                    debug!("Marking {symbol} from star import of {resolved_from_module} as used");
+                    worklist.push_back((resolved_from_module.to_string(), symbol.clone()));
+                }
+            }
+        }
     }
 }
 

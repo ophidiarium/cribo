@@ -8,6 +8,7 @@ input_file: crates/cribo/tests/fixtures/all_variable_handling/main.py
 
 import types
 message_1 = "from conflict_module"
+SUB_CONSTANT = "submodule_value"
 def sub_function():
     """Function from submodule"""
     return "Hello from submodule"
@@ -37,6 +38,7 @@ simple_module.CONSTANT = CONSTANT
 print(f"\n'public_func' in simple_module.__all__ = {'public_func' in simple_module.__all__}")
 print(f"'CONSTANT' in simple_module.__all__ = {'CONSTANT' in simple_module.__all__}")
 sub = types.SimpleNamespace()
-sub.__all__ = ['sub_function']
+sub.__all__ = ['sub_function', 'SUB_CONSTANT']
 sub.sub_function = sub_function
+sub.SUB_CONSTANT = SUB_CONSTANT
 print(f"\n'sub_function' in submodule.__all__ = {'sub_function' in sub.__all__}")

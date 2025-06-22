@@ -909,7 +909,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         };
 
                                     // Add __all__ attribute to the namespace with filtered exports
-                                    if !filtered_exports.is_empty() {
+                                    // BUT ONLY if the original module had an explicit __all__
+                                    if !filtered_exports.is_empty()
+                                        && self
+                                            .bundler
+                                            .modules_with_explicit_all
+                                            .contains(&full_module_path)
+                                    {
                                         self.deferred_imports.push(Stmt::Assign(StmtAssign {
                                             node_index: AtomicNodeIndex::dummy(),
                                             targets: vec![Expr::Attribute(ExprAttribute {
@@ -1072,7 +1078,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         };
 
                                     // Add __all__ attribute to the namespace with filtered exports
-                                    if !filtered_exports.is_empty() {
+                                    // BUT ONLY if the original module had an explicit __all__
+                                    if !filtered_exports.is_empty()
+                                        && self
+                                            .bundler
+                                            .modules_with_explicit_all
+                                            .contains(&full_module_path)
+                                    {
                                         result_stmts.push(Stmt::Assign(StmtAssign {
                                             node_index: AtomicNodeIndex::dummy(),
                                             targets: vec![Expr::Attribute(ExprAttribute {
@@ -12621,12 +12633,14 @@ impl HybridStaticBundler {
 
             // Check if this symbol survived tree-shaking
             if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
-                && !kept_symbols.contains(&(module_name.to_string(), original_name.clone())) {
-                    log::debug!(
-                        "Skipping tree-shaken symbol '{original_name}' from namespace for module '{module_name}'"
-                    );
-                    continue;
-                }
+                && !kept_symbols.contains(&(module_name.to_string(), original_name.clone()))
+            {
+                log::debug!(
+                    "Skipping tree-shaken symbol '{original_name}' from namespace for module \
+                     '{module_name}'"
+                );
+                continue;
+            }
 
             seen_args.insert(original_name.clone());
 
@@ -12651,12 +12665,14 @@ impl HybridStaticBundler {
                 if !module_renames.contains_key(export) && !seen_args.contains(export) {
                     // Check if this symbol survived tree-shaking
                     if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
-                        && !kept_symbols.contains(&(module_name.to_string(), export.clone())) {
-                            log::debug!(
-                                "Skipping tree-shaken export '{export}' from namespace for module '{module_name}'"
-                            );
-                            continue;
-                        }
+                        && !kept_symbols.contains(&(module_name.to_string(), export.clone()))
+                    {
+                        log::debug!(
+                            "Skipping tree-shaken export '{export}' from namespace for module \
+                             '{module_name}'"
+                        );
+                        continue;
+                    }
 
                     // This export wasn't renamed and wasn't already added, add it directly
                     seen_args.insert(export.clone());
