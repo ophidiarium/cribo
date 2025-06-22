@@ -1,3 +1,4 @@
+pub mod ast_indexer;
 pub mod code_generator;
 pub mod combine;
 pub mod config;
@@ -9,6 +10,7 @@ pub mod orchestrator;
 pub mod resolver;
 pub mod semantic_analysis;
 pub mod semantic_bundler;
+pub mod transformation_context;
 pub mod util;
 pub mod visitors;
 
