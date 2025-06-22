@@ -2015,6 +2015,55 @@ impl HybridStaticBundler {
         }
     }
 
+    /// Check if an ImportFrom statement is a duplicate of any existing import in the body
+    fn is_duplicate_import_from(
+        &self,
+        import_from: &StmtImportFrom,
+        existing_body: &[Stmt],
+    ) -> bool {
+        if let Some(ref module) = import_from.module {
+            let module_name = module.as_str();
+            // For third-party imports, check if they're already in the body
+            if !self.is_safe_stdlib_module(module_name)
+                && !self.is_bundled_module_or_package(module_name)
+            {
+                return existing_body.iter().any(|existing| {
+                    if let Stmt::ImportFrom(existing_import) = existing {
+                        existing_import.module.as_ref().map(|m| m.as_str()) == Some(module_name)
+                            && Self::import_names_match(&import_from.names, &existing_import.names)
+                    } else {
+                        false
+                    }
+                });
+            }
+        }
+        false
+    }
+
+    /// Check if an Import statement is a duplicate of any existing import in the body
+    fn is_duplicate_import(&self, import_stmt: &StmtImport, existing_body: &[Stmt]) -> bool {
+        import_stmt.names.iter().any(|alias| {
+            let module_name = alias.name.as_str();
+            // For third-party imports, check if they're already in the body
+            if !self.is_safe_stdlib_module(module_name)
+                && !self.is_bundled_module_or_package(module_name)
+            {
+                existing_body.iter().any(|existing| {
+                    if let Stmt::Import(existing_import) = existing {
+                        existing_import.names.iter().any(|existing_alias| {
+                            existing_alias.name == alias.name
+                                && existing_alias.asname == alias.asname
+                        })
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                false
+            }
+        })
+    }
+
     /// Pre-scan all modules to identify required namespaces
     /// This ensures parent namespaces are created before any module initialization
     fn identify_required_namespaces(&mut self, modules: &[(String, ModModule, PathBuf, String)]) {
@@ -3870,31 +3919,7 @@ impl HybridStaticBundler {
 
                 match stmt {
                     Stmt::ImportFrom(import_from) => {
-                        // Check if this import is already in the output to avoid duplicates
-                        let is_duplicate = if let Some(ref module) = import_from.module {
-                            let module_name = module.as_str();
-                            // For third-party imports, check if they're already in final_body
-                            if !self.is_safe_stdlib_module(module_name)
-                                && !self.is_bundled_module_or_package(module_name)
-                            {
-                                final_body.iter().any(|existing| {
-                                    if let Stmt::ImportFrom(existing_import) = existing {
-                                        existing_import.module.as_ref().map(|m| m.as_str())
-                                            == Some(module_name)
-                                            && Self::import_names_match(
-                                                &import_from.names,
-                                                &existing_import.names,
-                                            )
-                                    } else {
-                                        false
-                                    }
-                                })
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
+                        let is_duplicate = self.is_duplicate_import_from(import_from, &final_body);
 
                         if !is_duplicate {
                             // Imports have already been transformed by RecursiveImportTransformer
@@ -3907,27 +3932,7 @@ impl HybridStaticBundler {
                         }
                     }
                     Stmt::Import(import_stmt) => {
-                        // Check if this import is already in the output to avoid duplicates
-                        let is_duplicate = import_stmt.names.iter().any(|alias| {
-                            let module_name = alias.name.as_str();
-                            // For third-party imports, check if they're already in final_body
-                            if !self.is_safe_stdlib_module(module_name)
-                                && !self.is_bundled_module_or_package(module_name)
-                            {
-                                final_body.iter().any(|existing| {
-                                    if let Stmt::Import(existing_import) = existing {
-                                        existing_import.names.iter().any(|existing_alias| {
-                                            existing_alias.name == alias.name
-                                                && existing_alias.asname == alias.asname
-                                        })
-                                    } else {
-                                        false
-                                    }
-                                })
-                            } else {
-                                false
-                            }
-                        });
+                        let is_duplicate = self.is_duplicate_import(import_stmt, &final_body);
 
                         if !is_duplicate {
                             // Imports have already been transformed by RecursiveImportTransformer
