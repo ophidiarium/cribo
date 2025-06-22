@@ -1608,10 +1608,10 @@ pub struct HybridStaticBundler {
     stdlib_import_from_map: FxIndexMap<String, FxIndexSet<String>>,
     /// Regular import statements (import module)
     stdlib_import_statements: Vec<Stmt>,
-    /// Collected third-party imports (not stdlib, not bundled)
-    /// Maps module name to set of imported names for deduplication
+    /// NOTE: We no longer collect third-party imports for hoisting.
+    /// They remain in their original location to preserve side effects.
+    /// These fields are kept for now but are unused.
     third_party_import_from_map: FxIndexMap<String, FxIndexSet<String>>,
-    /// Third-party regular import statements (import module)
     third_party_import_statements: Vec<Stmt>,
     /// Track which modules have been bundled
     bundled_modules: FxIndexSet<String>,
@@ -2881,10 +2881,6 @@ impl HybridStaticBundler {
         }
 
         // Second pass: collect imports from ALL modules (for hoisting)
-        // TODO: This currently collects imports from wrapper modules that are only used
-        // inside the wrapped functions, causing duplicate imports. We should only collect
-        // module-level imports from wrapper modules, not imports used inside functions/classes.
-        // See pydantic_project fixture for an example of this issue.
         for (module_name, ast, module_path, _) in &modules_normalized {
             self.collect_imports_from_module(ast, module_name, module_path);
         }
@@ -3678,13 +3674,72 @@ impl HybridStaticBundler {
                 }
 
                 match stmt {
-                    Stmt::ImportFrom(_) => {
-                        // Imports have already been transformed by RecursiveImportTransformer
-                        final_body.push(stmt.clone());
+                    Stmt::ImportFrom(import_from) => {
+                        // Check if this import is already in the output to avoid duplicates
+                        let is_duplicate = if let Some(ref module) = import_from.module {
+                            let module_name = module.as_str();
+                            // For third-party imports, check if they're already in final_body
+                            if !self.is_safe_stdlib_module(module_name)
+                                && !self.is_bundled_module_or_package(module_name)
+                            {
+                                final_body.iter().any(|existing| {
+                                    if let Stmt::ImportFrom(existing_import) = existing {
+                                        existing_import.module.as_ref().map(|m| m.as_str())
+                                            == Some(module_name)
+                                            && Self::import_names_match(
+                                                &import_from.names,
+                                                &existing_import.names,
+                                            )
+                                    } else {
+                                        false
+                                    }
+                                })
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if !is_duplicate {
+                            // Imports have already been transformed by RecursiveImportTransformer
+                            final_body.push(stmt.clone());
+                        } else {
+                            log::debug!(
+                                "Skipping duplicate import in entry module: {:?}",
+                                import_from.module
+                            );
+                        }
                     }
-                    Stmt::Import(_) => {
-                        // Imports have already been transformed by RecursiveImportTransformer
-                        final_body.push(stmt.clone());
+                    Stmt::Import(import_stmt) => {
+                        // Check if this import is already in the output to avoid duplicates
+                        let is_duplicate = import_stmt.names.iter().any(|alias| {
+                            let module_name = alias.name.as_str();
+                            // For third-party imports, check if they're already in final_body
+                            if !self.is_safe_stdlib_module(module_name)
+                                && !self.is_bundled_module_or_package(module_name)
+                            {
+                                final_body.iter().any(|existing| {
+                                    if let Stmt::Import(existing_import) = existing {
+                                        existing_import.names.iter().any(|existing_alias| {
+                                            existing_alias.name == alias.name
+                                                && existing_alias.asname == alias.asname
+                                        })
+                                    } else {
+                                        false
+                                    }
+                                })
+                            } else {
+                                false
+                            }
+                        });
+
+                        if !is_duplicate {
+                            // Imports have already been transformed by RecursiveImportTransformer
+                            final_body.push(stmt.clone());
+                        } else {
+                            log::debug!("Skipping duplicate import in entry module");
+                        }
                     }
                     Stmt::Assign(assign) => {
                         // Check if this is an import assignment for a locally defined symbol
@@ -5796,34 +5851,11 @@ impl HybridStaticBundler {
             }));
         }
 
-        // Third-party from imports - deduplicated and sorted by module name
-        let mut sorted_third_party_modules: Vec<_> =
-            self.third_party_import_from_map.iter().collect();
-        sorted_third_party_modules.sort_by_key(|(module_name, _)| *module_name);
-
-        for (module_name, imported_names) in sorted_third_party_modules {
-            // Sort the imported names for deterministic output
-            let mut sorted_names: Vec<String> = imported_names.iter().cloned().collect();
-            sorted_names.sort();
-
-            let aliases: Vec<ruff_python_ast::Alias> = sorted_names
-                .into_iter()
-                .map(|name| ruff_python_ast::Alias {
-                    node_index: AtomicNodeIndex::dummy(),
-                    name: Identifier::new(&name, TextRange::default()),
-                    asname: None,
-                    range: TextRange::default(),
-                })
-                .collect();
-
-            final_body.push(Stmt::ImportFrom(StmtImportFrom {
-                node_index: AtomicNodeIndex::dummy(),
-                module: Some(Identifier::new(module_name, TextRange::default())),
-                names: aliases,
-                level: 0,
-                range: TextRange::default(),
-            }));
-        }
+        // NOTE: We do NOT hoist third-party imports because they may have side effects.
+        // Only stdlib imports that are known to be side-effect-free are hoisted.
+        // Third-party imports remain in their original location (inside wrapper functions
+        // or at module level for inlined modules) to preserve execution order and
+        // potential side effects.
 
         // Regular stdlib import statements - deduplicated and sorted by module name
         let mut seen_modules = FxIndexSet::default();
@@ -5842,26 +5874,8 @@ impl HybridStaticBundler {
             final_body.push(import_stmt);
         }
 
-        // Finally, third-party regular import statements - deduplicated and sorted
-        let mut seen_third_party_modules = FxIndexSet::default();
-        let mut unique_third_party_imports = Vec::new();
-
-        for stmt in &self.third_party_import_statements {
-            if let Stmt::Import(import_stmt) = stmt {
-                self.collect_unique_imports(
-                    import_stmt,
-                    &mut seen_third_party_modules,
-                    &mut unique_third_party_imports,
-                );
-            }
-        }
-
-        // Sort by module name for deterministic output
-        unique_third_party_imports.sort_by_key(|(module_name, _)| module_name.clone());
-
-        for (_, import_stmt) in unique_third_party_imports {
-            final_body.push(import_stmt);
-        }
+        // NOTE: We do NOT hoist third-party regular import statements for the same reason
+        // as above - they may have side effects and should remain in their original context.
     }
 
     /// Collect imports from a module for hoisting
@@ -5948,19 +5962,29 @@ impl HybridStaticBundler {
             }
         } else if !self.is_bundled_module_or_package(module_name) {
             // This is a third-party import (not stdlib, not bundled)
-            log::debug!("Collecting third-party import from module: {module_name}");
-
-            // Get or create the set of imported names for this module
-            let imported_names = self
-                .third_party_import_from_map
-                .entry(module_name.to_string())
-                .or_default();
-
-            // Add all imported names to the set (this automatically deduplicates)
-            for alias in &import_from.names {
-                imported_names.insert(alias.name.to_string());
-            }
+            // We do NOT collect third-party imports for hoisting because they may have
+            // side effects. They will remain in their original location within the module.
+            log::debug!(
+                "Skipping third-party import from module '{module_name}' - will not be hoisted"
+            );
         }
+    }
+
+    /// Check if two import name lists match (same names with same aliases)
+    fn import_names_match(
+        names1: &[ruff_python_ast::Alias],
+        names2: &[ruff_python_ast::Alias],
+    ) -> bool {
+        if names1.len() != names2.len() {
+            return false;
+        }
+
+        // Check if all names match (order doesn't matter)
+        names1.iter().all(|n1| {
+            names2
+                .iter()
+                .any(|n2| n1.name == n2.name && n1.asname == n2.asname)
+        })
     }
 
     /// Check if a module is bundled directly or is a package containing bundled modules
@@ -7034,8 +7058,11 @@ impl HybridStaticBundler {
                 break;
             } else if !self.is_bundled_module_or_package(module_name) {
                 // This is a third-party import (not stdlib, not bundled)
-                log::debug!("Collecting third-party import: {module_name}");
-                self.third_party_import_statements.push(stmt.clone());
+                // We do NOT collect third-party imports for hoisting because they may have
+                // side effects. They will remain in their original location within the module.
+                log::debug!(
+                    "Skipping third-party import '{module_name}' - will not be hoisted"
+                );
                 break;
             }
         }
@@ -7481,11 +7508,8 @@ impl HybridStaticBundler {
                         // Check if this exact import is in our hoisted stdlib imports
                         return self.is_import_in_hoisted_stdlib(module_name);
                     }
-                    // Check if this is a third-party import that we've hoisted
-                    let is_bundled = self.is_bundled_module_or_package(module_name);
-                    if !is_bundled {
-                        return self.third_party_import_from_map.contains_key(module_name);
-                    }
+                    // We no longer hoist third-party imports, so they should never be considered
+                    // hoisted Only stdlib and __future__ imports are hoisted
                 }
                 false
             }
@@ -7500,13 +7524,8 @@ impl HybridStaticBundler {
                                 if hoisted_import.names.iter().any(|h| h.name == alias.name))
                         })
                     }
-                    // Check third-party imports
-                    else if !self.is_bundled_module_or_package(module_name) {
-                        self.third_party_import_statements.iter().any(|hoisted| {
-                            matches!(hoisted, Stmt::Import(hoisted_import)
-                                if hoisted_import.names.iter().any(|h| h.name == alias.name))
-                        })
-                    } else {
+                    // We no longer hoist third-party imports
+                    else {
                         false
                     }
                 })
