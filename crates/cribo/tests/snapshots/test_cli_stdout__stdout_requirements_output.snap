@@ -8,8 +8,6 @@ expression: stdout
 
 from dataclasses import dataclass
 from typing import Optional, Union
-import os
-import sys
 """Models package initialization."""
 @dataclass
 class User:

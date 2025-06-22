@@ -1608,11 +1608,6 @@ pub struct HybridStaticBundler {
     stdlib_import_from_map: FxIndexMap<String, FxIndexSet<String>>,
     /// Regular import statements (import module)
     stdlib_import_statements: Vec<Stmt>,
-    /// NOTE: We no longer collect third-party imports for hoisting.
-    /// They remain in their original location to preserve side effects.
-    /// These fields are kept for now but are unused.
-    third_party_import_from_map: FxIndexMap<String, FxIndexSet<String>>,
-    third_party_import_statements: Vec<Stmt>,
     /// Track which modules have been bundled
     bundled_modules: FxIndexSet<String>,
     /// Modules that were inlined (not wrapper modules)
@@ -1693,8 +1688,6 @@ impl HybridStaticBundler {
             future_imports: FxIndexSet::default(),
             stdlib_import_from_map: FxIndexMap::default(),
             stdlib_import_statements: Vec::new(),
-            third_party_import_from_map: FxIndexMap::default(),
-            third_party_import_statements: Vec::new(),
             bundled_modules: FxIndexSet::default(),
             inlined_modules: FxIndexSet::default(),
             entry_path: None,
@@ -2547,16 +2540,68 @@ impl HybridStaticBundler {
                                     }
                                 }
                             }
-                            crate::cribo_graph::ItemType::Import { .. } => {
-                                // Skip regular imports (import module) - they should not be subject
-                                // to tree-shaking because they set
-                                // up namespace objects.
-                                // They will be handled by the regular unused import detection
-                                // above.
-                                log::debug!(
-                                    "Skipping tree-shaking analysis for regular import (handled \
-                                     by regular unused detection)"
-                                );
+                            crate::cribo_graph::ItemType::Import { module, .. } => {
+                                // For regular imports (import module), check if they're only used
+                                // by tree-shaken code
+                                let import_name = module.split('.').next_back().unwrap_or(module);
+
+                                // Skip if already marked as unused
+                                if unused_imports.iter().any(|u| u.name == *import_name) {
+                                    continue;
+                                }
+
+                                // Skip if this is a re-export
+                                if import_item.reexported_names.contains(import_name)
+                                    || module_dep_graph.is_in_all_export(import_name)
+                                {
+                                    log::debug!(
+                                        "Skipping tree-shaking for re-exported import \
+                                         '{import_name}'"
+                                    );
+                                    continue;
+                                }
+
+                                // Check if this import is only used by symbols that were
+                                // tree-shaken
+                                let mut used_by_surviving_code = false;
+
+                                // Check if any surviving symbol uses this import
+                                for symbol in &used_symbols {
+                                    if module_dep_graph.does_symbol_use_import(symbol, import_name)
+                                    {
+                                        used_by_surviving_code = true;
+                                        break;
+                                    }
+                                }
+
+                                // Also check if any module-level code that has side effects uses it
+                                for item in module_dep_graph.items.values() {
+                                    if item.has_side_effects
+                                        && !matches!(
+                                            item.item_type,
+                                            crate::cribo_graph::ItemType::Import { .. }
+                                                | crate::cribo_graph::ItemType::FromImport { .. }
+                                        )
+                                        && (item.read_vars.contains(import_name)
+                                            || item.eventual_read_vars.contains(import_name))
+                                    {
+                                        used_by_surviving_code = true;
+                                        break;
+                                    }
+                                }
+
+                                if !used_by_surviving_code {
+                                    log::debug!(
+                                        "Import '{import_name}' is not used by surviving code \
+                                         after tree-shaking"
+                                    );
+                                    unused_imports.push(crate::cribo_graph::UnusedImportInfo {
+                                        item_id,
+                                        name: import_name.to_string(),
+                                        module: module.clone(),
+                                        is_reexport: false,
+                                    });
+                                }
                             }
                             _ => {}
                         }
@@ -7060,9 +7105,7 @@ impl HybridStaticBundler {
                 // This is a third-party import (not stdlib, not bundled)
                 // We do NOT collect third-party imports for hoisting because they may have
                 // side effects. They will remain in their original location within the module.
-                log::debug!(
-                    "Skipping third-party import '{module_name}' - will not be hoisted"
-                );
+                log::debug!("Skipping third-party import '{module_name}' - will not be hoisted");
                 break;
             }
         }

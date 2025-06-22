@@ -7,7 +7,6 @@ input_file: crates/cribo/tests/fixtures/pydantic_project/main.py
 # https://github.com/ophidiarium/cribo
 
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field, ValidationError
 import re
 import types
 """Utils package initialization."""
@@ -64,6 +63,7 @@ UserSchema = schemas.user.UserSchema
 CreateUserRequest = schemas.user.CreateUserRequest
 UserResponse = schemas.user.UserResponse
 """Pydantic test project entry point."""
+from pydantic import ValidationError
 def main():
     """Main function demonstrating Pydantic usage."""
     user_data = {"name": "John Doe", "email": "john@example.com", "age": 25}

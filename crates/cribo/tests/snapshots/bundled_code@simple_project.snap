@@ -8,8 +8,6 @@ input_file: crates/cribo/tests/fixtures/simple_project/main.py
 
 from dataclasses import dataclass
 from typing import Optional, Union
-import os
-import sys
 """Models package initialization."""
 @dataclass
 class User:

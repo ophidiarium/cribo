@@ -370,38 +370,7 @@ impl TreeShaker {
 
                 // Then, check if this module has __all__ and mark those symbols too
                 // These might be re-exported from other modules
-                for item in module_items {
-                    if item.defined_symbols.contains("__all__") {
-                        // Look for the __all__ assignment to get the list of exported symbols
-                        if let ItemType::Assignment { targets, .. } = &item.item_type {
-                            for target in targets {
-                                if target == "__all__" {
-                                    // Check the read_vars which should contain the exported symbol
-                                    // names
-                                    for exported_symbol in &item.read_vars {
-                                        if !exported_symbol.starts_with('_') {
-                                            debug!(
-                                                "Marking re-exported symbol {exported_symbol} \
-                                                 from directly imported module {module_name} as \
-                                                 used (from __all__)"
-                                            );
-                                            // First, try to find where this symbol comes from
-                                            if let Some((source_module, original_name)) = self
-                                                .resolve_import_alias(module_name, exported_symbol)
-                                            {
-                                                debug!(
-                                                    "Re-exported symbol {exported_symbol} comes \
-                                                     from {source_module}::{original_name}"
-                                                );
-                                                worklist.push_back((source_module, original_name));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                self.process_module_all_exports(module_name, module_items, &mut worklist);
             }
         }
 
@@ -804,6 +773,55 @@ impl TreeShaker {
         }
 
         items_to_keep
+    }
+
+    /// Process __all__ exports from a module and add them to the worklist
+    fn process_module_all_exports(
+        &self,
+        module_name: &str,
+        module_items: &[ItemData],
+        worklist: &mut VecDeque<(String, String)>,
+    ) {
+        for item in module_items {
+            if item.defined_symbols.contains("__all__") {
+                // Look for the __all__ assignment to get the list of exported symbols
+                if let ItemType::Assignment { targets, .. } = &item.item_type {
+                    for target in targets {
+                        if target == "__all__" {
+                            self.process_all_assignment(module_name, item, worklist);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Process a single __all__ assignment
+    fn process_all_assignment(
+        &self,
+        module_name: &str,
+        item: &ItemData,
+        worklist: &mut VecDeque<(String, String)>,
+    ) {
+        // Check the read_vars which should contain the exported symbol names
+        for exported_symbol in &item.read_vars {
+            if !exported_symbol.starts_with('_') {
+                debug!(
+                    "Marking re-exported symbol {exported_symbol} from directly imported module \
+                     {module_name} as used (from __all__)"
+                );
+                // First, try to find where this symbol comes from
+                if let Some((source_module, original_name)) =
+                    self.resolve_import_alias(module_name, exported_symbol)
+                {
+                    debug!(
+                        "Re-exported symbol {exported_symbol} comes from \
+                         {source_module}::{original_name}"
+                    );
+                    worklist.push_back((source_module, original_name));
+                }
+            }
+        }
     }
 }
 
