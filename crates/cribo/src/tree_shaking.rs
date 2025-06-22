@@ -261,6 +261,7 @@ impl TreeShaker {
                         module: from_module,
                         names,
                         level,
+                        is_star,
                         ..
                     } => {
                         // First resolve relative imports
@@ -270,16 +271,74 @@ impl TreeShaker {
                             from_module.clone()
                         };
 
-                        for (name, _alias) in names {
-                            // Check if this is importing a submodule directly
-                            let potential_module = format!("{resolved_from_module}.{name}");
-                            // Check if this module exists
-                            if self.module_items.contains_key(&potential_module) {
-                                directly_imported_modules.insert(potential_module.clone());
-                                debug!(
-                                    "Found from import of module {potential_module} in \
-                                     {module_name}"
-                                );
+                        // Handle star imports - from module import *
+                        if *is_star {
+                            // For star imports, we need to mark all symbols from __all__ (if
+                            // defined) or all non-private symbols as
+                            // potentially used
+                            if let Some(target_items) = self.module_items.get(&resolved_from_module)
+                            {
+                                // Check if the module has __all__ defined
+                                let has_all = target_items
+                                    .iter()
+                                    .any(|item| item.defined_symbols.contains("__all__"));
+
+                                if has_all {
+                                    // Mark only symbols in __all__ for star imports
+                                    for item in target_items {
+                                        if item.defined_symbols.contains("__all__")
+                                            && let ItemType::Assignment { targets, .. } =
+                                                &item.item_type
+                                            {
+                                                for target in targets {
+                                                    if target == "__all__" {
+                                                        // Mark all symbols listed in __all__
+                                                        for symbol in &item.read_vars {
+                                                            if !symbol.starts_with('_') {
+                                                                debug!(
+                                                                    "Marking {symbol} from star import of {resolved_from_module} as used"
+                                                                );
+                                                                worklist.push_back((
+                                                                    resolved_from_module.clone(),
+                                                                    symbol.clone(),
+                                                                ));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                    }
+                                } else {
+                                    // No __all__ defined, mark all non-private symbols
+                                    for item in target_items {
+                                        for symbol in &item.defined_symbols {
+                                            if !symbol.starts_with('_') {
+                                                debug!(
+                                                    "Marking {symbol} from star import of \
+                                                     {resolved_from_module} as used"
+                                                );
+                                                worklist.push_back((
+                                                    resolved_from_module.clone(),
+                                                    symbol.clone(),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Regular from imports
+                            for (name, _alias) in names {
+                                // Check if this is importing a submodule directly
+                                let potential_module = format!("{resolved_from_module}.{name}");
+                                // Check if this module exists
+                                if self.module_items.contains_key(&potential_module) {
+                                    directly_imported_modules.insert(potential_module.clone());
+                                    debug!(
+                                        "Found from import of module {potential_module} in \
+                                         {module_name}"
+                                    );
+                                }
                             }
                         }
                     }
@@ -352,27 +411,9 @@ impl TreeShaker {
             }
         }
 
-        // For directly imported modules, mark all their exported symbols as used
-        for module_name in &directly_imported_modules {
-            if let Some(module_items) = self.module_items.get(module_name) {
-                // First, mark all non-private defined symbols
-                for item in module_items {
-                    for symbol in &item.defined_symbols {
-                        if !symbol.starts_with('_') || symbol == "__all__" {
-                            debug!(
-                                "Marking {symbol} from directly imported module {module_name} as \
-                                 used"
-                            );
-                            worklist.push_back((module_name.clone(), symbol.clone()));
-                        }
-                    }
-                }
-
-                // Then, check if this module has __all__ and mark those symbols too
-                // These might be re-exported from other modules
-                self.process_module_all_exports(module_name, module_items, &mut worklist);
-            }
-        }
+        // For directly imported modules, we don't automatically mark any symbols as used
+        // They will be marked as used only if actually accessed (e.g., module.symbol)
+        // The only exception would be `from module import *` which isn't handled here
 
         // Process all modules with side effects - their module-level code will run
         for (module_name, items) in &self.module_items {
@@ -773,55 +814,6 @@ impl TreeShaker {
         }
 
         items_to_keep
-    }
-
-    /// Process __all__ exports from a module and add them to the worklist
-    fn process_module_all_exports(
-        &self,
-        module_name: &str,
-        module_items: &[ItemData],
-        worklist: &mut VecDeque<(String, String)>,
-    ) {
-        for item in module_items {
-            if item.defined_symbols.contains("__all__") {
-                // Look for the __all__ assignment to get the list of exported symbols
-                if let ItemType::Assignment { targets, .. } = &item.item_type {
-                    for target in targets {
-                        if target == "__all__" {
-                            self.process_all_assignment(module_name, item, worklist);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Process a single __all__ assignment
-    fn process_all_assignment(
-        &self,
-        module_name: &str,
-        item: &ItemData,
-        worklist: &mut VecDeque<(String, String)>,
-    ) {
-        // Check the read_vars which should contain the exported symbol names
-        for exported_symbol in &item.read_vars {
-            if !exported_symbol.starts_with('_') {
-                debug!(
-                    "Marking re-exported symbol {exported_symbol} from directly imported module \
-                     {module_name} as used (from __all__)"
-                );
-                // First, try to find where this symbol comes from
-                if let Some((source_module, original_name)) =
-                    self.resolve_import_alias(module_name, exported_symbol)
-                {
-                    debug!(
-                        "Re-exported symbol {exported_symbol} comes from \
-                         {source_module}::{original_name}"
-                    );
-                    worklist.push_back((source_module, original_name));
-                }
-            }
-        }
     }
 }
 

@@ -886,7 +886,76 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     .cloned()
                                     .flatten()
                                 {
-                                    for symbol in exports {
+                                    // Filter exports to only include symbols that survived
+                                    // tree-shaking
+                                    let filtered_exports: Vec<String> =
+                                        if let Some(ref kept_symbols) =
+                                            self.bundler.tree_shaking_keep_symbols
+                                        {
+                                            exports
+                                                .iter()
+                                                .filter(|symbol| {
+                                                    // Check if this symbol is kept in this module
+                                                    kept_symbols.contains(&(
+                                                        full_module_path.clone(),
+                                                        (*symbol).clone(),
+                                                    ))
+                                                })
+                                                .cloned()
+                                                .collect()
+                                        } else {
+                                            // No tree-shaking, include all exports
+                                            exports.clone()
+                                        };
+
+                                    // Add __all__ attribute to the namespace with filtered exports
+                                    if !filtered_exports.is_empty() {
+                                        self.deferred_imports.push(Stmt::Assign(StmtAssign {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            targets: vec![Expr::Attribute(ExprAttribute {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                value: Box::new(Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
+                                                    id: local_name.into(),
+                                                    ctx: ExprContext::Load,
+                                                    range: TextRange::default(),
+                                                })),
+                                                attr: Identifier::new(
+                                                    "__all__",
+                                                    TextRange::default(),
+                                                ),
+                                                ctx: ExprContext::Store,
+                                                range: TextRange::default(),
+                                            })],
+                                            value: Box::new(Expr::List(ExprList {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                elts: filtered_exports
+                                                    .iter()
+                                                    .map(|name| {
+                                                        Expr::StringLiteral(ExprStringLiteral {
+                                                            node_index: AtomicNodeIndex::dummy(),
+                                                            value: StringLiteralValue::single(
+                                                                StringLiteral {
+                                                                    node_index:
+                                                                        AtomicNodeIndex::dummy(),
+                                                                    value: name.as_str().into(),
+                                                                    flags:
+                                                                        StringLiteralFlags::empty(),
+                                                                    range: TextRange::default(),
+                                                                },
+                                                            ),
+                                                            range: TextRange::default(),
+                                                        })
+                                                    })
+                                                    .collect(),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            range: TextRange::default(),
+                                        }));
+                                    }
+
+                                    for symbol in filtered_exports {
                                         // local_name.symbol = symbol
                                         self.deferred_imports.push(Stmt::Assign(StmtAssign {
                                             node_index: AtomicNodeIndex::dummy(),
@@ -980,7 +1049,76 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     .cloned()
                                     .flatten()
                                 {
-                                    for symbol in exports {
+                                    // Filter exports to only include symbols that survived
+                                    // tree-shaking
+                                    let filtered_exports: Vec<String> =
+                                        if let Some(ref kept_symbols) =
+                                            self.bundler.tree_shaking_keep_symbols
+                                        {
+                                            exports
+                                                .iter()
+                                                .filter(|symbol| {
+                                                    // Check if this symbol is kept in this module
+                                                    kept_symbols.contains(&(
+                                                        full_module_path.clone(),
+                                                        (*symbol).clone(),
+                                                    ))
+                                                })
+                                                .cloned()
+                                                .collect()
+                                        } else {
+                                            // No tree-shaking, include all exports
+                                            exports.clone()
+                                        };
+
+                                    // Add __all__ attribute to the namespace with filtered exports
+                                    if !filtered_exports.is_empty() {
+                                        result_stmts.push(Stmt::Assign(StmtAssign {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            targets: vec![Expr::Attribute(ExprAttribute {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                value: Box::new(Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
+                                                    id: local_name.into(),
+                                                    ctx: ExprContext::Load,
+                                                    range: TextRange::default(),
+                                                })),
+                                                attr: Identifier::new(
+                                                    "__all__",
+                                                    TextRange::default(),
+                                                ),
+                                                ctx: ExprContext::Store,
+                                                range: TextRange::default(),
+                                            })],
+                                            value: Box::new(Expr::List(ExprList {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                elts: filtered_exports
+                                                    .iter()
+                                                    .map(|name| {
+                                                        Expr::StringLiteral(ExprStringLiteral {
+                                                            node_index: AtomicNodeIndex::dummy(),
+                                                            value: StringLiteralValue::single(
+                                                                StringLiteral {
+                                                                    node_index:
+                                                                        AtomicNodeIndex::dummy(),
+                                                                    value: name.as_str().into(),
+                                                                    flags:
+                                                                        StringLiteralFlags::empty(),
+                                                                    range: TextRange::default(),
+                                                                },
+                                                            ),
+                                                            range: TextRange::default(),
+                                                        })
+                                                    })
+                                                    .collect(),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            range: TextRange::default(),
+                                        }));
+                                    }
+
+                                    for symbol in filtered_exports {
                                         // local_name.symbol = symbol
                                         result_stmts.push(Stmt::Assign(StmtAssign {
                                             node_index: AtomicNodeIndex::dummy(),
@@ -11594,10 +11732,45 @@ impl HybridStaticBundler {
                 });
             }
 
-            // Create __all__ = [...] assignment
+            // Filter exports to only include symbols that survived tree-shaking
+            let filtered_exports: Vec<&String> =
+                if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols {
+                    let result: Vec<&String> = exports
+                        .iter()
+                        .filter(|symbol| {
+                            // Check if this symbol is kept in this module
+                            let is_kept = kept_symbols
+                                .contains(&(module_name.to_string(), (*symbol).clone()));
+                            if !is_kept {
+                                log::debug!(
+                                    "Filtering out symbol '{symbol}' from __all__ of module '{module_name}' - \
+                                     removed by tree-shaking"
+                                );
+                            } else {
+                                log::debug!(
+                                    "Keeping symbol '{symbol}' in __all__ of module '{module_name}' - survived \
+                                     tree-shaking"
+                                );
+                            }
+                            is_kept
+                        })
+                        .collect();
+                    log::debug!(
+                        "Module '{}' __all__ filtering: {} symbols -> {} symbols",
+                        module_name,
+                        exports.len(),
+                        result.len()
+                    );
+                    result
+                } else {
+                    // No tree-shaking, include all exports
+                    exports.iter().collect()
+                };
+
+            // Create __all__ = [...] assignment with filtered exports
             let all_list = Expr::List(ExprList {
                 node_index: AtomicNodeIndex::dummy(),
-                elts: exports
+                elts: filtered_exports
                     .iter()
                     .map(|name| {
                         Expr::StringLiteral(ExprStringLiteral {
@@ -11629,13 +11802,13 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             }));
 
-            // For each exported symbol, add it to the namespace
-            for symbol in exports {
+            // For each exported symbol that survived tree-shaking, add it to the namespace
+            for symbol in &filtered_exports {
                 // For re-exported symbols, check if the original symbol is kept by tree-shaking
                 let should_include = if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
                 {
                     // First check if this symbol is directly defined in this module
-                    if kept_symbols.contains(&(module_name.to_string(), symbol.clone())) {
+                    if kept_symbols.contains(&(module_name.to_string(), (*symbol).clone())) {
                         true
                     } else {
                         // If not, check if this is a re-exported symbol from another module
@@ -11675,11 +11848,11 @@ impl HybridStaticBundler {
                 let actual_symbol_name =
                     if let Some(module_renames) = symbol_renames.get(module_name) {
                         module_renames
-                            .get(symbol)
+                            .get(*symbol)
                             .cloned()
-                            .unwrap_or_else(|| symbol.clone())
+                            .unwrap_or_else(|| (*symbol).clone())
                     } else {
-                        symbol.clone()
+                        (*symbol).clone()
                     };
 
                 // Create the target expression
@@ -11721,7 +11894,7 @@ impl HybridStaticBundler {
                     targets: vec![Expr::Attribute(ExprAttribute {
                         node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(target),
-                        attr: Identifier::new(symbol, TextRange::default()),
+                        attr: Identifier::new(*symbol, TextRange::default()),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
                     })],

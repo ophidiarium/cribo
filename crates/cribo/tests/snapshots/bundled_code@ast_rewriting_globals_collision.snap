@@ -46,7 +46,6 @@ def format_result(result):
 _cribo_models_base_Connection = None
 def __cribo_init___cribo_0a162a_models_base():
     module = types.SimpleNamespace()
-    util_validate = validate_6
     """Base models module - imports only from core to avoid circular dependencies"""
     process = lambda x: f"base_process: {x}"
     module.process = process
