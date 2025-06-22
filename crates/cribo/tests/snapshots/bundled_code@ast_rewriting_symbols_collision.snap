@@ -8,8 +8,6 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_symbols_collision/main.py
 
 from typing import Any, Dict, List, Optional
 import types
-result_2 = "base_result"
-process_2 = "base_process_string"
 class BaseModel:
     """Base model class with method name conflicts"""
 
@@ -46,18 +44,6 @@ def initialize() -> str:
     logger._log_process("Base module initialized")
     new_result = f"module_init: {init_result}"
     return new_result
-def validate_2(data: Any) -> bool:
-    """Base validate function - conflicts everywhere"""
-    return core_validate(data) and data != "invalid"
-def process_2(data: Any) -> str:
-    """Base process function - conflicts everywhere"""
-    validated = validate_2(data)
-    if validated:
-        processed = f"base_module_process: {data}"
-    else:
-        processed = "base_module_invalid"
-    new_result = f"base_last_process: {processed}"
-    return processed
 class Logger_1:
     """Base Logger class - yet another Logger conflict"""
 
@@ -74,23 +60,8 @@ class Logger_1:
         return f"base_logger_process: {log_data}"
 Logger_1.__module__ = 'models.base'
 Logger_1.__name__ = 'Logger'
-def connect_1() -> str:
-    """Base connect function"""
-    return "base_connected"
-def shadow_test(validate: Any=None, process: Any=None, Logger: Any=None, result: Any=None, initialize: Any=None) -> Dict[str, Any]:
-    """Function that shadows all major conflict names with parameters"""
-    shadows = {"validate_param": validate_2, "process_param": process_2, "Logger_param": Logger_1, "result_param": result_2, "initialize_param": initialize}
-    validate_func = validate_2
-    process_func = process_2
-    Logger_class = Logger_1
-    validation_result = validate_func("test_data") if callable(validate_func) else None
-    process_result = process_func("test_data") if callable(process_func) else None
-    logger = Logger_class("shadow_test") if Logger_class else None
-    shadows.update({"validate_result": validation_result, "process_result": process_result, "logger_source": logger.source if logger else None})
-    return shadows
 """\nBase model functionality with relative import conflicts\n"""
 result_3 = {"model": "user"}
-connection_2 = None
 class Logger_2:
     """Model Logger class - conflicts with other Logger classes"""
 
@@ -182,38 +153,6 @@ def process_3(data: Any) -> str:
         return process_user(data)
     else:
         return f"model_process_generic: {data}"
-class Connection_2:
-    """Model connection class - conflicts with other Connection classes"""
-
-    def __init__(self, User: "User"):
-        self.User = User_2
-        self.connected = False
-
-    def connect(self) -> str:
-        self.connected = True
-        return f"Model connection for user: {self.User.name}"
-
-    def process(self, action: str) -> str:
-        """Method with conflicted name"""
-        return f"connection_process: {action} for {self.User.name}"
-Connection_2.__module__ = 'models.user'
-Connection_2.__name__ = 'Connection'
-def connect_2(User: "User") -> Connection_2:
-    """Module connect function with parameter conflicts"""
-    return Connection_2(User_2)
-def complex_operation(User: Any=None, Logger: Any=None, process: Any=None, validate: Any=None, result: Any=None, connection: Any=None) -> Dict[str, Any]:
-    """Function with all parameter names conflicting with globals/classes"""
-    operation_result = {"user_param": User_2, "logger_param": Logger_2, "process_param": process_3, "validate_param": validate_3, "result_param": result_3, "connection_param": connection_2}
-    User_class = User_2 if User_2 is None else User_2
-    Logger_class = Logger_2 if Logger_2 is None else Logger_2
-    if operation_result["user_param"] is None:
-        user = User_class("complex_user") if User_class.__name__ == "User" else None
-        logger = Logger_class("complex_operation") if Logger_class.__name__ == "Logger" else None
-        if user:
-            operation_result["created_user"] = user.name
-        if logger:
-            operation_result["created_logger"] = logger.context
-    return operation_result
 """\nUser model with extensive naming conflicts across the project\n"""
 result_5 = 0
 User_4 = "helper_user_string"
@@ -259,30 +198,8 @@ def validate_5(data: Any) -> bool:
     elif isinstance(data, (int, float)):
         return data >= 0
     return True
-class Connection_4:
-    """Utility connection class - name conflict with database Connection"""
-
-    def __init__(self, connection_type: str="utility"):
-        self.connection_type = connection_type
-        self.active = False
-
-    def connect(self) -> str:
-        self.active = True
-        return f"Utility connection: {self.connection_type}"
-Connection_4.__module__ = 'core.utils.helpers'
-Connection_4.__name__ = 'Connection'
-def connect_4() -> Connection_4:
-    """Utility connect function"""
-    return Connection_4("helper")
-def process_with_conflicts(data: Any, User: str="param_user", result: int=100, Logger: Any=None) -> Dict[str, Any]:
-    """Function with parameter names that conflict with globals and imports"""
-    connection = connect_4()
-    validate_result = validate_5(data)
-    local_result = {"data": data, "user_param": User_4, "result_param": result_5, "logger_param": Logger_3, "validation": validate_result, "connection_type": connection.connection_type}
-    return local_result
 """\nUtility helpers module with extensive naming conflicts\n"""
 result_6 = []
-connection_3 = None
 class Connection_5:
     """Database connection class"""
 
@@ -308,20 +225,8 @@ def process_6(data):
     processed = {"db_process": True, "data": validated, "user_processing": user_result, "timestamp": "2024-01-01"}
     result_6.append(processed)
     return f"db_processed: {data}"
-def validate_6(data):
-    """Database validate function - another conflict"""
-    if not data:
-        return False
-    return f"db_valid: {data}"
-def connect_5():
-    """Module-level connect function"""
-    if connection_3 is None:
-        new_connection = Connection_5()
-    else:
-        new_connection = connection_3
-    return new_connection.connect()
 """\nDatabase connection module with naming conflicts\n"""
-models_base = types.SimpleNamespace(result=result_2, process=process_2, BaseModel=BaseModel, initialize=initialize, validate=validate_2, Logger=Logger_1, connect=connect_1, shadow_test=shadow_test)
+models_base = types.SimpleNamespace(BaseModel=BaseModel, initialize=initialize, Logger=Logger_1)
 def __cribo_init___cribo_6ccb3a_services_auth_manager():
     module = types.SimpleNamespace()
     DBConnection = Connection_5

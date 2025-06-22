@@ -2,7 +2,7 @@
 /// This module bridges the gap between ruff's AST and our dependency graph
 use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     cribo_graph::{ItemData, ItemType, ModuleDepGraph},
@@ -14,6 +14,7 @@ struct ForStmtContext<'a, 'b> {
     read_vars: &'a mut FxHashSet<String>,
     write_vars: &'a mut FxHashSet<String>,
     stack: &'a mut Vec<&'b [Stmt]>,
+    attribute_accesses: &'a mut FxHashMap<String, FxHashSet<String>>,
 }
 
 /// Builds a ModuleDepGraph from a Python AST
@@ -139,6 +140,9 @@ impl<'a> GraphBuilder<'a> {
                 span: None, // Could extract from AST if needed
                 imported_names,
                 reexported_names: FxHashSet::default(),
+                defined_symbols: FxHashSet::default(),
+                symbol_dependencies: FxHashMap::default(),
+                attribute_accesses: FxHashMap::default(),
             };
 
             self.graph.add_item(item_data);
@@ -223,6 +227,9 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names,
             reexported_names,
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -276,17 +283,31 @@ impl<'a> GraphBuilder<'a> {
         // Collect variables that will be read within the function
         let mut eventual_read_vars = FxHashSet::default();
         let mut eventual_write_vars = FxHashSet::default();
+        let mut eventual_attribute_accesses = FxHashMap::default();
         self.collect_vars_in_body(
             &func_def.body,
             &mut eventual_read_vars,
             &mut eventual_write_vars,
+            &mut eventual_attribute_accesses,
+        );
+
+        // Build symbol dependencies - the function depends on all variables it reads
+        let mut symbol_dependencies = FxHashMap::default();
+        let mut all_deps = FxHashSet::default();
+        all_deps.extend(read_vars.clone());
+        all_deps.extend(eventual_read_vars.clone());
+        symbol_dependencies.insert(func_name.clone(), all_deps);
+
+        log::debug!(
+            "Function {func_name} has eventual_read_vars: {eventual_read_vars:?}, \
+             eventual_write_vars: {eventual_write_vars:?}"
         );
 
         let item_data = ItemData {
             item_type: ItemType::FunctionDef {
                 name: func_name.clone(),
             },
-            var_decls: [func_name].into_iter().collect(),
+            var_decls: [func_name.clone()].into_iter().collect(),
             read_vars,
             eventual_read_vars,
             write_vars: FxHashSet::default(),
@@ -295,6 +316,9 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: [func_name].into_iter().collect(),
+            symbol_dependencies,
+            attribute_accesses: eventual_attribute_accesses,
         };
 
         self.graph.add_item(item_data);
@@ -332,19 +356,64 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
+        // Build symbol dependencies - the class depends on its base classes and decorators
+        let mut symbol_dependencies = FxHashMap::default();
+        symbol_dependencies.insert(class_name.clone(), read_vars.clone());
+
+        // Collect all variables used in methods to add as eventual dependencies
+        let mut method_read_vars = FxHashSet::default();
+        let mut method_write_vars = FxHashSet::default();
+        let mut method_attribute_accesses = FxHashMap::default();
+        for stmt in &class_def.body {
+            if let Stmt::FunctionDef(method_def) = stmt {
+                // Collect variables from method parameter annotations
+                for param in &method_def.parameters.posonlyargs {
+                    if let Some(annotation) = &param.parameter.annotation {
+                        self.collect_vars_in_expr(annotation, &mut method_read_vars);
+                    }
+                }
+                for param in &method_def.parameters.args {
+                    if let Some(annotation) = &param.parameter.annotation {
+                        self.collect_vars_in_expr(annotation, &mut method_read_vars);
+                    }
+                }
+                for param in &method_def.parameters.kwonlyargs {
+                    if let Some(annotation) = &param.parameter.annotation {
+                        self.collect_vars_in_expr(annotation, &mut method_read_vars);
+                    }
+                }
+
+                // Collect variables from return type annotation
+                if let Some(returns) = &method_def.returns {
+                    self.collect_vars_in_expr(returns, &mut method_read_vars);
+                }
+
+                // Collect variables used in the method body
+                self.collect_vars_in_body(
+                    &method_def.body,
+                    &mut method_read_vars,
+                    &mut method_write_vars,
+                    &mut method_attribute_accesses,
+                );
+            }
+        }
+
         let item_data = ItemData {
             item_type: ItemType::ClassDef {
                 name: class_name.clone(),
             },
-            var_decls: [class_name].into_iter().collect(),
+            var_decls: [class_name.clone()].into_iter().collect(),
             read_vars,
-            eventual_read_vars: FxHashSet::default(),
+            eventual_read_vars: method_read_vars, // Methods may use these variables
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: [class_name].into_iter().collect(),
+            symbol_dependencies,
+            attribute_accesses: method_attribute_accesses,
         };
 
         self.graph.add_item(item_data);
@@ -374,7 +443,21 @@ impl<'a> GraphBuilder<'a> {
 
         // Collect variables read in the value expression
         let mut read_vars = FxHashSet::default();
-        self.collect_vars_in_expr(&assign.value, &mut read_vars);
+        let mut attribute_accesses = FxHashMap::default();
+        self.collect_vars_in_expr_with_attrs(
+            &assign.value,
+            &mut read_vars,
+            &mut attribute_accesses,
+        );
+
+        if !attribute_accesses.is_empty() {
+            log::debug!("Assignment collected attribute_accesses: {attribute_accesses:?}");
+        }
+
+        // Also collect reads from assignment targets (for subscript/attribute mutations)
+        for target in &assign.targets {
+            self.collect_reads_from_assignment_target(target, &mut read_vars);
+        }
 
         // Check if this is an __all__ assignment
         let is_all_assignment = targets.contains(&"__all__".to_string());
@@ -393,8 +476,10 @@ impl<'a> GraphBuilder<'a> {
         }
 
         let item_data = ItemData {
-            item_type: ItemType::Assignment { targets },
-            var_decls,
+            item_type: ItemType::Assignment {
+                targets: targets.clone(),
+            },
+            var_decls: var_decls.clone(),
             read_vars,
             eventual_read_vars: reexported_names.clone(), // Names in __all__ are "eventually read"
             write_vars: FxHashSet::default(),
@@ -403,6 +488,9 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names,
+            defined_symbols: var_decls,
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses,
         };
 
         self.graph.add_item(item_data);
@@ -431,7 +519,7 @@ impl<'a> GraphBuilder<'a> {
             item_type: ItemType::Assignment {
                 targets: var_decls.iter().cloned().collect(),
             },
-            var_decls,
+            var_decls: var_decls.clone(),
             read_vars,
             eventual_read_vars: FxHashSet::default(),
             write_vars: FxHashSet::default(),
@@ -444,6 +532,9 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: var_decls,
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -453,7 +544,26 @@ impl<'a> GraphBuilder<'a> {
     /// Process an expression statement
     fn process_expr_stmt(&mut self, expr: &Expr) -> Result<()> {
         let mut read_vars = FxHashSet::default();
-        self.collect_vars_in_expr(expr, &mut read_vars);
+        let mut attribute_accesses = FxHashMap::default();
+        self.collect_vars_in_expr_with_attrs(expr, &mut read_vars, &mut attribute_accesses);
+
+        log::debug!(
+            "Processing expression statement, read_vars: {read_vars:?}, attribute_accesses: \
+             {attribute_accesses:?}"
+        );
+
+        // Check if this is a docstring or other constant expression
+        let has_side_effects = match expr {
+            // Docstrings and constant expressions don't have side effects
+            Expr::StringLiteral(_)
+            | Expr::NumberLiteral(_)
+            | Expr::BooleanLiteral(_)
+            | Expr::NoneLiteral(_)
+            | Expr::BytesLiteral(_)
+            | Expr::EllipsisLiteral(_) => false,
+            // For other expressions, check using the side effect detector
+            _ => Self::expression_has_side_effects(expr),
+        };
 
         let item_data = ItemData {
             item_type: ItemType::Expression,
@@ -462,10 +572,13 @@ impl<'a> GraphBuilder<'a> {
             eventual_read_vars: FxHashSet::default(),
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
-            has_side_effects: true, // Expression statements typically have side effects
+            has_side_effects,
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses,
         };
 
         self.graph.add_item(item_data);
@@ -491,6 +604,9 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -537,6 +653,9 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -570,6 +689,9 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -606,6 +728,9 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -631,6 +756,9 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -661,6 +789,9 @@ impl<'a> GraphBuilder<'a> {
                     span: None,
                     imported_names: FxHashSet::default(),
                     reexported_names: FxHashSet::default(),
+                    defined_symbols: FxHashSet::default(),
+                    symbol_dependencies: FxHashMap::default(),
+                    attribute_accesses: FxHashMap::default(),
                 };
                 self.graph.add_item(item_data);
             }
@@ -699,6 +830,12 @@ impl<'a> GraphBuilder<'a> {
                 Expr::List(list) => {
                     stack.extend(list.elts.iter());
                 }
+                Expr::Subscript(_) | Expr::Attribute(_) => {
+                    // For subscript (e.g., result["key"]) and attribute (e.g., obj.attr)
+                    // assignments, we don't add them to write_vars as they
+                    // don't create new variables However, we need to track that
+                    // they're being mutated - handled separately
+                }
                 _ => return None, // Unsupported target type
             }
         }
@@ -706,13 +843,63 @@ impl<'a> GraphBuilder<'a> {
         if names.is_empty() { None } else { Some(names) }
     }
 
-    /// Collect variables used in an expression
-    fn collect_vars_in_expr(&self, expr: &Expr, vars: &mut FxHashSet<String>) {
+    /// Collect variables used in an expression and track attribute accesses
+    fn collect_vars_in_expr_with_attrs(
+        &self,
+        expr: &Expr,
+        vars: &mut FxHashSet<String>,
+        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
+    ) {
         match expr {
             Expr::Name(name) => {
                 vars.insert(name.id.to_string());
             }
             Expr::Attribute(attr) => {
+                // Track attribute access for tree-shaking
+                if let Expr::Name(base_name) = attr.value.as_ref() {
+                    // Direct attribute access like greetings.message
+                    let base = base_name.id.to_string();
+                    vars.insert(base.clone());
+
+                    // Track that we're accessing 'message' on 'greetings'
+                    attribute_accesses
+                        .entry(base)
+                        .or_default()
+                        .insert(attr.attr.to_string());
+                } else if let Expr::Attribute(_base_attr) = attr.value.as_ref() {
+                    // Nested attribute access like greetings.greeting.get_greeting
+                    // For nested attributes, we need to build the full dotted path of attr.value
+                    // So for greetings.greeting.get_greeting, attr.value is greetings.greeting
+                    // and we want to track that we're accessing 'get_greeting' on
+                    // 'greetings.greeting'
+
+                    // Build the full dotted name from attr.value
+                    fn build_full_dotted_name(expr: &Expr) -> Option<String> {
+                        match expr {
+                            Expr::Name(name) => Some(name.id.to_string()),
+                            Expr::Attribute(attr) => build_full_dotted_name(&attr.value)
+                                .map(|base| format!("{}.{}", base, attr.attr)),
+                            _ => None,
+                        }
+                    }
+
+                    if let Some(base_path) = build_full_dotted_name(attr.value.as_ref()) {
+                        log::debug!(
+                            "Nested attribute access: base_path='{}', attr='{}'",
+                            base_path,
+                            attr.attr
+                        );
+                        // Track that we're accessing 'get_greeting' on 'greetings.greeting'
+                        attribute_accesses
+                            .entry(base_path.clone())
+                            .or_default()
+                            .insert(attr.attr.to_string());
+
+                        // Also track the base path as a read variable
+                        vars.insert(base_path);
+                    }
+                }
+
                 // Collect the base object, especially important for module attribute access
                 // like `simple_module.__all__` or `xml.etree.ElementTree.__name__`
 
@@ -740,107 +927,107 @@ impl<'a> GraphBuilder<'a> {
                     }
                     Expr::Attribute(_) => {
                         // For nested attributes, recursively collect vars
-                        self.collect_vars_in_expr(&attr.value, vars);
+                        self.collect_vars_in_expr_with_attrs(&attr.value, vars, attribute_accesses);
                     }
                     _ => {
                         // For other types, recursively collect vars
-                        self.collect_vars_in_expr(&attr.value, vars);
+                        self.collect_vars_in_expr_with_attrs(&attr.value, vars, attribute_accesses);
                     }
                 }
             }
             Expr::Call(call) => {
-                self.collect_vars_in_expr(&call.func, vars);
+                self.collect_vars_in_expr_with_attrs(&call.func, vars, attribute_accesses);
                 for arg in &call.arguments.args {
-                    self.collect_vars_in_expr(arg, vars);
+                    self.collect_vars_in_expr_with_attrs(arg, vars, attribute_accesses);
                 }
                 for keyword in &call.arguments.keywords {
-                    self.collect_vars_in_expr(&keyword.value, vars);
+                    self.collect_vars_in_expr_with_attrs(&keyword.value, vars, attribute_accesses);
                 }
             }
             Expr::BinOp(binop) => {
-                self.collect_vars_in_expr(&binop.left, vars);
-                self.collect_vars_in_expr(&binop.right, vars);
+                self.collect_vars_in_expr_with_attrs(&binop.left, vars, attribute_accesses);
+                self.collect_vars_in_expr_with_attrs(&binop.right, vars, attribute_accesses);
             }
             Expr::UnaryOp(unaryop) => {
-                self.collect_vars_in_expr(&unaryop.operand, vars);
+                self.collect_vars_in_expr_with_attrs(&unaryop.operand, vars, attribute_accesses);
             }
             Expr::List(list) => {
                 for elt in &list.elts {
-                    self.collect_vars_in_expr(elt, vars);
+                    self.collect_vars_in_expr_with_attrs(elt, vars, attribute_accesses);
                 }
             }
             Expr::Tuple(tuple) => {
                 for elt in &tuple.elts {
-                    self.collect_vars_in_expr(elt, vars);
+                    self.collect_vars_in_expr_with_attrs(elt, vars, attribute_accesses);
                 }
             }
             Expr::Dict(dict) => {
                 for item in &dict.items {
                     if let Some(key) = &item.key {
-                        self.collect_vars_in_expr(key, vars);
+                        self.collect_vars_in_expr_with_attrs(key, vars, attribute_accesses);
                     }
-                    self.collect_vars_in_expr(&item.value, vars);
+                    self.collect_vars_in_expr_with_attrs(&item.value, vars, attribute_accesses);
                 }
             }
             Expr::Set(set) => {
                 for elt in &set.elts {
-                    self.collect_vars_in_expr(elt, vars);
+                    self.collect_vars_in_expr_with_attrs(elt, vars, attribute_accesses);
                 }
             }
             Expr::Subscript(subscript) => {
-                self.collect_vars_in_expr(&subscript.value, vars);
-                self.collect_vars_in_expr(&subscript.slice, vars);
+                self.collect_vars_in_expr_with_attrs(&subscript.value, vars, attribute_accesses);
+                self.collect_vars_in_expr_with_attrs(&subscript.slice, vars, attribute_accesses);
             }
             Expr::Compare(compare) => {
-                self.collect_vars_in_expr(&compare.left, vars);
+                self.collect_vars_in_expr_with_attrs(&compare.left, vars, attribute_accesses);
                 for comparator in &compare.comparators {
-                    self.collect_vars_in_expr(comparator, vars);
+                    self.collect_vars_in_expr_with_attrs(comparator, vars, attribute_accesses);
                 }
             }
             Expr::BoolOp(boolop) => {
                 for value in &boolop.values {
-                    self.collect_vars_in_expr(value, vars);
+                    self.collect_vars_in_expr_with_attrs(value, vars, attribute_accesses);
                 }
             }
             Expr::If(ifexp) => {
-                self.collect_vars_in_expr(&ifexp.test, vars);
-                self.collect_vars_in_expr(&ifexp.body, vars);
-                self.collect_vars_in_expr(&ifexp.orelse, vars);
+                self.collect_vars_in_expr_with_attrs(&ifexp.test, vars, attribute_accesses);
+                self.collect_vars_in_expr_with_attrs(&ifexp.body, vars, attribute_accesses);
+                self.collect_vars_in_expr_with_attrs(&ifexp.orelse, vars, attribute_accesses);
             }
             Expr::ListComp(comp) => {
-                self.collect_vars_in_expr(&comp.elt, vars);
+                self.collect_vars_in_expr_with_attrs(&comp.elt, vars, attribute_accesses);
                 for generator in &comp.generators {
-                    self.collect_vars_in_expr(&generator.iter, vars);
+                    self.collect_vars_in_expr_with_attrs(&generator.iter, vars, attribute_accesses);
                     for if_clause in &generator.ifs {
-                        self.collect_vars_in_expr(if_clause, vars);
+                        self.collect_vars_in_expr_with_attrs(if_clause, vars, attribute_accesses);
                     }
                 }
             }
             Expr::SetComp(comp) => {
-                self.collect_vars_in_expr(&comp.elt, vars);
+                self.collect_vars_in_expr_with_attrs(&comp.elt, vars, attribute_accesses);
                 for generator in &comp.generators {
-                    self.collect_vars_in_expr(&generator.iter, vars);
+                    self.collect_vars_in_expr_with_attrs(&generator.iter, vars, attribute_accesses);
                     for if_clause in &generator.ifs {
-                        self.collect_vars_in_expr(if_clause, vars);
+                        self.collect_vars_in_expr_with_attrs(if_clause, vars, attribute_accesses);
                     }
                 }
             }
             Expr::Generator(comp) => {
-                self.collect_vars_in_expr(&comp.elt, vars);
+                self.collect_vars_in_expr_with_attrs(&comp.elt, vars, attribute_accesses);
                 for generator in &comp.generators {
-                    self.collect_vars_in_expr(&generator.iter, vars);
+                    self.collect_vars_in_expr_with_attrs(&generator.iter, vars, attribute_accesses);
                     for if_clause in &generator.ifs {
-                        self.collect_vars_in_expr(if_clause, vars);
+                        self.collect_vars_in_expr_with_attrs(if_clause, vars, attribute_accesses);
                     }
                 }
             }
             Expr::DictComp(comp) => {
-                self.collect_vars_in_expr(&comp.key, vars);
-                self.collect_vars_in_expr(&comp.value, vars);
+                self.collect_vars_in_expr_with_attrs(&comp.key, vars, attribute_accesses);
+                self.collect_vars_in_expr_with_attrs(&comp.value, vars, attribute_accesses);
                 for generator in &comp.generators {
-                    self.collect_vars_in_expr(&generator.iter, vars);
+                    self.collect_vars_in_expr_with_attrs(&generator.iter, vars, attribute_accesses);
                     for if_clause in &generator.ifs {
-                        self.collect_vars_in_expr(if_clause, vars);
+                        self.collect_vars_in_expr_with_attrs(if_clause, vars, attribute_accesses);
                     }
                 }
             }
@@ -848,12 +1035,23 @@ impl<'a> GraphBuilder<'a> {
                 // Process f-string value parts
                 for element in fstring.value.elements() {
                     if let ast::InterpolatedStringElement::Interpolation(expr_element) = element {
-                        self.collect_vars_in_expr(&expr_element.expression, vars);
+                        self.collect_vars_in_expr_with_attrs(
+                            &expr_element.expression,
+                            vars,
+                            attribute_accesses,
+                        );
                     }
                 }
             }
             _ => {} // Literals and other non-variable expressions
         }
+    }
+
+    /// Collect variables used in an expression
+    fn collect_vars_in_expr(&self, expr: &Expr, vars: &mut FxHashSet<String>) {
+        // Use the new method but ignore attribute accesses for backward compatibility
+        let mut dummy_attrs = FxHashMap::default();
+        self.collect_vars_in_expr_with_attrs(expr, vars, &mut dummy_attrs);
     }
 
     /// Collect variables in a statement body
@@ -862,6 +1060,7 @@ impl<'a> GraphBuilder<'a> {
         body: &[Stmt],
         read_vars: &mut FxHashSet<String>,
         write_vars: &mut FxHashSet<String>,
+        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
     ) {
         let mut stack: Vec<&[Stmt]> = vec![body];
 
@@ -869,33 +1068,58 @@ impl<'a> GraphBuilder<'a> {
             for stmt in current_body {
                 match stmt {
                     Stmt::Expr(expr_stmt) => {
-                        self.collect_vars_in_expr(&expr_stmt.value, read_vars);
+                        self.collect_vars_in_expr_with_attrs(
+                            &expr_stmt.value,
+                            read_vars,
+                            attribute_accesses,
+                        );
                     }
                     Stmt::Assign(assign) => {
-                        self.collect_vars_in_expr(&assign.value, read_vars);
-                        self.handle_assign_targets(&assign.targets, write_vars);
+                        self.collect_vars_in_expr_with_attrs(
+                            &assign.value,
+                            read_vars,
+                            attribute_accesses,
+                        );
+                        // Handle assignment targets to collect reads from subscripts/attributes
+                        let mut dummy_write_vars = FxHashSet::default();
+                        self.handle_assign_targets(
+                            &assign.targets,
+                            &mut dummy_write_vars,
+                            read_vars,
+                        );
+                        // Also add actual write targets
+                        for target in &assign.targets {
+                            if let Some(names) = self.extract_assignment_targets(target) {
+                                write_vars.extend(names);
+                            }
+                        }
                     }
                     Stmt::Return(ret) => {
-                        self.handle_return_stmt(ret, read_vars);
+                        self.handle_return_stmt(ret, read_vars, attribute_accesses);
                     }
                     Stmt::If(if_stmt) => {
-                        self.handle_if_stmt(if_stmt, read_vars, &mut stack);
+                        self.handle_if_stmt(if_stmt, read_vars, &mut stack, attribute_accesses);
                     }
                     Stmt::For(for_stmt) => {
                         let mut ctx = ForStmtContext {
                             read_vars,
                             write_vars,
                             stack: &mut stack,
+                            attribute_accesses,
                         };
                         self.handle_for_stmt(for_stmt, &mut ctx);
                     }
                     Stmt::While(while_stmt) => {
-                        self.collect_vars_in_expr(&while_stmt.test, read_vars);
+                        self.collect_vars_in_expr_with_attrs(
+                            &while_stmt.test,
+                            read_vars,
+                            attribute_accesses,
+                        );
                         stack.push(&while_stmt.body);
                         stack.push(&while_stmt.orelse);
                     }
                     Stmt::With(with_stmt) => {
-                        self.handle_with_stmt(with_stmt, read_vars, &mut stack);
+                        self.handle_with_stmt(with_stmt, read_vars, &mut stack, attribute_accesses);
                     }
                     Stmt::Try(try_stmt) => {
                         // Process the try body
@@ -906,7 +1130,11 @@ impl<'a> GraphBuilder<'a> {
                                 ast::ExceptHandler::ExceptHandler(except_handler) => {
                                     // Process the test expression if present
                                     if let Some(test_expr) = &except_handler.type_ {
-                                        self.collect_vars_in_expr(test_expr, read_vars);
+                                        self.collect_vars_in_expr_with_attrs(
+                                            test_expr,
+                                            read_vars,
+                                            attribute_accesses,
+                                        );
                                     }
                                     // Process the handler body
                                     stack.push(&except_handler.body);
@@ -917,6 +1145,17 @@ impl<'a> GraphBuilder<'a> {
                         stack.push(&try_stmt.orelse);
                         // Process finally clause
                         stack.push(&try_stmt.finalbody);
+                    }
+                    Stmt::Global(global_stmt) => {
+                        // Global statements indicate that the function will read/write global
+                        // variables
+                        for name in &global_stmt.names {
+                            // Add to both read_vars and write_vars since global vars can be both
+                            // read and written
+                            log::debug!("Found global statement for variable: {name}");
+                            read_vars.insert(name.to_string());
+                            write_vars.insert(name.to_string());
+                        }
                     }
                     _ => {} // Other statements
                 }
@@ -982,17 +1221,65 @@ impl<'a> GraphBuilder<'a> {
     }
 
     /// Handle return statement variable collection
-    fn handle_return_stmt(&self, ret: &ast::StmtReturn, read_vars: &mut FxHashSet<String>) {
+    fn handle_return_stmt(
+        &self,
+        ret: &ast::StmtReturn,
+        read_vars: &mut FxHashSet<String>,
+        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
+    ) {
         if let Some(value) = &ret.value {
-            self.collect_vars_in_expr(value, read_vars);
+            self.collect_vars_in_expr_with_attrs(value, read_vars, attribute_accesses);
         }
     }
 
     /// Handle assignment targets
-    fn handle_assign_targets(&self, targets: &[Expr], write_vars: &mut FxHashSet<String>) {
+    fn handle_assign_targets(
+        &self,
+        targets: &[Expr],
+        write_vars: &mut FxHashSet<String>,
+        read_vars: &mut FxHashSet<String>,
+    ) {
         for target in targets {
+            // First extract simple assignment targets (variable names)
             if let Some(names) = self.extract_assignment_targets(target) {
                 write_vars.extend(names);
+            }
+
+            // Additionally, for subscript and attribute assignments, we need to track reads
+            self.collect_reads_from_assignment_target(target, read_vars);
+        }
+    }
+
+    /// Collect variables that are read when assigning to subscripts or attributes
+    fn collect_reads_from_assignment_target(
+        &self,
+        target: &Expr,
+        read_vars: &mut FxHashSet<String>,
+    ) {
+        match target {
+            Expr::Subscript(subscript) => {
+                // For result["key"] = value, we're reading 'result' to mutate it
+                log::debug!("Found subscript assignment target, collecting reads from base object");
+                self.collect_vars_in_expr(&subscript.value, read_vars);
+            }
+            Expr::Attribute(attr) => {
+                // For obj.attr = value, we're reading 'obj' to mutate it
+                self.collect_vars_in_expr(&attr.value, read_vars);
+            }
+            Expr::Tuple(tuple) => {
+                // Handle tuple unpacking which might contain subscripts/attributes
+                for elt in &tuple.elts {
+                    self.collect_reads_from_assignment_target(elt, read_vars);
+                }
+            }
+            Expr::List(list) => {
+                // Handle list unpacking which might contain subscripts/attributes
+                for elt in &list.elts {
+                    self.collect_reads_from_assignment_target(elt, read_vars);
+                }
+            }
+            _ => {
+                // Simple names don't need special handling here
             }
         }
     }
@@ -1003,12 +1290,13 @@ impl<'a> GraphBuilder<'a> {
         if_stmt: &'b ast::StmtIf,
         read_vars: &mut FxHashSet<String>,
         stack: &mut Vec<&'b [Stmt]>,
+        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
     ) {
-        self.collect_vars_in_expr(&if_stmt.test, read_vars);
+        self.collect_vars_in_expr_with_attrs(&if_stmt.test, read_vars, attribute_accesses);
         stack.push(&if_stmt.body);
         for clause in &if_stmt.elif_else_clauses {
             if let Some(condition) = &clause.test {
-                self.collect_vars_in_expr(condition, read_vars);
+                self.collect_vars_in_expr_with_attrs(condition, read_vars, attribute_accesses);
             }
             stack.push(&clause.body);
         }
@@ -1016,7 +1304,7 @@ impl<'a> GraphBuilder<'a> {
 
     /// Handle for statement variable collection
     fn handle_for_stmt<'b>(&self, for_stmt: &'b ast::StmtFor, ctx: &mut ForStmtContext<'_, 'b>) {
-        self.collect_vars_in_expr(&for_stmt.iter, ctx.read_vars);
+        self.collect_vars_in_expr_with_attrs(&for_stmt.iter, ctx.read_vars, ctx.attribute_accesses);
         if let Some(names) = self.extract_assignment_targets(&for_stmt.target) {
             ctx.write_vars.extend(names);
         }
@@ -1030,9 +1318,10 @@ impl<'a> GraphBuilder<'a> {
         with_stmt: &'b ast::StmtWith,
         read_vars: &mut FxHashSet<String>,
         stack: &mut Vec<&'b [Stmt]>,
+        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
     ) {
         for item in &with_stmt.items {
-            self.collect_vars_in_expr(&item.context_expr, read_vars);
+            self.collect_vars_in_expr_with_attrs(&item.context_expr, read_vars, attribute_accesses);
         }
         stack.push(&with_stmt.body);
     }

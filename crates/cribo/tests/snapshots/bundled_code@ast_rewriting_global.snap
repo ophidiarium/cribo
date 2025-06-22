@@ -15,18 +15,6 @@ def modify_foo():
     """Modify the module's global foo using global keyword."""
     global foo_3
     foo_3 = "module1_foo_modified"
-def set_foo_with_global(value):
-    """Set foo using global keyword."""
-    global foo_3
-    foo_3 = value
-def local_vs_global():
-    """Demonstrate local vs global scope."""
-    foo_3 = "local_foo"
-
-    def inner():
-        global foo_3
-        return foo_3
-    return foo_3, inner()
 """Module demonstrating global keyword usage."""
 _cribo_module_mixed_patterns_foo = None
 _cribo_module_mixed_patterns_counter = None
@@ -126,12 +114,10 @@ foo = foo_1
 bar_1 = "main_bar"
 bar = bar_1
 module_global_keyword = types.SimpleNamespace()
-module_global_keyword.__all__ = ['foo', 'get_foo', 'local_vs_global', 'modify_foo', 'set_foo_with_global']
+module_global_keyword.__all__ = ['foo', 'get_foo', 'modify_foo']
 module_global_keyword.foo = foo_3
 module_global_keyword.get_foo = get_foo
-module_global_keyword.local_vs_global = local_vs_global
 module_global_keyword.modify_foo = modify_foo
-module_global_keyword.set_foo_with_global = set_foo_with_global
 assert foo_1 == "main_foo"
 assert bar_1 == "main_bar"
 print("Module with global keyword:", module_global_keyword.get_foo())

@@ -17,7 +17,7 @@
 - 🦀 **Rust-based CLI** based on Ruff's Python AST parser
 - 🐍 Can be installed via `pip install cribo` or `npm install cribo`
 - 😎 Contemporary minds can also use `uvx cribo` or `bunx cribo`
-- 🌲 **Tree-shaking logic** to inline only the modules that are actually used
+- 🌲 **Tree-shaking** (enabled by default) to inline only the modules that are actually used
 - 🔄 **Circular dependency resolution** using Tarjan's strongly connected components (SCC) analysis and function-level lazy import transformations, with detailed diagnostics
 - 🧹 **Unused import trimming** to clean up Python files standalone
 - 📦 **Requirements generation** with optional `requirements.txt` output
@@ -132,6 +132,7 @@ cribo --entry src/main.py --output bundle.py --config my-cribo.toml
   - `-vvv` or more: trace messages
 - `-c, --config <PATH>`: Custom configuration file path
 - `--emit-requirements`: Generate requirements.txt with third-party dependencies
+- `--no-tree-shake`: Disable tree-shaking optimization (tree-shaking is enabled by default)
 - `--target-version <VERSION>`: Target Python version (e.g., py38, py39, py310, py311, py312, py313)
 - `-h, --help`: Print help information
 - `-V, --version`: Print version information
@@ -161,6 +162,32 @@ RUST_LOG=debug cribo --entry main.py --output bundle.py
 # Module-specific logging
 RUST_LOG=cribo::bundler=trace,cribo::resolver=debug cribo --entry main.py --output bundle.py
 ```
+
+### Tree-Shaking
+
+Tree-shaking is enabled by default to reduce bundle size by removing unused code:
+
+```bash
+# Bundle with tree-shaking (default behavior)
+cribo --entry main.py --output bundle.py
+
+# Disable tree-shaking to include all code
+cribo --entry main.py --output bundle.py --no-tree-shake
+```
+
+**How it works:**
+
+- Analyzes your code starting from the entry point
+- Tracks which functions, classes, and variables are actually used
+- Removes unused symbols while preserving functionality
+- Respects `__all__` declarations and module side effects
+- Preserves all symbols from directly imported modules (`import module`)
+
+**When to disable tree-shaking:**
+
+- If you encounter undefined symbol errors with complex circular dependencies
+- When you need to preserve all code for dynamic imports or reflection
+- For debugging purposes to see the complete bundled output
 
 ## Configuration
 
@@ -238,26 +265,9 @@ export CRIBO_TARGET_VERSION="py312"
 2. **Import Classification**: Classifies imports as first-party, third-party, or standard library
 3. **Dependency Graph**: Builds a dependency graph and performs topological sorting
 4. **Circular Dependency Resolution**: Detects and intelligently resolves function-level circular imports
-5. **Tree Shaking**: Only includes modules that are actually imported (directly or transitively)
+5. **Tree Shaking**: Removes unused code by analyzing which symbols are actually used (enabled by default)
 6. **Code Generation**: Generates a single Python file with proper module separation
 7. **Requirements**: Optionally generates `requirements.txt` with third-party dependencies
-
-### Architecture Overview
-
-Cribo uses a two-stage architecture for clean separation of concerns:
-
-- **BundleOrchestrator** (`orchestrator.rs`): Handles the high-level bundling workflow
-  - Module discovery and import resolution
-  - Dependency graph construction and analysis
-  - Circular dependency detection using Tarjan's algorithm
-  - Coordination of the overall bundling process
-
-- **HybridStaticBundler** (`code_generator.rs`): Manages Python code generation
-  - Implements the sys.modules-based bundling approach
-  - Generates deterministic module names using content hashing
-  - Handles AST transformations and import rewriting
-  - Integrates unused import trimming
-  - Produces the final bundled Python output
 
 ## Output Structure
 
@@ -388,7 +398,7 @@ Cycle 1: constants_b → constants_a
 
 | Tool        | Language | Tree Shaking | Import Cleanup | Circular Deps       | PySpark Ready | Type Hints |
 | ----------- | -------- | ------------ | -------------- | ------------------- | ------------- | ---------- |
-| Cribo       | Rust     | ✅           | ✅             | ✅ Smart Resolution | ✅            | ✅         |
+| Cribo       | Rust     | ✅ Default   | ✅             | ✅ Smart Resolution | ✅            | ✅         |
 | PyInstaller | Python   | ❌           | ❌             | ❌ Fails            | ❌            | ✅         |
 | Nuitka      | Python   | ❌           | ❌             | ❌ Fails            | ❌            | ✅         |
 | Pex         | Python   | ❌           | ❌             | ❌ Fails            | ❌            | ✅         |
@@ -454,9 +464,17 @@ cribo/
 │   ├── main.rs            # CLI entry point
 │   ├── orchestrator.rs    # Bundle orchestration and coordination
 │   ├── code_generator.rs  # Python code generation (sys.modules approach)
-│   ├── resolver.rs        # Import resolution
-│   ├── dependency_graph.rs # Dependency analysis and circular detection
-│   ├── unused_imports.rs  # Unused import trimming
+│   ├── resolver.rs        # Import resolution and classification
+│   ├── cribo_graph.rs     # Advanced dependency graph with item-level tracking
+│   ├── graph_builder.rs   # AST to dependency graph bridge
+│   ├── tree_shaking.rs    # Dead code elimination (enabled by default)
+│   ├── semantic_analysis.rs # Enhanced import and symbol analysis
+│   ├── ast_indexer.rs     # Deterministic AST node indexing
+│   ├── unused_imports.rs  # Legacy import cleanup
+│   ├── visitors/          # AST visitors for various analyses
+│   │   ├── import_discovery.rs
+│   │   ├── side_effect_detector.rs
+│   │   └── no_ops_removal.rs
 │   └── ...
 ├── python/cribo/          # Python package
 ├── tests/                 # Test suites
@@ -544,15 +562,6 @@ See the [LICENSE](LICENSE) file for the MIT license text and [docs/LICENSE](docs
 
 - **Ruff**: Python AST parsing and import resolution logic inspiration
 - **Maturin**: Python-Rust integration
-
-## Roadmap
-
-- [x] **Smart circular dependency resolution** - ✅ Completed in v0.4.4+
-- [ ] Source maps for debugging
-- [ ] Parallel processing
-- [ ] Package flattening mode
-- [ ] Comment and type hint stripping
-- [ ] Plugin system for custom transformations
 
 ---
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any, Dict, List, Union
 import types
 """Submodule with future imports."""
-__version__ = "1.0.0"
 """Package initialization with future import."""
 def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
     module = types.SimpleNamespace()

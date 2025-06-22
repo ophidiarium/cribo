@@ -8,8 +8,6 @@ expression: stdout
 
 from dataclasses import dataclass
 from typing import Optional, Union
-import os
-import sys
 """Models package initialization."""
 @dataclass
 class User:
@@ -36,9 +34,6 @@ def greet(name: str) -> str:
 def calculate(a: Union[int, float], b: Union[int, float]) -> Union[int, float]:
     """Calculate the sum of two numbers."""
     return a + b
-def get_system_info() -> dict:
-    """Get basic system information."""
-    return {"platform": sys.platform, "python_version": sys.version, "cwd": os.getcwd()}
 """Utility functions for the test project."""
 """Simple test project entry point."""
 def main():

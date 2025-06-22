@@ -129,6 +129,7 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
 
     for message in &result.messages {
         let location = message.compute_start_location();
+        let rule_code = message.noqa_code().map(|c| c.to_string());
         let rule_name = message.name();
         let violation_info = format!(
             "Line {}: {} - {}",
@@ -137,9 +138,9 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
             message.body()
         );
 
-        match rule_name {
-            "F401" => f401_violations.push(violation_info),
-            "F404" => f404_violations.push(violation_info),
+        match rule_code.as_deref() {
+            Some("F401") => f401_violations.push(violation_info),
+            Some("F404") => f404_violations.push(violation_info),
             _ => other_violations.push(violation_info),
         }
     }
@@ -331,6 +332,18 @@ fn test_bundling_fixtures() {
 
         // Run ruff linting for cross-validation
         let ruff_results = run_ruff_lint_on_bundle(&bundled_code);
+
+        // Check for F401 violations (unused imports) - fail if any are found
+        // This ensures we catch regressions where imports aren't properly removed
+        if !ruff_results.f401_violations.is_empty() {
+            panic!(
+                "F401 violations (unused imports) detected in bundled code for fixture \
+                 '{}':\n{}\n\nThis indicates a regression in import handling. The bundler should \
+                 remove all unused imports.",
+                fixture_name,
+                ruff_results.f401_violations.join("\n")
+            );
+        }
 
         // Execute the bundled code via stdin for consistent snapshots
         let python_output = Command::new(&python_cmd)

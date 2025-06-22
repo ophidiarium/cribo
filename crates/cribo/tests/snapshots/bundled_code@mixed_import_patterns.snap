@@ -90,9 +90,6 @@ _config = None
 def format_message(message):
     """Format a message with decorative borders"""
     return f">>> {message} <<<"
-def get_timestamp():
-    """Get current timestamp for logging"""
-    return "00:00:00"
 """\nUtility module with no dependencies on other modules in this package.\nThis can be safely imported at module level by everyone.\n"""
 """\nSimulates a software architecture with:\n- A logger that needs configuration\n- A configuration system that logs its initialization\n- An application that uses both\n- Utilities that are used everywhere (no circular deps)\n"""
 def main():

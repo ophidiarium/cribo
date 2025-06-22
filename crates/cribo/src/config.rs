@@ -35,6 +35,9 @@ pub struct Config {
     /// Defaults to "py310" (Python 3.10)
     #[serde(rename = "target-version")]
     pub target_version: String,
+
+    /// Whether to enable tree-shaking to remove unused code
+    pub tree_shake: bool,
 }
 
 impl Default for Config {
@@ -46,6 +49,7 @@ impl Default for Config {
             preserve_comments: true,
             preserve_type_hints: true,
             target_version: "py310".to_owned(),
+            tree_shake: true, // Tree-shaking enabled by default
         }
     }
 }
@@ -74,6 +78,7 @@ impl Combine for Config {
             preserve_comments: self.preserve_comments,
             preserve_type_hints: self.preserve_type_hints,
             target_version: self.target_version,
+            tree_shake: self.tree_shake,
         }
     }
 }
@@ -87,6 +92,7 @@ pub struct EnvConfig {
     pub preserve_comments: Option<bool>,
     pub preserve_type_hints: Option<bool>,
     pub target_version: Option<String>,
+    pub tree_shake: Option<bool>,
 }
 
 impl EnvConfig {
@@ -148,6 +154,11 @@ impl EnvConfig {
             config.target_version = Some(target_version);
         }
 
+        // CRIBO_TREE_SHAKE - boolean flag
+        if let Ok(tree_shake_str) = env::var("CRIBO_TREE_SHAKE") {
+            config.tree_shake = parse_bool(&tree_shake_str);
+        }
+
         config
     }
 
@@ -170,6 +181,9 @@ impl EnvConfig {
         }
         if let Some(target_version) = self.target_version {
             config.target_version = target_version;
+        }
+        if let Some(tree_shake) = self.tree_shake {
+            config.tree_shake = tree_shake;
         }
         config
     }

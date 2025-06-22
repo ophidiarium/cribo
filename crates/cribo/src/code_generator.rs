@@ -124,6 +124,7 @@ pub struct BundleParams<'a> {
     pub graph: &'a DependencyGraph, // Dependency graph for unused import detection
     pub semantic_bundler: &'a SemanticBundler, // Semantic analysis results
     pub circular_dep_analysis: Option<&'a crate::cribo_graph::CircularDependencyAnalysis>, /* Circular dependency analysis */
+    pub tree_shaker: Option<&'a crate::tree_shaking::TreeShaker>, // Tree shaking analysis
 }
 
 /// Transformer that lifts module-level globals to true global scope
@@ -885,7 +886,69 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     .cloned()
                                     .flatten()
                                 {
-                                    for symbol in exports {
+                                    // Filter exports to only include symbols that survived
+                                    // tree-shaking
+                                    let filtered_exports =
+                                        self.bundler.filter_exports_by_tree_shaking(
+                                            &exports,
+                                            &full_module_path,
+                                            self.bundler.tree_shaking_keep_symbols.as_ref(),
+                                        );
+
+                                    // Add __all__ attribute to the namespace with filtered exports
+                                    // BUT ONLY if the original module had an explicit __all__
+                                    if !filtered_exports.is_empty()
+                                        && self
+                                            .bundler
+                                            .modules_with_explicit_all
+                                            .contains(&full_module_path)
+                                    {
+                                        self.deferred_imports.push(Stmt::Assign(StmtAssign {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            targets: vec![Expr::Attribute(ExprAttribute {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                value: Box::new(Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
+                                                    id: local_name.into(),
+                                                    ctx: ExprContext::Load,
+                                                    range: TextRange::default(),
+                                                })),
+                                                attr: Identifier::new(
+                                                    "__all__",
+                                                    TextRange::default(),
+                                                ),
+                                                ctx: ExprContext::Store,
+                                                range: TextRange::default(),
+                                            })],
+                                            value: Box::new(Expr::List(ExprList {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                elts: filtered_exports
+                                                    .iter()
+                                                    .map(|name| {
+                                                        Expr::StringLiteral(ExprStringLiteral {
+                                                            node_index: AtomicNodeIndex::dummy(),
+                                                            value: StringLiteralValue::single(
+                                                                StringLiteral {
+                                                                    node_index:
+                                                                        AtomicNodeIndex::dummy(),
+                                                                    value: name.as_str().into(),
+                                                                    flags:
+                                                                        StringLiteralFlags::empty(),
+                                                                    range: TextRange::default(),
+                                                                },
+                                                            ),
+                                                            range: TextRange::default(),
+                                                        })
+                                                    })
+                                                    .collect(),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            range: TextRange::default(),
+                                        }));
+                                    }
+
+                                    for symbol in filtered_exports {
                                         // local_name.symbol = symbol
                                         self.deferred_imports.push(Stmt::Assign(StmtAssign {
                                             node_index: AtomicNodeIndex::dummy(),
@@ -979,7 +1042,69 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     .cloned()
                                     .flatten()
                                 {
-                                    for symbol in exports {
+                                    // Filter exports to only include symbols that survived
+                                    // tree-shaking
+                                    let filtered_exports =
+                                        self.bundler.filter_exports_by_tree_shaking(
+                                            &exports,
+                                            &full_module_path,
+                                            self.bundler.tree_shaking_keep_symbols.as_ref(),
+                                        );
+
+                                    // Add __all__ attribute to the namespace with filtered exports
+                                    // BUT ONLY if the original module had an explicit __all__
+                                    if !filtered_exports.is_empty()
+                                        && self
+                                            .bundler
+                                            .modules_with_explicit_all
+                                            .contains(&full_module_path)
+                                    {
+                                        result_stmts.push(Stmt::Assign(StmtAssign {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            targets: vec![Expr::Attribute(ExprAttribute {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                value: Box::new(Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
+                                                    id: local_name.into(),
+                                                    ctx: ExprContext::Load,
+                                                    range: TextRange::default(),
+                                                })),
+                                                attr: Identifier::new(
+                                                    "__all__",
+                                                    TextRange::default(),
+                                                ),
+                                                ctx: ExprContext::Store,
+                                                range: TextRange::default(),
+                                            })],
+                                            value: Box::new(Expr::List(ExprList {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                elts: filtered_exports
+                                                    .iter()
+                                                    .map(|name| {
+                                                        Expr::StringLiteral(ExprStringLiteral {
+                                                            node_index: AtomicNodeIndex::dummy(),
+                                                            value: StringLiteralValue::single(
+                                                                StringLiteral {
+                                                                    node_index:
+                                                                        AtomicNodeIndex::dummy(),
+                                                                    value: name.as_str().into(),
+                                                                    flags:
+                                                                        StringLiteralFlags::empty(),
+                                                                    range: TextRange::default(),
+                                                                },
+                                                            ),
+                                                            range: TextRange::default(),
+                                                        })
+                                                    })
+                                                    .collect(),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            range: TextRange::default(),
+                                        }));
+                                    }
+
+                                    for symbol in filtered_exports {
                                         // local_name.symbol = symbol
                                         result_stmts.push(Stmt::Assign(StmtAssign {
                                             node_index: AtomicNodeIndex::dummy(),
@@ -1607,11 +1732,6 @@ pub struct HybridStaticBundler {
     stdlib_import_from_map: FxIndexMap<String, FxIndexSet<String>>,
     /// Regular import statements (import module)
     stdlib_import_statements: Vec<Stmt>,
-    /// Collected third-party imports (not stdlib, not bundled)
-    /// Maps module name to set of imported names for deduplication
-    third_party_import_from_map: FxIndexMap<String, FxIndexSet<String>>,
-    /// Third-party regular import statements (import module)
-    third_party_import_statements: Vec<Stmt>,
     /// Track which modules have been bundled
     bundled_modules: FxIndexSet<String>,
     /// Modules that were inlined (not wrapper modules)
@@ -1646,6 +1766,35 @@ pub struct HybridStaticBundler {
     modules_with_explicit_all: FxIndexSet<String>,
     /// Transformation context for tracking node mappings
     transformation_context: TransformationContext,
+    /// Module/symbol pairs that should be kept after tree shaking
+    tree_shaking_keep_symbols: Option<indexmap::IndexSet<(String, String)>>,
+}
+
+impl HybridStaticBundler {
+    /// Check if a renamed symbol exists after tree-shaking
+    fn renamed_symbol_exists(
+        &self,
+        renamed_symbol: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> bool {
+        // If not using tree-shaking, all symbols exist
+        let Some(ref kept_symbols) = self.tree_shaking_keep_symbols else {
+            return true;
+        };
+
+        // Check all modules to see if any have this renamed symbol
+        for (module, renames) in symbol_renames {
+            for (orig_name, renamed) in renames {
+                if renamed == renamed_symbol
+                    && kept_symbols.contains(&(module.clone(), orig_name.clone()))
+                {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
 }
 
 impl Default for HybridStaticBundler {
@@ -1663,8 +1812,6 @@ impl HybridStaticBundler {
             future_imports: FxIndexSet::default(),
             stdlib_import_from_map: FxIndexMap::default(),
             stdlib_import_statements: Vec::new(),
-            third_party_import_from_map: FxIndexMap::default(),
-            third_party_import_statements: Vec::new(),
             bundled_modules: FxIndexSet::default(),
             inlined_modules: FxIndexSet::default(),
             entry_path: None,
@@ -1680,6 +1827,7 @@ impl HybridStaticBundler {
             created_namespaces: FxIndexSet::default(),
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
+            tree_shaking_keep_symbols: None,
         }
     }
 
@@ -1838,6 +1986,121 @@ impl HybridStaticBundler {
                 a1.attr == a2.attr && Self::expr_equals(&a1.value, &a2.value)
             }
             _ => false,
+        }
+    }
+
+    /// Check if an ImportFrom statement is a duplicate of any existing import in the body
+    fn is_duplicate_import_from(
+        &self,
+        import_from: &StmtImportFrom,
+        existing_body: &[Stmt],
+    ) -> bool {
+        if let Some(ref module) = import_from.module {
+            let module_name = module.as_str();
+            // For third-party imports, check if they're already in the body
+            if !self.is_safe_stdlib_module(module_name)
+                && !self.is_bundled_module_or_package(module_name)
+            {
+                return existing_body.iter().any(|existing| {
+                    if let Stmt::ImportFrom(existing_import) = existing {
+                        existing_import.module.as_ref().map(|m| m.as_str()) == Some(module_name)
+                            && Self::import_names_match(&import_from.names, &existing_import.names)
+                    } else {
+                        false
+                    }
+                });
+            }
+        }
+        false
+    }
+
+    /// Check if an Import statement is a duplicate of any existing import in the body
+    fn is_duplicate_import(&self, import_stmt: &StmtImport, existing_body: &[Stmt]) -> bool {
+        import_stmt.names.iter().any(|alias| {
+            let module_name = alias.name.as_str();
+            // For third-party imports, check if they're already in the body
+            if !self.is_safe_stdlib_module(module_name)
+                && !self.is_bundled_module_or_package(module_name)
+            {
+                existing_body.iter().any(|existing| {
+                    if let Stmt::Import(existing_import) = existing {
+                        existing_import.names.iter().any(|existing_alias| {
+                            existing_alias.name == alias.name
+                                && existing_alias.asname == alias.asname
+                        })
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                false
+            }
+        })
+    }
+
+    /// Filter module exports based on tree-shaking results
+    /// Returns only the symbols that survived tree-shaking, or all exports if tree-shaking is
+    /// disabled
+    fn filter_exports_by_tree_shaking(
+        &self,
+        exports: &[String],
+        module_path: &str,
+        kept_symbols: Option<&indexmap::IndexSet<(String, String)>>,
+    ) -> Vec<String> {
+        if let Some(kept_symbols) = kept_symbols {
+            exports
+                .iter()
+                .filter(|symbol| {
+                    // Check if this symbol is kept in this module
+                    kept_symbols.contains(&(module_path.to_string(), (*symbol).clone()))
+                })
+                .cloned()
+                .collect()
+        } else {
+            // No tree-shaking, include all exports
+            exports.to_vec()
+        }
+    }
+
+    /// Filter module exports based on tree-shaking results with debug logging
+    /// Returns references to the symbols that survived tree-shaking
+    fn filter_exports_by_tree_shaking_with_logging<'a>(
+        &self,
+        exports: &'a [String],
+        module_name: &str,
+        kept_symbols: Option<&indexmap::IndexSet<(String, String)>>,
+    ) -> Vec<&'a String> {
+        if let Some(kept_symbols) = kept_symbols {
+            let result: Vec<&String> = exports
+                .iter()
+                .filter(|symbol| {
+                    // Check if this symbol is kept in this module
+                    let is_kept =
+                        kept_symbols.contains(&(module_name.to_string(), (*symbol).clone()));
+                    if !is_kept {
+                        log::debug!(
+                            "Filtering out symbol '{symbol}' from __all__ of module \
+                             '{module_name}' - removed by tree-shaking"
+                        );
+                    } else {
+                        log::debug!(
+                            "Keeping symbol '{symbol}' in __all__ of module '{module_name}' - \
+                             survived tree-shaking"
+                        );
+                    }
+                    is_kept
+                })
+                .collect();
+            log::debug!(
+                "Module '{}' __all__ filtering: {} symbols -> {} symbols",
+                module_name,
+                exports.len(),
+                result.len()
+            );
+            result
+        } else {
+            // No tree-shaking, include all exports
+            exports.iter().collect()
         }
     }
 
@@ -2406,6 +2669,7 @@ impl HybridStaticBundler {
         &mut self,
         modules: Vec<(String, ModModule, PathBuf, String)>,
         graph: &DependencyGraph,
+        tree_shaker: Option<&crate::tree_shaking::TreeShaker>,
     ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
         let mut trimmed_modules = Vec::new();
 
@@ -2418,7 +2682,170 @@ impl HybridStaticBundler {
 
             // Get unused imports from the graph
             if let Some(module_dep_graph) = graph.get_module_by_name(&module_name) {
-                let unused_imports = module_dep_graph.find_unused_imports(is_init_py);
+                let mut unused_imports = module_dep_graph.find_unused_imports(is_init_py);
+
+                // If tree shaking is enabled, also check if imported symbols were removed
+                // Note: We only apply tree-shaking logic to "from module import symbol" style
+                // imports, not to "import module" style imports, since module
+                // imports set up namespace objects
+                if let Some(shaker) = tree_shaker {
+                    // Only apply tree-shaking-aware import removal if tree shaking is actually
+                    // enabled Get the symbols that survive tree-shaking for
+                    // this module
+                    let used_symbols = shaker.get_used_symbols_for_module(&module_name);
+
+                    // Check each import to see if it's only used by tree-shaken code
+                    let import_items = module_dep_graph.get_all_import_items();
+                    for (item_id, import_item) in import_items {
+                        match &import_item.item_type {
+                            crate::cribo_graph::ItemType::FromImport {
+                                module: from_module,
+                                names,
+                                ..
+                            } => {
+                                // For from imports, check each imported name
+                                for (imported_name, alias_opt) in names {
+                                    let local_name = alias_opt.as_ref().unwrap_or(imported_name);
+
+                                    // Skip if already marked as unused
+                                    if unused_imports.iter().any(|u| u.name == *local_name) {
+                                        continue;
+                                    }
+
+                                    // Skip if this is a re-export (in __all__ or explicit
+                                    // re-export)
+                                    if import_item.reexported_names.contains(local_name)
+                                        || module_dep_graph.is_in_all_export(local_name)
+                                    {
+                                        log::debug!(
+                                            "Skipping tree-shaking for re-exported import \
+                                             '{local_name}' from '{from_module}'"
+                                        );
+                                        continue;
+                                    }
+
+                                    // Check if this import is only used by symbols that were
+                                    // tree-shaken
+                                    let mut used_by_surviving_code = false;
+
+                                    // First check if any surviving symbol uses this import
+                                    for symbol in &used_symbols {
+                                        if module_dep_graph
+                                            .does_symbol_use_import(symbol, local_name)
+                                        {
+                                            used_by_surviving_code = true;
+                                            break;
+                                        }
+                                    }
+
+                                    // Also check if the module has side effects and uses this
+                                    // import at module level
+                                    if !used_by_surviving_code
+                                        && shaker.module_has_side_effects(&module_name)
+                                    {
+                                        // Check if any module-level code uses this import
+                                        for item in module_dep_graph.items.values() {
+                                            if matches!(
+                                                item.item_type,
+                                                crate::cribo_graph::ItemType::Expression
+                                                    | crate::cribo_graph::ItemType::Assignment { .. }
+                                            ) && item.read_vars.contains(local_name)
+                                            {
+                                                used_by_surviving_code = true;
+                                                log::debug!(
+                                                    "Import '{local_name}' is used by \
+                                                     module-level code in module with side effects"
+                                                );
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    if !used_by_surviving_code {
+                                        // This import is not used by any surviving symbol or
+                                        // module-level code
+                                        log::debug!(
+                                            "Import '{local_name}' from '{from_module}' is not \
+                                             used by surviving code after tree-shaking"
+                                        );
+                                        unused_imports.push(crate::cribo_graph::UnusedImportInfo {
+                                            item_id,
+                                            name: local_name.clone(),
+                                            module: from_module.clone(),
+                                            is_reexport: import_item
+                                                .reexported_names
+                                                .contains(local_name),
+                                        });
+                                    }
+                                }
+                            }
+                            crate::cribo_graph::ItemType::Import { module, .. } => {
+                                // For regular imports (import module), check if they're only used
+                                // by tree-shaken code
+                                let import_name = module.split('.').next_back().unwrap_or(module);
+
+                                // Skip if already marked as unused
+                                if unused_imports.iter().any(|u| u.name == *import_name) {
+                                    continue;
+                                }
+
+                                // Skip if this is a re-export
+                                if import_item.reexported_names.contains(import_name)
+                                    || module_dep_graph.is_in_all_export(import_name)
+                                {
+                                    log::debug!(
+                                        "Skipping tree-shaking for re-exported import \
+                                         '{import_name}'"
+                                    );
+                                    continue;
+                                }
+
+                                // Check if this import is only used by symbols that were
+                                // tree-shaken
+                                let mut used_by_surviving_code = false;
+
+                                // Check if any surviving symbol uses this import
+                                for symbol in &used_symbols {
+                                    if module_dep_graph.does_symbol_use_import(symbol, import_name)
+                                    {
+                                        used_by_surviving_code = true;
+                                        break;
+                                    }
+                                }
+
+                                // Also check if any module-level code that has side effects uses it
+                                for item in module_dep_graph.items.values() {
+                                    if item.has_side_effects
+                                        && !matches!(
+                                            item.item_type,
+                                            crate::cribo_graph::ItemType::Import { .. }
+                                                | crate::cribo_graph::ItemType::FromImport { .. }
+                                        )
+                                        && (item.read_vars.contains(import_name)
+                                            || item.eventual_read_vars.contains(import_name))
+                                    {
+                                        used_by_surviving_code = true;
+                                        break;
+                                    }
+                                }
+
+                                if !used_by_surviving_code {
+                                    log::debug!(
+                                        "Import '{import_name}' is not used by surviving code \
+                                         after tree-shaking"
+                                    );
+                                    unused_imports.push(crate::cribo_graph::UnusedImportInfo {
+                                        item_id,
+                                        name: import_name.to_string(),
+                                        module: module.clone(),
+                                        is_reexport: false,
+                                    });
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
 
                 if !unused_imports.is_empty() {
                     log::debug!(
@@ -2530,6 +2957,25 @@ impl HybridStaticBundler {
     pub fn bundle_modules(&mut self, params: BundleParams<'_>) -> Result<ModModule> {
         let mut final_body = Vec::new();
 
+        // Store tree shaking decisions if provided
+        if let Some(shaker) = params.tree_shaker {
+            // Extract all kept symbols from the tree shaker
+            let mut kept_symbols = indexmap::IndexSet::new();
+            for (module_name, _, _, _) in &params.modules {
+                for symbol in shaker.get_used_symbols_for_module(module_name) {
+                    kept_symbols.insert((module_name.clone(), symbol));
+                }
+            }
+            self.tree_shaking_keep_symbols = Some(kept_symbols);
+            log::debug!(
+                "Tree shaking enabled, keeping {} symbols",
+                self.tree_shaking_keep_symbols
+                    .as_ref()
+                    .map(|s| s.len())
+                    .unwrap_or(0)
+            );
+        }
+
         log::debug!("Entry module name: {}", params.entry_module_name);
         log::debug!(
             "Module names in modules vector: {:?}",
@@ -2547,7 +2993,11 @@ impl HybridStaticBundler {
         }
 
         // Trim unused imports from all modules
-        let mut modules = self.trim_unused_imports_from_modules(params.modules, params.graph)?;
+        let mut modules = self.trim_unused_imports_from_modules(
+            params.modules,
+            params.graph,
+            params.tree_shaker,
+        )?;
 
         // Index all module ASTs to assign node indices and initialize transformation context
         log::debug!("Indexing {} modules", modules.len());
@@ -2732,7 +3182,7 @@ impl HybridStaticBundler {
         }
 
         // Check if entry module has direct imports or dotted imports that might create namespace
-        // objects
+        // objects - but only for first-party modules that we're actually bundling
         let needs_types_for_entry_imports = if let Some((_, entry_path, _)) = params
             .sorted_modules
             .iter()
@@ -2747,9 +3197,22 @@ impl HybridStaticBundler {
                         if let Stmt::Import(import_stmt) = stmt {
                             import_stmt.names.iter().any(|alias| {
                                 let module_name = alias.name.as_str();
-                                // Check for dotted imports
+                                // Check for dotted imports - but only first-party ones
                                 if module_name.contains('.') {
-                                    return true;
+                                    // Check if this dotted import refers to a first-party module
+                                    // by checking if any bundled module matches this dotted path
+                                    let is_first_party_dotted =
+                                        modules_normalized.iter().any(|(name, _, _, _)| {
+                                            name == module_name
+                                                || module_name.starts_with(&format!("{name}."))
+                                        });
+                                    if is_first_party_dotted {
+                                        log::debug!(
+                                            "Found first-party dotted import '{module_name}' that \
+                                             requires namespace"
+                                        );
+                                        return true;
+                                    }
                                 }
                                 // Check for direct imports of inlined modules that have exports
                                 if self.inlined_modules.contains(module_name) {
@@ -3495,13 +3958,28 @@ impl HybridStaticBundler {
                 }
 
                 match stmt {
-                    Stmt::ImportFrom(_) => {
-                        // Imports have already been transformed by RecursiveImportTransformer
-                        final_body.push(stmt.clone());
+                    Stmt::ImportFrom(import_from) => {
+                        let is_duplicate = self.is_duplicate_import_from(import_from, &final_body);
+
+                        if !is_duplicate {
+                            // Imports have already been transformed by RecursiveImportTransformer
+                            final_body.push(stmt.clone());
+                        } else {
+                            log::debug!(
+                                "Skipping duplicate import in entry module: {:?}",
+                                import_from.module
+                            );
+                        }
                     }
-                    Stmt::Import(_) => {
-                        // Imports have already been transformed by RecursiveImportTransformer
-                        final_body.push(stmt.clone());
+                    Stmt::Import(import_stmt) => {
+                        let is_duplicate = self.is_duplicate_import(import_stmt, &final_body);
+
+                        if !is_duplicate {
+                            // Imports have already been transformed by RecursiveImportTransformer
+                            final_body.push(stmt.clone());
+                        } else {
+                            log::debug!("Skipping duplicate import in entry module");
+                        }
                     }
                     Stmt::Assign(assign) => {
                         // Check if this is an import assignment for a locally defined symbol
@@ -4403,6 +4881,46 @@ impl HybridStaticBundler {
         // Add all exported symbols from the inlined module to the namespace
         if let Some(exports) = exported_symbols {
             for symbol in exports {
+                // For re-exported symbols, check if the original symbol is kept by tree-shaking
+                let should_include = if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                {
+                    // First check if this symbol is directly defined in this module
+                    if kept_symbols.contains(&(full_module_name.to_string(), symbol.clone())) {
+                        true
+                    } else {
+                        // If not, check if this is a re-exported symbol from another module
+                        // For modules with __all__, we always include symbols that are re-exported
+                        // even if they're not directly defined in the module
+                        let module_has_all_export = self
+                            .module_exports
+                            .get(full_module_name)
+                            .and_then(|exports| exports.as_ref())
+                            .map(|exports| exports.contains(&symbol))
+                            .unwrap_or(false);
+
+                        if module_has_all_export {
+                            log::debug!(
+                                "Including re-exported symbol {symbol} from module \
+                                 {full_module_name} (in __all__)"
+                            );
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                } else {
+                    // No tree-shaking, include everything
+                    true
+                };
+
+                if !should_include {
+                    log::debug!(
+                        "Skipping namespace assignment for {full_module_name}.{symbol} - removed \
+                         by tree-shaking"
+                    );
+                    continue;
+                }
+
                 // Get the renamed version of this symbol
                 let renamed_symbol =
                     if let Some(module_renames) = symbol_renames.get(full_module_name) {
@@ -4414,7 +4932,20 @@ impl HybridStaticBundler {
                         symbol.clone()
                     };
 
+                // Before creating the assignment, check if the renamed symbol exists after
+                // tree-shaking
+                if !self.renamed_symbol_exists(&renamed_symbol, symbol_renames) {
+                    log::warn!(
+                        "Skipping namespace assignment {attr_name}.{symbol} = {renamed_symbol} - \
+                         renamed symbol doesn't exist after tree-shaking"
+                    );
+                    continue;
+                }
+
                 // attr_name.symbol = renamed_symbol
+                log::debug!(
+                    "Creating namespace assignment: {attr_name}.{symbol} = {renamed_symbol}"
+                );
                 stmts.push(Stmt::Assign(StmtAssign {
                     node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Attribute(ExprAttribute {
@@ -5560,34 +6091,11 @@ impl HybridStaticBundler {
             }));
         }
 
-        // Third-party from imports - deduplicated and sorted by module name
-        let mut sorted_third_party_modules: Vec<_> =
-            self.third_party_import_from_map.iter().collect();
-        sorted_third_party_modules.sort_by_key(|(module_name, _)| *module_name);
-
-        for (module_name, imported_names) in sorted_third_party_modules {
-            // Sort the imported names for deterministic output
-            let mut sorted_names: Vec<String> = imported_names.iter().cloned().collect();
-            sorted_names.sort();
-
-            let aliases: Vec<ruff_python_ast::Alias> = sorted_names
-                .into_iter()
-                .map(|name| ruff_python_ast::Alias {
-                    node_index: AtomicNodeIndex::dummy(),
-                    name: Identifier::new(&name, TextRange::default()),
-                    asname: None,
-                    range: TextRange::default(),
-                })
-                .collect();
-
-            final_body.push(Stmt::ImportFrom(StmtImportFrom {
-                node_index: AtomicNodeIndex::dummy(),
-                module: Some(Identifier::new(module_name, TextRange::default())),
-                names: aliases,
-                level: 0,
-                range: TextRange::default(),
-            }));
-        }
+        // NOTE: We do NOT hoist third-party imports because they may have side effects.
+        // Only stdlib imports that are known to be side-effect-free are hoisted.
+        // Third-party imports remain in their original location (inside wrapper functions
+        // or at module level for inlined modules) to preserve execution order and
+        // potential side effects.
 
         // Regular stdlib import statements - deduplicated and sorted by module name
         let mut seen_modules = FxIndexSet::default();
@@ -5606,26 +6114,8 @@ impl HybridStaticBundler {
             final_body.push(import_stmt);
         }
 
-        // Finally, third-party regular import statements - deduplicated and sorted
-        let mut seen_third_party_modules = FxIndexSet::default();
-        let mut unique_third_party_imports = Vec::new();
-
-        for stmt in &self.third_party_import_statements {
-            if let Stmt::Import(import_stmt) = stmt {
-                self.collect_unique_imports(
-                    import_stmt,
-                    &mut seen_third_party_modules,
-                    &mut unique_third_party_imports,
-                );
-            }
-        }
-
-        // Sort by module name for deterministic output
-        unique_third_party_imports.sort_by_key(|(module_name, _)| module_name.clone());
-
-        for (_, import_stmt) in unique_third_party_imports {
-            final_body.push(import_stmt);
-        }
+        // NOTE: We do NOT hoist third-party regular import statements for the same reason
+        // as above - they may have side effects and should remain in their original context.
     }
 
     /// Collect imports from a module for hoisting
@@ -5712,19 +6202,29 @@ impl HybridStaticBundler {
             }
         } else if !self.is_bundled_module_or_package(module_name) {
             // This is a third-party import (not stdlib, not bundled)
-            log::debug!("Collecting third-party import from module: {module_name}");
-
-            // Get or create the set of imported names for this module
-            let imported_names = self
-                .third_party_import_from_map
-                .entry(module_name.to_string())
-                .or_default();
-
-            // Add all imported names to the set (this automatically deduplicates)
-            for alias in &import_from.names {
-                imported_names.insert(alias.name.to_string());
-            }
+            // We do NOT collect third-party imports for hoisting because they may have
+            // side effects. They will remain in their original location within the module.
+            log::debug!(
+                "Skipping third-party import from module '{module_name}' - will not be hoisted"
+            );
         }
+    }
+
+    /// Check if two import name lists match (same names with same aliases)
+    fn import_names_match(
+        names1: &[ruff_python_ast::Alias],
+        names2: &[ruff_python_ast::Alias],
+    ) -> bool {
+        if names1.len() != names2.len() {
+            return false;
+        }
+
+        // Check if all names match (order doesn't matter)
+        names1.iter().all(|n1| {
+            names2
+                .iter()
+                .any(|n2| n1.name == n2.name && n1.asname == n2.asname)
+        })
     }
 
     /// Check if a module is bundled directly or is a package containing bundled modules
@@ -6798,8 +7298,9 @@ impl HybridStaticBundler {
                 break;
             } else if !self.is_bundled_module_or_package(module_name) {
                 // This is a third-party import (not stdlib, not bundled)
-                log::debug!("Collecting third-party import: {module_name}");
-                self.third_party_import_statements.push(stmt.clone());
+                // We do NOT collect third-party imports for hoisting because they may have
+                // side effects. They will remain in their original location within the module.
+                log::debug!("Skipping third-party import '{module_name}' - will not be hoisted");
                 break;
             }
         }
@@ -7245,11 +7746,8 @@ impl HybridStaticBundler {
                         // Check if this exact import is in our hoisted stdlib imports
                         return self.is_import_in_hoisted_stdlib(module_name);
                     }
-                    // Check if this is a third-party import that we've hoisted
-                    let is_bundled = self.is_bundled_module_or_package(module_name);
-                    if !is_bundled {
-                        return self.third_party_import_from_map.contains_key(module_name);
-                    }
+                    // We no longer hoist third-party imports, so they should never be considered
+                    // hoisted Only stdlib and __future__ imports are hoisted
                 }
                 false
             }
@@ -7264,13 +7762,8 @@ impl HybridStaticBundler {
                                 if hoisted_import.names.iter().any(|h| h.name == alias.name))
                         })
                     }
-                    // Check third-party imports
-                    else if !self.is_bundled_module_or_package(module_name) {
-                        self.third_party_import_statements.iter().any(|hoisted| {
-                            matches!(hoisted, Stmt::Import(hoisted_import)
-                                if hoisted_import.names.iter().any(|h| h.name == alias.name))
-                        })
-                    } else {
+                    // We no longer hoist third-party imports
+                    else {
                         false
                     }
                 })
@@ -9809,6 +10302,18 @@ impl HybridStaticBundler {
         module_name: &str,
         module_exports_map: &FxIndexMap<String, Option<Vec<String>>>,
     ) -> bool {
+        // First check tree-shaking decisions if available
+        if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols {
+            let symbol_key = (module_name.to_string(), symbol_name.to_string());
+            if !kept_symbols.contains(&symbol_key) {
+                log::trace!(
+                    "Tree shaking: removing unused symbol '{symbol_name}' from module \
+                     '{module_name}'"
+                );
+                return false;
+            }
+        }
+
         let exports = module_exports_map.get(module_name).and_then(|e| e.as_ref());
 
         if let Some(export_list) = exports {
@@ -11284,10 +11789,17 @@ impl HybridStaticBundler {
                 });
             }
 
-            // Create __all__ = [...] assignment
+            // Filter exports to only include symbols that survived tree-shaking
+            let filtered_exports = self.filter_exports_by_tree_shaking_with_logging(
+                exports,
+                module_name,
+                self.tree_shaking_keep_symbols.as_ref(),
+            );
+
+            // Create __all__ = [...] assignment with filtered exports
             let all_list = Expr::List(ExprList {
                 node_index: AtomicNodeIndex::dummy(),
-                elts: exports
+                elts: filtered_exports
                     .iter()
                     .map(|name| {
                         Expr::StringLiteral(ExprStringLiteral {
@@ -11319,17 +11831,57 @@ impl HybridStaticBundler {
                 range: TextRange::default(),
             }));
 
-            // For each exported symbol, add it to the namespace
-            for symbol in exports {
+            // For each exported symbol that survived tree-shaking, add it to the namespace
+            for symbol in &filtered_exports {
+                // For re-exported symbols, check if the original symbol is kept by tree-shaking
+                let should_include = if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                {
+                    // First check if this symbol is directly defined in this module
+                    if kept_symbols.contains(&(module_name.to_string(), (*symbol).clone())) {
+                        true
+                    } else {
+                        // If not, check if this is a re-exported symbol from another module
+                        // For modules with __all__, we always include symbols that are re-exported
+                        // even if they're not directly defined in the module
+                        let module_has_all_export = self
+                            .module_exports
+                            .get(module_name)
+                            .and_then(|exports| exports.as_ref())
+                            .map(|exports| exports.contains(symbol))
+                            .unwrap_or(false);
+
+                        if module_has_all_export {
+                            log::debug!(
+                                "Including re-exported symbol {symbol} from module {module_name} \
+                                 (in __all__)"
+                            );
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                } else {
+                    // No tree-shaking, include everything
+                    true
+                };
+
+                if !should_include {
+                    log::debug!(
+                        "Skipping namespace assignment for {module_name}.{symbol} - removed by \
+                         tree-shaking"
+                    );
+                    continue;
+                }
+
                 // Get the renamed symbol if it exists
                 let actual_symbol_name =
                     if let Some(module_renames) = symbol_renames.get(module_name) {
                         module_renames
-                            .get(symbol)
+                            .get(*symbol)
                             .cloned()
-                            .unwrap_or_else(|| symbol.clone())
+                            .unwrap_or_else(|| (*symbol).clone())
                     } else {
-                        symbol.clone()
+                        (*symbol).clone()
                     };
 
                 // Create the target expression
@@ -11371,7 +11923,7 @@ impl HybridStaticBundler {
                     targets: vec![Expr::Attribute(ExprAttribute {
                         node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(target),
-                        attr: Identifier::new(symbol, TextRange::default()),
+                        attr: Identifier::new(*symbol, TextRange::default()),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
                     })],
@@ -12095,6 +12647,18 @@ impl HybridStaticBundler {
                 );
                 continue;
             }
+
+            // Check if this symbol survived tree-shaking
+            if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                && !kept_symbols.contains(&(module_name.to_string(), original_name.clone()))
+            {
+                log::debug!(
+                    "Skipping tree-shaken symbol '{original_name}' from namespace for module \
+                     '{module_name}'"
+                );
+                continue;
+            }
+
             seen_args.insert(original_name.clone());
 
             keywords.push(Keyword {
@@ -12116,6 +12680,17 @@ impl HybridStaticBundler {
         {
             for export in export_list {
                 if !module_renames.contains_key(export) && !seen_args.contains(export) {
+                    // Check if this symbol survived tree-shaking
+                    if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                        && !kept_symbols.contains(&(module_name.to_string(), export.clone()))
+                    {
+                        log::debug!(
+                            "Skipping tree-shaken export '{export}' from namespace for module \
+                             '{module_name}'"
+                        );
+                        continue;
+                    }
+
                     // This export wasn't renamed and wasn't already added, add it directly
                     seen_args.insert(export.clone());
                     keywords.push(Keyword {
