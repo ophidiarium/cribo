@@ -157,6 +157,10 @@ pub struct ItemData {
     pub imported_names: FxHashSet<String>,
     /// For re-exports: names that are explicitly re-exported
     pub reexported_names: FxHashSet<String>,
+    /// NEW: Top-level symbols defined by this item (for tree-shaking)
+    pub defined_symbols: FxHashSet<String>,
+    /// NEW: Map of symbol -> other symbols it references (for tree-shaking)
+    pub symbol_dependencies: FxHashMap<String, FxHashSet<String>>,
 }
 
 /// Fine-grained dependency graph for a single module
@@ -1431,6 +1435,8 @@ mod tests {
             span: Some((1, 3)),
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: ["test_func".into()].into_iter().collect(),
+            symbol_dependencies: FxHashMap::default(),
         });
 
         // Add a call to the function
@@ -1445,6 +1451,8 @@ mod tests {
             span: Some((5, 5)),
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
         });
 
         // Add dependency

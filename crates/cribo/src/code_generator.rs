@@ -124,6 +124,7 @@ pub struct BundleParams<'a> {
     pub graph: &'a DependencyGraph, // Dependency graph for unused import detection
     pub semantic_bundler: &'a SemanticBundler, // Semantic analysis results
     pub circular_dep_analysis: Option<&'a crate::cribo_graph::CircularDependencyAnalysis>, /* Circular dependency analysis */
+    pub tree_shaker: Option<&'a crate::tree_shaking::TreeShaker>, // Tree shaking analysis
 }
 
 /// Transformer that lifts module-level globals to true global scope
@@ -1646,6 +1647,8 @@ pub struct HybridStaticBundler {
     modules_with_explicit_all: FxIndexSet<String>,
     /// Transformation context for tracking node mappings
     transformation_context: TransformationContext,
+    /// Module/symbol pairs that should be kept after tree shaking
+    tree_shaking_keep_symbols: Option<indexmap::IndexSet<(String, String)>>,
 }
 
 impl Default for HybridStaticBundler {
@@ -1680,6 +1683,7 @@ impl HybridStaticBundler {
             created_namespaces: FxIndexSet::default(),
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
+            tree_shaking_keep_symbols: None,
         }
     }
 
@@ -2529,6 +2533,25 @@ impl HybridStaticBundler {
     /// Bundle multiple modules using the hybrid approach
     pub fn bundle_modules(&mut self, params: BundleParams<'_>) -> Result<ModModule> {
         let mut final_body = Vec::new();
+
+        // Store tree shaking decisions if provided
+        if let Some(shaker) = params.tree_shaker {
+            // Extract all kept symbols from the tree shaker
+            let mut kept_symbols = indexmap::IndexSet::new();
+            for (module_name, _, _, _) in &params.modules {
+                for symbol in shaker.get_used_symbols_for_module(module_name) {
+                    kept_symbols.insert((module_name.clone(), symbol));
+                }
+            }
+            self.tree_shaking_keep_symbols = Some(kept_symbols);
+            log::debug!(
+                "Tree shaking enabled, keeping {} symbols",
+                self.tree_shaking_keep_symbols
+                    .as_ref()
+                    .map(|s| s.len())
+                    .unwrap_or(0)
+            );
+        }
 
         log::debug!("Entry module name: {}", params.entry_module_name);
         log::debug!(
@@ -9809,6 +9832,18 @@ impl HybridStaticBundler {
         module_name: &str,
         module_exports_map: &FxIndexMap<String, Option<Vec<String>>>,
     ) -> bool {
+        // First check tree-shaking decisions if available
+        if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols {
+            let symbol_key = (module_name.to_string(), symbol_name.to_string());
+            if !kept_symbols.contains(&symbol_key) {
+                log::trace!(
+                    "Tree shaking: removing unused symbol '{symbol_name}' from module \
+                     '{module_name}'"
+                );
+                return false;
+            }
+        }
+
         let exports = module_exports_map.get(module_name).and_then(|e| e.as_ref());
 
         if let Some(export_list) = exports {
@@ -11321,6 +11356,17 @@ impl HybridStaticBundler {
 
             // For each exported symbol, add it to the namespace
             for symbol in exports {
+                // Skip symbols that were removed by tree-shaking
+                if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                    && !kept_symbols.contains(&(module_name.to_string(), symbol.clone()))
+                {
+                    log::debug!(
+                        "Skipping namespace assignment for {module_name}.{symbol} - removed by \
+                         tree-shaking"
+                    );
+                    continue;
+                }
+
                 // Get the renamed symbol if it exists
                 let actual_symbol_name =
                     if let Some(module_renames) = symbol_renames.get(module_name) {

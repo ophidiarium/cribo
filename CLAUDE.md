@@ -34,35 +34,73 @@ Cribo is a Rust-based source bundler for Python projects. It merges a multi-modu
 
 The project is organized as a Rust workspace with the main crate in `crates/cribo`.
 
-#### Key Components
+#### Core Components
 
 1. **Bundle Orchestration** (`orchestrator.rs`)
    - Coordinates the entire bundling workflow
    - Manages module discovery and dependency resolution
-   - Handles circular dependency detection
-   - Calls the code generator for final output
+   - Integrates tree-shaking when enabled
+   - Handles circular dependency detection via Tarjan's algorithm
+   - Orchestrates code generation for final output
 
 2. **Code Generation** (`code_generator.rs`)
-   - Implements the sys.modules-based bundling approach
+   - Implements hybrid static bundling with sys.modules approach
    - Generates deterministic module names using content hashing
-   - Performs AST transformations and import rewriting
-   - Integrates unused import trimming
+   - Performs comprehensive AST transformations and import rewriting
+   - Handles namespace object creation for direct module imports
+   - Integrates with tree-shaking to skip removed symbols
    - Produces the final bundled Python output
 
 3. **Module Resolution & Import Classification** (`resolver.rs`)
    - Classifies imports as standard library, first-party, or third-party
    - Resolves actual file paths for bundling
    - Handles PYTHONPATH and VIRTUAL_ENV support
+   - Manages namespace package detection
 
-4. **Dependency Graph** (`dependency_graph.rs`)
-   - Builds a directed graph of module dependencies
-   - Uses topological sorting to determine bundling order
-   - Implements Tarjan's SCC algorithm for circular dependency detection
+4. **Advanced Dependency Graph** (`cribo_graph.rs`)
+   - Item-level dependency tracking inspired by Turbopack
+   - Fine-grained symbol usage analysis
+   - Cross-module reference tracking
+   - Side effect detection and preservation
+   - Support for incremental updates
 
-5. **Unused Import Detection** (`unused_imports.rs`)
-   - Detects and removes unused imports
-   - Handles various import formats (simple, from, aliased)
-   - Operates directly on AST to avoid double parsing
+5. **Graph Builder** (`graph_builder.rs`)
+   - Bridges ruff's AST and the dependency graph
+   - Tracks variable reads/writes at statement level
+   - Handles complex scoping (module, function, class)
+   - Collects symbol dependencies for classes and functions
+   - Identifies module-level side effects
+
+6. **Tree Shaking** (`tree_shaking.rs`)
+   - Mark-and-sweep algorithm for dead code elimination
+   - Tracks used symbols transitively from entry point
+   - Preserves directly imported modules' exports
+   - Handles import aliases and re-exports
+   - Respects `__all__` declarations
+   - Enabled by default with `--no-tree-shake` to disable
+
+7. **Semantic Analysis** (`semantic_analysis.rs`)
+   - Enhanced import information tracking
+   - Execution context awareness
+   - Symbol visibility analysis
+   - Module-level variable tracking
+
+8. **AST Indexing** (`ast_indexer.rs`)
+   - Deterministic node indexing for AST transformations
+   - Supports incremental updates
+   - Tracks node relationships and transformations
+   - Essential for reliable AST rewriting
+
+9. **Visitors** (`visitors/` directory)
+   - **Import Discovery**: Identifies all import types and locations
+   - **Side Effect Detection**: Determines which statements have side effects
+   - **No-ops Removal**: Eliminates redundant statements
+   - **Expression Analysis**: Deep inspection of Python expressions
+
+10. **Utilities**
+    - **Unused Import Detection** (`unused_imports.rs`): Legacy import cleanup
+    - **Transformation Context** (`transformation_context.rs`): Tracks AST modifications
+    - **Directory Management** (`dirs.rs`): XDG-compliant config paths
 
 ### CLI Usage
 
@@ -74,6 +112,7 @@ cribo --entry src/main.py --stdout [options]
 
 # Common options
 --emit-requirements    # Generate requirements.txt with third-party dependencies
+--no-tree-shake        # Disable tree-shaking optimization (tree-shaking is enabled by default)
 -v, --verbose...       # Increase verbosity (can be repeated: -v, -vv, -vvv)
                        # No flag: warnings/errors only
                        # -v: informational messages  
@@ -81,6 +120,18 @@ cribo --entry src/main.py --stdout [options]
                        # -vvv: trace messages
 --stdout               # Output bundled code to stdout instead of a file
 ```
+
+#### Tree-Shaking (Enabled by Default)
+
+Tree-shaking removes unused code from the bundle to reduce size:
+
+- Analyzes which symbols are actually used starting from the entry point
+- Preserves all symbols from directly imported modules (`import module` or `from pkg import module`)
+- Respects `__all__` declarations and side effects
+- Handles import aliases correctly
+- Use `--no-tree-shake` to disable if you need to preserve all code
+
+**Known Limitation**: Complex circular dependencies with generated init functions may cause issues with tree-shaking. Use `--no-tree-shake` if you encounter undefined symbol errors.
 
 #### Stdout Mode for Debugging
 

@@ -2,7 +2,7 @@
 /// This module bridges the gap between ruff's AST and our dependency graph
 use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     cribo_graph::{ItemData, ItemType, ModuleDepGraph},
@@ -139,6 +139,8 @@ impl<'a> GraphBuilder<'a> {
                 span: None, // Could extract from AST if needed
                 imported_names,
                 reexported_names: FxHashSet::default(),
+                defined_symbols: FxHashSet::default(),
+                symbol_dependencies: FxHashMap::default(),
             };
 
             self.graph.add_item(item_data);
@@ -223,6 +225,8 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names,
             reexported_names,
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -282,11 +286,18 @@ impl<'a> GraphBuilder<'a> {
             &mut eventual_write_vars,
         );
 
+        // Build symbol dependencies - the function depends on all variables it reads
+        let mut symbol_dependencies = FxHashMap::default();
+        let mut all_deps = FxHashSet::default();
+        all_deps.extend(read_vars.clone());
+        all_deps.extend(eventual_read_vars.clone());
+        symbol_dependencies.insert(func_name.clone(), all_deps);
+
         let item_data = ItemData {
             item_type: ItemType::FunctionDef {
                 name: func_name.clone(),
             },
-            var_decls: [func_name].into_iter().collect(),
+            var_decls: [func_name.clone()].into_iter().collect(),
             read_vars,
             eventual_read_vars,
             write_vars: FxHashSet::default(),
@@ -295,6 +306,8 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: [func_name].into_iter().collect(),
+            symbol_dependencies,
         };
 
         self.graph.add_item(item_data);
@@ -332,19 +345,61 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
+        // Build symbol dependencies - the class depends on its base classes and decorators
+        let mut symbol_dependencies = FxHashMap::default();
+        symbol_dependencies.insert(class_name.clone(), read_vars.clone());
+
+        // Collect all variables used in methods to add as eventual dependencies
+        let mut method_read_vars = FxHashSet::default();
+        let mut method_write_vars = FxHashSet::default();
+        for stmt in &class_def.body {
+            if let Stmt::FunctionDef(method_def) = stmt {
+                // Collect variables from method parameter annotations
+                for param in &method_def.parameters.posonlyargs {
+                    if let Some(annotation) = &param.parameter.annotation {
+                        self.collect_vars_in_expr(annotation, &mut method_read_vars);
+                    }
+                }
+                for param in &method_def.parameters.args {
+                    if let Some(annotation) = &param.parameter.annotation {
+                        self.collect_vars_in_expr(annotation, &mut method_read_vars);
+                    }
+                }
+                for param in &method_def.parameters.kwonlyargs {
+                    if let Some(annotation) = &param.parameter.annotation {
+                        self.collect_vars_in_expr(annotation, &mut method_read_vars);
+                    }
+                }
+
+                // Collect variables from return type annotation
+                if let Some(returns) = &method_def.returns {
+                    self.collect_vars_in_expr(returns, &mut method_read_vars);
+                }
+
+                // Collect variables used in the method body
+                self.collect_vars_in_body(
+                    &method_def.body,
+                    &mut method_read_vars,
+                    &mut method_write_vars,
+                );
+            }
+        }
+
         let item_data = ItemData {
             item_type: ItemType::ClassDef {
                 name: class_name.clone(),
             },
-            var_decls: [class_name].into_iter().collect(),
+            var_decls: [class_name.clone()].into_iter().collect(),
             read_vars,
-            eventual_read_vars: FxHashSet::default(),
+            eventual_read_vars: method_read_vars, // Methods may use these variables
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: [class_name].into_iter().collect(),
+            symbol_dependencies,
         };
 
         self.graph.add_item(item_data);
@@ -393,8 +448,10 @@ impl<'a> GraphBuilder<'a> {
         }
 
         let item_data = ItemData {
-            item_type: ItemType::Assignment { targets },
-            var_decls,
+            item_type: ItemType::Assignment {
+                targets: targets.clone(),
+            },
+            var_decls: var_decls.clone(),
             read_vars,
             eventual_read_vars: reexported_names.clone(), // Names in __all__ are "eventually read"
             write_vars: FxHashSet::default(),
@@ -403,6 +460,8 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names,
+            defined_symbols: var_decls,
+            symbol_dependencies: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -431,7 +490,7 @@ impl<'a> GraphBuilder<'a> {
             item_type: ItemType::Assignment {
                 targets: var_decls.iter().cloned().collect(),
             },
-            var_decls,
+            var_decls: var_decls.clone(),
             read_vars,
             eventual_read_vars: FxHashSet::default(),
             write_vars: FxHashSet::default(),
@@ -444,6 +503,8 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: var_decls,
+            symbol_dependencies: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -455,6 +516,19 @@ impl<'a> GraphBuilder<'a> {
         let mut read_vars = FxHashSet::default();
         self.collect_vars_in_expr(expr, &mut read_vars);
 
+        // Check if this is a docstring or other constant expression
+        let has_side_effects = match expr {
+            // Docstrings and constant expressions don't have side effects
+            Expr::StringLiteral(_)
+            | Expr::NumberLiteral(_)
+            | Expr::BooleanLiteral(_)
+            | Expr::NoneLiteral(_)
+            | Expr::BytesLiteral(_)
+            | Expr::EllipsisLiteral(_) => false,
+            // For other expressions, check using the side effect detector
+            _ => Self::expression_has_side_effects(expr),
+        };
+
         let item_data = ItemData {
             item_type: ItemType::Expression,
             var_decls: FxHashSet::default(),
@@ -462,10 +536,12 @@ impl<'a> GraphBuilder<'a> {
             eventual_read_vars: FxHashSet::default(),
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
-            has_side_effects: true, // Expression statements typically have side effects
+            has_side_effects,
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -491,6 +567,8 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -537,6 +615,8 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -570,6 +650,8 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -606,6 +688,8 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -631,6 +715,8 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -661,6 +747,8 @@ impl<'a> GraphBuilder<'a> {
                     span: None,
                     imported_names: FxHashSet::default(),
                     reexported_names: FxHashSet::default(),
+                    defined_symbols: FxHashSet::default(),
+                    symbol_dependencies: FxHashMap::default(),
                 };
                 self.graph.add_item(item_data);
             }

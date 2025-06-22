@@ -7,11 +7,9 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_globals_collision/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-User_4 = "utils_user_string"
 process_count = 0
 validate_cache = {}
 Logger_6 = str
-Connection_6 = "not_a_class"
 def process_7(data):
     """Process function in utils module"""
     global process_count
@@ -38,25 +36,10 @@ class Logger_6:
         return f"utils_logger_{self.name}"
 Logger_6.__module__ = 'core.utils.helpers'
 Logger_6.__name__ = 'Logger'
-class Connection_6:
-    """Connection class in utils - different from database Connection"""
-
-    def __init__(self):
-        self.type = "utility_connection"
-
-    def connect(self):
-        return "utils_connection_established"
-Connection_6.__module__ = 'core.utils.helpers'
-Connection_6.__name__ = 'Connection'
 def sanitize(text):
     """Utility function without conflicts"""
     return text.strip().lower()
-def format_result(result):
-    """Another utility function"""
-    return f"formatted: {result}"
 """Core utility helpers module - NO external dependencies to avoid circular imports"""
-validate_7 = "db_package_validate"
-Logger_7 = "core_logger_string"
 _cribo_models_base_Connection = None
 def __cribo_init___cribo_0a162a_models_base():
     module = types.SimpleNamespace()
