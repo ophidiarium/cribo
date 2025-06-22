@@ -24,6 +24,7 @@ use rustc_hash::FxHasher;
 use crate::{
     cribo_graph::CriboGraph as DependencyGraph,
     semantic_bundler::{ModuleGlobalInfo, SemanticBundler, SymbolRegistry},
+    transformation_context::TransformationContext,
     visitors::SideEffectDetector,
 };
 
@@ -1643,6 +1644,8 @@ pub struct HybridStaticBundler {
     created_namespaces: FxIndexSet<String>,
     /// Modules that have explicit __all__ defined
     modules_with_explicit_all: FxIndexSet<String>,
+    /// Transformation context for tracking node mappings
+    transformation_context: TransformationContext,
 }
 
 impl Default for HybridStaticBundler {
@@ -1676,7 +1679,118 @@ impl HybridStaticBundler {
             required_namespaces: FxIndexSet::default(),
             created_namespaces: FxIndexSet::default(),
             modules_with_explicit_all: FxIndexSet::default(),
+            transformation_context: TransformationContext::new(),
         }
+    }
+
+    /// Create a new node with a proper index from the transformation context
+    fn create_node_index(&mut self) -> AtomicNodeIndex {
+        self.transformation_context.create_node_index()
+    }
+
+    /// Create a new node and record it as a transformation
+    fn create_transformed_node(&mut self, reason: String) -> AtomicNodeIndex {
+        self.transformation_context.create_new_node(reason)
+    }
+
+    /// Post-process AST to assign proper node indices to any nodes created with dummy indices
+    fn assign_node_indices_to_ast(&mut self, module: &mut ModModule) {
+        use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
+
+        struct NodeIndexAssigner<'a> {
+            bundler: &'a mut HybridStaticBundler,
+        }
+
+        impl<'a> SourceOrderVisitor<'_> for NodeIndexAssigner<'a> {
+            fn visit_stmt(&mut self, stmt: &Stmt) {
+                // Check if this node has a dummy index (value 0)
+                let node_index = match stmt {
+                    Stmt::FunctionDef(s) => &s.node_index,
+                    Stmt::ClassDef(s) => &s.node_index,
+                    Stmt::Import(s) => &s.node_index,
+                    Stmt::ImportFrom(s) => &s.node_index,
+                    Stmt::Assign(s) => &s.node_index,
+                    Stmt::Return(s) => &s.node_index,
+                    Stmt::Delete(s) => &s.node_index,
+                    Stmt::AugAssign(s) => &s.node_index,
+                    Stmt::AnnAssign(s) => &s.node_index,
+                    Stmt::TypeAlias(s) => &s.node_index,
+                    Stmt::For(s) => &s.node_index,
+                    Stmt::While(s) => &s.node_index,
+                    Stmt::If(s) => &s.node_index,
+                    Stmt::With(s) => &s.node_index,
+                    Stmt::Match(s) => &s.node_index,
+                    Stmt::Raise(s) => &s.node_index,
+                    Stmt::Try(s) => &s.node_index,
+                    Stmt::Assert(s) => &s.node_index,
+                    Stmt::Global(s) => &s.node_index,
+                    Stmt::Nonlocal(s) => &s.node_index,
+                    Stmt::Expr(s) => &s.node_index,
+                    Stmt::Pass(s) => &s.node_index,
+                    Stmt::Break(s) => &s.node_index,
+                    Stmt::Continue(s) => &s.node_index,
+                    Stmt::IpyEscapeCommand(s) => &s.node_index,
+                };
+
+                // If it's a dummy index (0), assign a new one
+                if node_index.load().as_usize() == 0 {
+                    let new_index = self.bundler.create_node_index();
+                    node_index.set(new_index.load().as_usize() as u32);
+                }
+
+                // Continue walking
+                ruff_python_ast::visitor::source_order::walk_stmt(self, stmt);
+            }
+
+            fn visit_expr(&mut self, expr: &Expr) {
+                // Similar logic for expressions
+                let node_index = match expr {
+                    Expr::BoolOp(e) => &e.node_index,
+                    Expr::BinOp(e) => &e.node_index,
+                    Expr::UnaryOp(e) => &e.node_index,
+                    Expr::Lambda(e) => &e.node_index,
+                    Expr::If(e) => &e.node_index,
+                    Expr::Dict(e) => &e.node_index,
+                    Expr::Set(e) => &e.node_index,
+                    Expr::ListComp(e) => &e.node_index,
+                    Expr::SetComp(e) => &e.node_index,
+                    Expr::DictComp(e) => &e.node_index,
+                    Expr::Generator(e) => &e.node_index,
+                    Expr::Await(e) => &e.node_index,
+                    Expr::Yield(e) => &e.node_index,
+                    Expr::YieldFrom(e) => &e.node_index,
+                    Expr::Compare(e) => &e.node_index,
+                    Expr::Call(e) => &e.node_index,
+                    Expr::NumberLiteral(e) => &e.node_index,
+                    Expr::StringLiteral(e) => &e.node_index,
+                    Expr::FString(e) => &e.node_index,
+                    Expr::BytesLiteral(e) => &e.node_index,
+                    Expr::BooleanLiteral(e) => &e.node_index,
+                    Expr::NoneLiteral(e) => &e.node_index,
+                    Expr::EllipsisLiteral(e) => &e.node_index,
+                    Expr::Attribute(e) => &e.node_index,
+                    Expr::Subscript(e) => &e.node_index,
+                    Expr::Starred(e) => &e.node_index,
+                    Expr::Name(e) => &e.node_index,
+                    Expr::List(e) => &e.node_index,
+                    Expr::Tuple(e) => &e.node_index,
+                    Expr::Slice(e) => &e.node_index,
+                    Expr::IpyEscapeCommand(e) => &e.node_index,
+                    Expr::Named(e) => &e.node_index,
+                    Expr::TString(e) => &e.node_index,
+                };
+
+                if node_index.load().as_usize() == 0 {
+                    let new_index = self.bundler.create_node_index();
+                    node_index.set(new_index.load().as_usize() as u32);
+                }
+
+                ruff_python_ast::visitor::source_order::walk_expr(self, expr);
+            }
+        }
+
+        let mut assigner = NodeIndexAssigner { bundler: self };
+        assigner.visit_mod(&ruff_python_ast::Mod::Module(module.clone()));
     }
 
     /// Check if an expression is accessing a module namespace
@@ -2433,7 +2547,45 @@ impl HybridStaticBundler {
         }
 
         // Trim unused imports from all modules
-        let modules = self.trim_unused_imports_from_modules(params.modules, params.graph)?;
+        let mut modules = self.trim_unused_imports_from_modules(params.modules, params.graph)?;
+
+        // Index all module ASTs to assign node indices and initialize transformation context
+        log::debug!("Indexing {} modules", modules.len());
+        let mut module_indices = Vec::new();
+        let mut total_nodes = 0u32;
+        let mut module_id = 0u32;
+
+        // Create a mapping from module name to module ID for debugging
+        let mut module_id_map = FxIndexMap::default();
+
+        for (module_name, ast, path, _content_hash) in &mut modules {
+            let indexed = crate::ast_indexer::index_module_with_id(ast, module_id);
+            let node_count = indexed.node_count;
+            log::debug!(
+                "Module {} (ID: {}) indexed with {} nodes (indices {}-{})",
+                module_name,
+                module_id,
+                node_count,
+                module_id * crate::ast_indexer::MODULE_INDEX_RANGE,
+                module_id * crate::ast_indexer::MODULE_INDEX_RANGE + node_count - 1
+            );
+            module_id_map.insert(module_name.clone(), module_id);
+            module_indices.push((module_name.clone(), path.clone(), indexed));
+            total_nodes += node_count;
+            module_id += 1;
+        }
+
+        // Initialize transformation context
+        // Start new node indices after all module ranges
+        self.transformation_context = TransformationContext::new();
+        let starting_index = module_id * crate::ast_indexer::MODULE_INDEX_RANGE;
+        for _ in 0..starting_index {
+            self.transformation_context.next_node_index();
+        }
+        log::debug!(
+            "Transformation context initialized. Module count: {module_id}, Total nodes: \
+             {total_nodes}, New nodes start at: {starting_index}"
+        );
 
         // Store module ASTs for re-export resolution
         self.module_asts = Some(modules.clone());
@@ -2778,15 +2930,17 @@ impl HybridStaticBundler {
                          forward reference"
                     );
                     circular_predeclarations.push(Stmt::Assign(StmtAssign {
-                        node_index: AtomicNodeIndex::dummy(),
+                        node_index: self.create_transformed_node(format!(
+                            "Pre-declaration for circular dependency: {renamed_name}"
+                        )),
                         targets: vec![Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
+                            node_index: self.create_node_index(),
                             id: renamed_name.clone().into(),
                             ctx: ExprContext::Store,
                             range: TextRange::default(),
                         })],
                         value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
-                            node_index: AtomicNodeIndex::dummy(),
+                            node_index: self.create_node_index(),
                             range: TextRange::default(),
                         })),
                         range: TextRange::default(),
@@ -3562,11 +3716,28 @@ impl HybridStaticBundler {
             final_body.extend(deduped_imports);
         }
 
-        Ok(ModModule {
-            node_index: AtomicNodeIndex::dummy(),
+        let mut result = ModModule {
+            node_index: self.create_transformed_node("Bundled module root".to_string()),
             range: TextRange::default(),
             body: final_body,
-        })
+        };
+
+        // Assign proper node indices to all nodes in the final AST
+        self.assign_node_indices_to_ast(&mut result);
+
+        // Log transformation statistics
+        let stats = self.transformation_context.get_stats();
+        log::info!("Transformation statistics:");
+        log::info!("  Total transformations: {}", stats.total_transformations);
+        log::info!("  Direct copies: {}", stats.direct_copies);
+        log::info!("  Imports rewritten: {}", stats.imports_rewritten);
+        log::info!("  Globals replaced: {}", stats.globals_replaced);
+        log::info!("  Modules wrapped: {}", stats.modules_wrapped);
+        log::info!("  Dead code eliminated: {}", stats.dead_code_eliminated);
+        log::info!("  New nodes created: {}", stats.new_nodes);
+        log::info!("  Nodes merged: {}", stats.nodes_merged);
+
+        Ok(result)
     }
 
     /// Process a statement in the entry module, handling renames and reassignments
