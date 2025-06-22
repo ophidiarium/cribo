@@ -126,7 +126,7 @@ impl TransformationContext {
     /// Create a completely new node
     pub fn create_new_node(&mut self, reason: String) -> AtomicNodeIndex {
         let node_index = self.create_node_index();
-        let index = AtomicNodeIndex::from(self.next_node_index() - 1).load();
+        let index = node_index.load();
 
         self.transformations.push(TransformationRecord {
             original: None,
