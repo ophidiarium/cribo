@@ -888,25 +888,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 {
                                     // Filter exports to only include symbols that survived
                                     // tree-shaking
-                                    let filtered_exports: Vec<String> =
-                                        if let Some(ref kept_symbols) =
-                                            self.bundler.tree_shaking_keep_symbols
-                                        {
-                                            exports
-                                                .iter()
-                                                .filter(|symbol| {
-                                                    // Check if this symbol is kept in this module
-                                                    kept_symbols.contains(&(
-                                                        full_module_path.clone(),
-                                                        (*symbol).clone(),
-                                                    ))
-                                                })
-                                                .cloned()
-                                                .collect()
-                                        } else {
-                                            // No tree-shaking, include all exports
-                                            exports.clone()
-                                        };
+                                    let filtered_exports =
+                                        self.bundler.filter_exports_by_tree_shaking(
+                                            &exports,
+                                            &full_module_path,
+                                            self.bundler.tree_shaking_keep_symbols.as_ref(),
+                                        );
 
                                     // Add __all__ attribute to the namespace with filtered exports
                                     // BUT ONLY if the original module had an explicit __all__
@@ -1057,25 +1044,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 {
                                     // Filter exports to only include symbols that survived
                                     // tree-shaking
-                                    let filtered_exports: Vec<String> =
-                                        if let Some(ref kept_symbols) =
-                                            self.bundler.tree_shaking_keep_symbols
-                                        {
-                                            exports
-                                                .iter()
-                                                .filter(|symbol| {
-                                                    // Check if this symbol is kept in this module
-                                                    kept_symbols.contains(&(
-                                                        full_module_path.clone(),
-                                                        (*symbol).clone(),
-                                                    ))
-                                                })
-                                                .cloned()
-                                                .collect()
-                                        } else {
-                                            // No tree-shaking, include all exports
-                                            exports.clone()
-                                        };
+                                    let filtered_exports =
+                                        self.bundler.filter_exports_by_tree_shaking(
+                                            &exports,
+                                            &full_module_path,
+                                            self.bundler.tree_shaking_keep_symbols.as_ref(),
+                                        );
 
                                     // Add __all__ attribute to the namespace with filtered exports
                                     // BUT ONLY if the original module had an explicit __all__
@@ -2062,6 +2036,72 @@ impl HybridStaticBundler {
                 false
             }
         })
+    }
+
+    /// Filter module exports based on tree-shaking results
+    /// Returns only the symbols that survived tree-shaking, or all exports if tree-shaking is
+    /// disabled
+    fn filter_exports_by_tree_shaking(
+        &self,
+        exports: &[String],
+        module_path: &str,
+        kept_symbols: Option<&indexmap::IndexSet<(String, String)>>,
+    ) -> Vec<String> {
+        if let Some(kept_symbols) = kept_symbols {
+            exports
+                .iter()
+                .filter(|symbol| {
+                    // Check if this symbol is kept in this module
+                    kept_symbols.contains(&(module_path.to_string(), (*symbol).clone()))
+                })
+                .cloned()
+                .collect()
+        } else {
+            // No tree-shaking, include all exports
+            exports.to_vec()
+        }
+    }
+
+    /// Filter module exports based on tree-shaking results with debug logging
+    /// Returns references to the symbols that survived tree-shaking
+    fn filter_exports_by_tree_shaking_with_logging<'a>(
+        &self,
+        exports: &'a [String],
+        module_name: &str,
+        kept_symbols: Option<&indexmap::IndexSet<(String, String)>>,
+    ) -> Vec<&'a String> {
+        if let Some(kept_symbols) = kept_symbols {
+            let result: Vec<&String> = exports
+                .iter()
+                .filter(|symbol| {
+                    // Check if this symbol is kept in this module
+                    let is_kept =
+                        kept_symbols.contains(&(module_name.to_string(), (*symbol).clone()));
+                    if !is_kept {
+                        log::debug!(
+                            "Filtering out symbol '{symbol}' from __all__ of module \
+                             '{module_name}' - removed by tree-shaking"
+                        );
+                    } else {
+                        log::debug!(
+                            "Keeping symbol '{symbol}' in __all__ of module '{module_name}' - \
+                             survived tree-shaking"
+                        );
+                    }
+                    is_kept
+                })
+                .collect();
+            log::debug!(
+                "Module '{}' __all__ filtering: {} symbols -> {} symbols",
+                module_name,
+                exports.len(),
+                result.len()
+            );
+            result
+        } else {
+            // No tree-shaking, include all exports
+            exports.iter().collect()
+        }
     }
 
     /// Pre-scan all modules to identify required namespaces
@@ -11750,39 +11790,11 @@ impl HybridStaticBundler {
             }
 
             // Filter exports to only include symbols that survived tree-shaking
-            let filtered_exports: Vec<&String> =
-                if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols {
-                    let result: Vec<&String> = exports
-                        .iter()
-                        .filter(|symbol| {
-                            // Check if this symbol is kept in this module
-                            let is_kept = kept_symbols
-                                .contains(&(module_name.to_string(), (*symbol).clone()));
-                            if !is_kept {
-                                log::debug!(
-                                    "Filtering out symbol '{symbol}' from __all__ of module \
-                                     '{module_name}' - removed by tree-shaking"
-                                );
-                            } else {
-                                log::debug!(
-                                    "Keeping symbol '{symbol}' in __all__ of module \
-                                     '{module_name}' - survived tree-shaking"
-                                );
-                            }
-                            is_kept
-                        })
-                        .collect();
-                    log::debug!(
-                        "Module '{}' __all__ filtering: {} symbols -> {} symbols",
-                        module_name,
-                        exports.len(),
-                        result.len()
-                    );
-                    result
-                } else {
-                    // No tree-shaking, include all exports
-                    exports.iter().collect()
-                };
+            let filtered_exports = self.filter_exports_by_tree_shaking_with_logging(
+                exports,
+                module_name,
+                self.tree_shaking_keep_symbols.as_ref(),
+            );
 
             // Create __all__ = [...] assignment with filtered exports
             let all_list = Expr::List(ExprList {
