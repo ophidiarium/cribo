@@ -11,6 +11,7 @@ pub mod resolver;
 pub mod semantic_analysis;
 pub mod semantic_bundler;
 pub mod transformation_context;
+pub mod tree_shaking;
 pub mod util;
 pub mod visitors;
 

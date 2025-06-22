@@ -35,6 +35,10 @@ struct Cli {
     /// Target Python version (e.g., py38, py39, py310, py311, py312, py313)
     #[arg(long, alias = "python-version")]
     target_version: Option<String>,
+
+    /// Disable tree-shaking optimization (tree-shaking is enabled by default)
+    #[arg(long = "no-tree-shake", default_value_t = true, action = clap::ArgAction::SetFalse)]
+    tree_shake: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -69,6 +73,9 @@ fn main() -> anyhow::Result<()> {
     if let Some(target_version) = cli.target_version {
         config.set_target_version(target_version)?;
     }
+
+    // Override tree-shake from CLI
+    config.tree_shake = cli.tree_shake;
 
     debug!("Configuration: {config:?}");
 

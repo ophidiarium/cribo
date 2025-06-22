@@ -79,6 +79,17 @@ pub enum ItemType {
     Other,
 }
 
+impl ItemType {
+    /// Get the name of this item if it has one
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            ItemType::FunctionDef { name } => Some(name),
+            ItemType::ClassDef { name } => Some(name),
+            _ => None,
+        }
+    }
+}
+
 /// Dependency type between items
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DepType {
@@ -157,6 +168,13 @@ pub struct ItemData {
     pub imported_names: FxHashSet<String>,
     /// For re-exports: names that are explicitly re-exported
     pub reexported_names: FxHashSet<String>,
+    /// NEW: Top-level symbols defined by this item (for tree-shaking)
+    pub defined_symbols: FxHashSet<String>,
+    /// NEW: Map of symbol -> other symbols it references (for tree-shaking)
+    pub symbol_dependencies: FxHashMap<String, FxHashSet<String>>,
+    /// NEW: Map of variable -> accessed attributes (for tree-shaking namespace access)
+    /// e.g., {"greetings": ["message"]} for greetings.message
+    pub attribute_accesses: FxHashMap<String, FxHashSet<String>>,
 }
 
 /// Fine-grained dependency graph for a single module
@@ -311,6 +329,60 @@ impl ModuleDepGraph {
         unused_imports
     }
 
+    /// Get all import items in the module with their IDs
+    pub fn get_all_import_items(&self) -> Vec<(ItemId, &ItemData)> {
+        self.items
+            .iter()
+            .filter(|(_, data)| {
+                matches!(
+                    data.item_type,
+                    ItemType::Import { .. } | ItemType::FromImport { .. }
+                )
+            })
+            .map(|(id, data)| (*id, data))
+            .collect()
+    }
+
+    /// Check if a name is in __all__ export
+    pub fn is_in_all_export(&self, name: &str) -> bool {
+        // Look for __all__ assignments
+        for item_data in self.items.values() {
+            if let ItemType::Assignment { targets, .. } = &item_data.item_type
+                && targets.contains(&"__all__".to_string())
+            {
+                // Check if the name is in the eventual_read_vars (where __all__ names are
+                // stored)
+                if item_data.eventual_read_vars.contains(name) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Check if a symbol uses a specific import
+    pub fn does_symbol_use_import(&self, symbol: &str, import_name: &str) -> bool {
+        // Find the item that defines the symbol
+        for item in self.items.values() {
+            if item.defined_symbols.contains(symbol) {
+                // Check if this item uses the import
+                if item.read_vars.contains(import_name)
+                    || item.eventual_read_vars.contains(import_name)
+                {
+                    return true;
+                }
+
+                // Check symbol-specific dependencies
+                if let Some(deps) = item.symbol_dependencies.get(symbol)
+                    && deps.contains(import_name)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Check if a specific imported name is unused
     fn is_import_unused(&self, ctx: ImportUsageContext<'_>) -> bool {
         // Check for special cases where imports should be preserved
@@ -327,6 +399,11 @@ impl ModuleDepGraph {
 
         // Check if it's explicitly re-exported
         if ctx.import_data.reexported_names.contains(ctx.imported_name) {
+            return false;
+        }
+
+        // Check if it's in __all__ (module re-export)
+        if self.is_in_all_export(ctx.imported_name) {
             return false;
         }
 
@@ -1431,6 +1508,9 @@ mod tests {
             span: Some((1, 3)),
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: ["test_func".into()].into_iter().collect(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         });
 
         // Add a call to the function
@@ -1445,6 +1525,9 @@ mod tests {
             span: Some((5, 5)),
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         });
 
         // Add dependency

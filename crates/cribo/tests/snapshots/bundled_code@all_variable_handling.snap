@@ -8,7 +8,6 @@ input_file: crates/cribo/tests/fixtures/all_variable_handling/main.py
 
 import types
 message_1 = "from conflict_module"
-SHARED_NAME = "conflict_module_version"
 SUB_CONSTANT = "submodule_value"
 def sub_function():
     """Function from submodule"""
@@ -16,13 +15,9 @@ def sub_function():
 def exported_from_init():
     """Function exported from package __init__.py"""
     return f"From init, using helper: {helper_func()}"
-UTILS_CONSTANT = "utils value"
 def helper_func():
     """Helper function used by other modules"""
     return "helper result"
-def another_helper():
-    """Another helper function"""
-    return "another helper"
 CONSTANT = 42
 def public_func():
     """A public function that should be exported."""
@@ -40,9 +35,10 @@ simple_module = types.SimpleNamespace()
 simple_module.__all__ = ['public_func', 'CONSTANT']
 simple_module.public_func = public_func
 simple_module.CONSTANT = CONSTANT
-print(f"\nsimple_module.__all__ = {simple_module.__all__}")
+print(f"\n'public_func' in simple_module.__all__ = {'public_func' in simple_module.__all__}")
+print(f"'CONSTANT' in simple_module.__all__ = {'CONSTANT' in simple_module.__all__}")
 sub = types.SimpleNamespace()
 sub.__all__ = ['sub_function', 'SUB_CONSTANT']
 sub.sub_function = sub_function
 sub.SUB_CONSTANT = SUB_CONSTANT
-print(f"submodule.__all__ = {sub.__all__}")
+print(f"\n'sub_function' in submodule.__all__ = {'sub_function' in sub.__all__}")
