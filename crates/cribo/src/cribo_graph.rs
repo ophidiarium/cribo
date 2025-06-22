@@ -172,6 +172,9 @@ pub struct ItemData {
     pub defined_symbols: FxHashSet<String>,
     /// NEW: Map of symbol -> other symbols it references (for tree-shaking)
     pub symbol_dependencies: FxHashMap<String, FxHashSet<String>>,
+    /// NEW: Map of variable -> accessed attributes (for tree-shaking namespace access)
+    /// e.g., {"greetings": ["message"]} for greetings.message
+    pub attribute_accesses: FxHashMap<String, FxHashSet<String>>,
 }
 
 /// Fine-grained dependency graph for a single module
@@ -1448,6 +1451,7 @@ mod tests {
             reexported_names: FxHashSet::default(),
             defined_symbols: ["test_func".into()].into_iter().collect(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         });
 
         // Add a call to the function
@@ -1464,6 +1468,7 @@ mod tests {
             reexported_names: FxHashSet::default(),
             defined_symbols: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         });
 
         // Add dependency

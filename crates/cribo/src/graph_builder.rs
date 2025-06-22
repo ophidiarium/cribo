@@ -141,6 +141,7 @@ impl<'a> GraphBuilder<'a> {
                 reexported_names: FxHashSet::default(),
                 defined_symbols: FxHashSet::default(),
                 symbol_dependencies: FxHashMap::default(),
+                attribute_accesses: FxHashMap::default(),
             };
 
             self.graph.add_item(item_data);
@@ -227,6 +228,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names,
             defined_symbols: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -313,6 +315,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names: FxHashSet::default(),
             defined_symbols: [func_name].into_iter().collect(),
             symbol_dependencies,
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -405,6 +408,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names: FxHashSet::default(),
             defined_symbols: [class_name].into_iter().collect(),
             symbol_dependencies,
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -472,6 +476,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names,
             defined_symbols: var_decls,
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -515,6 +520,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names: FxHashSet::default(),
             defined_symbols: var_decls,
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -524,7 +530,12 @@ impl<'a> GraphBuilder<'a> {
     /// Process an expression statement
     fn process_expr_stmt(&mut self, expr: &Expr) -> Result<()> {
         let mut read_vars = FxHashSet::default();
-        self.collect_vars_in_expr(expr, &mut read_vars);
+        let mut attribute_accesses = FxHashMap::default();
+        self.collect_vars_in_expr_with_attrs(expr, &mut read_vars, &mut attribute_accesses);
+
+        log::debug!(
+            "Processing expression statement, read_vars: {read_vars:?}, attribute_accesses: {attribute_accesses:?}"
+        );
 
         // Check if this is a docstring or other constant expression
         let has_side_effects = match expr {
@@ -552,6 +563,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names: FxHashSet::default(),
             defined_symbols: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses,
         };
 
         self.graph.add_item(item_data);
@@ -579,6 +591,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names: FxHashSet::default(),
             defined_symbols: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -627,6 +640,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names: FxHashSet::default(),
             defined_symbols: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -662,6 +676,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names: FxHashSet::default(),
             defined_symbols: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -700,6 +715,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names: FxHashSet::default(),
             defined_symbols: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -727,6 +743,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names: FxHashSet::default(),
             defined_symbols: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         };
 
         self.graph.add_item(item_data);
@@ -759,6 +776,7 @@ impl<'a> GraphBuilder<'a> {
                     reexported_names: FxHashSet::default(),
                     defined_symbols: FxHashSet::default(),
                     symbol_dependencies: FxHashMap::default(),
+                    attribute_accesses: FxHashMap::default(),
                 };
                 self.graph.add_item(item_data);
             }
@@ -810,13 +828,31 @@ impl<'a> GraphBuilder<'a> {
         if names.is_empty() { None } else { Some(names) }
     }
 
-    /// Collect variables used in an expression
-    fn collect_vars_in_expr(&self, expr: &Expr, vars: &mut FxHashSet<String>) {
+    /// Collect variables used in an expression and track attribute accesses
+    fn collect_vars_in_expr_with_attrs(
+        &self,
+        expr: &Expr,
+        vars: &mut FxHashSet<String>,
+        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
+    ) {
         match expr {
             Expr::Name(name) => {
                 vars.insert(name.id.to_string());
             }
             Expr::Attribute(attr) => {
+                // Track attribute access for tree-shaking
+                if let Expr::Name(base_name) = attr.value.as_ref() {
+                    // Direct attribute access like greetings.message
+                    let base = base_name.id.to_string();
+                    vars.insert(base.clone());
+
+                    // Track that we're accessing 'message' on 'greetings'
+                    attribute_accesses
+                        .entry(base)
+                        .or_default()
+                        .insert(attr.attr.to_string());
+                }
+
                 // Collect the base object, especially important for module attribute access
                 // like `simple_module.__all__` or `xml.etree.ElementTree.__name__`
 
@@ -844,107 +880,107 @@ impl<'a> GraphBuilder<'a> {
                     }
                     Expr::Attribute(_) => {
                         // For nested attributes, recursively collect vars
-                        self.collect_vars_in_expr(&attr.value, vars);
+                        self.collect_vars_in_expr_with_attrs(&attr.value, vars, attribute_accesses);
                     }
                     _ => {
                         // For other types, recursively collect vars
-                        self.collect_vars_in_expr(&attr.value, vars);
+                        self.collect_vars_in_expr_with_attrs(&attr.value, vars, attribute_accesses);
                     }
                 }
             }
             Expr::Call(call) => {
-                self.collect_vars_in_expr(&call.func, vars);
+                self.collect_vars_in_expr_with_attrs(&call.func, vars, attribute_accesses);
                 for arg in &call.arguments.args {
-                    self.collect_vars_in_expr(arg, vars);
+                    self.collect_vars_in_expr_with_attrs(arg, vars, attribute_accesses);
                 }
                 for keyword in &call.arguments.keywords {
-                    self.collect_vars_in_expr(&keyword.value, vars);
+                    self.collect_vars_in_expr_with_attrs(&keyword.value, vars, attribute_accesses);
                 }
             }
             Expr::BinOp(binop) => {
-                self.collect_vars_in_expr(&binop.left, vars);
-                self.collect_vars_in_expr(&binop.right, vars);
+                self.collect_vars_in_expr_with_attrs(&binop.left, vars, attribute_accesses);
+                self.collect_vars_in_expr_with_attrs(&binop.right, vars, attribute_accesses);
             }
             Expr::UnaryOp(unaryop) => {
-                self.collect_vars_in_expr(&unaryop.operand, vars);
+                self.collect_vars_in_expr_with_attrs(&unaryop.operand, vars, attribute_accesses);
             }
             Expr::List(list) => {
                 for elt in &list.elts {
-                    self.collect_vars_in_expr(elt, vars);
+                    self.collect_vars_in_expr_with_attrs(elt, vars, attribute_accesses);
                 }
             }
             Expr::Tuple(tuple) => {
                 for elt in &tuple.elts {
-                    self.collect_vars_in_expr(elt, vars);
+                    self.collect_vars_in_expr_with_attrs(elt, vars, attribute_accesses);
                 }
             }
             Expr::Dict(dict) => {
                 for item in &dict.items {
                     if let Some(key) = &item.key {
-                        self.collect_vars_in_expr(key, vars);
+                        self.collect_vars_in_expr_with_attrs(key, vars, attribute_accesses);
                     }
-                    self.collect_vars_in_expr(&item.value, vars);
+                    self.collect_vars_in_expr_with_attrs(&item.value, vars, attribute_accesses);
                 }
             }
             Expr::Set(set) => {
                 for elt in &set.elts {
-                    self.collect_vars_in_expr(elt, vars);
+                    self.collect_vars_in_expr_with_attrs(elt, vars, attribute_accesses);
                 }
             }
             Expr::Subscript(subscript) => {
-                self.collect_vars_in_expr(&subscript.value, vars);
-                self.collect_vars_in_expr(&subscript.slice, vars);
+                self.collect_vars_in_expr_with_attrs(&subscript.value, vars, attribute_accesses);
+                self.collect_vars_in_expr_with_attrs(&subscript.slice, vars, attribute_accesses);
             }
             Expr::Compare(compare) => {
-                self.collect_vars_in_expr(&compare.left, vars);
+                self.collect_vars_in_expr_with_attrs(&compare.left, vars, attribute_accesses);
                 for comparator in &compare.comparators {
-                    self.collect_vars_in_expr(comparator, vars);
+                    self.collect_vars_in_expr_with_attrs(comparator, vars, attribute_accesses);
                 }
             }
             Expr::BoolOp(boolop) => {
                 for value in &boolop.values {
-                    self.collect_vars_in_expr(value, vars);
+                    self.collect_vars_in_expr_with_attrs(value, vars, attribute_accesses);
                 }
             }
             Expr::If(ifexp) => {
-                self.collect_vars_in_expr(&ifexp.test, vars);
-                self.collect_vars_in_expr(&ifexp.body, vars);
-                self.collect_vars_in_expr(&ifexp.orelse, vars);
+                self.collect_vars_in_expr_with_attrs(&ifexp.test, vars, attribute_accesses);
+                self.collect_vars_in_expr_with_attrs(&ifexp.body, vars, attribute_accesses);
+                self.collect_vars_in_expr_with_attrs(&ifexp.orelse, vars, attribute_accesses);
             }
             Expr::ListComp(comp) => {
-                self.collect_vars_in_expr(&comp.elt, vars);
+                self.collect_vars_in_expr_with_attrs(&comp.elt, vars, attribute_accesses);
                 for generator in &comp.generators {
-                    self.collect_vars_in_expr(&generator.iter, vars);
+                    self.collect_vars_in_expr_with_attrs(&generator.iter, vars, attribute_accesses);
                     for if_clause in &generator.ifs {
-                        self.collect_vars_in_expr(if_clause, vars);
+                        self.collect_vars_in_expr_with_attrs(if_clause, vars, attribute_accesses);
                     }
                 }
             }
             Expr::SetComp(comp) => {
-                self.collect_vars_in_expr(&comp.elt, vars);
+                self.collect_vars_in_expr_with_attrs(&comp.elt, vars, attribute_accesses);
                 for generator in &comp.generators {
-                    self.collect_vars_in_expr(&generator.iter, vars);
+                    self.collect_vars_in_expr_with_attrs(&generator.iter, vars, attribute_accesses);
                     for if_clause in &generator.ifs {
-                        self.collect_vars_in_expr(if_clause, vars);
+                        self.collect_vars_in_expr_with_attrs(if_clause, vars, attribute_accesses);
                     }
                 }
             }
             Expr::Generator(comp) => {
-                self.collect_vars_in_expr(&comp.elt, vars);
+                self.collect_vars_in_expr_with_attrs(&comp.elt, vars, attribute_accesses);
                 for generator in &comp.generators {
-                    self.collect_vars_in_expr(&generator.iter, vars);
+                    self.collect_vars_in_expr_with_attrs(&generator.iter, vars, attribute_accesses);
                     for if_clause in &generator.ifs {
-                        self.collect_vars_in_expr(if_clause, vars);
+                        self.collect_vars_in_expr_with_attrs(if_clause, vars, attribute_accesses);
                     }
                 }
             }
             Expr::DictComp(comp) => {
-                self.collect_vars_in_expr(&comp.key, vars);
-                self.collect_vars_in_expr(&comp.value, vars);
+                self.collect_vars_in_expr_with_attrs(&comp.key, vars, attribute_accesses);
+                self.collect_vars_in_expr_with_attrs(&comp.value, vars, attribute_accesses);
                 for generator in &comp.generators {
-                    self.collect_vars_in_expr(&generator.iter, vars);
+                    self.collect_vars_in_expr_with_attrs(&generator.iter, vars, attribute_accesses);
                     for if_clause in &generator.ifs {
-                        self.collect_vars_in_expr(if_clause, vars);
+                        self.collect_vars_in_expr_with_attrs(if_clause, vars, attribute_accesses);
                     }
                 }
             }
@@ -952,12 +988,23 @@ impl<'a> GraphBuilder<'a> {
                 // Process f-string value parts
                 for element in fstring.value.elements() {
                     if let ast::InterpolatedStringElement::Interpolation(expr_element) = element {
-                        self.collect_vars_in_expr(&expr_element.expression, vars);
+                        self.collect_vars_in_expr_with_attrs(
+                            &expr_element.expression,
+                            vars,
+                            attribute_accesses,
+                        );
                     }
                 }
             }
             _ => {} // Literals and other non-variable expressions
         }
+    }
+
+    /// Collect variables used in an expression
+    fn collect_vars_in_expr(&self, expr: &Expr, vars: &mut FxHashSet<String>) {
+        // Use the new method but ignore attribute accesses for backward compatibility
+        let mut dummy_attrs = FxHashMap::default();
+        self.collect_vars_in_expr_with_attrs(expr, vars, &mut dummy_attrs);
     }
 
     /// Collect variables in a statement body

@@ -14,9 +14,6 @@ def authenticate_user(username):
     """Authenticate user using database connection"""
     conn = get_connection()
     return f"auth({username}, conn={conn})"
-def execute_query(query):
-    """Execute a database query"""
-    return f"query_result({query})"
 def get_connection():
     """Get database connection with user context"""
     context = get_user_context()

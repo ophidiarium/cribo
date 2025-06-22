@@ -10,18 +10,12 @@ from abc import ABC
 from enum import Enum
 from typing import Protocol
 ALICE_NAME = "Alice"
-BOB_NAME = "Bob"
-class Pet(ABC):
-    pass
-Pet.__module__ = 'speaking'
 class Sex(Enum):
     MALE = "male"
     FEMALE = "female"
 Sex.__module__ = 'speaking'
 def say(phrase):
     return f"{phrase['what']}, {phrase['whom']}!"
-def scream(phrase):
-    return say(phrase).upper()
 def create_ms(name):
     return f"Ms. {name}"
 def create_mr(name):
@@ -31,10 +25,6 @@ class PersonTitle(Protocol):
     def __str__(self) -> str:
         ...
 PersonTitle.__module__ = 'speaking'
-class Phrase(Protocol):
-    what: str
-    whom: str
-Phrase.__module__ = 'speaking'
 class Person:
 
     def __init__(self, name: str, sex: Sex):

@@ -130,19 +130,114 @@ impl TreeShaker {
     fn resolve_import_alias(&self, current_module: &str, alias: &str) -> Option<(String, String)> {
         if let Some(items) = self.module_items.get(current_module) {
             for item in items {
-                if let ItemType::FromImport { module, names, .. } = &item.item_type {
+                if let ItemType::FromImport {
+                    module,
+                    names,
+                    level,
+                    ..
+                } = &item.item_type
+                {
                     // Check if this import defines the alias
                     for (original_name, alias_opt) in names {
                         let local_name = alias_opt.as_ref().unwrap_or(original_name);
                         if local_name == alias {
                             // Found the import that defines this alias
-                            return Some((module.clone(), original_name.clone()));
+                            // Resolve relative imports to absolute module names
+                            let resolved_module = if *level > 0 {
+                                debug!(
+                                    "Resolving relative import: module='{module}', level={level}, \
+                                     current_module='{current_module}'"
+                                );
+                                let result =
+                                    self.resolve_relative_module(current_module, module, *level);
+                                debug!("Resolved to: '{result}'");
+                                result
+                            } else {
+                                module.clone()
+                            };
+                            return Some((resolved_module, original_name.clone()));
                         }
                     }
                 }
             }
         }
         None
+    }
+
+    /// Resolve a relative module import to an absolute module name
+    fn resolve_relative_module(
+        &self,
+        current_module: &str,
+        relative_module: &str,
+        level: u32,
+    ) -> String {
+        // Split current module into parts
+        let parts: Vec<&str> = current_module.split('.').collect();
+
+        // Check if current module is a package (has sub-modules or is known to be a package)
+        // Note: A module is a package if:
+        // 1. It has sub-modules in module_items, OR
+        // 2. The module name suggests it's a package (e.g., "greetings.greeting" where both parts
+        //    could be packages)
+        // For relative imports with level > 1, the importing module must be in a package
+        let has_submodules = self
+            .module_items
+            .keys()
+            .any(|key| key != current_module && key.starts_with(&format!("{current_module}.")));
+
+        // If we're doing a level 2+ import, the current module must be a package
+        // because you can only go up multiple levels from within a package structure
+        let is_package = has_submodules || (level > 1 && parts.len() > 1);
+
+        debug!(
+            "resolve_relative_module: current_module='{current_module}', relative_module='{relative_module}', level={level}, \
+             parts={parts:?}, is_package={is_package}"
+        );
+
+        // Calculate how many levels to actually remove
+        let levels_to_remove = if is_package {
+            // For packages, level 1 means current package, not parent
+            if level > 0 { level - 1 } else { 0 }
+        } else {
+            // For regular modules, remove 'level' parts
+            level
+        } as usize;
+
+        // If we need to go up more levels than we have, something is wrong
+        if levels_to_remove > parts.len() {
+            debug!(
+                "Warning: relative import level {} exceeds module depth {} for module {}",
+                level,
+                parts.len(),
+                current_module
+            );
+            return relative_module.to_string();
+        }
+
+        // Get the parent module parts
+        let parent_parts = &parts[..parts.len().saturating_sub(levels_to_remove)];
+
+        // Remove the dots from the relative module name
+        let relative_part = relative_module.trim_start_matches('.');
+
+        debug!(
+            "levels_to_remove={levels_to_remove}, parent_parts={parent_parts:?}, relative_part='{relative_part}'"
+        );
+
+        // Combine parent parts with relative module
+        let result = if relative_part.is_empty() {
+            // Import from parent package itself
+            parent_parts.join(".")
+        } else if parent_parts.is_empty() {
+            // At top level
+            relative_part.to_string()
+        } else {
+            // Normal case: parent.relative
+            format!("{}.{}", parent_parts.join("."), relative_part)
+        };
+
+        debug!("resolve_relative_module result: '{result}'");
+        result
     }
 
     /// Mark all symbols transitively used from entry module
@@ -163,11 +258,19 @@ impl TreeShaker {
                     ItemType::FromImport {
                         module: from_module,
                         names,
+                        level,
                         ..
                     } => {
+                        // First resolve relative imports
+                        let resolved_from_module = if *level > 0 {
+                            self.resolve_relative_module(module_name, from_module, *level)
+                        } else {
+                            from_module.clone()
+                        };
+
                         for (name, _alias) in names {
                             // Check if this is importing a submodule directly
-                            let potential_module = format!("{from_module}.{name}");
+                            let potential_module = format!("{resolved_from_module}.{name}");
                             // Check if this module exists
                             if self.module_items.contains_key(&potential_module) {
                                 directly_imported_modules.insert(potential_module.clone());
@@ -192,9 +295,15 @@ impl TreeShaker {
                     if let Some((source_module, original_name)) =
                         self.resolve_import_alias(entry_module, var)
                     {
+                        debug!(
+                            "Found import alias: {var} -> {source_module}::{original_name}"
+                        );
                         worklist.push_back((source_module, original_name));
                     } else if let Some(module) = self.find_defining_module(var) {
+                        debug!("Found direct symbol usage: {var} in module {module}");
                         worklist.push_back((module, var.clone()));
+                    } else {
+                        debug!("Symbol {var} not found in any module");
                     }
                 }
 
@@ -216,14 +325,39 @@ impl TreeShaker {
                         worklist.push_back((entry_module.to_string(), symbol.clone()));
                     }
                 }
+
+                // Process attribute accesses - if we access `greetings.message`,
+                // we need the `message` symbol from the `greetings` module
+                for (base_var, accessed_attrs) in &item.attribute_accesses {
+                    // First, check if base_var is an imported module
+                    if let Some((source_module, _)) =
+                        self.resolve_import_alias(entry_module, base_var)
+                    {
+                        // This is an imported symbol with attribute access
+                        for attr in accessed_attrs {
+                            debug!(
+                                "Found attribute access: {base_var}.{attr} -> marking {source_module}::{attr} as used"
+                            );
+                            worklist.push_back((source_module.clone(), attr.clone()));
+                        }
+                    } else if self.module_items.contains_key(base_var) {
+                        // Direct module import like `import greetings`
+                        for attr in accessed_attrs {
+                            debug!(
+                                "Found direct module attribute access: {base_var}.{attr}"
+                            );
+                            worklist.push_back((base_var.clone(), attr.clone()));
+                        }
+                    }
+                }
             }
         }
 
         // For directly imported modules, mark all their exported symbols as used
         for module_name in &directly_imported_modules {
             if let Some(module_items) = self.module_items.get(module_name) {
+                // First, mark all non-private defined symbols
                 for item in module_items {
-                    // Mark all non-private symbols as used for direct imports
                     for symbol in &item.defined_symbols {
                         if !symbol.starts_with('_') || symbol == "__all__" {
                             debug!(
@@ -231,6 +365,75 @@ impl TreeShaker {
                                  used"
                             );
                             worklist.push_back((module_name.clone(), symbol.clone()));
+                        }
+                    }
+                }
+
+                // Then, check if this module has __all__ and mark those symbols too
+                // These might be re-exported from other modules
+                for item in module_items {
+                    if item.defined_symbols.contains("__all__") {
+                        // Look for the __all__ assignment to get the list of exported symbols
+                        if let ItemType::Assignment { targets, .. } = &item.item_type {
+                            for target in targets {
+                                if target == "__all__" {
+                                    // Check the read_vars which should contain the exported symbol
+                                    // names
+                                    for exported_symbol in &item.read_vars {
+                                        if !exported_symbol.starts_with('_') {
+                                            debug!(
+                                                "Marking re-exported symbol {exported_symbol} from directly \
+                                                 imported module {module_name} as used (from __all__)"
+                                            );
+                                            // First, try to find where this symbol comes from
+                                            if let Some((source_module, original_name)) = self
+                                                .resolve_import_alias(module_name, exported_symbol)
+                                            {
+                                                debug!(
+                                                    "Re-exported symbol {exported_symbol} comes from {source_module}::{original_name}"
+                                                );
+                                                worklist.push_back((source_module, original_name));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process all modules with side effects - their module-level code will run
+        for (module_name, items) in &self.module_items {
+            if self.module_has_side_effects(module_name) {
+                debug!("Processing side-effect module: {module_name}");
+                for item in items {
+                    // Add all dependencies from module-level code
+                    if matches!(
+                        item.item_type,
+                        ItemType::Expression | ItemType::Assignment { .. }
+                    ) {
+                        debug!(
+                            "Processing module-level item in {}: read_vars={:?}",
+                            module_name, item.read_vars
+                        );
+                        for var in &item.read_vars {
+                            // Check if this var is an imported alias first
+                            if let Some((source_module, original_name)) =
+                                self.resolve_import_alias(module_name, var)
+                            {
+                                debug!(
+                                    "Found import alias in side-effect module: {var} -> {source_module}::{original_name}"
+                                );
+                                worklist.push_back((source_module, original_name));
+                            } else if let Some(module) = self.find_defining_module(var) {
+                                debug!(
+                                    "Found direct symbol usage in side-effect module: {var} in \
+                                     module {module}"
+                                );
+                                worklist.push_back((module, var.clone()));
+                            }
                         }
                     }
                 }
@@ -277,6 +480,38 @@ impl TreeShaker {
         let Some(items) = self.module_items.get(module) else {
             return;
         };
+
+        debug!("Processing symbol definition: {module}::{symbol}");
+
+        // Check if this symbol is imported from another module (re-export)
+        for item in items {
+            if let ItemType::FromImport {
+                module: from_module,
+                names,
+                level,
+                ..
+            } = &item.item_type
+            {
+                for (original_name, alias_opt) in names {
+                    let local_name = alias_opt.as_ref().unwrap_or(original_name);
+                    if local_name == symbol {
+                        // This symbol is re-exported from another module
+                        let resolved_module = if *level > 0 {
+                            self.resolve_relative_module(module, from_module, *level)
+                        } else {
+                            from_module.clone()
+                        };
+                        debug!(
+                            "Symbol {symbol} is re-exported from {resolved_module}::{original_name}"
+                        );
+                        worklist.push_back((resolved_module, original_name.clone()));
+                        // Also mark the import itself as used
+                        self.add_item_dependencies(item, module, worklist);
+                        return;
+                    }
+                }
+            }
+        }
 
         for item in items {
             if !item.defined_symbols.contains(symbol) {
@@ -395,6 +630,28 @@ impl TreeShaker {
             for base_class in &item.read_vars {
                 if let Some(module) = self.find_defining_module(base_class) {
                     worklist.push_back((module, base_class.clone()));
+                }
+            }
+        }
+
+        // Process attribute accesses
+        for (base_var, accessed_attrs) in &item.attribute_accesses {
+            // First, check if base_var is an imported alias
+            if let Some((source_module, _)) = self.resolve_import_alias(current_module, base_var) {
+                // This is an imported symbol with attribute access
+                for attr in accessed_attrs {
+                    debug!(
+                        "Found attribute access in {current_module}: {base_var}.{attr} -> marking {source_module}::{attr} as used"
+                    );
+                    worklist.push_back((source_module.clone(), attr.clone()));
+                }
+            } else if self.module_items.contains_key(base_var) {
+                // Direct module reference
+                for attr in accessed_attrs {
+                    debug!(
+                        "Found direct module attribute access in {current_module}: {base_var}.{attr}"
+                    );
+                    worklist.push_back((base_var.clone(), attr.clone()));
                 }
             }
         }
@@ -558,6 +815,7 @@ mod tests {
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         });
 
         // Add an unused function
@@ -576,6 +834,7 @@ mod tests {
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         });
 
         // Add entry module that uses only used_func
@@ -599,6 +858,7 @@ mod tests {
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
         });
 
         // Run tree shaking

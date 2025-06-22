@@ -13,9 +13,6 @@ def utility_function():
 def main_function():
     """Main function that uses helper from pkg2"""
     return f"pkg1.main({helper_function()})"
-def another_helper():
-    """Another function in pkg2"""
-    return "pkg2_helper"
 def helper_function():
     """Helper function that depends on pkg1"""
     util_result = utility_function()

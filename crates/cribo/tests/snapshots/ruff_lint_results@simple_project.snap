@@ -5,6 +5,9 @@ input_file: crates/cribo/tests/fixtures/simple_project/main.py
 RuffLintResults {
     f401_violations: [],
     f404_violations: [],
-    other_violations: [],
-    total_violations: 0,
+    other_violations: [
+        "Line 7: unused-import - `os` imported but unused",
+        "Line 8: unused-import - `sys` imported but unused",
+    ],
+    total_violations: 2,
 }

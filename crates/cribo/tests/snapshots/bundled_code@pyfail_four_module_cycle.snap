@@ -13,18 +13,12 @@ def final_step():
 def start_process():
     """Start the processing chain A -> B -> C -> D -> A"""
     return f"A({process_in_b()})"
-def step_b():
-    return "B_step"
 def process_in_b():
     """Process in B, depends on C"""
     return f"B({process_in_c()})"
-def step_c():
-    return "C_step"
 def process_in_c():
     """Process in C, depends on D"""
     return f"C({process_in_d()})"
-def step_d():
-    return "D_step"
 def process_in_d():
     """Process in D, depends back on A - completes the 4-module cycle"""
     return f"D({final_step()})"

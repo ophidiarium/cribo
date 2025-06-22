@@ -9,8 +9,6 @@ input_file: crates/cribo/tests/fixtures/init_reexports/main.py
 import os
 import types
 """Utils subpackage with re-exports."""
-MAX_ITEMS = 100
-DEFAULT_VALUE = "default"
 """Constants module."""
 def helper_function(data):
     """Helper function for processing data."""
@@ -52,8 +50,6 @@ def __cribo_init___cribo_a81151_mypackage():
     DEBUG_MODE = config.DEBUG
     utils = types.SimpleNamespace()
     utils.helper_function = helper_function
-    utils.MAX_ITEMS = MAX_ITEMS
-    utils.DEFAULT_VALUE = DEFAULT_VALUE
     formatter = types.SimpleNamespace()
     formatter.format_data = format_data
     data_processor = types.SimpleNamespace()

@@ -1651,6 +1651,33 @@ pub struct HybridStaticBundler {
     tree_shaking_keep_symbols: Option<indexmap::IndexSet<(String, String)>>,
 }
 
+impl HybridStaticBundler {
+    /// Check if a renamed symbol exists after tree-shaking
+    fn renamed_symbol_exists(
+        &self,
+        renamed_symbol: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> bool {
+        // If not using tree-shaking, all symbols exist
+        let Some(ref kept_symbols) = self.tree_shaking_keep_symbols else {
+            return true;
+        };
+
+        // Check all modules to see if any have this renamed symbol
+        for (module, renames) in symbol_renames {
+            for (orig_name, renamed) in renames {
+                if renamed == renamed_symbol
+                    && kept_symbols.contains(&(module.clone(), orig_name.clone()))
+                {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+}
+
 impl Default for HybridStaticBundler {
     fn default() -> Self {
         Self::new()
@@ -4426,10 +4453,38 @@ impl HybridStaticBundler {
         // Add all exported symbols from the inlined module to the namespace
         if let Some(exports) = exported_symbols {
             for symbol in exports {
-                // Skip symbols that were removed by tree-shaking
-                if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
-                    && !kept_symbols.contains(&(full_module_name.to_string(), symbol.clone()))
+                // For re-exported symbols, check if the original symbol is kept by tree-shaking
+                let should_include = if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
                 {
+                    // First check if this symbol is directly defined in this module
+                    if kept_symbols.contains(&(full_module_name.to_string(), symbol.clone())) {
+                        true
+                    } else {
+                        // If not, check if this is a re-exported symbol from another module
+                        // For modules with __all__, we always include symbols that are re-exported
+                        // even if they're not directly defined in the module
+                        let module_has_all_export = self
+                            .module_exports
+                            .get(full_module_name)
+                            .and_then(|exports| exports.as_ref())
+                            .map(|exports| exports.contains(&symbol))
+                            .unwrap_or(false);
+
+                        if module_has_all_export {
+                            log::debug!(
+                                "Including re-exported symbol {symbol} from module {full_module_name} (in __all__)"
+                            );
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                } else {
+                    // No tree-shaking, include everything
+                    true
+                };
+
+                if !should_include {
                     log::debug!(
                         "Skipping namespace assignment for {full_module_name}.{symbol} - removed \
                          by tree-shaking"
@@ -4448,7 +4503,20 @@ impl HybridStaticBundler {
                         symbol.clone()
                     };
 
+                // Before creating the assignment, check if the renamed symbol exists after
+                // tree-shaking
+                if !self.renamed_symbol_exists(&renamed_symbol, symbol_renames) {
+                    log::warn!(
+                        "Skipping namespace assignment {attr_name}.{symbol} = {renamed_symbol} - renamed symbol doesn't exist \
+                         after tree-shaking"
+                    );
+                    continue;
+                }
+
                 // attr_name.symbol = renamed_symbol
+                log::debug!(
+                    "Creating namespace assignment: {attr_name}.{symbol} = {renamed_symbol}"
+                );
                 stmts.push(Stmt::Assign(StmtAssign {
                     node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Attribute(ExprAttribute {
@@ -11367,10 +11435,38 @@ impl HybridStaticBundler {
 
             // For each exported symbol, add it to the namespace
             for symbol in exports {
-                // Skip symbols that were removed by tree-shaking
-                if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
-                    && !kept_symbols.contains(&(module_name.to_string(), symbol.clone()))
+                // For re-exported symbols, check if the original symbol is kept by tree-shaking
+                let should_include = if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
                 {
+                    // First check if this symbol is directly defined in this module
+                    if kept_symbols.contains(&(module_name.to_string(), symbol.clone())) {
+                        true
+                    } else {
+                        // If not, check if this is a re-exported symbol from another module
+                        // For modules with __all__, we always include symbols that are re-exported
+                        // even if they're not directly defined in the module
+                        let module_has_all_export = self
+                            .module_exports
+                            .get(module_name)
+                            .and_then(|exports| exports.as_ref())
+                            .map(|exports| exports.contains(symbol))
+                            .unwrap_or(false);
+
+                        if module_has_all_export {
+                            log::debug!(
+                                "Including re-exported symbol {symbol} from module {module_name} (in __all__)"
+                            );
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                } else {
+                    // No tree-shaking, include everything
+                    true
+                };
+
+                if !should_include {
                     log::debug!(
                         "Skipping namespace assignment for {module_name}.{symbol} - removed by \
                          tree-shaking"
