@@ -11743,13 +11743,13 @@ impl HybridStaticBundler {
                                 .contains(&(module_name.to_string(), (*symbol).clone()));
                             if !is_kept {
                                 log::debug!(
-                                    "Filtering out symbol '{symbol}' from __all__ of module '{module_name}' - \
-                                     removed by tree-shaking"
+                                    "Filtering out symbol '{symbol}' from __all__ of module \
+                                     '{module_name}' - removed by tree-shaking"
                                 );
                             } else {
                                 log::debug!(
-                                    "Keeping symbol '{symbol}' in __all__ of module '{module_name}' - survived \
-                                     tree-shaking"
+                                    "Keeping symbol '{symbol}' in __all__ of module \
+                                     '{module_name}' - survived tree-shaking"
                                 );
                             }
                             is_kept
@@ -12618,6 +12618,16 @@ impl HybridStaticBundler {
                 );
                 continue;
             }
+
+            // Check if this symbol survived tree-shaking
+            if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                && !kept_symbols.contains(&(module_name.to_string(), original_name.clone())) {
+                    log::debug!(
+                        "Skipping tree-shaken symbol '{original_name}' from namespace for module '{module_name}'"
+                    );
+                    continue;
+                }
+
             seen_args.insert(original_name.clone());
 
             keywords.push(Keyword {
@@ -12639,6 +12649,15 @@ impl HybridStaticBundler {
         {
             for export in export_list {
                 if !module_renames.contains_key(export) && !seen_args.contains(export) {
+                    // Check if this symbol survived tree-shaking
+                    if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                        && !kept_symbols.contains(&(module_name.to_string(), export.clone())) {
+                            log::debug!(
+                                "Skipping tree-shaken export '{export}' from namespace for module '{module_name}'"
+                            );
+                            continue;
+                        }
+
                     // This export wasn't renamed and wasn't already added, add it directly
                     seen_args.insert(export.clone());
                     keywords.push(Keyword {

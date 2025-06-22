@@ -8,12 +8,6 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_mixed_collisions/main.py
 
 from typing import Any, Dict, List, Optional
 import types
-def validate_2(data: Any) -> bool:
-    """Base validate function - conflicts everywhere"""
-    return core_validate(data) and data != "invalid"
-def connect_1() -> str:
-    """Base connect function"""
-    return "base_connected"
 class BaseModel:
     """Base model class with method name conflicts"""
 
@@ -59,16 +53,6 @@ class Logger_1:
         return f"base_logger_process: {log_data}"
 Logger_1.__module__ = 'models.base'
 Logger_1.__name__ = 'Logger'
-def process_2(data: Any) -> str:
-    """Base process function - conflicts everywhere"""
-    global result_2
-    validated = validate_2(data)
-    if validated:
-        processed = f"base_module_process: {data}"
-    else:
-        processed = "base_module_invalid"
-    result_2 = f"base_last_process: {processed}"
-    return processed
 def initialize() -> str:
     """Module initialization function"""
     global result_2
@@ -78,17 +62,6 @@ def initialize() -> str:
     logger._log_process("Base module initialized")
     result_2 = f"module_init: {init_result}"
     return result_2
-def shadow_test(validate: Any=None, process: Any=None, Logger: Any=None, result: Any=None, initialize: Any=None) -> Dict[str, Any]:
-    """Function that shadows all major conflict names with parameters"""
-    shadows = {"validate_param": validate_2, "process_param": process_2, "Logger_param": Logger_1, "result_param": result_2, "initialize_param": initialize}
-    validate_2 = globals()["validate"]
-    process_2 = globals()["process"]
-    Logger_1 = globals()["Logger"]
-    validation_result = validate_2("test_data")
-    process_result = process_2("test_data")
-    logger = Logger_1("shadow_test")
-    shadows.update({"global_validate_result": validation_result, "global_process_result": process_result, "global_logger_source": logger.source})
-    return shadows
 result_2 = "base_result"
 """\nBase model functionality with relative import conflicts\n"""
 result_3 = {"model": "user"}
@@ -264,7 +237,7 @@ def process_7(data):
     result_8.append(processed)
     return f"db_processed: {data}"
 """\nDatabase connection module with naming conflicts\n"""
-models_base = types.SimpleNamespace(validate=validate_2, connect=connect_1, BaseModel=BaseModel, Logger=Logger_1, process=process_2, initialize=initialize, shadow_test=shadow_test, result=result_2)
+models_base = types.SimpleNamespace(BaseModel=BaseModel, Logger=Logger_1, initialize=initialize, result=result_2)
 _cribo_services_auth_manager_result = None
 def __cribo_init___cribo_ee1d45_services_auth_manager():
     module = types.SimpleNamespace()

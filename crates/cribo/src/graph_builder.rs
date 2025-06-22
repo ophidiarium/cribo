@@ -438,7 +438,16 @@ impl<'a> GraphBuilder<'a> {
 
         // Collect variables read in the value expression
         let mut read_vars = FxHashSet::default();
-        self.collect_vars_in_expr(&assign.value, &mut read_vars);
+        let mut attribute_accesses = FxHashMap::default();
+        self.collect_vars_in_expr_with_attrs(
+            &assign.value,
+            &mut read_vars,
+            &mut attribute_accesses,
+        );
+
+        if !attribute_accesses.is_empty() {
+            log::debug!("Assignment collected attribute_accesses: {attribute_accesses:?}");
+        }
 
         // Also collect reads from assignment targets (for subscript/attribute mutations)
         for target in &assign.targets {
@@ -476,7 +485,7 @@ impl<'a> GraphBuilder<'a> {
             reexported_names,
             defined_symbols: var_decls,
             symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
+            attribute_accesses,
         };
 
         self.graph.add_item(item_data);
@@ -852,6 +861,38 @@ impl<'a> GraphBuilder<'a> {
                         .entry(base)
                         .or_default()
                         .insert(attr.attr.to_string());
+                } else if let Expr::Attribute(_base_attr) = attr.value.as_ref() {
+                    // Nested attribute access like greetings.greeting.get_greeting
+                    // For nested attributes, we need to build the full dotted path of attr.value
+                    // So for greetings.greeting.get_greeting, attr.value is greetings.greeting
+                    // and we want to track that we're accessing 'get_greeting' on
+                    // 'greetings.greeting'
+
+                    // Build the full dotted name from attr.value
+                    fn build_full_dotted_name(expr: &Expr) -> Option<String> {
+                        match expr {
+                            Expr::Name(name) => Some(name.id.to_string()),
+                            Expr::Attribute(attr) => build_full_dotted_name(&attr.value)
+                                .map(|base| format!("{}.{}", base, attr.attr)),
+                            _ => None,
+                        }
+                    }
+
+                    if let Some(base_path) = build_full_dotted_name(attr.value.as_ref()) {
+                        log::debug!(
+                            "Nested attribute access: base_path='{}', attr='{}'",
+                            base_path,
+                            attr.attr
+                        );
+                        // Track that we're accessing 'get_greeting' on 'greetings.greeting'
+                        attribute_accesses
+                            .entry(base_path.clone())
+                            .or_default()
+                            .insert(attr.attr.to_string());
+
+                        // Also track the base path as a read variable
+                        vars.insert(base_path);
+                    }
                 }
 
                 // Collect the base object, especially important for module attribute access

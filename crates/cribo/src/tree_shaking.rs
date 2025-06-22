@@ -164,6 +164,26 @@ impl TreeShaker {
         None
     }
 
+    /// Resolve a module import alias (from regular imports like `import x.y as z`)
+    fn resolve_module_import_alias(&self, current_module: &str, alias: &str) -> Option<String> {
+        if let Some(items) = self.module_items.get(current_module) {
+            for item in items {
+                if let ItemType::Import {
+                    module,
+                    alias: Some(alias_name),
+                } = &item.item_type
+                {
+                    // Check if this import has an alias that matches
+                    if alias_name == alias {
+                        // Found the import with matching alias
+                        return Some(module.clone());
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Resolve a relative module import to an absolute module name
     fn resolve_relative_module(
         &self,
@@ -289,24 +309,26 @@ impl TreeShaker {
                                         if item.defined_symbols.contains("__all__")
                                             && let ItemType::Assignment { targets, .. } =
                                                 &item.item_type
-                                            {
-                                                for target in targets {
-                                                    if target == "__all__" {
-                                                        // Mark all symbols listed in __all__
-                                                        for symbol in &item.read_vars {
-                                                            if !symbol.starts_with('_') {
-                                                                debug!(
-                                                                    "Marking {symbol} from star import of {resolved_from_module} as used"
-                                                                );
-                                                                worklist.push_back((
-                                                                    resolved_from_module.clone(),
-                                                                    symbol.clone(),
-                                                                ));
-                                                            }
+                                        {
+                                            for target in targets {
+                                                if target == "__all__" {
+                                                    // Mark all symbols listed in __all__
+                                                    for symbol in &item.read_vars {
+                                                        if !symbol.starts_with('_') {
+                                                            debug!(
+                                                                "Marking {symbol} from star \
+                                                                 import of {resolved_from_module} \
+                                                                 as used"
+                                                            );
+                                                            worklist.push_back((
+                                                                resolved_from_module.clone(),
+                                                                symbol.clone(),
+                                                            ));
                                                         }
                                                     }
                                                 }
                                             }
+                                        }
                                     }
                                 } else {
                                     // No __all__ defined, mark all non-private symbols
@@ -388,8 +410,19 @@ impl TreeShaker {
                 // Process attribute accesses - if we access `greetings.message`,
                 // we need the `message` symbol from the `greetings` module
                 for (base_var, accessed_attrs) in &item.attribute_accesses {
-                    // First, check if base_var is an imported module
-                    if let Some((source_module, _)) =
+                    // First, check if base_var is an imported module alias (e.g., import x.y as z)
+                    if let Some(source_module) =
+                        self.resolve_module_import_alias(entry_module, base_var)
+                    {
+                        // This is a module import alias with attribute access
+                        for attr in accessed_attrs {
+                            debug!(
+                                "Found attribute access on module alias: {base_var}.{attr} -> \
+                                 marking {source_module}::{attr} as used"
+                            );
+                            worklist.push_back((source_module.clone(), attr.clone()));
+                        }
+                    } else if let Some((source_module, _)) =
                         self.resolve_import_alias(entry_module, base_var)
                     {
                         // This is an imported symbol with attribute access
@@ -649,8 +682,20 @@ impl TreeShaker {
 
         // Process attribute accesses
         for (base_var, accessed_attrs) in &item.attribute_accesses {
-            // First, check if base_var is an imported alias
-            if let Some((source_module, _)) = self.resolve_import_alias(current_module, base_var) {
+            // First, check if base_var is an imported module alias (e.g., import x.y as z)
+            if let Some(source_module) = self.resolve_module_import_alias(current_module, base_var)
+            {
+                // This is a module import alias with attribute access
+                for attr in accessed_attrs {
+                    debug!(
+                        "Found attribute access on module alias in {current_module}: \
+                         {base_var}.{attr} -> marking {source_module}::{attr} as used"
+                    );
+                    worklist.push_back((source_module.clone(), attr.clone()));
+                }
+            } else if let Some((source_module, _)) =
+                self.resolve_import_alias(current_module, base_var)
+            {
                 // This is an imported symbol with attribute access
                 for attr in accessed_attrs {
                     debug!(
