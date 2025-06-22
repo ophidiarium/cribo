@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_cli_stdout.rs
+expression: stderr
+---
+error: the argument '--output <OUTPUT>' cannot be used with '--stdout'
+
+Usage: cribo --entry <ENTRY> --output <OUTPUT>
+
+For more information, try '--help'.

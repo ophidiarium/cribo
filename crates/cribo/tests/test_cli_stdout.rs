@@ -80,7 +80,6 @@ fn get_cli_filters() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
-#[ignore]
 #[test]
 fn test_stdout_flag_help() {
     let (stdout, _, exit_code) = run_cribo(&["--help"]);
@@ -93,7 +92,6 @@ fn test_stdout_flag_help() {
     assert!(stdout.contains("Output bundled code to stdout instead of a file"));
 }
 
-#[ignore]
 #[test]
 fn test_stdout_conflicts_with_output() {
     let (_, stderr, exit_code) = run_cribo(&[
@@ -114,7 +112,6 @@ fn test_stdout_conflicts_with_output() {
     });
 }
 
-#[ignore]
 #[test]
 fn test_missing_output_and_stdout_flags() {
     let (_, stderr, exit_code) = run_cribo(&["--entry", "nonexistent.py"]);
@@ -129,7 +126,6 @@ fn test_missing_output_and_stdout_flags() {
     });
 }
 
-#[ignore]
 #[test]
 fn test_stdout_bundling_functionality() {
     let (stdout, stderr, exit_code) = run_cribo(&[
@@ -154,7 +150,6 @@ fn test_stdout_bundling_functionality() {
     assert!(!stdout.contains("ERROR"));
 }
 
-#[ignore]
 #[test]
 fn test_stdout_with_verbose_separation() {
     let (stdout, stderr, exit_code) = run_cribo(&[
@@ -199,7 +194,6 @@ fn test_stdout_with_requirements() {
     });
 }
 
-#[ignore]
 #[test]
 fn test_stdout_mode_preserves_bundled_structure() {
     let (stdout, _, exit_code) = run_cribo(&[
@@ -219,7 +213,6 @@ fn test_stdout_mode_preserves_bundled_structure() {
     });
 }
 
-#[ignore]
 #[test]
 fn test_stdout_error_handling() {
     let (stdout, stderr, exit_code) = run_cribo(&["--entry", "nonexistent_file.py", "--stdout"]);
