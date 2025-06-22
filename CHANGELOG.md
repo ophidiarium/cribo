@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/ophidiarium/cribo/compare/v0.5.0...v0.5.1) (2025-06-22)
+
+
+### Features
+
+* implement tree-shaking to remove unused code and imports ([#152](https://github.com/ophidiarium/cribo/issues/152)) ([529079d](https://github.com/ophidiarium/cribo/commit/529079dba95d39f17a32035f8e75b80422d0eec4))
+
 ## [0.5.0](https://github.com/ophidiarium/cribo/compare/v0.4.30...v0.5.0) (2025-06-22)
 
 
