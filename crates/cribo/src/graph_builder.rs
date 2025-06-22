@@ -293,6 +293,11 @@ impl<'a> GraphBuilder<'a> {
         all_deps.extend(eventual_read_vars.clone());
         symbol_dependencies.insert(func_name.clone(), all_deps);
 
+        log::debug!(
+            "Function {func_name} has eventual_read_vars: {eventual_read_vars:?}, \
+             eventual_write_vars: {eventual_write_vars:?}"
+        );
+
         let item_data = ItemData {
             item_type: ItemType::FunctionDef {
                 name: func_name.clone(),
@@ -430,6 +435,11 @@ impl<'a> GraphBuilder<'a> {
         // Collect variables read in the value expression
         let mut read_vars = FxHashSet::default();
         self.collect_vars_in_expr(&assign.value, &mut read_vars);
+
+        // Also collect reads from assignment targets (for subscript/attribute mutations)
+        for target in &assign.targets {
+            self.collect_reads_from_assignment_target(target, &mut read_vars);
+        }
 
         // Check if this is an __all__ assignment
         let is_all_assignment = targets.contains(&"__all__".to_string());
@@ -787,6 +797,12 @@ impl<'a> GraphBuilder<'a> {
                 Expr::List(list) => {
                     stack.extend(list.elts.iter());
                 }
+                Expr::Subscript(_) | Expr::Attribute(_) => {
+                    // For subscript (e.g., result["key"]) and attribute (e.g., obj.attr)
+                    // assignments, we don't add them to write_vars as they
+                    // don't create new variables However, we need to track that
+                    // they're being mutated - handled separately
+                }
                 _ => return None, // Unsupported target type
             }
         }
@@ -961,7 +977,19 @@ impl<'a> GraphBuilder<'a> {
                     }
                     Stmt::Assign(assign) => {
                         self.collect_vars_in_expr(&assign.value, read_vars);
-                        self.handle_assign_targets(&assign.targets, write_vars);
+                        // Handle assignment targets to collect reads from subscripts/attributes
+                        let mut dummy_write_vars = FxHashSet::default();
+                        self.handle_assign_targets(
+                            &assign.targets,
+                            &mut dummy_write_vars,
+                            read_vars,
+                        );
+                        // Also add actual write targets
+                        for target in &assign.targets {
+                            if let Some(names) = self.extract_assignment_targets(target) {
+                                write_vars.extend(names);
+                            }
+                        }
                     }
                     Stmt::Return(ret) => {
                         self.handle_return_stmt(ret, read_vars);
@@ -1005,6 +1033,17 @@ impl<'a> GraphBuilder<'a> {
                         stack.push(&try_stmt.orelse);
                         // Process finally clause
                         stack.push(&try_stmt.finalbody);
+                    }
+                    Stmt::Global(global_stmt) => {
+                        // Global statements indicate that the function will read/write global
+                        // variables
+                        for name in &global_stmt.names {
+                            // Add to both read_vars and write_vars since global vars can be both
+                            // read and written
+                            log::debug!("Found global statement for variable: {name}");
+                            read_vars.insert(name.to_string());
+                            write_vars.insert(name.to_string());
+                        }
                     }
                     _ => {} // Other statements
                 }
@@ -1077,10 +1116,53 @@ impl<'a> GraphBuilder<'a> {
     }
 
     /// Handle assignment targets
-    fn handle_assign_targets(&self, targets: &[Expr], write_vars: &mut FxHashSet<String>) {
+    fn handle_assign_targets(
+        &self,
+        targets: &[Expr],
+        write_vars: &mut FxHashSet<String>,
+        read_vars: &mut FxHashSet<String>,
+    ) {
         for target in targets {
+            // First extract simple assignment targets (variable names)
             if let Some(names) = self.extract_assignment_targets(target) {
                 write_vars.extend(names);
+            }
+
+            // Additionally, for subscript and attribute assignments, we need to track reads
+            self.collect_reads_from_assignment_target(target, read_vars);
+        }
+    }
+
+    /// Collect variables that are read when assigning to subscripts or attributes
+    fn collect_reads_from_assignment_target(
+        &self,
+        target: &Expr,
+        read_vars: &mut FxHashSet<String>,
+    ) {
+        match target {
+            Expr::Subscript(subscript) => {
+                // For result["key"] = value, we're reading 'result' to mutate it
+                log::debug!("Found subscript assignment target, collecting reads from base object");
+                self.collect_vars_in_expr(&subscript.value, read_vars);
+            }
+            Expr::Attribute(attr) => {
+                // For obj.attr = value, we're reading 'obj' to mutate it
+                self.collect_vars_in_expr(&attr.value, read_vars);
+            }
+            Expr::Tuple(tuple) => {
+                // Handle tuple unpacking which might contain subscripts/attributes
+                for elt in &tuple.elts {
+                    self.collect_reads_from_assignment_target(elt, read_vars);
+                }
+            }
+            Expr::List(list) => {
+                // Handle list unpacking which might contain subscripts/attributes
+                for elt in &list.elts {
+                    self.collect_reads_from_assignment_target(elt, read_vars);
+                }
+            }
+            _ => {
+                // Simple names don't need special handling here
             }
         }
     }

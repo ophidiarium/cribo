@@ -252,14 +252,13 @@ impl BundleOrchestrator {
 
             if !modules_with_side_effects.is_empty() {
                 debug!(
-                    "Modules with side effects (excluded from tree-shaking): {modules_with_side_effects:?}"
+                    "Modules with side effects (excluded from tree-shaking): \
+                     {modules_with_side_effects:?}"
                 );
             }
 
             if !modules_for_tree_shaking.is_empty() {
-                debug!(
-                    "Modules eligible for tree-shaking: {modules_for_tree_shaking:?}"
-                );
+                debug!("Modules eligible for tree-shaking: {modules_for_tree_shaking:?}");
             }
 
             // Analyze from entry module

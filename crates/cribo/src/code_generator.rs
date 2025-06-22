@@ -4426,6 +4426,17 @@ impl HybridStaticBundler {
         // Add all exported symbols from the inlined module to the namespace
         if let Some(exports) = exported_symbols {
             for symbol in exports {
+                // Skip symbols that were removed by tree-shaking
+                if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                    && !kept_symbols.contains(&(full_module_name.to_string(), symbol.clone()))
+                {
+                    log::debug!(
+                        "Skipping namespace assignment for {full_module_name}.{symbol} - removed \
+                         by tree-shaking"
+                    );
+                    continue;
+                }
+
                 // Get the renamed version of this symbol
                 let renamed_symbol =
                     if let Some(module_renames) = symbol_renames.get(full_module_name) {

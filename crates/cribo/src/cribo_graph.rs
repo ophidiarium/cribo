@@ -79,6 +79,17 @@ pub enum ItemType {
     Other,
 }
 
+impl ItemType {
+    /// Get the name of this item if it has one
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            ItemType::FunctionDef { name } => Some(name),
+            ItemType::ClassDef { name } => Some(name),
+            _ => None,
+        }
+    }
+}
+
 /// Dependency type between items
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DepType {

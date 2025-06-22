@@ -47,9 +47,7 @@ impl TreeShaker {
 
     /// Analyze which symbols should be kept based on entry point
     pub fn analyze(&mut self, entry_module: &str) -> Result<()> {
-        debug!(
-            "Starting tree-shaking analysis from entry module: {entry_module}"
-        );
+        debug!("Starting tree-shaking analysis from entry module: {entry_module}");
 
         // First, build cross-module reference information
         self.build_cross_module_refs();
@@ -87,12 +85,13 @@ impl TreeShaker {
                 // Also check eventual_read_vars for function-level imports
                 for read_var in &item.eventual_read_vars {
                     if self.is_external_symbol(module_name, read_var)
-                        && let Some(defining_module) = self.find_defining_module(read_var) {
-                            self.cross_module_refs
-                                .entry((defining_module.clone(), read_var.clone()))
-                                .or_default()
-                                .insert(module_name.clone());
-                        }
+                        && let Some(defining_module) = self.find_defining_module(read_var)
+                    {
+                        self.cross_module_refs
+                            .entry((defining_module.clone(), read_var.clone()))
+                            .or_default()
+                            .insert(module_name.clone());
+                    }
                 }
             }
         }
@@ -100,15 +99,19 @@ impl TreeShaker {
 
     /// Check if a symbol is external to the current module
     fn is_external_symbol(&self, module_name: &str, symbol: &str) -> bool {
-        // Check if the symbol is defined in the current module
+        !self.is_defined_in_module(module_name, symbol)
+    }
+
+    /// Check if a symbol is defined in a specific module
+    fn is_defined_in_module(&self, module_name: &str, symbol: &str) -> bool {
         if let Some(items) = self.module_items.get(module_name) {
             for item in items {
                 if item.defined_symbols.contains(symbol) {
-                    return false;
+                    return true;
                 }
             }
         }
-        true
+        false
     }
 
     /// Find which module defines a symbol
@@ -154,9 +157,7 @@ impl TreeShaker {
                     // Check for direct module imports (import module_name)
                     ItemType::Import { module, .. } => {
                         directly_imported_modules.insert(module.clone());
-                        debug!(
-                            "Found direct import of module {module} in {module_name}"
-                        );
+                        debug!("Found direct import of module {module} in {module_name}");
                     }
                     // Check for from imports that import the module itself (from x import module)
                     ItemType::FromImport {
@@ -171,7 +172,8 @@ impl TreeShaker {
                             if self.module_items.contains_key(&potential_module) {
                                 directly_imported_modules.insert(potential_module.clone());
                                 debug!(
-                                    "Found from import of module {potential_module} in {module_name}"
+                                    "Found from import of module {potential_module} in \
+                                     {module_name}"
                                 );
                             }
                         }
@@ -225,7 +227,8 @@ impl TreeShaker {
                     for symbol in &item.defined_symbols {
                         if !symbol.starts_with('_') || symbol == "__all__" {
                             debug!(
-                                "Marking {symbol} from directly imported module {module_name} as used"
+                                "Marking {symbol} from directly imported module {module_name} as \
+                                 used"
                             );
                             worklist.push_back((module_name.clone(), symbol.clone()));
                         }
@@ -244,24 +247,8 @@ impl TreeShaker {
             trace!("Marking symbol as used: {module}::{symbol}");
             self.used_symbols.insert(key);
 
-            // Find the item that defines this symbol
-            if let Some(items) = self.module_items.get(&module) {
-                for item in items {
-                    if item.defined_symbols.contains(&symbol) {
-                        // Add all symbols this item depends on
-                        self.add_item_dependencies(item, &module, &mut worklist);
-
-                        // If this symbol has dependencies tracked, add them
-                        if let Some(deps) = item.symbol_dependencies.get(&symbol) {
-                            for dep in deps {
-                                if let Some(dep_module) = self.find_defining_module(dep) {
-                                    worklist.push_back((dep_module, dep.clone()));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            // Process the item that defines this symbol
+            self.process_symbol_definition(&module, &symbol, &mut worklist);
 
             // Check if other modules reference this symbol
             if let Some(referencing_modules) = self
@@ -278,6 +265,36 @@ impl TreeShaker {
         }
 
         Ok(())
+    }
+
+    /// Process a symbol definition and add its dependencies to the worklist
+    fn process_symbol_definition(
+        &self,
+        module: &str,
+        symbol: &str,
+        worklist: &mut VecDeque<(String, String)>,
+    ) {
+        let Some(items) = self.module_items.get(module) else {
+            return;
+        };
+
+        for item in items {
+            if !item.defined_symbols.contains(symbol) {
+                continue;
+            }
+
+            // Add all symbols this item depends on
+            self.add_item_dependencies(item, module, worklist);
+
+            // Add symbol-specific dependencies if tracked
+            if let Some(deps) = item.symbol_dependencies.get(symbol) {
+                for dep in deps {
+                    if let Some(dep_module) = self.find_defining_module(dep) {
+                        worklist.push_back((dep_module, dep.clone()));
+                    }
+                }
+            }
+        }
     }
 
     /// Add dependencies of an item to the worklist
@@ -306,7 +323,68 @@ impl TreeShaker {
                 self.resolve_import_alias(current_module, var)
             {
                 worklist.push_back((source_module, original_name));
-            } else if let Some(module) = self.find_defining_module(var) {
+            } else {
+                // For reads without global statement, prioritize current module
+                let defining_module = if self.is_defined_in_module(current_module, var) {
+                    Some(current_module.to_string())
+                } else {
+                    self.find_defining_module(var)
+                };
+
+                if let Some(module) = defining_module {
+                    debug!(
+                        "Adding eventual read dependency: {} reads {} (defined in {})",
+                        item.item_type.name().unwrap_or("<unknown>"),
+                        var,
+                        module
+                    );
+                    worklist.push_back((module, var.clone()));
+                }
+            }
+        }
+
+        // Add all variables written by this item (for global statements)
+        for var in &item.write_vars {
+            // For global statements, first check if the variable is defined in the current module
+            let defining_module = if self.is_defined_in_module(current_module, var) {
+                Some(current_module.to_string())
+            } else {
+                self.find_defining_module(var)
+            };
+
+            if let Some(module) = defining_module {
+                debug!(
+                    "Adding write dependency: {} writes to {} (defined in {})",
+                    item.item_type.name().unwrap_or("<unknown>"),
+                    var,
+                    module
+                );
+                worklist.push_back((module, var.clone()));
+            } else {
+                debug!(
+                    "Warning: {} writes to {} but cannot find defining module",
+                    item.item_type.name().unwrap_or("<unknown>"),
+                    var
+                );
+            }
+        }
+
+        // Add eventual writes (from function bodies with global statements)
+        for var in &item.eventual_write_vars {
+            // For global statements, first check if the variable is defined in the current module
+            let defining_module = if self.is_defined_in_module(current_module, var) {
+                Some(current_module.to_string())
+            } else {
+                self.find_defining_module(var)
+            };
+
+            if let Some(module) = defining_module {
+                debug!(
+                    "Adding eventual write dependency: {} eventually writes to {} (defined in {})",
+                    item.item_type.name().unwrap_or("<unknown>"),
+                    var,
+                    module
+                );
                 worklist.push_back((module, var.clone()));
             }
         }
@@ -375,9 +453,10 @@ impl TreeShaker {
 
                         // Check symbol dependencies
                         if let Some(deps) = item.symbol_dependencies.get(&symbol)
-                            && deps.contains(import_name) {
-                                return true;
-                            }
+                            && deps.contains(import_name)
+                        {
+                            return true;
+                        }
                     }
                 }
             }

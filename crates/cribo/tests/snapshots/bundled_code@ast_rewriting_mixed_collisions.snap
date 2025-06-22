@@ -91,9 +91,6 @@ def shadow_test(validate: Any=None, process: Any=None, Logger: Any=None, result:
     return shadows
 result_2 = "base_result"
 """\nBase model functionality with relative import conflicts\n"""
-validate_3 = "models_validate_string"
-connection_2 = "models_connection_string"
-process_3 = "models_process_string"
 result_3 = {"model": "user"}
 connection_3 = None
 class Logger_2:
@@ -189,41 +186,7 @@ def process_4(data: Any) -> str:
         return process_user(data)
     else:
         return f"model_process_generic: {data}"
-class Connection_2:
-    """Model connection class - conflicts with other Connection classes"""
-
-    def __init__(self, User: "User"):
-        self.User = User_2
-        self.connected = False
-
-    def connect(self) -> str:
-        self.connected = True
-        return f"Model connection for user: {self.User.name}"
-
-    def process(self, action: str) -> str:
-        """Method with conflicted name"""
-        return f"connection_process: {action} for {self.User.name}"
-Connection_2.__module__ = 'models.user'
-Connection_2.__name__ = 'Connection'
-def connect_2(User: "User") -> Connection_2:
-    """Module connect function with parameter conflicts"""
-    return Connection_2(User_2)
-def complex_operation(User: Any=None, Logger: Any=None, process: Any=None, validate: Any=None, result: Any=None, connection: Any=None) -> Dict[str, Any]:
-    """Function with all parameter names conflicting with globals/classes"""
-    operation_result = {"user_param": User_2, "logger_param": Logger_2, "process_param": process_4, "validate_param": validate_4, "result_param": result_3, "connection_param": connection_3}
-    User_2 = globals()["User"]
-    Logger_2 = globals()["Logger"]
-    if operation_result["user_param"]:
-        user = User_2("complex_user")
-        logger = Logger_2("complex_operation")
-        operation_result["created_user"] = user.name
-        operation_result["created_logger"] = logger.context
-    return operation_result
 """\nUser model with extensive naming conflicts across the project\n"""
-connection_4 = "auth_connection_string"
-result_4 = {"services": "initialized"}
-Logger_3 = "services_logger_string"
-Connection_4 = "utils_connection_type"
 result_6 = 0
 User_4 = "helper_user_string"
 class Logger_4:
@@ -269,29 +232,7 @@ def validate_6(data: Any) -> bool:
     elif isinstance(data, (int, float)):
         return data >= 0
     return True
-class Connection_5:
-    """Utility connection class - name conflict with database Connection"""
-
-    def __init__(self, connection_type: str="utility"):
-        self.connection_type = connection_type
-        self.active = False
-
-    def connect(self) -> str:
-        self.active = True
-        return f"Utility connection: {self.connection_type}"
-Connection_5.__module__ = 'core.utils.helpers'
-Connection_5.__name__ = 'Connection'
-def connect_4() -> Connection_5:
-    """Utility connect function"""
-    return Connection_5("helper")
-def process_with_conflicts(data: Any, User: str="param_user", result: int=100, Logger: Any=None) -> Dict[str, Any]:
-    """Function with parameter names that conflict with globals and imports"""
-    connection = connect_4()
-    validate_result = validate_6(data)
-    local_result = {"data": data, "user_param": User_4, "result_param": result_6, "logger_param": Logger_4, "validation": validate_result, "connection_type": connection.connection_type}
-    return local_result
 """\nUtility helpers module with extensive naming conflicts\n"""
-User_5 = "database_user_type"
 result_8 = []
 connection_5 = None
 class Connection_6:
@@ -322,17 +263,6 @@ def process_7(data):
     processed = {"db_process": True, "data": validated, "user_processing": user_result, "timestamp": "2024-01-01"}
     result_8.append(processed)
     return f"db_processed: {data}"
-def validate_7(data):
-    """Database validate function - another conflict"""
-    if not data:
-        return False
-    return f"db_valid: {data}"
-def connect_5():
-    """Module-level connect function"""
-    global connection_5
-    if connection_5 is None:
-        connection_5 = Connection_6()
-    return connection_5.connect()
 """\nDatabase connection module with naming conflicts\n"""
 models_base = types.SimpleNamespace(validate=validate_2, connect=connect_1, BaseModel=BaseModel, Logger=Logger_1, process=process_2, initialize=initialize, shadow_test=shadow_test, result=result_2)
 _cribo_services_auth_manager_result = None
@@ -472,9 +402,7 @@ def __cribo_init___cribo_62c387_core():
     Logger = CoreLogger
     module.Logger = Logger
     utils = types.SimpleNamespace()
-    utils.Connection = Connection_4
     database = types.SimpleNamespace()
-    database.User = User_5
     return module
 core = types.SimpleNamespace()
 core.__name__ = 'core'

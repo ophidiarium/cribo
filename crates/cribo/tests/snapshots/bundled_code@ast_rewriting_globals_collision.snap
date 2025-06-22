@@ -39,6 +39,9 @@ Logger_6.__name__ = 'Logger'
 def sanitize(text):
     """Utility function without conflicts"""
     return text.strip().lower()
+def format_result(result):
+    """Another utility function"""
+    return f"formatted: {result}"
 """Core utility helpers module - NO external dependencies to avoid circular imports"""
 _cribo_models_base_Connection = None
 def __cribo_init___cribo_0a162a_models_base():
