@@ -1157,6 +1157,33 @@ impl<'a> GraphBuilder<'a> {
                             write_vars.insert(name.to_string());
                         }
                     }
+                    Stmt::Import(import_stmt) => {
+                        // Track imported modules as read variables
+                        for alias in &import_stmt.names {
+                            let local_name = alias
+                                .asname
+                                .as_ref()
+                                .map(|n| n.as_str())
+                                .unwrap_or(alias.name.as_str());
+                            read_vars.insert(local_name.to_string());
+                        }
+                    }
+                    Stmt::ImportFrom(import_from) => {
+                        // Track imported names as read variables
+                        if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*"
+                        {
+                            // Star imports are complex, skip for now
+                        } else {
+                            for alias in &import_from.names {
+                                let local_name = alias
+                                    .asname
+                                    .as_ref()
+                                    .map(|n| n.as_str())
+                                    .unwrap_or(alias.name.as_str());
+                                read_vars.insert(local_name.to_string());
+                            }
+                        }
+                    }
                     _ => {} // Other statements
                 }
             }

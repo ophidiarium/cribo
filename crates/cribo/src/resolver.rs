@@ -486,6 +486,36 @@ impl ModuleResolver {
         Ok(None)
     }
 
+    /// Resolve an ImportlibStatic import that may have invalid Python identifiers
+    /// This handles cases like importlib.import_module("data-processor")
+    pub fn resolve_importlib_static(&mut self, module_name: &str) -> Result<Option<PathBuf>> {
+        // For ImportlibStatic imports, we look for files with the exact name
+        // (including hyphens and other invalid Python identifier characters)
+        let search_dirs = self.get_search_directories();
+
+        for search_dir in &search_dirs {
+            // Try as a direct file with .py extension
+            let file_path = search_dir.join(format!("{module_name}.py"));
+            if file_path.is_file() {
+                debug!("Found ImportlibStatic module at: {file_path:?}");
+                return Ok(Some(file_path));
+            }
+
+            // Try as a package directory with __init__.py
+            let package_path = search_dir.join(module_name);
+            if package_path.is_dir() {
+                let init_path = package_path.join("__init__.py");
+                if init_path.is_file() {
+                    debug!("Found ImportlibStatic package at: {init_path:?}");
+                    return Ok(Some(init_path));
+                }
+            }
+        }
+
+        // Not found
+        Ok(None)
+    }
+
     /// Resolve a module within a specific directory
     /// Implements the resolution algorithm from docs/resolution.md
     fn resolve_in_directory(

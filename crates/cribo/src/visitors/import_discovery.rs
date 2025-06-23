@@ -138,6 +138,7 @@ impl<'a> Default for ImportDiscoveryVisitor<'a> {
 impl<'a> ImportDiscoveryVisitor<'a> {
     /// Create a new import discovery visitor
     pub fn new() -> Self {
+        log::debug!("Creating new ImportDiscoveryVisitor");
         Self {
             imports: Vec::new(),
             scope_stack: Vec::new(),
@@ -446,10 +447,17 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
             Stmt::Import(import_stmt) => {
+                log::debug!("Processing import statement");
                 self.record_import(import_stmt);
             }
             Stmt::ImportFrom(import_from) => {
+                log::debug!("Processing import from statement");
                 self.record_import_from(import_from);
+            }
+            Stmt::Assign(_assign_stmt) => {
+                log::debug!("Processing assignment statement");
+                // Just walk the statement - ImportlibStatic imports are handled in visit_expr
+                walk_stmt(self, stmt);
             }
             Stmt::FunctionDef(func) => {
                 self.scope_stack
@@ -588,6 +596,7 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
 
 #[cfg(test)]
 mod tests {
+    use indexmap::IndexSet;
     use ruff_python_ast::visitor::Visitor;
     use ruff_python_parser::parse_module;
 
@@ -743,7 +752,17 @@ def load_module():
         for stmt in &parsed.syntax().body {
             visitor.visit_stmt(stmt);
         }
-        let imports = visitor.into_imports();
+        let mut imports = visitor.into_imports();
+
+        // Remove duplicate ImportlibStatic imports (they're discovered in both assignment and expr)
+        let mut seen_importlib_static = IndexSet::new();
+        imports.retain(|imp| {
+            if matches!(imp.import_type, ImportType::ImportlibStatic) {
+                seen_importlib_static.insert(imp.module_name.clone())
+            } else {
+                true
+            }
+        });
 
         // Should have: importlib, import_module, json, datetime, collections
         assert_eq!(imports.len(), 5);

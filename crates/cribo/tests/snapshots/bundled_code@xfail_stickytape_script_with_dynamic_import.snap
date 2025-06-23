@@ -9,4 +9,4 @@ input_file: crates/cribo/tests/fixtures/xfail_stickytape_script_with_dynamic_imp
 import importlib
 message = "Hello"
 greeting = importlib.import_module("greeting")
-print(greeting.message)
+print(message)

@@ -624,7 +624,7 @@ impl BundleOrchestrator {
                 self.extract_all_imports_with_context(&module_path, Some(params.resolver))?;
             let imports: Vec<String> = imports_with_context
                 .iter()
-                .map(|(m, _)| m.clone())
+                .map(|(m, _, _)| m.clone())
                 .collect();
             debug!("Extracted imports from {module_name}: {imports:?}");
 
@@ -633,7 +633,7 @@ impl BundleOrchestrator {
             processed_modules.insert(module_name.clone());
 
             // Find and queue first-party imports for discovery
-            for (import, is_in_error_handler) in imports_with_context {
+            for (import, is_in_error_handler, import_type) in imports_with_context {
                 let mut discovery_params = DiscoveryParams {
                     resolver: params.resolver,
                     modules_to_process: &mut modules_to_process,
@@ -643,6 +643,7 @@ impl BundleOrchestrator {
                 self.process_import_for_discovery_with_context(
                     &import,
                     is_in_error_handler,
+                    import_type,
                     &mut discovery_params,
                 )?;
             }
@@ -758,7 +759,7 @@ impl BundleOrchestrator {
         &self,
         file_path: &Path,
         mut resolver: Option<&mut ModuleResolver>,
-    ) -> Result<Vec<(String, bool)>> {
+    ) -> Result<Vec<(String, bool, Option<crate::visitors::ImportType>)>> {
         let source = fs::read_to_string(file_path)
             .with_context(|| format!("Failed to read file: {file_path:?}"))?;
         let source = normalize_line_endings(source);
@@ -772,13 +773,36 @@ impl BundleOrchestrator {
         }
 
         let discovered_imports = visitor.into_imports();
+        debug!(
+            "ImportDiscoveryVisitor found {} imports",
+            discovered_imports.len()
+        );
+        for (i, import) in discovered_imports.iter().enumerate() {
+            debug!(
+                "Import {}: type={:?}, module={:?}",
+                i, import.import_type, import.module_name
+            );
+        }
         let mut imports_with_context = Vec::new();
 
         // Process each import and track if it's in an error-handling context
         for import in &discovered_imports {
             let is_in_error_handler = Self::is_import_in_error_handler(&import.location);
 
-            if import.level > 0 {
+            // Handle ImportlibStatic imports
+            if matches!(
+                import.import_type,
+                crate::visitors::ImportType::ImportlibStatic
+            ) {
+                if let Some(ref module_name) = import.module_name {
+                    debug!("Found ImportlibStatic import: {module_name}");
+                    imports_with_context.push((
+                        module_name.clone(),
+                        is_in_error_handler,
+                        Some(import.import_type),
+                    ));
+                }
+            } else if import.level > 0 {
                 // Handle relative imports
                 let mut imports_set = IndexSet::new();
                 self.process_relative_import_set(
@@ -788,11 +812,11 @@ impl BundleOrchestrator {
                     &mut imports_set,
                 );
                 for module in imports_set {
-                    imports_with_context.push((module, is_in_error_handler));
+                    imports_with_context.push((module, is_in_error_handler, None));
                 }
             } else if let Some(ref module_name) = import.module_name {
                 // Absolute imports
-                imports_with_context.push((module_name.clone(), is_in_error_handler));
+                imports_with_context.push((module_name.clone(), is_in_error_handler, None));
 
                 // Check if any imported names are actually submodules
                 let mut imports_set = IndexSet::new();
@@ -804,14 +828,14 @@ impl BundleOrchestrator {
                 );
                 for module in imports_set {
                     if module != *module_name {
-                        imports_with_context.push((module, is_in_error_handler));
+                        imports_with_context.push((module, is_in_error_handler, None));
                     }
                 }
             } else if import.names.len() == 1 {
                 let mut imports_set = IndexSet::new();
                 self.process_single_name_import_set(import, &mut resolver, &mut imports_set);
                 for module in imports_set {
-                    imports_with_context.push((module, is_in_error_handler));
+                    imports_with_context.push((module, is_in_error_handler, None));
                 }
             }
         }
@@ -865,8 +889,16 @@ impl BundleOrchestrator {
 
         // Convert discovered imports to module names, handling relative imports
         for import in &discovered_imports {
-            // All import locations are valid for discovery
-            if import.level > 0 {
+            // Handle ImportlibStatic imports
+            if matches!(
+                import.import_type,
+                crate::visitors::ImportType::ImportlibStatic
+            ) {
+                if let Some(ref module_name) = import.module_name {
+                    debug!("Found ImportlibStatic import: {module_name}");
+                    imports_set.insert(module_name.clone());
+                }
+            } else if import.level > 0 {
                 self.process_relative_import_set(
                     import,
                     file_path,
@@ -1289,38 +1321,73 @@ impl BundleOrchestrator {
         &self,
         import: &str,
         is_in_error_handler: bool,
+        import_type: Option<crate::visitors::ImportType>,
         params: &mut DiscoveryParams,
     ) -> Result<()> {
-        match params.resolver.classify_import(import) {
-            ImportType::FirstParty => {
-                debug!("'{import}' classified as FirstParty");
-                if let Ok(Some(import_path)) = params.resolver.resolve_module_path(import) {
-                    debug!("Resolved '{import}' to path: {import_path:?}");
-                    self.add_to_discovery_queue_if_new(import, import_path, params);
-
-                    // Also add parent packages for submodules to ensure __init__.py files are
-                    // included For example, if importing
-                    // "greetings.irrelevant", also add "greetings"
-                    self.add_parent_packages_to_discovery(import, params);
-                } else {
-                    // If the import is not in an error handler, this is a fatal error
-                    if !is_in_error_handler {
-                        return Err(anyhow!(
-                            "Failed to resolve first-party module '{}'. \nThis import would fail \
-                             at runtime with: ModuleNotFoundError: No module named '{}'",
-                            import,
-                            import
-                        ));
-                    } else {
-                        debug!(
-                            "Failed to resolve first-party module '{import}' but it's in an error \
-                             handler (try/except or with suppress)"
-                        );
+        // Special handling for ImportlibStatic imports that might have invalid Python identifiers
+        if let Some(crate::visitors::ImportType::ImportlibStatic) = import_type {
+            debug!("Processing ImportlibStatic import: {import}");
+            if let Ok(Some(import_path)) = params.resolver.resolve_importlib_static(import) {
+                debug!("Resolved ImportlibStatic '{import}' to path: {import_path:?}");
+                self.add_to_discovery_queue_if_new(import, import_path, params);
+            } else {
+                // Try normal resolution in case it's a valid Python identifier
+                match params.resolver.classify_import(import) {
+                    ImportType::FirstParty => {
+                        if let Ok(Some(import_path)) = params.resolver.resolve_module_path(import) {
+                            debug!(
+                                "Resolved ImportlibStatic '{import}' via normal resolution to \
+                                 path: {import_path:?}"
+                            );
+                            self.add_to_discovery_queue_if_new(import, import_path, params);
+                        } else if !is_in_error_handler {
+                            return Err(anyhow!(
+                                "Failed to resolve ImportlibStatic module '{}'. \nThis import \
+                                 would fail at runtime with: ModuleNotFoundError: No module named \
+                                 '{}'",
+                                import,
+                                import
+                            ));
+                        }
+                    }
+                    _ => {
+                        debug!("ImportlibStatic '{import}' classified as external (preserving)");
                     }
                 }
             }
-            ImportType::ThirdParty | ImportType::StandardLibrary => {
-                debug!("'{import}' classified as external (preserving)");
+        } else {
+            // Normal import handling
+            match params.resolver.classify_import(import) {
+                ImportType::FirstParty => {
+                    debug!("'{import}' classified as FirstParty");
+                    if let Ok(Some(import_path)) = params.resolver.resolve_module_path(import) {
+                        debug!("Resolved '{import}' to path: {import_path:?}");
+                        self.add_to_discovery_queue_if_new(import, import_path, params);
+
+                        // Also add parent packages for submodules to ensure __init__.py files are
+                        // included For example, if importing
+                        // "greetings.irrelevant", also add "greetings"
+                        self.add_parent_packages_to_discovery(import, params);
+                    } else {
+                        // If the import is not in an error handler, this is a fatal error
+                        if !is_in_error_handler {
+                            return Err(anyhow!(
+                                "Failed to resolve first-party module '{}'. \nThis import would \
+                                 fail at runtime with: ModuleNotFoundError: No module named '{}'",
+                                import,
+                                import
+                            ));
+                        } else {
+                            debug!(
+                                "Failed to resolve first-party module '{import}' but it's in an \
+                                 error handler (try/except or with suppress)"
+                            );
+                        }
+                    }
+                }
+                ImportType::ThirdParty | ImportType::StandardLibrary => {
+                    debug!("'{import}' classified as external (preserving)");
+                }
             }
         }
         Ok(())
