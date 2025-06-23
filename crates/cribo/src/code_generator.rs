@@ -2110,11 +2110,98 @@ impl HybridStaticBundler {
         match stmt {
             Stmt::Expr(expr_stmt) => self.expr_uses_importlib(&expr_stmt.value),
             Stmt::Assign(assign) => self.expr_uses_importlib(&assign.value),
+            Stmt::AugAssign(aug_assign) => self.expr_uses_importlib(&aug_assign.value),
+            Stmt::AnnAssign(ann_assign) => ann_assign
+                .value
+                .as_ref()
+                .is_some_and(|v| self.expr_uses_importlib(v)),
             Stmt::FunctionDef(func_def) => {
                 func_def.body.iter().any(|s| self.stmt_uses_importlib(s))
             }
             Stmt::ClassDef(class_def) => class_def.body.iter().any(|s| self.stmt_uses_importlib(s)),
-            _ => false,
+            Stmt::If(if_stmt) => {
+                self.expr_uses_importlib(&if_stmt.test)
+                    || if_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+                    || if_stmt.elif_else_clauses.iter().any(|clause| {
+                        clause
+                            .test
+                            .as_ref()
+                            .is_some_and(|t| self.expr_uses_importlib(t))
+                            || clause.body.iter().any(|s| self.stmt_uses_importlib(s))
+                    })
+            }
+            Stmt::While(while_stmt) => {
+                self.expr_uses_importlib(&while_stmt.test)
+                    || while_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+                    || while_stmt
+                        .orelse
+                        .iter()
+                        .any(|s| self.stmt_uses_importlib(s))
+            }
+            Stmt::For(for_stmt) => {
+                self.expr_uses_importlib(&for_stmt.iter)
+                    || for_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+                    || for_stmt.orelse.iter().any(|s| self.stmt_uses_importlib(s))
+            }
+            Stmt::With(with_stmt) => {
+                with_stmt.items.iter().any(|item| {
+                    self.expr_uses_importlib(&item.context_expr)
+                        || item
+                            .optional_vars
+                            .as_ref()
+                            .is_some_and(|v| self.expr_uses_importlib(v))
+                }) || with_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+            }
+            Stmt::Try(try_stmt) => {
+                try_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+                    || try_stmt.handlers.iter().any(|handler| match handler {
+                        ExceptHandler::ExceptHandler(eh) => {
+                            eh.body.iter().any(|s| self.stmt_uses_importlib(s))
+                        }
+                    })
+                    || try_stmt.orelse.iter().any(|s| self.stmt_uses_importlib(s))
+                    || try_stmt
+                        .finalbody
+                        .iter()
+                        .any(|s| self.stmt_uses_importlib(s))
+            }
+            Stmt::Assert(assert_stmt) => {
+                self.expr_uses_importlib(&assert_stmt.test)
+                    || assert_stmt
+                        .msg
+                        .as_ref()
+                        .is_some_and(|m| self.expr_uses_importlib(m))
+            }
+            Stmt::Return(ret) => ret
+                .value
+                .as_ref()
+                .is_some_and(|v| self.expr_uses_importlib(v)),
+            Stmt::Raise(raise_stmt) => {
+                raise_stmt
+                    .exc
+                    .as_ref()
+                    .is_some_and(|e| self.expr_uses_importlib(e))
+                    || raise_stmt
+                        .cause
+                        .as_ref()
+                        .is_some_and(|c| self.expr_uses_importlib(c))
+            }
+            Stmt::Delete(del) => del.targets.iter().any(|t| self.expr_uses_importlib(t)),
+            // Statements that don't contain expressions
+            Stmt::Import(_) | Stmt::ImportFrom(_) => false, /* Already handled by import */
+            // transformation
+            Stmt::Pass(_) | Stmt::Break(_) | Stmt::Continue(_) => false,
+            Stmt::Global(_) | Stmt::Nonlocal(_) => false,
+            // Match and TypeAlias need special handling
+            Stmt::Match(match_stmt) => {
+                self.expr_uses_importlib(&match_stmt.subject)
+                    || match_stmt
+                        .cases
+                        .iter()
+                        .any(|case| case.body.iter().any(|s| self.stmt_uses_importlib(s)))
+            }
+            Stmt::TypeAlias(type_alias) => self.expr_uses_importlib(&type_alias.value),
+            Stmt::IpyEscapeCommand(_) => false, // IPython specific, unlikely to use importlib
         }
     }
 
@@ -2131,8 +2218,124 @@ impl HybridStaticBundler {
                         .args
                         .iter()
                         .any(|arg| self.expr_uses_importlib(arg))
+                    || call
+                        .arguments
+                        .keywords
+                        .iter()
+                        .any(|kw| self.expr_uses_importlib(&kw.value))
             }
-            _ => false,
+            Expr::Subscript(sub) => {
+                self.expr_uses_importlib(&sub.value) || self.expr_uses_importlib(&sub.slice)
+            }
+            Expr::Tuple(tuple) => tuple.elts.iter().any(|e| self.expr_uses_importlib(e)),
+            Expr::List(list) => list.elts.iter().any(|e| self.expr_uses_importlib(e)),
+            Expr::Set(set) => set.elts.iter().any(|e| self.expr_uses_importlib(e)),
+            Expr::Dict(dict) => dict.items.iter().any(|item| {
+                item.key
+                    .as_ref()
+                    .is_some_and(|k| self.expr_uses_importlib(k))
+                    || self.expr_uses_importlib(&item.value)
+            }),
+            Expr::ListComp(comp) => {
+                self.expr_uses_importlib(&comp.elt)
+                    || comp.generators.iter().any(|generator| {
+                        self.expr_uses_importlib(&generator.iter)
+                            || generator
+                                .ifs
+                                .iter()
+                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                    })
+            }
+            Expr::SetComp(comp) => {
+                self.expr_uses_importlib(&comp.elt)
+                    || comp.generators.iter().any(|generator| {
+                        self.expr_uses_importlib(&generator.iter)
+                            || generator
+                                .ifs
+                                .iter()
+                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                    })
+            }
+            Expr::DictComp(comp) => {
+                self.expr_uses_importlib(&comp.key)
+                    || self.expr_uses_importlib(&comp.value)
+                    || comp.generators.iter().any(|generator| {
+                        self.expr_uses_importlib(&generator.iter)
+                            || generator
+                                .ifs
+                                .iter()
+                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                    })
+            }
+            Expr::Generator(generator_exp) => {
+                self.expr_uses_importlib(&generator_exp.elt)
+                    || generator_exp.generators.iter().any(|g| {
+                        self.expr_uses_importlib(&g.iter)
+                            || g.ifs
+                                .iter()
+                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                    })
+            }
+            Expr::BoolOp(bool_op) => bool_op.values.iter().any(|v| self.expr_uses_importlib(v)),
+            Expr::UnaryOp(unary) => self.expr_uses_importlib(&unary.operand),
+            Expr::BinOp(bin_op) => {
+                self.expr_uses_importlib(&bin_op.left) || self.expr_uses_importlib(&bin_op.right)
+            }
+            Expr::Compare(cmp) => {
+                self.expr_uses_importlib(&cmp.left)
+                    || cmp.comparators.iter().any(|c| self.expr_uses_importlib(c))
+            }
+            Expr::If(if_exp) => {
+                self.expr_uses_importlib(&if_exp.test)
+                    || self.expr_uses_importlib(&if_exp.body)
+                    || self.expr_uses_importlib(&if_exp.orelse)
+            }
+            Expr::Lambda(lambda) => {
+                // Check default parameter values
+                lambda.parameters.as_ref().is_some_and(|params| {
+                    params.args.iter().any(|arg| {
+                        arg.default
+                            .as_ref()
+                            .is_some_and(|d| self.expr_uses_importlib(d))
+                    })
+                }) || self.expr_uses_importlib(&lambda.body)
+            }
+            Expr::Await(await_expr) => self.expr_uses_importlib(&await_expr.value),
+            Expr::Yield(yield_expr) => yield_expr
+                .value
+                .as_ref()
+                .is_some_and(|v| self.expr_uses_importlib(v)),
+            Expr::YieldFrom(yield_from) => self.expr_uses_importlib(&yield_from.value),
+            Expr::Starred(starred) => self.expr_uses_importlib(&starred.value),
+            Expr::Named(named) => {
+                self.expr_uses_importlib(&named.target) || self.expr_uses_importlib(&named.value)
+            }
+            Expr::Slice(slice) => {
+                slice
+                    .lower
+                    .as_ref()
+                    .is_some_and(|l| self.expr_uses_importlib(l))
+                    || slice
+                        .upper
+                        .as_ref()
+                        .is_some_and(|u| self.expr_uses_importlib(u))
+                    || slice
+                        .step
+                        .as_ref()
+                        .is_some_and(|s| self.expr_uses_importlib(s))
+            }
+            // Literals don't use importlib
+            Expr::StringLiteral(_)
+            | Expr::BytesLiteral(_)
+            | Expr::NumberLiteral(_)
+            | Expr::BooleanLiteral(_)
+            | Expr::NoneLiteral(_)
+            | Expr::EllipsisLiteral(_) => false,
+            // F-strings and T-strings are unlikely to directly use importlib
+            Expr::FString(_) => false,
+            Expr::TString(_) => false,
+            // IPython specific, unlikely to use importlib
+            Expr::IpyEscapeCommand(_) => false,
         }
     }
 }

@@ -10,22 +10,18 @@ import mymodule
 
 # Now use importlib to import the same module
 mymodule2 = importlib.import_module("mymodule")
-print(f"\n2. importlib import - mymodule2 id: {id(mymodule2)}")
 print(f"   Are they the same object? {mymodule is mymodule2}")
 
 # Import a submodule
 from package import submodule
 
-print(f"\n3. Normal submodule import - submodule id: {id(submodule)}")
 
 # Use importlib with full module path
 submodule2 = importlib.import_module("package.submodule")
-print(f"\n4. importlib full path - submodule2 id: {id(submodule2)}")
 print(f"   Are they the same object? {submodule is submodule2}")
 
 # Use importlib with relative import
 submodule3 = importlib.import_module(".submodule", "package")
-print(f"\n5. importlib relative - submodule3 id: {id(submodule3)}")
 print(f"   Are they the same object? {submodule is submodule3}")
 
 # Test modification propagation
