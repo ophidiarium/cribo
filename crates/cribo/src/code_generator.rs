@@ -3463,32 +3463,6 @@ impl HybridStaticBundler {
                     log::debug!("Module '{module_name}' has side effects - using wrapper approach");
                 }
 
-                // Debug: check AST contents for core.database.connection
-                if module_name == "core.database.connection" {
-                    log::debug!(
-                        "Adding core.database.connection to wrapper_modules with {} statements",
-                        ast.body.len()
-                    );
-                    for (i, stmt) in ast.body.iter().enumerate() {
-                        match stmt {
-                            Stmt::ImportFrom(import_from) => {
-                                log::debug!(
-                                    "  Statement {}: ImportFrom {:?}",
-                                    i,
-                                    import_from.module.as_ref().map(|m| m.as_str())
-                                );
-                            }
-                            _ => {
-                                log::debug!(
-                                    "  Statement {}: {:?}",
-                                    i,
-                                    std::mem::discriminant(stmt)
-                                );
-                            }
-                        }
-                    }
-                }
-
                 wrapper_modules.push((
                     module_name.clone(),
                     ast.clone(),

@@ -1740,7 +1740,10 @@ mod tests {
         let utils_id = graph.add_module("utils".to_string(), path.clone());
 
         // Add some items to the utils module
-        let utils_module = graph.modules.get_mut(&utils_id).unwrap();
+        let utils_module = graph
+            .modules
+            .get_mut(&utils_id)
+            .expect("Module should exist after add_module");
         let item1 = utils_module.add_item(ItemData {
             item_type: ItemType::FunctionDef {
                 name: "helper".into(),
