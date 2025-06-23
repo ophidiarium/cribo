@@ -328,17 +328,41 @@ impl<'a> ImportDiscoveryVisitor<'a> {
     /// Check if this is a static importlib.import_module call
     fn is_static_importlib_call(&self, call: &ExprCall) -> bool {
         match &*call.func {
-            // importlib.import_module(...)
+            // importlib.import_module(...) or il.import_module(...) where il is an alias
             Expr::Attribute(ExprAttribute { attr, value, .. }) => {
                 if attr.as_str() == "import_module"
                     && let Expr::Name(ExprName { id, .. }) = &**value
                 {
-                    return id.as_str() == "importlib";
+                    let name = id.as_str();
+                    // Check if it's importlib directly or an alias to importlib
+                    return name == "importlib"
+                        || self
+                            .imported_names
+                            .get(name)
+                            .is_some_and(|module| module == "importlib");
                 }
             }
-            // import_module(...) with prior "from importlib import import_module"
+            // import_module(...) or im(...) where im is an alias
             Expr::Name(ExprName { id, .. }) => {
-                return id.as_str() == "import_module" && self.has_importlib;
+                let name = id.as_str();
+                // Direct check for import_module
+                if name == "import_module" && self.has_importlib {
+                    return true;
+                }
+                // Check if this is an alias for import_module
+                // Look for imports like "from importlib import import_module as im"
+                if let Some(_import_info) = self.imports.iter().find(|imp| {
+                    if let ImportType::From = imp.import_type {
+                        imp.module_name.as_deref() == Some("importlib")
+                            && imp.names.iter().any(|(orig, alias)| {
+                                orig == "import_module" && alias.as_deref() == Some(name)
+                            })
+                    } else {
+                        false
+                    }
+                }) {
+                    return true;
+                }
             }
             _ => {}
         }

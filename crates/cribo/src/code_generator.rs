@@ -469,14 +469,28 @@ impl<'a> RecursiveImportTransformer<'a> {
 
     /// Check if this is an importlib.import_module() call
     fn is_importlib_import_module_call(&self, call: &ExprCall) -> bool {
-        // Check if func is importlib.import_module
-        if let Expr::Attribute(attr) = &call.func.as_ref()
-            && attr.attr.as_str() == "import_module"
-            && let Expr::Name(name) = &attr.value.as_ref()
-        {
-            return name.id.as_str() == "importlib";
+        match &call.func.as_ref() {
+            // Direct call: importlib.import_module()
+            Expr::Attribute(attr) if attr.attr.as_str() == "import_module" => {
+                match &attr.value.as_ref() {
+                    Expr::Name(name) => {
+                        let name_str = name.id.as_str();
+                        // Check if it's 'importlib' directly or an alias that maps to 'importlib'
+                        name_str == "importlib"
+                            || self.import_aliases.get(name_str) == Some(&"importlib".to_string())
+                    }
+                    _ => false,
+                }
+            }
+            // Function call: im() where im is import_module
+            Expr::Name(name) => {
+                // Check if this name is an alias for importlib.import_module
+                self.import_aliases
+                    .get(name.id.as_str())
+                    .is_some_and(|module| module == "importlib.import_module")
+            }
+            _ => false,
         }
-        false
     }
 
     /// Transform importlib.import_module("module-name") to direct module reference
@@ -706,21 +720,25 @@ impl<'a> RecursiveImportTransformer<'a> {
                     vec![stmt.clone()]
                 } else {
                     // Track import aliases before rewriting
-                    // But not in the entry module - in the entry module, imports create namespace
-                    // objects
-                    if !self.is_entry_module {
-                        for alias in &import_stmt.names {
-                            let module_name = alias.name.as_str();
-                            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+                    for alias in &import_stmt.names {
+                        let module_name = alias.name.as_str();
+                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-                            // Only track if it's an aliased import of an inlined module
-                            if alias.asname.is_some()
-                                && self.bundler.inlined_modules.contains(module_name)
-                            {
-                                log::debug!("Tracking import alias: {local_name} -> {module_name}");
-                                self.import_aliases
-                                    .insert(local_name.to_string(), module_name.to_string());
-                            }
+                        // Track if it's an aliased import of an inlined module (but not in entry
+                        // module)
+                        if !self.is_entry_module
+                            && alias.asname.is_some()
+                            && self.bundler.inlined_modules.contains(module_name)
+                        {
+                            log::debug!("Tracking import alias: {local_name} -> {module_name}");
+                            self.import_aliases
+                                .insert(local_name.to_string(), module_name.to_string());
+                        }
+                        // Also track importlib aliases for static import resolution (in any module)
+                        else if module_name == "importlib" && alias.asname.is_some() {
+                            log::debug!("Tracking importlib alias: {local_name} -> importlib");
+                            self.import_aliases
+                                .insert(local_name.to_string(), "importlib".to_string());
                         }
                     }
 
@@ -730,29 +748,65 @@ impl<'a> RecursiveImportTransformer<'a> {
             }
             Stmt::ImportFrom(import_from) => {
                 log::debug!(
-                    "RecursiveImportTransformer::transform_statement: Found ImportFrom statement"
+                    "RecursiveImportTransformer::transform_statement: Found ImportFrom statement \
+                     (is_hoisted: {is_hoisted})"
                 );
-                if is_hoisted {
-                    vec![stmt.clone()]
-                } else {
-                    // Track import aliases before handling the import
-                    if let Some(module) = &import_from.module {
-                        let _module_str = module.as_str();
+                // Track import aliases before handling the import (even for hoisted imports)
+                if let Some(module) = &import_from.module {
+                    let module_str = module.as_str();
+                    log::debug!(
+                        "Processing ImportFrom in RecursiveImportTransformer: from {} import {:?} \
+                         (is_entry_module: {})",
+                        module_str,
+                        import_from
+                            .names
+                            .iter()
+                            .map(|a| format!(
+                                "{}{}",
+                                a.name.as_str(),
+                                a.asname
+                                    .as_ref()
+                                    .map(|n| format!(" as {n}"))
+                                    .unwrap_or_default()
+                            ))
+                            .collect::<Vec<_>>(),
+                        self.is_entry_module
+                    );
 
-                        // Resolve relative imports first
-                        let resolved_module = if let Some(module_path) = self.module_path {
-                            self.bundler.resolve_relative_import_with_context(
-                                import_from,
-                                self.module_name,
-                                Some(module_path),
-                            )
-                        } else {
-                            self.bundler
-                                .resolve_relative_import(import_from, self.module_name)
-                        };
+                    // Special handling for importlib imports
+                    if module_str == "importlib" {
+                        for alias in &import_from.names {
+                            let imported_name = alias.name.as_str();
+                            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-                        if let Some(resolved) = &resolved_module {
-                            // Track aliases for imported symbols
+                            if imported_name == "import_module" {
+                                log::debug!(
+                                    "Tracking importlib.import_module alias: {local_name} -> \
+                                     importlib.import_module"
+                                );
+                                self.import_aliases.insert(
+                                    local_name.to_string(),
+                                    "importlib.import_module".to_string(),
+                                );
+                            }
+                        }
+                    }
+
+                    // Resolve relative imports first
+                    let resolved_module = if let Some(module_path) = self.module_path {
+                        self.bundler.resolve_relative_import_with_context(
+                            import_from,
+                            self.module_name,
+                            Some(module_path),
+                        )
+                    } else {
+                        self.bundler
+                            .resolve_relative_import(import_from, self.module_name)
+                    };
+
+                    if let Some(resolved) = &resolved_module {
+                        // Track aliases for imported symbols (non-importlib)
+                        if resolved != "importlib" {
                             for alias in &import_from.names {
                                 let imported_name = alias.name.as_str();
                                 let local_name =
@@ -796,7 +850,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                             }
                         }
                     }
+                }
 
+                // Now handle the import based on whether it's hoisted
+                if is_hoisted {
+                    vec![stmt.clone()]
+                } else {
                     self.handle_import_from(import_from)
                 }
             }
@@ -1898,6 +1957,8 @@ impl<'a> RecursiveImportTransformer<'a> {
 /// Hybrid static bundler that uses sys.modules and hash-based naming
 /// This approach avoids forward reference issues while maintaining Python module semantics
 pub struct HybridStaticBundler {
+    /// Track if importlib was fully transformed and should be removed
+    importlib_fully_transformed: bool,
     /// Map from original module name to synthetic module name
     module_registry: FxIndexMap<String, String>,
     /// Map from synthetic module name to init function name
@@ -1905,8 +1966,8 @@ pub struct HybridStaticBundler {
     /// Collected future imports
     future_imports: FxIndexSet<String>,
     /// Collected stdlib imports that are safe to hoist
-    /// Maps module name to set of imported names for deduplication
-    stdlib_import_from_map: FxIndexMap<String, FxIndexSet<String>>,
+    /// Maps module name to map of imported names to their aliases (None if no alias)
+    stdlib_import_from_map: FxIndexMap<String, FxIndexMap<String, Option<String>>>,
     /// Regular import statements (import module)
     stdlib_import_statements: Vec<Stmt>,
     /// Track which modules have been bundled
@@ -2037,6 +2098,7 @@ impl HybridStaticBundler {
     }
 
     /// Check if an expression uses importlib
+    #[allow(clippy::only_used_in_recursion)]
     fn expr_uses_importlib(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Name(name) => name.id.as_str() == "importlib",
@@ -2064,6 +2126,7 @@ impl Default for HybridStaticBundler {
 impl HybridStaticBundler {
     pub fn new() -> Self {
         Self {
+            importlib_fully_transformed: false,
             module_registry: FxIndexMap::default(),
             init_functions: FxIndexMap::default(),
             future_imports: FxIndexSet::default(),
@@ -4238,44 +4301,79 @@ impl HybridStaticBundler {
             // Apply recursive import transformation to the entry module
             log::debug!("Creating RecursiveImportTransformer for entry module '{module_name}'");
             let mut entry_deferred_imports = Vec::new();
-            let mut transformer = RecursiveImportTransformer::new(
-                RecursiveImportTransformerParams {
-                    bundler: self,
-                    module_name: &module_name,
-                    module_path: Some(&module_path),
-                    symbol_renames: &symbol_renames,
-                    deferred_imports: &mut entry_deferred_imports,
-                    is_entry_module: true,  // This is the entry module
-                    is_wrapper_init: false, // Not a wrapper init
-                    global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports for checking */
-                },
-            );
-            log::debug!(
-                "Transforming entry module '{module_name}' with RecursiveImportTransformer"
-            );
-            transformer.transform_module(&mut ast);
-            log::debug!("Finished transforming entry module '{module_name}'");
 
-            // If importlib was transformed, remove importlib import
-            if transformer.importlib_transformed {
-                log::debug!("importlib was transformed, removing import if present");
-                ast.body.retain(|stmt| {
-                    if let Stmt::Import(import_stmt) = stmt {
-                        // Check if this is import importlib
-                        !import_stmt
-                            .names
-                            .iter()
-                            .any(|alias| alias.name.as_str() == "importlib")
-                    } else {
-                        true
+            // Check if importlib has been fully transformed
+            let (importlib_was_transformed, created_namespace_objects) = {
+                let mut transformer = RecursiveImportTransformer::new(
+                    RecursiveImportTransformerParams {
+                        bundler: self,
+                        module_name: &module_name,
+                        module_path: Some(&module_path),
+                        symbol_renames: &symbol_renames,
+                        deferred_imports: &mut entry_deferred_imports,
+                        is_entry_module: true,  // This is the entry module
+                        is_wrapper_init: false, // Not a wrapper init
+                        global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports for checking */
+                    },
+                );
+
+                // Pre-populate hoisted importlib aliases for the entry module
+                if let Some(importlib_imports) = self.stdlib_import_from_map.get("importlib") {
+                    for (name, alias_opt) in importlib_imports {
+                        if name == "import_module"
+                            && let Some(alias) = alias_opt
+                        {
+                            log::debug!(
+                                "Pre-populating importlib.import_module alias for entry module: \
+                                 {alias} -> importlib.import_module"
+                            );
+                            transformer
+                                .import_aliases
+                                .insert(alias.clone(), "importlib.import_module".to_string());
+                        }
                     }
-                });
-            }
+                }
+                log::debug!(
+                    "Transforming entry module '{module_name}' with RecursiveImportTransformer"
+                );
+                transformer.transform_module(&mut ast);
+                log::debug!("Finished transforming entry module '{module_name}'");
 
-            // If namespace objects were created, we need types import
-            if transformer.created_namespace_objects {
+                (
+                    transformer.importlib_transformed,
+                    transformer.created_namespace_objects,
+                )
+            };
+
+            // Track if namespace objects were created
+            if created_namespace_objects {
                 log::debug!("Namespace objects were created, adding types import");
                 self.add_stdlib_import("types");
+            }
+
+            // If importlib was transformed, remove importlib import
+            if importlib_was_transformed {
+                log::debug!("importlib was transformed, removing import if present");
+                self.importlib_fully_transformed = true;
+                ast.body.retain(|stmt| {
+                    match stmt {
+                        Stmt::Import(import_stmt) => {
+                            // Check if this is import importlib
+                            !import_stmt
+                                .names
+                                .iter()
+                                .any(|alias| alias.name.as_str() == "importlib")
+                        }
+                        Stmt::ImportFrom(import_from) => {
+                            // Check if this is from importlib import ...
+                            import_from
+                                .module
+                                .as_ref()
+                                .is_none_or(|m| m.as_str() != "importlib")
+                        }
+                        _ => true,
+                    }
+                });
             }
 
             // Process statements in order
@@ -6416,16 +6514,25 @@ impl HybridStaticBundler {
         sorted_modules.sort_by_key(|(module_name, _)| *module_name);
 
         for (module_name, imported_names) in sorted_modules {
+            // Skip importlib if it was fully transformed
+            if module_name == "importlib" && self.importlib_fully_transformed {
+                log::debug!("Skipping importlib from hoisted imports as it was fully transformed");
+                continue;
+            }
+
             // Sort the imported names for deterministic output
-            let mut sorted_names: Vec<String> = imported_names.iter().cloned().collect();
-            sorted_names.sort();
+            let mut sorted_names: Vec<(String, Option<String>)> = imported_names
+                .iter()
+                .map(|(name, alias)| (name.clone(), alias.clone()))
+                .collect();
+            sorted_names.sort_by_key(|(name, _)| name.clone());
 
             let aliases: Vec<ruff_python_ast::Alias> = sorted_names
                 .into_iter()
-                .map(|name| ruff_python_ast::Alias {
+                .map(|(name, alias_opt)| ruff_python_ast::Alias {
                     node_index: AtomicNodeIndex::dummy(),
                     name: Identifier::new(&name, TextRange::default()),
-                    asname: None,
+                    asname: alias_opt.map(|a| Identifier::new(&a, TextRange::default())),
                     range: TextRange::default(),
                 })
                 .collect();
@@ -6538,15 +6645,18 @@ impl HybridStaticBundler {
                 self.future_imports.insert(alias.name.to_string());
             }
         } else if self.is_safe_stdlib_module(module_name) {
-            // Get or create the set of imported names for this module
+            // Get or create the map of imported names for this module
             let imported_names = self
                 .stdlib_import_from_map
                 .entry(module_name.to_string())
                 .or_default();
 
-            // Add all imported names to the set (this automatically deduplicates)
+            // Add all imported names with their aliases
             for alias in &import_from.names {
-                imported_names.insert(alias.name.to_string());
+                imported_names.insert(
+                    alias.name.to_string(),
+                    alias.asname.as_ref().map(|n| n.to_string()),
+                );
             }
         } else if !self.is_bundled_module_or_package(module_name) {
             // This is a third-party import (not stdlib, not bundled)
