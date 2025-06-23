@@ -50,8 +50,8 @@ mypackage = types.SimpleNamespace()
 mypackage.__name__ = 'mypackage'
 mypackage.submodule = types.SimpleNamespace()
 mypackage.core = __cribo_init___cribo_41d36f_mypackage_core()
-mypackage.submodule.utils = __cribo_init___cribo_c3d681_mypackage_submodule_utils()
 process_data = mypackage.core.process_data
+mypackage.submodule.utils = __cribo_init___cribo_c3d681_mypackage_submodule_utils()
 validate_input = mypackage.submodule.utils.validate_input
 def main() -> None:
     """Main function with type annotations that require future import."""

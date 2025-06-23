@@ -8535,66 +8535,9 @@ impl HybridStaticBundler {
         // to avoid duplicate initialization calls
         let mut locally_initialized = FxIndexSet::default();
 
-        // Pre-check if this is a wrapper module that needs initialization
-        let module_needs_init = if self.module_registry.contains_key(module_name) {
-            if inside_wrapper_init {
-                // Inside a wrapper module's init function, we need to initialize
-                // the module we're importing from if it's also a wrapper module
-                true
-            } else if module_name.contains('.') {
-                // In other contexts, nested modules like schemas.user are initialized during
-                // global namespace creation
-                false
-            } else {
-                // Top-level wrapper modules may need initialization
-                true
-            }
-        } else {
-            false
-        };
-
-        // If we need to initialize the module, do it once before processing any imports
-        let module_var_name = if module_needs_init && !initialized_modules.contains(module_name) {
-            let local_module_var = format!(
-                "_cribo_module_{}",
-                module_name.cow_replace('.', "_").as_ref()
-            );
-
-            // Inside wrapper init, we need to initialize the module first
-            if inside_wrapper_init
-                && self.module_registry.contains_key(module_name)
-                && !locally_initialized.contains(module_name)
-            {
-                // Initialize the wrapper module we're importing from
-                assignments.extend(self.create_module_initialization_for_import(module_name));
-                locally_initialized.insert(module_name.to_string());
-            }
-
-            // We need to determine the correct source variable to reference
-            let source_var = module_name.to_string();
-
-            // Add: _cribo_module_xxx = source_var (either the module or temp variable)
-            assignments.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: local_module_var.clone().into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: source_var.into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
-            initialized_modules.insert(module_name.to_string());
-            Some(local_module_var)
-        } else {
-            None
-        };
+        // For wrapper modules, we always need to ensure they're initialized before accessing
+        // attributes Don't create the temporary variable approach - it causes issues with
+        // namespace reassignment
 
         for alias in &import_from.names {
             let imported_name = alias.name.as_str();
@@ -8731,7 +8674,6 @@ impl HybridStaticBundler {
                 // Regular attribute import
                 // Ensure the module is initialized first if it's a wrapper module
                 if self.module_registry.contains_key(module_name)
-                    && module_var_name.is_none()
                     && !locally_initialized.contains(module_name)
                 {
                     // Initialize the module before accessing its attributes
@@ -8740,15 +8682,7 @@ impl HybridStaticBundler {
                 }
 
                 // Create: target = module.imported_name
-                let module_expr = if let Some(ref var_name) = module_var_name {
-                    // We initialized the module locally, use the local variable
-                    Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: var_name.clone().into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })
-                } else if module_name.contains('.') {
+                let module_expr = if module_name.contains('.') {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = module_name.split('.').collect();
                     let mut expr = Expr::Name(ExprName {
