@@ -2016,6 +2016,7 @@ impl HybridStaticBundler {
     }
 
     /// Sanitize a module name for use in a Python identifier
+    /// This is a simple character replacement - collision handling should be done by the caller
     fn sanitize_module_name_for_identifier(name: &str) -> String {
         name.chars()
             .map(|c| match c {
@@ -2028,6 +2029,26 @@ impl HybridStaticBundler {
                 _ => '_',
             })
             .collect::<String>()
+    }
+
+    /// Sanitize a module name and ensure uniqueness by appending a suffix if needed
+    fn sanitize_module_name_unique(name: &str, existing_names: &FxIndexSet<String>) -> String {
+        let base_name = Self::sanitize_module_name_for_identifier(name);
+
+        // If no collision, return the base name
+        if !existing_names.contains(&base_name) {
+            return base_name;
+        }
+
+        // Otherwise, append a numeric suffix until we find a unique name
+        let mut counter = 2;
+        loop {
+            let candidate = format!("{base_name}_{counter}");
+            if !existing_names.contains(&candidate) {
+                return candidate;
+            }
+            counter += 1;
+        }
     }
 
     /// Check if a renamed symbol exists after tree-shaking
@@ -4029,10 +4050,12 @@ impl HybridStaticBundler {
             debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
 
             // Initialize all modules in dependency order
+            let mut init_used_sanitized_names = FxIndexSet::default();
             for module_name in &sorted_wrapped {
                 debug!("  - Initializing module: {module_name}");
                 if let Some(synthetic_name) = self.module_registry.get(module_name).cloned() {
-                    let init_stmts = self.generate_module_init_call(&synthetic_name);
+                    let init_stmts = self
+                        .generate_module_init_call(&synthetic_name, &mut init_used_sanitized_names);
                     final_body.extend(init_stmts);
                 }
             }
@@ -4040,8 +4063,11 @@ impl HybridStaticBundler {
             // After all modules are initialized, assign temporary variables to their namespace
             // locations For parent modules that are also wrapper modules, we need to
             // merge their attributes
+            let mut used_sanitized_names = FxIndexSet::default();
             for module_name in &sorted_wrapped {
-                let sanitized_name = Self::sanitize_module_name_for_identifier(module_name);
+                let sanitized_name =
+                    Self::sanitize_module_name_unique(module_name, &used_sanitized_names);
+                used_sanitized_names.insert(sanitized_name.clone());
                 let temp_var_name = format!("_cribo_temp_{sanitized_name}");
 
                 // Check if this module has submodules (is a parent module)
@@ -4561,10 +4587,12 @@ impl HybridStaticBundler {
             }
 
             // Add init calls first
+            let mut entry_used_sanitized_names = FxIndexSet::default();
             for synthetic_name in needed_init_calls {
                 // Note: This is in a context where we can't mutate self, so we'll rely on
                 // the namespaces being pre-created by identify_required_namespaces
-                let init_stmts = self.generate_module_init_call(&synthetic_name);
+                let init_stmts = self
+                    .generate_module_init_call(&synthetic_name, &mut entry_used_sanitized_names);
                 final_body.extend(init_stmts);
             }
 
@@ -6051,7 +6079,11 @@ impl HybridStaticBundler {
     }
 
     /// Generate a call to initialize a module
-    fn generate_module_init_call(&mut self, synthetic_name: &str) -> Vec<Stmt> {
+    fn generate_module_init_call(
+        &mut self,
+        synthetic_name: &str,
+        used_sanitized_names: &mut FxIndexSet<String>,
+    ) -> Vec<Stmt> {
         let mut statements = Vec::new();
 
         if let Some(init_func_name) = self.init_functions.get(synthetic_name) {
@@ -6065,7 +6097,9 @@ impl HybridStaticBundler {
 
             // Always use temporary variables for wrapper modules to avoid overwriting namespaces
             // Create a temporary variable name for the module
-            let sanitized_name = Self::sanitize_module_name_for_identifier(module_name);
+            let sanitized_name =
+                Self::sanitize_module_name_unique(module_name, used_sanitized_names);
+            used_sanitized_names.insert(sanitized_name.clone());
             let temp_var_name = format!("_cribo_temp_{sanitized_name}");
 
             // _cribo_temp_module_name = __cribo_init_synthetic_name()
