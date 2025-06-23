@@ -763,7 +763,9 @@ impl CriboGraph {
                     // This shouldn't happen with proper PYTHONPATH management
                     log::error!(
                         "Import name '{name}' refers to different files: {existing_canonical:?} \
-                         and {canonical_path:?}"
+                         and {canonical_path:?}. This may indicate a PYTHONPATH configuration \
+                         issue or naming conflict. Consider using unique module names or \
+                         adjusting your Python path configuration."
                     );
                 }
             }
