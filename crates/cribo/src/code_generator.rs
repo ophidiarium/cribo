@@ -13461,7 +13461,7 @@ impl HybridStaticBundler {
             )
         } else {
             // This module wasn't bundled - shouldn't happen for static imports
-            // Return None literal as a fallback
+            log::warn!("Module '{module_name}' referenced in static import but not bundled");
             Expr::NoneLiteral(ExprNoneLiteral {
                 node_index: AtomicNodeIndex::dummy(),
                 range: TextRange::default(),
