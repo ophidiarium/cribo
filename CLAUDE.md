@@ -156,6 +156,10 @@ cribo --entry main.py --stdout -vv
 - Ideal for containerized environments
 - Excellent for quick debugging workflows
 
+## 🚨 CRITICAL: ALL TESTS ON MAIN BRANCH ARE ALWAYS WORKING! 🚨
+
+**ALL TESTS THAT EXIST ON MAIN BRANCH ARE ALWAYS WORKING! YOU MUST NEVER DOUBLE CHECK THAT! THERE ARE NO "PRE-EXISTING ISSUES"! DON'T SPEND TIME ON SEARCHING FOR AN ESCAPE HATCH - DO INVESTIGATE TO FIND THE ROOT CAUSE OF A PROBLEM**
+
 ### MANDATORY GITHUB INTERACTION RULES
 
 **ABSOLUTE RULE**: NEVER use web API calls or direct GitHub API without authentication
@@ -645,3 +649,7 @@ NOTE: if asked to attend all comments use `mcp__github__get_pull_request_comment
 - use ast-grep if needed
 - NEVER drop stashes!
 - There are NEVER pre-existing test failures. Every feature development starts from the `main` branch, which is always in a clean state with all tests passing. If any test fails during or after a change, immediately investigate the root cause—do not assume the failure was present before your work. Never waste time considering the possibility of a pre-existing broken test.
+
+## 🚨 REMINDER: ALL TESTS ON MAIN BRANCH ARE ALWAYS WORKING! 🚨
+
+**ALL TESTS THAT EXIST ON MAIN BRANCH ARE ALWAYS WORKING! YOU MUST NEVER DOUBLE CHECK THAT! THERE ARE NO "PRE-EXISTING ISSUES"! DON'T SPEND TIME ON SEARCHING FOR AN ESCAPE HATCH - DO INVESTIGATE TO FIND THE ROOT CAUSE OF A PROBLEM**
