@@ -74,6 +74,7 @@ impl<'a> GraphBuilder<'a> {
             Stmt::Assign(assign) => self.process_assign(assign),
             Stmt::AnnAssign(ann_assign) => self.process_ann_assign(ann_assign),
             Stmt::Expr(expr_stmt) => self.process_expr_stmt(&expr_stmt.value),
+            Stmt::Assert(assert_stmt) => self.process_assert_stmt(assert_stmt),
             Stmt::If(if_stmt) => self.process_if_stmt(if_stmt),
             Stmt::For(for_stmt) => self.process_for_stmt(for_stmt),
             Stmt::While(while_stmt) => self.process_while_stmt(while_stmt),
@@ -573,6 +574,49 @@ impl<'a> GraphBuilder<'a> {
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
             has_side_effects,
+            span: None,
+            imported_names: FxHashSet::default(),
+            reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses,
+        };
+
+        self.graph.add_item(item_data);
+        Ok(())
+    }
+
+    /// Process assert statement
+    fn process_assert_stmt(&mut self, assert_stmt: &ast::StmtAssert) -> Result<()> {
+        let mut read_vars = FxHashSet::default();
+        let mut attribute_accesses = FxHashMap::default();
+
+        // Collect variables from the test expression
+        self.collect_vars_in_expr_with_attrs(
+            &assert_stmt.test,
+            &mut read_vars,
+            &mut attribute_accesses,
+        );
+
+        // Also collect from the message expression if present
+        if let Some(msg) = &assert_stmt.msg {
+            self.collect_vars_in_expr_with_attrs(msg, &mut read_vars, &mut attribute_accesses);
+        }
+
+        log::debug!(
+            "Processing assert statement, read_vars: {read_vars:?}, attribute_accesses: \
+             {attribute_accesses:?}"
+        );
+
+        let item_data = ItemData {
+            item_type: ItemType::Expression, // Assert is treated as an expression with side effects
+            var_decls: FxHashSet::default(),
+            read_vars,
+            eventual_read_vars: FxHashSet::default(),
+            write_vars: FxHashSet::default(),
+            eventual_write_vars: FxHashSet::default(),
+            has_side_effects: true, /* Assert statements have side effects (can raise
+                                     * AssertionError) */
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
@@ -1182,6 +1226,20 @@ impl<'a> GraphBuilder<'a> {
                                     .unwrap_or(alias.name.as_str());
                                 read_vars.insert(local_name.to_string());
                             }
+                        }
+                    }
+                    Stmt::Assert(assert_stmt) => {
+                        self.collect_vars_in_expr_with_attrs(
+                            &assert_stmt.test,
+                            read_vars,
+                            attribute_accesses,
+                        );
+                        if let Some(msg) = &assert_stmt.msg {
+                            self.collect_vars_in_expr_with_attrs(
+                                msg,
+                                read_vars,
+                                attribute_accesses,
+                            );
                         }
                     }
                     _ => {} // Other statements
