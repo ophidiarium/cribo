@@ -482,6 +482,7 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                 log::debug!("Processing assignment statement");
                 // Just walk the statement - ImportlibStatic imports are handled in visit_expr
                 walk_stmt(self, stmt);
+                return; // Don't call walk_stmt again
             }
             Stmt::FunctionDef(func) => {
                 self.scope_stack
@@ -552,6 +553,7 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                 if self.is_static_importlib_call(call)
                     && let Some(module_name) = self.extract_literal_module_name(call)
                 {
+                    log::debug!("Found static importlib call for module: {module_name}");
                     // Track this as an import
                     let import = DiscoveredImport {
                         module_name: Some(module_name.clone()),
@@ -620,7 +622,6 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
 
 #[cfg(test)]
 mod tests {
-    use indexmap::IndexSet;
     use ruff_python_ast::visitor::Visitor;
     use ruff_python_parser::parse_module;
 
@@ -776,17 +777,7 @@ def load_module():
         for stmt in &parsed.syntax().body {
             visitor.visit_stmt(stmt);
         }
-        let mut imports = visitor.into_imports();
-
-        // Remove duplicate ImportlibStatic imports (they're discovered in both assignment and expr)
-        let mut seen_importlib_static = IndexSet::new();
-        imports.retain(|imp| {
-            if matches!(imp.import_type, ImportType::ImportlibStatic) {
-                seen_importlib_static.insert(imp.module_name.clone())
-            } else {
-                true
-            }
-        });
+        let imports = visitor.into_imports();
 
         // Should have: importlib, import_module, json, datetime, collections
         assert_eq!(imports.len(), 5);
