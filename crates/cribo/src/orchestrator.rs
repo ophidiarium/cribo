@@ -794,10 +794,11 @@ impl BundleOrchestrator {
                 import.import_type,
                 crate::visitors::ImportType::ImportlibStatic
             ) {
-                if let Some(ref module_name) = import.module_name {
-                    debug!("Found ImportlibStatic import: {module_name}");
+                let mut temp_set = IndexSet::new();
+                self.process_importlib_static_import(import, &mut temp_set);
+                for module_name in temp_set {
                     imports_with_context.push((
-                        module_name.clone(),
+                        module_name,
                         is_in_error_handler,
                         Some(import.import_type),
                     ));
@@ -864,6 +865,18 @@ impl BundleOrchestrator {
         }
     }
 
+    /// Helper to process ImportlibStatic imports
+    fn process_importlib_static_import(
+        &self,
+        import: &crate::visitors::DiscoveredImport,
+        imports_set: &mut IndexSet<String>,
+    ) {
+        if let Some(ref module_name) = import.module_name {
+            debug!("Found ImportlibStatic import: {module_name}");
+            imports_set.insert(module_name.clone());
+        }
+    }
+
     /// Extract ALL imports from a Python file, including those nested in functions and classes
     pub fn extract_all_imports(
         &self,
@@ -894,10 +907,7 @@ impl BundleOrchestrator {
                 import.import_type,
                 crate::visitors::ImportType::ImportlibStatic
             ) {
-                if let Some(ref module_name) = import.module_name {
-                    debug!("Found ImportlibStatic import: {module_name}");
-                    imports_set.insert(module_name.clone());
-                }
+                self.process_importlib_static_import(import, &mut imports_set);
             } else if import.level > 0 {
                 self.process_relative_import_set(
                     import,
