@@ -1347,10 +1347,7 @@ impl BundleOrchestrator {
                 match params.resolver.classify_import(import) {
                     ImportType::FirstParty => {
                         if let Ok(Some(import_path)) = params.resolver.resolve_module_path(import) {
-                            debug!(
-                                "Resolved ImportlibStatic '{import}' via normal resolution to \
-                                 path: {import_path:?}"
-                            );
+                            debug!("Resolved ImportlibStatic '{import}' to path: {import_path:?}");
                             self.add_to_discovery_queue_if_new(import, import_path, params);
                         } else if !is_in_error_handler {
                             return Err(anyhow!(
