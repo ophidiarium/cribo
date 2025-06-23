@@ -1583,7 +1583,8 @@ impl CriboGraph {
         self.module_canonical_paths.get(&module_id)
     }
 
-    /// Get the primary module for a given file path
+    /// Get the primary module for a given file path.
+    /// The path will be canonicalized before lookup.
     pub fn get_primary_module_for_file(&self, path: &Path) -> Option<(String, ModuleId)> {
         let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         self.file_primary_module.get(&canonical).cloned()
