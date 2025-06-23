@@ -210,6 +210,25 @@ impl ModuleDepGraph {
         }
     }
 
+    /// Create a new module dependency graph that shares items from another graph
+    /// This is used when the same file is imported with different names
+    pub fn new_with_shared_items(
+        module_id: ModuleId,
+        module_name: String,
+        source_graph: &ModuleDepGraph,
+    ) -> Self {
+        Self {
+            module_id,
+            module_name,
+            // Clone all the data from the source graph to share the same items
+            items: source_graph.items.clone(),
+            deps: source_graph.deps.clone(),
+            side_effect_items: source_graph.side_effect_items.clone(),
+            var_states: source_graph.var_states.clone(),
+            next_item_id: source_graph.next_item_id,
+        }
+    }
+
     /// Add a new item to the graph
     pub fn add_item(&mut self, data: ItemData) -> ItemId {
         let id = ItemId::new(self.next_item_id);
@@ -770,11 +789,10 @@ impl CriboGraph {
             self.next_module_id += 1;
 
             // Clone the dependency graph structure but with new module name
-            let _primary_graph = &self.modules[primary_id];
-            let module = ModuleDepGraph::new(id, name.clone());
+            let primary_graph = &self.modules[primary_id];
+            let module = ModuleDepGraph::new_with_shared_items(id, name.clone(), primary_graph);
 
-            // Share the same item registry (since it's the same file)
-            // Note: For now we'll create a new graph, but in practice we'd want to share items
+            // Now the new module shares the same item registry as the primary module
             self.modules.insert(id, module);
             self.module_names.insert(name, id);
             self.module_canonical_paths.insert(id, canonical_path);
@@ -1708,5 +1726,65 @@ mod tests {
         } else {
             panic!("Expected unresolvable strategy for constants cycle");
         }
+    }
+
+    #[test]
+    fn test_shared_items_for_same_file() {
+        let mut graph = CriboGraph::new();
+
+        // Add a module with a canonical path
+        let path = PathBuf::from("src/utils.py");
+        let utils_id = graph.add_module("utils".to_string(), path.clone());
+
+        // Add some items to the utils module
+        let utils_module = graph.modules.get_mut(&utils_id).unwrap();
+        let item1 = utils_module.add_item(ItemData {
+            item_type: ItemType::FunctionDef {
+                name: "helper".into(),
+            },
+            var_decls: ["helper".into()].into_iter().collect(),
+            read_vars: FxHashSet::default(),
+            eventual_read_vars: FxHashSet::default(),
+            write_vars: FxHashSet::default(),
+            eventual_write_vars: FxHashSet::default(),
+            has_side_effects: false,
+            span: Some((1, 3)),
+            imported_names: FxHashSet::default(),
+            reexported_names: FxHashSet::default(),
+            defined_symbols: ["helper".into()].into_iter().collect(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses: FxHashMap::default(),
+        });
+
+        // Add the same file with a different import name
+        let alt_utils_id = graph.add_module("src.utils".to_string(), path);
+
+        // Verify that both modules exist
+        assert!(graph.modules.contains_key(&utils_id));
+        assert!(graph.modules.contains_key(&alt_utils_id));
+
+        // Verify that they share the same items
+        let utils_module = &graph.modules[&utils_id];
+        let alt_utils_module = &graph.modules[&alt_utils_id];
+
+        // Check that the item exists in both modules
+        assert!(utils_module.items.contains_key(&item1));
+        assert!(alt_utils_module.items.contains_key(&item1));
+
+        // Check that they have the same number of items
+        assert_eq!(utils_module.items.len(), alt_utils_module.items.len());
+
+        // Check that the item data is identical
+        assert_eq!(
+            utils_module.items[&item1].item_type,
+            alt_utils_module.items[&item1].item_type
+        );
+
+        // Verify module names are different
+        assert_eq!(utils_module.module_name, "utils");
+        assert_eq!(alt_utils_module.module_name, "src.utils");
+
+        // Verify module IDs are different
+        assert_ne!(utils_module.module_id, alt_utils_module.module_id);
     }
 }
