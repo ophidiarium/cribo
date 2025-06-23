@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// CriboGraph: Advanced dependency graph implementation for Python bundling
 ///
@@ -677,6 +677,16 @@ pub struct CriboGraph {
     node_indices: FxHashMap<ModuleId, NodeIndex>,
     /// Next module ID to allocate
     next_module_id: u32,
+
+    // NEW: Fields for file-based deduplication
+    /// Track canonical paths for each module
+    module_canonical_paths: FxHashMap<ModuleId, PathBuf>,
+    /// Track all import names that resolve to each canonical file
+    /// This includes regular imports AND static importlib calls
+    file_to_import_names: FxHashMap<PathBuf, IndexSet<String>>,
+    /// Track the primary module ID for each file
+    /// (The first import name discovered for this file)
+    file_primary_module: FxHashMap<PathBuf, (String, ModuleId)>,
 }
 
 impl CriboGraph {
@@ -712,16 +722,76 @@ impl CriboGraph {
             graph: DiGraph::new(),
             node_indices: FxHashMap::default(),
             next_module_id: 0,
+            module_canonical_paths: FxHashMap::default(),
+            file_to_import_names: FxHashMap::default(),
+            file_primary_module: FxHashMap::default(),
         }
     }
 
     /// Add a new module to the graph
     pub fn add_module(&mut self, name: String, path: PathBuf) -> ModuleId {
-        // Check if module already exists
-        if let Some(&id) = self.module_names.get(&name) {
+        // Always work with canonical paths
+        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
+
+        // Check if this exact import name already exists
+        if let Some(&existing_id) = self.module_names.get(&name) {
+            // Verify it's the same file
+            if let Some(existing_canonical) = self.module_canonical_paths.get(&existing_id) {
+                if existing_canonical == &canonical_path {
+                    return existing_id; // Same import name, same file - reuse
+                } else {
+                    // Error: same import name but different files
+                    // This shouldn't happen with proper PYTHONPATH management
+                    log::error!(
+                        "Import name '{name}' refers to different files: {existing_canonical:?} \
+                         and {canonical_path:?}"
+                    );
+                }
+            }
+        }
+
+        // Track this import name for the file
+        self.file_to_import_names
+            .entry(canonical_path.clone())
+            .or_default()
+            .insert(name.clone());
+
+        // Check if this file already has a primary module
+        if let Some((primary_name, primary_id)) = self.file_primary_module.get(&canonical_path) {
+            log::info!(
+                "File {canonical_path:?} already imported as '{primary_name}', adding additional \
+                 import name '{name}'"
+            );
+
+            // Create a new ModuleId that shares the same dependency graph
+            // This allows different import names to have different dependency relationships
+            // while still pointing to the same file
+            let id = ModuleId::new(self.next_module_id);
+            self.next_module_id += 1;
+
+            // Clone the dependency graph structure but with new module name
+            let _primary_graph = &self.modules[primary_id];
+            let module = ModuleDepGraph::new(id, name.clone());
+
+            // Share the same item registry (since it's the same file)
+            // Note: For now we'll create a new graph, but in practice we'd want to share items
+            self.modules.insert(id, module);
+            self.module_names.insert(name, id);
+            self.module_canonical_paths.insert(id, canonical_path);
+
+            // Add to petgraph
+            let node_idx = self.graph.add_node(id);
+            self.node_indices.insert(id, node_idx);
+
+            // Copy metadata from primary module
+            if let Some(primary_metadata) = self.module_metadata.get(primary_id) {
+                self.module_metadata.insert(id, primary_metadata.clone());
+            }
+
             return id;
         }
 
+        // This is the first time we're seeing this file
         let id = ModuleId::new(self.next_module_id);
         self.next_module_id += 1;
 
@@ -729,7 +799,11 @@ impl CriboGraph {
         let module_graph = ModuleDepGraph::new(id, name.clone());
         self.modules.insert(id, module_graph);
         self.module_names.insert(name.clone(), id);
-        self.module_paths.insert(path.clone(), id);
+        self.module_paths.insert(canonical_path.clone(), id);
+        self.module_canonical_paths
+            .insert(id, canonical_path.clone());
+        self.file_primary_module
+            .insert(canonical_path.clone(), (name.clone(), id));
 
         // Add to petgraph
         let node_idx = self.graph.add_node(id);
@@ -750,6 +824,8 @@ impl CriboGraph {
                 content_hash: None,
             },
         );
+
+        log::debug!("Registered module '{name}' as primary for file {canonical_path:?}");
 
         id
     }
@@ -1459,6 +1535,38 @@ impl CriboGraph {
                 ],
             },
         }
+    }
+
+    /// Get all import names that resolve to the same file as the given module
+    pub fn get_file_import_names(&self, module_id: ModuleId) -> Vec<String> {
+        if let Some(canonical_path) = self.module_canonical_paths.get(&module_id)
+            && let Some(names) = self.file_to_import_names.get(canonical_path)
+        {
+            return names.iter().cloned().collect();
+        }
+        vec![]
+    }
+
+    /// Check if two modules refer to the same file
+    pub fn same_file(&self, module_id1: ModuleId, module_id2: ModuleId) -> bool {
+        if let (Some(path1), Some(path2)) = (
+            self.module_canonical_paths.get(&module_id1),
+            self.module_canonical_paths.get(&module_id2),
+        ) {
+            return path1 == path2;
+        }
+        false
+    }
+
+    /// Get the canonical path for a module
+    pub fn get_canonical_path(&self, module_id: ModuleId) -> Option<&PathBuf> {
+        self.module_canonical_paths.get(&module_id)
+    }
+
+    /// Get the primary module for a given file path
+    pub fn get_primary_module_for_file(&self, path: &Path) -> Option<(String, ModuleId)> {
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        self.file_primary_module.get(&canonical).cloned()
     }
 }
 

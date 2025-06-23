@@ -7,6 +7,12 @@ input_file: crates/cribo/tests/fixtures/xfail_importlib_static/main.py
 # https://github.com/ophidiarium/cribo
 
 import importlib
+"""Module starting with a number - can't be imported with regular import."""
+"""Module named 'for' - a Python keyword for loops."""
+"""Module named 'def' - another Python keyword."""
+"""Module named 'class' - a Python keyword that can't be used in import statements."""
+"""Another module with hyphen - demonstrating API client functionality."""
+"""Module with hyphen in name - can't be imported with regular import statement."""
 """Main module demonstrating importlib usage with static string literals."""
 data_processor = importlib.import_module("data-processor")
 api_client = importlib.import_module("api-client")
