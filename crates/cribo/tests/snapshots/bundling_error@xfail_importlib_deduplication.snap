@@ -1,7 +1,0 @@
----
-source: crates/cribo/tests/test_bundling_snapshots.rs
-expression: error_msg
-input_file: crates/cribo/tests/fixtures/xfail_importlib_deduplication/main.py
----
-Bundling failed as expected: Failed to resolve ImportlibStatic module '.submodule'. 
-This import would fail at runtime with: ModuleNotFoundError: No module named '.submodule'

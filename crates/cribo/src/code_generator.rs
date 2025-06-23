@@ -501,23 +501,54 @@ impl<'a> RecursiveImportTransformer<'a> {
         {
             let module_name = lit.value.to_str();
 
+            // Handle relative imports with package context
+            let resolved_name = if module_name.starts_with('.') && call.arguments.args.len() >= 2 {
+                // Get the package context from the second argument
+                if let Expr::StringLiteral(package_lit) = &call.arguments.args[1] {
+                    let package = package_lit.value.to_str();
+
+                    // Resolve relative import
+                    let level = module_name.chars().take_while(|&c| c == '.').count();
+                    let name_part = module_name.trim_start_matches('.');
+
+                    let mut package_parts: Vec<&str> = package.split('.').collect();
+
+                    // Go up 'level - 1' levels (one dot means current package)
+                    if level > 1 && package_parts.len() >= level - 1 {
+                        package_parts.truncate(package_parts.len() - (level - 1));
+                    }
+
+                    // Append the name part if it's not empty
+                    if !name_part.is_empty() {
+                        package_parts.push(name_part);
+                    }
+
+                    package_parts.join(".")
+                } else {
+                    module_name.to_string()
+                }
+            } else {
+                module_name.to_string()
+            };
+
             // Check if this module was bundled
-            if self.bundler.bundled_modules.contains(module_name) {
+            if self.bundler.bundled_modules.contains(&resolved_name) {
                 log::debug!(
-                    "Transforming importlib.import_module('{module_name}') to module access"
+                    "Transforming importlib.import_module('{module_name}') to module access \
+                     '{resolved_name}'"
                 );
 
                 self.importlib_transformed = true;
 
                 // Check if this creates a namespace object
-                if self.bundler.inlined_modules.contains(module_name) {
+                if self.bundler.inlined_modules.contains(&resolved_name) {
                     self.created_namespace_objects = true;
                 }
 
                 // Use common logic for module access
                 return Some(
                     self.bundler
-                        .create_module_access_expr(module_name, self.symbol_renames),
+                        .create_module_access_expr(&resolved_name, self.symbol_renames),
                 );
             }
         }
@@ -2031,26 +2062,6 @@ impl HybridStaticBundler {
             .collect::<String>()
     }
 
-    /// Sanitize a module name and ensure uniqueness by appending a suffix if needed
-    fn sanitize_module_name_unique(name: &str, existing_names: &FxIndexSet<String>) -> String {
-        let base_name = Self::sanitize_module_name_for_identifier(name);
-
-        // If no collision, return the base name
-        if !existing_names.contains(&base_name) {
-            return base_name;
-        }
-
-        // Otherwise, append a numeric suffix until we find a unique name
-        let mut counter = 2;
-        loop {
-            let candidate = format!("{base_name}_{counter}");
-            if !existing_names.contains(&candidate) {
-                return candidate;
-            }
-            counter += 1;
-        }
-    }
-
     /// Check if a renamed symbol exists after tree-shaking
     fn renamed_symbol_exists(
         &self,
@@ -3111,20 +3122,62 @@ impl HybridStaticBundler {
         for module_name in wrapped_modules {
             deps_map.insert(module_name.clone(), Vec::new());
 
-            // Add child modules as dependencies to ensure they're initialized first
-            // For example, "models" depends on "models.base" and "models.user"
-            // because models/__init__.py might import from them
+            // Add parent modules as dependencies to ensure they're initialized first
+            // For example, "models.base" depends on "models"
+            // because Python always initializes parent packages before submodules
+            // UNLESS the parent imports from this child
             for other_module in wrapped_modules {
                 if other_module != module_name
-                    && other_module.starts_with(module_name)
-                    && other_module[module_name.len()..].starts_with('.')
+                    && module_name.starts_with(other_module)
+                    && module_name[other_module.len()..].starts_with('.')
                 {
-                    // other_module is a child of module_name
-                    debug!("  - {module_name} depends on child module {other_module}");
-                    if let Some(module_deps) = deps_map.get_mut(module_name)
-                        && !module_deps.contains(other_module)
+                    // module_name is a child of other_module
+                    // Check if the parent imports from this child
+                    let parent_imports_child = if let Some((_, _, parent_deps)) =
+                        all_modules.iter().find(|(name, _, _)| name == other_module)
                     {
-                        module_deps.push(other_module.clone());
+                        // Dependencies might be stored as relative imports
+                        // e.g., ".connection" for "core.database.connection"
+                        let relative_name = if module_name.starts_with(&format!("{other_module}."))
+                        {
+                            format!(".{}", &module_name[other_module.len() + 1..])
+                        } else {
+                            module_name.to_string()
+                        };
+
+                        let imports_child = parent_deps.contains(module_name)
+                            || parent_deps.contains(&relative_name);
+                        if imports_child {
+                            debug!(
+                                "    Found: parent {other_module} has dependency on child \
+                                 {module_name}"
+                            );
+                        }
+                        imports_child
+                    } else {
+                        debug!("    No dependency info found for parent {other_module}");
+                        false
+                    };
+
+                    if parent_imports_child {
+                        // Parent imports from child, so parent depends on child
+                        debug!(
+                            "  - Parent {other_module} imports from child {module_name}, \
+                             reversing dependency"
+                        );
+                        if let Some(parent_deps) = deps_map.get_mut(other_module)
+                            && !parent_deps.contains(module_name)
+                        {
+                            parent_deps.push(module_name.clone());
+                        }
+                    } else {
+                        // Normal case: child depends on parent
+                        debug!("  - {module_name} depends on parent module {other_module}");
+                        if let Some(module_deps) = deps_map.get_mut(module_name)
+                            && !module_deps.contains(other_module)
+                        {
+                            module_deps.push(other_module.clone());
+                        }
                     }
                 }
             }
@@ -4252,26 +4305,16 @@ impl HybridStaticBundler {
             );
             debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
 
-            // Initialize all modules in dependency order
-            let mut init_used_sanitized_names = FxIndexSet::default();
-            for module_name in &sorted_wrapped {
-                debug!("  - Initializing module: {module_name}");
-                if let Some(synthetic_name) = self.module_registry.get(module_name).cloned() {
-                    let init_stmts = self
-                        .generate_module_init_call(&synthetic_name, &mut init_used_sanitized_names);
-                    final_body.extend(init_stmts);
-                }
-            }
+            // DO NOT initialize modules here - they should be initialized when imported
+            // This preserves Python's lazy import semantics
+            debug!("Skipping eager module initialization - modules will initialize on import");
 
             // After all modules are initialized, assign temporary variables to their namespace
             // locations For parent modules that are also wrapper modules, we need to
             // merge their attributes
-            let mut used_sanitized_names = FxIndexSet::default();
             for module_name in &sorted_wrapped {
-                let sanitized_name =
-                    Self::sanitize_module_name_unique(module_name, &used_sanitized_names);
-                used_sanitized_names.insert(sanitized_name.clone());
-                let temp_var_name = format!("_cribo_temp_{sanitized_name}");
+                // Direct module name instead of temp variable
+                // No longer need to track sanitized names since we use direct assignment
 
                 // Check if this module has submodules (is a parent module)
                 let is_parent_module = sorted_wrapped
@@ -4298,51 +4341,14 @@ impl HybridStaticBundler {
                             namespace_path.push_str(part);
                         }
 
-                        // Generate merge code for dotted parent modules
-                        self.generate_merge_module_attributes(
-                            &mut final_body,
-                            &namespace_path,
-                            &temp_var_name,
+                        // For dotted parent modules, they were already handled during init
+                        debug!(
+                            "Dotted parent module '{module_name}' already had attributes merged \
+                             during init"
                         );
                     } else {
-                        // Normal dotted module assignment
-                        let parts: Vec<&str> = module_name.split('.').collect();
-
-                        // Create the namespace assignment: models.base = _cribo_temp_models_base
-                        let mut target_expr = Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: parts[0].into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        });
-
-                        for (i, part) in parts[1..].iter().enumerate() {
-                            let ctx = if i == parts.len() - 2 {
-                                ExprContext::Store // Last part is Store context
-                            } else {
-                                ExprContext::Load
-                            };
-                            target_expr = Expr::Attribute(ExprAttribute {
-                                node_index: AtomicNodeIndex::dummy(),
-                                value: Box::new(target_expr),
-                                attr: Identifier::new(*part, TextRange::default()),
-                                ctx,
-                                range: TextRange::default(),
-                            });
-                        }
-
-                        // models.base = _cribo_temp_models_base
-                        final_body.push(Stmt::Assign(StmtAssign {
-                            node_index: AtomicNodeIndex::dummy(),
-                            targets: vec![target_expr],
-                            value: Box::new(Expr::Name(ExprName {
-                                node_index: AtomicNodeIndex::dummy(),
-                                id: temp_var_name.into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            range: TextRange::default(),
-                        }));
+                        // Dotted modules are already assigned during init via attribute expressions
+                        debug!("Dotted module '{module_name}' already assigned during init");
                     }
                 } else {
                     // For simple module names that are parent modules, we need to merge attributes
@@ -4350,41 +4356,14 @@ impl HybridStaticBundler {
                         debug!(
                             "Module '{module_name}' is both a wrapper module and parent namespace"
                         );
-                        // Instead of overwriting, merge the wrapper module's attributes into the
-                        // namespace This is done by copying all attributes
-                        // from the temporary module to the namespace
-                        self.generate_merge_module_attributes(
-                            &mut final_body,
-                            module_name,
-                            &temp_var_name,
+                        // Parent modules were already handled during init with merge logic
+                        debug!(
+                            "Parent module '{module_name}' already had attributes merged during \
+                             init"
                         );
                     } else {
-                        // Simple assignment for non-parent modules
-                        // Skip assignment if module name is not a valid Python identifier
-                        if Self::is_valid_python_identifier(module_name) {
-                            debug!("Assigning simple module '{module_name}' = '{temp_var_name}'");
-                            final_body.push(Stmt::Assign(StmtAssign {
-                                node_index: AtomicNodeIndex::dummy(),
-                                targets: vec![Expr::Name(ExprName {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    id: module_name.into(),
-                                    ctx: ExprContext::Store,
-                                    range: TextRange::default(),
-                                })],
-                                value: Box::new(Expr::Name(ExprName {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    id: temp_var_name.into(),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                range: TextRange::default(),
-                            }));
-                        } else {
-                            debug!(
-                                "Skipping assignment for module '{module_name}' - invalid Python \
-                                 identifier"
-                            );
-                        }
+                        // Simple modules are already assigned during init via direct assignment
+                        debug!("Module '{module_name}' already assigned during init");
                     }
                 }
             }
@@ -6285,7 +6264,7 @@ impl HybridStaticBundler {
     fn generate_module_init_call(
         &mut self,
         synthetic_name: &str,
-        used_sanitized_names: &mut FxIndexSet<String>,
+        _used_sanitized_names: &mut FxIndexSet<String>,
     ) -> Vec<Stmt> {
         let mut statements = Vec::new();
 
@@ -6298,40 +6277,120 @@ impl HybridStaticBundler {
                 .map(|(orig_name, _)| orig_name.as_str())
                 .unwrap_or(synthetic_name);
 
-            // Always use temporary variables for wrapper modules to avoid overwriting namespaces
-            // Create a temporary variable name for the module
-            let sanitized_name =
-                Self::sanitize_module_name_unique(module_name, used_sanitized_names);
-            used_sanitized_names.insert(sanitized_name.clone());
-            let temp_var_name = format!("_cribo_temp_{sanitized_name}");
+            // Check if this module is a parent namespace that already exists
+            // This happens when a module like 'services.auth' has both:
+            // 1. Its own __init__.py (wrapper module)
+            // 2. Submodules like 'services.auth.manager'
+            let is_parent_namespace = self.module_registry.iter().any(|(name, _)| {
+                name != module_name && name.starts_with(&format!("{module_name}."))
+            });
 
-            // _cribo_temp_module_name = __cribo_init_synthetic_name()
-            statements.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
+            if is_parent_namespace {
+                // For parent namespaces, we need to merge attributes instead of overwriting
+                // Generate code that calls the init function and merges its attributes
+                debug!("Module '{module_name}' is a parent namespace - generating merge code");
+
+                // Call the init function and merge attributes inline
+                // for attr in dir(__cribo_init_xxx()):
+                //     if not attr.startswith('_'):
+                //         setattr(namespace, attr, getattr(result, attr))
+
+                // First, create a variable to hold the init result
+                let init_result_var = "__cribo_init_result";
+                statements.push(Stmt::Assign(StmtAssign {
                     node_index: AtomicNodeIndex::dummy(),
-                    id: temp_var_name.into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Call(ExprCall {
-                    node_index: AtomicNodeIndex::dummy(),
-                    func: Box::new(Expr::Name(ExprName {
+                    targets: vec![Expr::Name(ExprName {
                         node_index: AtomicNodeIndex::dummy(),
-                        id: init_func_name.as_str().into(),
-                        ctx: ExprContext::Load,
+                        id: init_result_var.into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Call(ExprCall {
+                        node_index: AtomicNodeIndex::dummy(),
+                        func: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: init_func_name.as_str().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        arguments: ruff_python_ast::Arguments {
+                            node_index: AtomicNodeIndex::dummy(),
+                            args: Box::from([]),
+                            keywords: Box::from([]),
+                            range: TextRange::default(),
+                        },
                         range: TextRange::default(),
                     })),
-                    arguments: ruff_python_ast::Arguments {
-                        node_index: AtomicNodeIndex::dummy(),
-                        args: Box::from([]),
-                        keywords: Box::from([]),
-                        range: TextRange::default(),
-                    },
                     range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+                }));
+
+                // Then generate the merge code
+                self.generate_merge_module_attributes(
+                    &mut statements,
+                    module_name,
+                    init_result_var,
+                );
+            } else {
+                // Direct assignment for modules that aren't parent namespaces
+                let target_expr = if module_name.contains('.') {
+                    // For dotted modules like models.base, create an attribute expression
+                    let parts: Vec<&str> = module_name.split('.').collect();
+                    let mut expr = Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: parts[0].into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+
+                    for (i, part) in parts[1..].iter().enumerate() {
+                        let ctx = if i == parts.len() - 2 {
+                            ExprContext::Store // Last part is Store context
+                        } else {
+                            ExprContext::Load
+                        };
+                        expr = Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(expr),
+                            attr: Identifier::new(*part, TextRange::default()),
+                            ctx,
+                            range: TextRange::default(),
+                        });
+                    }
+                    expr
+                } else {
+                    // For simple modules, use direct name
+                    Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: module_name.into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })
+                };
+
+                // Generate: module_name = __cribo_init_synthetic_name()
+                // or: parent.child = __cribo_init_synthetic_name()
+                statements.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
+                    targets: vec![target_expr],
+                    value: Box::new(Expr::Call(ExprCall {
+                        node_index: AtomicNodeIndex::dummy(),
+                        func: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: init_func_name.as_str().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        arguments: ruff_python_ast::Arguments {
+                            node_index: AtomicNodeIndex::dummy(),
+                            args: Box::from([]),
+                            keywords: Box::from([]),
+                            range: TextRange::default(),
+                        },
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+            }
         } else {
             statements.push(Stmt::Pass(ruff_python_ast::StmtPass {
                 node_index: AtomicNodeIndex::dummy(),
@@ -8472,12 +8531,15 @@ impl HybridStaticBundler {
         let mut assignments = Vec::new();
         let mut initialized_modules = FxIndexSet::default();
 
+        // Track which modules we've already initialized in this import context
+        // to avoid duplicate initialization calls
+        let mut locally_initialized = FxIndexSet::default();
+
         // Pre-check if this is a wrapper module that needs initialization
         let module_needs_init = if self.module_registry.contains_key(module_name) {
             if inside_wrapper_init {
-                // Inside a wrapper module's init function, we can't reference ANY global namespace
-                // because it hasn't been set up yet. We need to initialize all wrapper modules
-                // locally.
+                // Inside a wrapper module's init function, we need to initialize
+                // the module we're importing from if it's also a wrapper module
                 true
             } else if module_name.contains('.') {
                 // In other contexts, nested modules like schemas.user are initialized during
@@ -8498,21 +8560,18 @@ impl HybridStaticBundler {
                 module_name.cow_replace('.', "_").as_ref()
             );
 
+            // Inside wrapper init, we need to initialize the module first
+            if inside_wrapper_init
+                && self.module_registry.contains_key(module_name)
+                && !locally_initialized.contains(module_name)
+            {
+                // Initialize the wrapper module we're importing from
+                assignments.extend(self.create_module_initialization_for_import(module_name));
+                locally_initialized.insert(module_name.to_string());
+            }
+
             // We need to determine the correct source variable to reference
-            let source_var =
-                if inside_wrapper_init || self.module_registry.contains_key(module_name) {
-                    // Inside wrapper init OR when importing from a wrapper module,
-                    // use the temporary variable which will contain the initialized module
-                    format!("_cribo_temp_{}", module_name.cow_replace(".", "_"))
-                } else if module_name.contains('.') {
-                    // For dotted modules outside wrapper init, reference the temporary variable if
-                    // it exists
-                    format!("_cribo_temp_{}", module_name.cow_replace(".", "_"))
-                } else {
-                    // For top-level modules outside wrapper init that are not wrapper modules,
-                    // reference the module directly
-                    module_name.to_string()
-                };
+            let source_var = module_name.to_string();
 
             // Add: _cribo_module_xxx = source_var (either the module or temp variable)
             assignments.push(Stmt::Assign(StmtAssign {
@@ -8548,7 +8607,8 @@ impl HybridStaticBundler {
             // and might re-export this name
             let parent_is_wrapper = self.module_registry.contains_key(module_name);
             let submodule_exists = self.bundled_modules.contains(&full_module_path)
-                && self.module_registry.contains_key(&full_module_path);
+                && (self.module_registry.contains_key(&full_module_path)
+                    || self.inlined_modules.contains(&full_module_path));
 
             // If both the parent is a wrapper and a submodule exists, we need to decide
             // In Python, attributes from __init__.py take precedence over submodules
@@ -8559,9 +8619,9 @@ impl HybridStaticBundler {
                     // If __all__ is defined and doesn't include this name, it's the submodule
                     !export_list.contains(&imported_name.to_string())
                 } else {
-                    // No __all__ defined or no export info - assume it's an attribute (safer
-                    // default)
-                    false
+                    // No __all__ defined - check if the submodule actually exists
+                    // If it does, we're importing the submodule not an attribute
+                    submodule_exists
                 }
             } else {
                 // Simple case: just check if it's a submodule
@@ -8570,43 +8630,64 @@ impl HybridStaticBundler {
 
             if importing_submodule {
                 // We're importing a submodule, not an attribute
-                // First, ensure the submodule is initialized if it's a wrapper module
-                if let Some(synthetic_name) = self.module_registry.get(&full_module_path) {
-                    // Only add initialization call if we haven't already initialized this module
-                    if !initialized_modules.contains(&full_module_path) {
-                        // Add initialization call: __cribo_init_<synthetic>()
-                        let init_func_name = format!("__cribo_init_{synthetic_name}");
-                        assignments.push(Stmt::Expr(ruff_python_ast::StmtExpr {
-                            node_index: AtomicNodeIndex::dummy(),
-                            value: Box::new(Expr::Call(ExprCall {
-                                node_index: AtomicNodeIndex::dummy(),
-                                func: Box::new(Expr::Name(ExprName {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    id: init_func_name.into(),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                arguments: Arguments {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    args: Box::from([]),
-                                    keywords: Box::from([]),
-                                    range: TextRange::default(),
-                                },
-                                range: TextRange::default(),
-                            })),
-                            range: TextRange::default(),
-                        }));
-                        initialized_modules.insert(full_module_path.clone());
-                    }
-                }
-
-                // Create: target = module.submodule (direct namespace reference)
                 log::debug!(
                     "Importing submodule '{imported_name}' from '{module_name}' via from import"
                 );
 
+                // When inside a wrapper init, we need to initialize modules we're importing from
+                if inside_wrapper_init {
+                    // First, ensure the parent module is initialized if it's a wrapper module
+                    if self.module_registry.contains_key(module_name)
+                        && !locally_initialized.contains(module_name)
+                    {
+                        assignments
+                            .extend(self.create_module_initialization_for_import(module_name));
+                        locally_initialized.insert(module_name.to_string());
+                    }
+                    // Then ensure the submodule is initialized if it's a wrapper module
+                    if self.module_registry.contains_key(&full_module_path)
+                        && !locally_initialized.contains(&full_module_path)
+                    {
+                        assignments.extend(
+                            self.create_module_initialization_for_import(&full_module_path),
+                        );
+                        locally_initialized.insert(full_module_path.clone());
+                        initialized_modules.insert(full_module_path.clone());
+                    }
+                } else {
+                    // Not inside wrapper init - normal lazy initialization
+                    if self.module_registry.contains_key(module_name)
+                        && !locally_initialized.contains(module_name)
+                    {
+                        // Initialize parent module if needed
+                        assignments
+                            .extend(self.create_module_initialization_for_import(module_name));
+                        locally_initialized.insert(module_name.to_string());
+                    }
+                    if self.module_registry.contains_key(&full_module_path)
+                        && !locally_initialized.contains(&full_module_path)
+                    {
+                        // Initialize submodule if needed
+                        assignments.extend(
+                            self.create_module_initialization_for_import(&full_module_path),
+                        );
+                        locally_initialized.insert(full_module_path.clone());
+                        initialized_modules.insert(full_module_path.clone());
+                    }
+                }
+
                 // Build the direct namespace reference
-                let namespace_expr = if full_module_path.contains('.') {
+                let namespace_expr = if self.inlined_modules.contains(&full_module_path) {
+                    // For inlined modules, use the temporary variable directly
+                    // Use direct module name for inlined modules
+                    let module_var_name = full_module_path.clone();
+                    Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: module_var_name.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })
+                } else if full_module_path.contains('.') {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = full_module_path.split('.').collect();
                     let mut expr = Expr::Name(ExprName {
@@ -8648,6 +8729,16 @@ impl HybridStaticBundler {
                 }));
             } else {
                 // Regular attribute import
+                // Ensure the module is initialized first if it's a wrapper module
+                if self.module_registry.contains_key(module_name)
+                    && module_var_name.is_none()
+                    && !locally_initialized.contains(module_name)
+                {
+                    // Initialize the module before accessing its attributes
+                    assignments.extend(self.create_module_initialization_for_import(module_name));
+                    locally_initialized.insert(module_name.to_string());
+                }
+
                 // Create: target = module.imported_name
                 let module_expr = if let Some(ref var_name) = module_var_name {
                     // We initialized the module locally, use the local variable
@@ -11426,6 +11517,10 @@ impl HybridStaticBundler {
                         // a.b.c)
                         self.create_parent_namespaces(&parts, &mut result_stmts);
 
+                        // Initialize the module at import time
+                        result_stmts
+                            .extend(self.create_module_initialization_for_import(module_name));
+
                         let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
                         // If there's no alias, we need to handle the dotted name specially
@@ -11497,9 +11592,13 @@ impl HybridStaticBundler {
                 }
 
                 if self.module_registry.contains_key(module_name) {
-                    // Module uses wrapper approach - transform to sys.modules access
+                    // Module uses wrapper approach - need to initialize it now
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                    // Skip self-assignments - the module is already initialized
+
+                    // First, ensure the module is initialized
+                    result_stmts.extend(self.create_module_initialization_for_import(module_name));
+
+                    // Then create assignment if needed (skip self-assignments)
                     if target_name.as_str() != module_name {
                         result_stmts.push(
                             self.create_module_reference_assignment(
@@ -11558,6 +11657,9 @@ impl HybridStaticBundler {
                     // a.b.c)
                     self.create_parent_namespaces_entry_module(&parts, &mut result_stmts);
 
+                    // Initialize the module at import time
+                    result_stmts.extend(self.create_module_initialization_for_import(module_name));
+
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
                     // If there's no alias, we need to handle the dotted name specially
@@ -11588,9 +11690,13 @@ impl HybridStaticBundler {
                 }
 
                 if self.module_registry.contains_key(module_name) {
-                    // Module uses wrapper approach - transform to sys.modules access
+                    // Module uses wrapper approach - need to initialize it now
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                    // Skip self-assignments - the module is already initialized
+
+                    // First, ensure the module is initialized
+                    result_stmts.extend(self.create_module_initialization_for_import(module_name));
+
+                    // Then create assignment if needed (skip self-assignments)
                     if target_name.as_str() != module_name {
                         result_stmts.push(
                             self.create_module_reference_assignment(
@@ -11802,6 +11908,123 @@ impl HybridStaticBundler {
         })
     }
 
+    /// Create module initialization statements for wrapper modules when they are imported
+    fn create_module_initialization_for_import(&self, module_name: &str) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+
+        // Check if this is a wrapper module that needs initialization
+        if let Some(synthetic_name) = self.module_registry.get(module_name) {
+            // Generate the init call
+            let init_func_name = format!("__cribo_init_{synthetic_name}");
+
+            // Call the init function and get the result
+            let init_call = Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
+                func: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: init_func_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            });
+
+            // Generate the appropriate assignment based on module type
+            stmts.extend(self.generate_module_assignment_from_init(module_name, init_call));
+        }
+
+        stmts
+    }
+
+    /// Generate module assignment from init function result
+    fn generate_module_assignment_from_init(
+        &self,
+        module_name: &str,
+        init_call: Expr,
+    ) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+
+        // Check if this module is a parent namespace that already exists
+        let is_parent_namespace = self
+            .module_registry
+            .iter()
+            .any(|(name, _)| name != module_name && name.starts_with(&format!("{module_name}.")));
+
+        if is_parent_namespace {
+            // Use temp variable and merge attributes for parent namespaces
+            let init_result_var = "__cribo_init_result";
+
+            // Store init result in temp variable
+            stmts.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: init_result_var.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(init_call),
+                range: TextRange::default(),
+            }));
+
+            // Merge attributes from init result into existing namespace
+            self.generate_merge_module_attributes(&mut stmts, module_name, init_result_var);
+        } else {
+            // Direct assignment for simple and dotted modules
+            let target_expr = if module_name.contains('.') {
+                // Create attribute expression for dotted modules
+                let parts: Vec<&str> = module_name.split('.').collect();
+                let mut expr = Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: parts[0].into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+
+                for part in &parts[1..parts.len() - 1] {
+                    expr = Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(expr),
+                        attr: Identifier::new(*part, TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+                }
+
+                Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(expr),
+                    attr: Identifier::new(parts[parts.len() - 1], TextRange::default()),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })
+            } else {
+                // Simple name expression
+                Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: module_name.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })
+            };
+
+            stmts.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![target_expr],
+                value: Box::new(init_call),
+                range: TextRange::default(),
+            }));
+        }
+
+        stmts
+    }
+
     /// Create parent namespaces for dotted imports
     fn create_parent_namespaces(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
         for i in 1..parts.len() {
@@ -11889,12 +12112,12 @@ impl HybridStaticBundler {
         &self,
         statements: &mut Vec<Stmt>,
         namespace_name: &str,
-        temp_module_name: &str,
+        source_module_name: &str,
     ) {
         // Generate code like:
-        // for attr in dir(_cribo_temp_mypackage):
+        // for attr in dir(mypackage):
         //     if not attr.startswith('_'):
-        //         setattr(mypackage, attr, getattr(_cribo_temp_mypackage, attr))
+        //         setattr(mypackage, attr, getattr(mypackage, attr))
 
         let attr_var = "attr";
         let loop_target = Expr::Name(ExprName {
@@ -11904,7 +12127,7 @@ impl HybridStaticBundler {
             range: TextRange::default(),
         });
 
-        // dir(_cribo_temp_mypackage)
+        // dir(mypackage)
         let dir_call = Expr::Call(ExprCall {
             node_index: AtomicNodeIndex::dummy(),
             func: Box::new(Expr::Name(ExprName {
@@ -11917,7 +12140,7 @@ impl HybridStaticBundler {
                 node_index: AtomicNodeIndex::dummy(),
                 args: Box::from([Expr::Name(ExprName {
                     node_index: AtomicNodeIndex::dummy(),
-                    id: temp_module_name.into(),
+                    id: source_module_name.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 })]),
@@ -11965,7 +12188,7 @@ impl HybridStaticBundler {
             range: TextRange::default(),
         });
 
-        // getattr(_cribo_temp_mypackage, attr)
+        // getattr(mypackage, attr)
         let getattr_call = Expr::Call(ExprCall {
             node_index: AtomicNodeIndex::dummy(),
             func: Box::new(Expr::Name(ExprName {
@@ -11979,7 +12202,7 @@ impl HybridStaticBundler {
                 args: Box::from([
                     Expr::Name(ExprName {
                         node_index: AtomicNodeIndex::dummy(),
-                        id: temp_module_name.into(),
+                        id: source_module_name.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     }),
@@ -13443,13 +13666,10 @@ impl HybridStaticBundler {
     ) -> Expr {
         // Check if this is a wrapper module
         if self.module_registry.contains_key(module_name) {
-            // This is a wrapper module - return reference to the temp variable
-            let sanitized_name = Self::sanitize_module_name_for_identifier(module_name);
-            let temp_var_name = format!("_cribo_temp_{sanitized_name}");
-
+            // This is a wrapper module - return direct reference to the module
             Expr::Name(ExprName {
                 node_index: AtomicNodeIndex::dummy(),
-                id: temp_var_name.into(),
+                id: module_name.into(),
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
             })

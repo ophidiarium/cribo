@@ -489,26 +489,87 @@ impl ModuleResolver {
     /// Resolve an ImportlibStatic import that may have invalid Python identifiers
     /// This handles cases like importlib.import_module("data-processor")
     pub fn resolve_importlib_static(&mut self, module_name: &str) -> Result<Option<PathBuf>> {
+        self.resolve_importlib_static_with_context(module_name, None)
+    }
+
+    /// Resolve ImportlibStatic imports with optional package context for relative imports
+    pub fn resolve_importlib_static_with_context(
+        &mut self,
+        module_name: &str,
+        package_context: Option<&str>,
+    ) -> Result<Option<PathBuf>> {
+        // Handle relative imports with package context
+        let resolved_name = if let Some(package) = package_context {
+            if module_name.starts_with('.') {
+                // Count the number of leading dots
+                let level = module_name.chars().take_while(|&c| c == '.').count();
+                let name_part = module_name.trim_start_matches('.');
+
+                // Split the package to handle parent navigation
+                let mut package_parts: Vec<&str> = package.split('.').collect();
+
+                // Go up 'level - 1' levels (one dot means current package)
+                if level > 1 && package_parts.len() >= level - 1 {
+                    package_parts.truncate(package_parts.len() - (level - 1));
+                }
+
+                // Append the name part if it's not empty
+                if !name_part.is_empty() {
+                    package_parts.push(name_part);
+                }
+
+                package_parts.join(".")
+            } else {
+                // Absolute import, use as-is
+                module_name.to_string()
+            }
+        } else {
+            module_name.to_string()
+        };
+
+        debug!(
+            "Resolving ImportlibStatic: '{}' with package '{}' -> '{}'",
+            module_name,
+            package_context.unwrap_or("None"),
+            resolved_name
+        );
+
         // For ImportlibStatic imports, we look for files with the exact name
         // (including hyphens and other invalid Python identifier characters)
         let search_dirs = self.get_search_directories();
 
         for search_dir in &search_dirs {
-            // Try as a direct file with .py extension
-            let file_path = search_dir.join(format!("{module_name}.py"));
-            if file_path.is_file() {
-                debug!("Found ImportlibStatic module at: {file_path:?}");
-                return Ok(Some(file_path));
+            // Convert module name to file path (replace dots with slashes)
+            let path_components: Vec<&str> = resolved_name.split('.').collect();
+
+            if path_components.len() == 1 {
+                // Single component - try as direct file
+                let file_path = search_dir.join(format!("{resolved_name}.py"));
+                if file_path.is_file() {
+                    debug!("Found ImportlibStatic module at: {file_path:?}");
+                    return Ok(Some(file_path));
+                }
+            }
+
+            // Try as a nested module path
+            let mut module_path = search_dir.clone();
+            for (i, component) in path_components.iter().enumerate() {
+                if i == path_components.len() - 1 {
+                    // Last component - try as file
+                    let file_path = module_path.join(format!("{component}.py"));
+                    if file_path.is_file() {
+                        debug!("Found ImportlibStatic module at: {file_path:?}");
+                        return Ok(Some(file_path));
+                    }
+                }
+                module_path = module_path.join(component);
             }
 
             // Try as a package directory with __init__.py
-            let package_path = search_dir.join(module_name);
-            if package_path.is_dir() {
-                let init_path = package_path.join("__init__.py");
-                if init_path.is_file() {
-                    debug!("Found ImportlibStatic package at: {init_path:?}");
-                    return Ok(Some(init_path));
-                }
+            let init_path = module_path.join("__init__.py");
+            if init_path.is_file() {
+                debug!("Found ImportlibStatic package at: {init_path:?}");
+                return Ok(Some(init_path));
             }
         }
 

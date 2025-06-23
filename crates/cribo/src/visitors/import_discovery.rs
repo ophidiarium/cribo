@@ -77,6 +77,9 @@ pub struct DiscoveredImport {
     pub is_movable: bool,
     /// Whether this import is only used within TYPE_CHECKING blocks
     pub is_type_checking_only: bool,
+    /// Package context for relative ImportlibStatic imports (e.g., "package" in
+    /// importlib.import_module(".submodule", "package"))
+    pub package_context: Option<String>,
 }
 
 /// Where an import was discovered in the AST
@@ -380,6 +383,16 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         None
     }
 
+    fn extract_package_context(&self, call: &ExprCall) -> Option<String> {
+        // Extract the second argument if it exists (package context for relative imports)
+        if call.arguments.args.len() >= 2
+            && let Expr::StringLiteral(ExprStringLiteral { value, .. }) = &call.arguments.args[1]
+        {
+            return Some(value.to_str().to_string());
+        }
+        None
+    }
+
     /// Record an import statement
     fn record_import(&mut self, stmt: &StmtImport) {
         for alias in &stmt.names {
@@ -413,6 +426,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 is_used_in_init: false,
                 is_movable: false,
                 is_type_checking_only: self.in_type_checking,
+                package_context: None,
             };
             self.imports.push(import);
         }
@@ -462,6 +476,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             is_used_in_init: false,
             is_movable: false,
             is_type_checking_only: self.in_type_checking,
+            package_context: None,
         };
         self.imports.push(import);
     }
@@ -553,19 +568,32 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
                 if self.is_static_importlib_call(call)
                     && let Some(module_name) = self.extract_literal_module_name(call)
                 {
-                    log::debug!("Found static importlib call for module: {module_name}");
+                    let package_context = self.extract_package_context(call);
+                    log::debug!(
+                        "Found static importlib call for module: {module_name}, package: \
+                         {package_context:?}"
+                    );
+
+                    // Determine import level for relative imports
+                    let level = if module_name.starts_with('.') {
+                        module_name.chars().take_while(|&c| c == '.').count() as u32
+                    } else {
+                        0
+                    };
+
                     // Track this as an import
                     let import = DiscoveredImport {
                         module_name: Some(module_name.clone()),
                         names: vec![], // No specific names for direct module import
                         location: self.current_location(),
                         range: call.range,
-                        level: 0,
+                        level,
                         import_type: ImportType::ImportlibStatic,
                         execution_contexts: HashSet::default(),
                         is_used_in_init: false,
                         is_movable: false,
                         is_type_checking_only: self.in_type_checking,
+                        package_context,
                     };
                     self.imports.push(import);
 

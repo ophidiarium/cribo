@@ -375,8 +375,6 @@ models.__name__ = 'models'
 services = types.SimpleNamespace()
 services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
-_cribo_temp_services_auth_manager = __cribo_init___cribo_ee1d45_services_auth_manager()
-services.auth.manager = _cribo_temp_services_auth_manager
 core_validate = validate_6
 UserLogger = Logger_2
 util_process = process_6
@@ -384,6 +382,7 @@ UtilLogger = Logger_4
 helper_validate = validate_6
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
+services.auth.manager = __cribo_init___cribo_ee1d45_services_auth_manager()
 auth_process = services.auth.manager.process
 auth_validate = services.auth.manager.validate
 UserModel = User_2

@@ -100,7 +100,8 @@ def __cribo_init___cribo_1f9e6c_models_user():
     util_process = process_7
     UtilLogger = Logger_6
     """User models module - imports from core and base, no circular dependencies"""
-    _cribo_module_models_base = _cribo_temp_models_base
+    models.base = __cribo_init___cribo_0a162a_models_base()
+    _cribo_module_models_base = models.base
     BaseLogger = _cribo_module_models_base.Logger
     process = "process_string"
     module.process = process
@@ -180,7 +181,8 @@ def __cribo_init___cribo_b2dda7_services():
 def __cribo_init___cribo_0ecebd_services_auth_manager():
     module = types.SimpleNamespace()
     """Authentication manager - imports from core and models only, no circular dependencies"""
-    _cribo_module_core_database_connection = _cribo_temp_core_database_connection
+    core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
+    _cribo_module_core_database_connection = core.database.connection
     DBConnection = _cribo_module_core_database_connection.Connection
     process = [1, 2, 3]
     module.process = process
@@ -307,36 +309,23 @@ models.__name__ = 'models'
 services = types.SimpleNamespace()
 services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
-_cribo_temp_models_base = __cribo_init___cribo_0a162a_models_base()
-_cribo_temp_core_database_connection = __cribo_init___cribo_df9c8d_core_database_connection()
-_cribo_temp_services_auth_manager = __cribo_init___cribo_0ecebd_services_auth_manager()
-_cribo_temp_models_user = __cribo_init___cribo_1f9e6c_models_user()
-_cribo_temp_services_auth = __cribo_init___cribo_84bf42_services_auth()
-_cribo_temp_models = __cribo_init___cribo_293a98_models()
-_cribo_temp_services = __cribo_init___cribo_b2dda7_services()
-models.base = _cribo_temp_models_base
-core.database.connection = _cribo_temp_core_database_connection
-services.auth.manager = _cribo_temp_services_auth_manager
-models.user = _cribo_temp_models_user
-for attr in dir(_cribo_temp_services_auth):
-    if not attr.startswith('_'):
-        setattr(services.auth, attr, getattr(_cribo_temp_services_auth, attr))
-for attr in dir(_cribo_temp_models):
-    if not attr.startswith('_'):
-        setattr(models, attr, getattr(_cribo_temp_models, attr))
-for attr in dir(_cribo_temp_services):
-    if not attr.startswith('_'):
-        setattr(services, attr, getattr(_cribo_temp_services, attr))
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\nWITHOUT circular dependencies\n"""
+core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
 db_process = core.database.connection.process
 UtilLogger = Logger_6
+services.auth.manager = __cribo_init___cribo_0ecebd_services_auth_manager()
 auth_process = services.auth.manager.process
 auth_validate = services.auth.manager.validate
+models.user = __cribo_init___cribo_1f9e6c_models_user()
 UserModel = models.user.User
 process_user = models.user.process_user
 Logger = models.user.Logger
-_cribo_module_models = _cribo_temp_models
-__cribo_init___cribo_0a162a_models_base()
+_cribo_module_models = models
+__cribo_init_result = __cribo_init___cribo_293a98_models()
+for attr in dir(__cribo_init_result):
+    if not attr.startswith('_'):
+        setattr(models, attr, getattr(__cribo_init_result, attr))
+models.base = __cribo_init___cribo_0a162a_models_base()
 base = models.base
 result = 42
 connection = None

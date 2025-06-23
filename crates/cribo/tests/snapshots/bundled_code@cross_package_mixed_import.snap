@@ -103,7 +103,7 @@ def __cribo_init___cribo_1f0c3d_core_database_connection():
     helper_validate = validate
     get_full_config = get_config
     """Database connection module demonstrating mixed import patterns.\n\nThis module combines:\n1. Absolute import from a different package (models.user)\n2. Relative import from within the same package (..utils.helpers)\n3. Import from parent package's version module (not __init__.py)\n4. No imports from parent package's __init__.py to avoid circular dependencies\n"""
-    _cribo_module_models = _cribo_temp_models
+    _cribo_module_models = models
     DEFAULT_MODEL_CONFIG = _cribo_module_models.DEFAULT_MODEL_CONFIG
     module.DEFAULT_MODEL_CONFIG = DEFAULT_MODEL_CONFIG
     get_base_model = _cribo_module_models.get_base_model
@@ -162,7 +162,7 @@ def __cribo_init___cribo_782908_core_database():
             return False
         return not any(char in name for char in ["/", "\\", ":"])
     module.validate_db_name = validate_db_name
-    _cribo_module_core_database_connection = _cribo_temp_core_database_connection
+    _cribo_module_core_database_connection = core.database.connection
     connect = _cribo_module_core_database_connection.connect
     module.connect = connect
     get_connection_info = _cribo_module_core_database_connection.get_connection_info
@@ -170,7 +170,7 @@ def __cribo_init___cribo_782908_core_database():
 
     def safe_connect(database_name: str) -> str:
         """Connect only if core is initialized."""
-        _cribo_module_core = _cribo_temp_core
+        _cribo_module_core = core
         is_initialized = _cribo_module_core.is_initialized
         if not is_initialized():
             raise RuntimeError("Core package must be initialized before connecting")
@@ -221,26 +221,24 @@ core.database = types.SimpleNamespace()
 core.utils = types.SimpleNamespace()
 models = types.SimpleNamespace()
 models.__name__ = 'models'
-_cribo_temp_models = __cribo_init___cribo_563ea2_models()
-_cribo_temp_core_database_connection = __cribo_init___cribo_1f0c3d_core_database_connection()
-_cribo_temp_core_database = __cribo_init___cribo_782908_core_database()
-_cribo_temp_core = __cribo_init___cribo_f00e4b_core()
-models = _cribo_temp_models
-core.database.connection = _cribo_temp_core_database_connection
-for attr in dir(_cribo_temp_core_database):
+models = __cribo_init___cribo_563ea2_models()
+core.database.connection = __cribo_init___cribo_1f0c3d_core_database_connection()
+__cribo_init_result = __cribo_init___cribo_782908_core_database()
+for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
-        setattr(core.database, attr, getattr(_cribo_temp_core_database, attr))
-for attr in dir(_cribo_temp_core):
+        setattr(core.database, attr, getattr(__cribo_init_result, attr))
+__cribo_init_result = __cribo_init___cribo_f00e4b_core()
+for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
-        setattr(core, attr, getattr(_cribo_temp_core, attr))
+        setattr(core, attr, getattr(__cribo_init_result, attr))
 """Test fixture demonstrating cross-package mixed import patterns.\n\nThis tests the specific pattern where a module uses both:\n1. Deep absolute imports crossing package boundaries (e.g., from models.user)\n2. Relative imports within its package (e.g., from ..utils.helpers)\n3. Import order dependencies with __init__.py files\n"""
-_cribo_module_core = _cribo_temp_core
+_cribo_module_core = core
 initialize_core = _cribo_module_core.initialize_core
 db_connect = core.database.connect
 connect = core.database.connection.connect
 get_connection_info = core.database.connection.get_connection_info
 CONNECTION_METADATA = core.database.connection.CONNECTION_METADATA
-_cribo_module_models = _cribo_temp_models
+_cribo_module_models = models
 get_model_version = _cribo_module_models.get_model_version
 DEFAULT_MODEL_CONFIG = _cribo_module_models.DEFAULT_MODEL_CONFIG
 HAS_ADVANCED = _cribo_module_models.HAS_ADVANCED
