@@ -444,6 +444,8 @@ struct RecursiveImportTransformer<'a> {
     /// Track variables that were assigned from importlib.import_module() of inlined modules
     /// Maps variable name to the inlined module name
     importlib_inlined_modules: FxIndexMap<String, String>,
+    /// Track if we created any types.SimpleNamespace calls
+    created_namespace_objects: bool,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -461,6 +463,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             local_variables: FxIndexSet::default(),
             importlib_transformed: false,
             importlib_inlined_modules: FxIndexMap::default(),
+            created_namespace_objects: false,
         }
     }
 
@@ -485,35 +488,23 @@ impl<'a> RecursiveImportTransformer<'a> {
             let module_name = lit.value.to_str();
 
             // Check if this module was bundled
-            if self.bundler.module_registry.contains_key(module_name) {
-                // This is a wrapper module with invalid identifier
-                // Transform to direct reference to the temp variable
-                let sanitized_name =
-                    HybridStaticBundler::sanitize_module_name_for_identifier(module_name);
-                let temp_var_name = format!("_cribo_temp_{sanitized_name}");
-
+            if self.bundler.bundled_modules.contains(module_name) {
                 log::debug!(
-                    "Transforming importlib.import_module('{module_name}') to direct reference \
-                     '{temp_var_name}'"
+                    "Transforming importlib.import_module('{module_name}') to module access"
                 );
 
                 self.importlib_transformed = true;
 
-                return Some(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: temp_var_name.into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                }));
-            } else if self.bundler.inlined_modules.contains(module_name) {
-                // This is an inlined module - don't transform the call
-                // The assignment tracking and attribute rewriting will handle it
-                log::debug!(
-                    "Not transforming importlib.import_module('{module_name}') - inlined module \
-                     will be handled by attribute rewriting"
+                // Check if this creates a namespace object
+                if self.bundler.inlined_modules.contains(module_name) {
+                    self.created_namespace_objects = true;
+                }
+
+                // Use common logic for module access
+                return Some(
+                    self.bundler
+                        .create_module_access_expr(module_name, self.symbol_renames),
                 );
-                self.importlib_transformed = true;
-                // Don't return anything - let the original call remain
             }
         }
         None
@@ -3555,6 +3546,8 @@ impl HybridStaticBundler {
             self.add_stdlib_import("types");
         }
 
+        // We'll add types import later if we actually create namespace objects for importlib
+
         // Register wrapper modules
         for (module_name, _ast, _module_path, content_hash) in &wrapper_modules {
             self.module_exports.insert(
@@ -3572,8 +3565,8 @@ impl HybridStaticBundler {
             self.init_functions.insert(synthetic_name, init_func_name);
         }
 
-        // Add imports first
-        self.add_hoisted_imports(&mut final_body);
+        // Note: We'll add hoisted imports later after all transformations are done
+        // to ensure we capture all needed imports (like types for namespace objects)
 
         // Check if we have wrapper modules
         let has_wrapper_modules = !wrapper_modules.is_empty();
@@ -4279,6 +4272,12 @@ impl HybridStaticBundler {
                 });
             }
 
+            // If namespace objects were created, we need types import
+            if transformer.created_namespace_objects {
+                log::debug!("Namespace objects were created, adding types import");
+                self.add_stdlib_import("types");
+            }
+
             // Process statements in order
             for stmt in &ast.body {
                 let is_hoisted = self.is_hoisted_import(stmt);
@@ -4522,6 +4521,13 @@ impl HybridStaticBundler {
             );
             final_body.extend(deduped_imports);
         }
+
+        // Add hoisted imports at the beginning of final_body
+        // This is done here after all transformations to ensure we capture all needed imports
+        let mut hoisted_imports = Vec::new();
+        self.add_hoisted_imports(&mut hoisted_imports);
+        hoisted_imports.extend(final_body);
+        final_body = hoisted_imports;
 
         let mut result = ModModule {
             node_index: self.create_transformed_node("Bundled module root".to_string()),
@@ -4786,6 +4792,14 @@ impl HybridStaticBundler {
         }
 
         transformer.transform_module(&mut ast);
+
+        // If namespace objects were created, we need types import
+        // (though wrapper modules already have types import)
+        if transformer.created_namespace_objects {
+            log::debug!(
+                "Namespace objects were created in wrapper module, types import already present"
+            );
+        }
 
         // Store deferred imports to add after module body
         let deferred_imports_to_add = wrapper_deferred_imports.clone();
@@ -13032,6 +13046,7 @@ impl HybridStaticBundler {
             && let Some(export_list) = exports
         {
             for export in export_list {
+                // Check if this export was already added as a renamed symbol
                 if !module_renames.contains_key(export) && !seen_args.contains(export) {
                     // Check if this symbol survived tree-shaking
                     if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
@@ -13095,6 +13110,151 @@ impl HybridStaticBundler {
                 },
                 range: TextRange::default(),
             })),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Create expression for module access - either wrapper reference or namespace object
+    fn create_module_access_expr(
+        &self,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Expr {
+        // Check if this is a wrapper module
+        if self.module_registry.contains_key(module_name) {
+            // This is a wrapper module - return reference to the temp variable
+            let sanitized_name = Self::sanitize_module_name_for_identifier(module_name);
+            let temp_var_name = format!("_cribo_temp_{sanitized_name}");
+
+            Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: temp_var_name.into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })
+        } else if self.inlined_modules.contains(module_name) {
+            // This is an inlined module - create namespace object
+            self.create_namespace_call_for_inlined_module(
+                module_name,
+                symbol_renames.get(module_name),
+            )
+        } else {
+            // This module wasn't bundled - shouldn't happen for static imports
+            // Return None literal as a fallback
+            Expr::NoneLiteral(ExprNoneLiteral {
+                node_index: AtomicNodeIndex::dummy(),
+                range: TextRange::default(),
+            })
+        }
+    }
+
+    /// Create a namespace call expression for an inlined module
+    fn create_namespace_call_for_inlined_module(
+        &self,
+        module_name: &str,
+        module_renames: Option<&FxIndexMap<String, String>>,
+    ) -> Expr {
+        // Create a types.SimpleNamespace with all the module's symbols
+        let mut keywords = Vec::new();
+        let mut seen_args = FxIndexSet::default();
+
+        // Add all renamed symbols as keyword arguments, avoiding duplicates
+        if let Some(renames) = module_renames {
+            for (original_name, renamed_name) in renames {
+                // Skip if we've already added this argument name
+                if seen_args.contains(original_name) {
+                    log::debug!(
+                        "Skipping duplicate namespace argument '{original_name}' for module \
+                         '{module_name}'"
+                    );
+                    continue;
+                }
+
+                // Check if this symbol survived tree-shaking
+                if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                    && !kept_symbols.contains(&(module_name.to_string(), original_name.clone()))
+                {
+                    log::debug!(
+                        "Skipping tree-shaken symbol '{original_name}' from namespace for module \
+                         '{module_name}'"
+                    );
+                    continue;
+                }
+
+                seen_args.insert(original_name.clone());
+
+                keywords.push(Keyword {
+                    node_index: AtomicNodeIndex::dummy(),
+                    arg: Some(Identifier::new(original_name, TextRange::default())),
+                    value: Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: renamed_name.clone().into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    }),
+                    range: TextRange::default(),
+                });
+            }
+        }
+
+        // Also check if module has module-level variables that weren't renamed
+        if let Some(exports) = self.module_exports.get(module_name)
+            && let Some(export_list) = exports
+        {
+            for export in export_list {
+                // Check if this export was already added as a renamed symbol
+                let was_renamed =
+                    module_renames.is_some_and(|renames| renames.contains_key(export));
+                if !was_renamed && !seen_args.contains(export) {
+                    // Check if this symbol survived tree-shaking
+                    if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                        && !kept_symbols.contains(&(module_name.to_string(), export.clone()))
+                    {
+                        log::debug!(
+                            "Skipping tree-shaken export '{export}' from namespace for module \
+                             '{module_name}'"
+                        );
+                        continue;
+                    }
+
+                    // This export wasn't renamed and wasn't already added, add it directly
+                    seen_args.insert(export.clone());
+                    keywords.push(Keyword {
+                        node_index: AtomicNodeIndex::dummy(),
+                        arg: Some(Identifier::new(export, TextRange::default())),
+                        value: Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: export.clone().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        }),
+                        range: TextRange::default(),
+                    });
+                }
+            }
+        }
+
+        // Create types.SimpleNamespace(**kwargs) call
+        Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
+            func: Box::new(Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: "types".into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            arguments: Arguments {
+                node_index: AtomicNodeIndex::dummy(),
+                args: Box::from([]),
+                keywords: keywords.into_boxed_slice(),
+                range: TextRange::default(),
+            },
             range: TextRange::default(),
         })
     }

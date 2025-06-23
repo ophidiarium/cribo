@@ -6,6 +6,6 @@ ExecutionResults {
     status: Failed(
         1,
     ),
-    stdout: "",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 15, in <module>",
+    stdout: "Direct import: app.utils\nFrom import: app.utils\nImportlib: app.utils",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 18, in <module>",
 }
