@@ -62,6 +62,25 @@ commit-msg:
 
 post-checkout:
   commands:
-    dependencies:
+    cargo-clean:
+      glob:
+        - '**/*.rs'
+        - '**/Cargo.toml'
+        - '**/Cargo.lock'
+      run: cargo clean
+    python-dependencies:
       glob: 'uv.lock'
+      run: uv sync
+
+post-merge:
+  files: 'git diff-tree -r --name-only --no-commit-id ORIG_HEAD HEAD'
+  commands:
+    cargo-clean:
+      glob:
+        - '**/*.rs'
+        - '**/Cargo.toml'
+        - '**/Cargo.lock'
+      run: cargo clean
+    python-dependencies:
+      glob: uv.lock
       run: uv sync
