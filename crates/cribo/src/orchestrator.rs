@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use indexmap::IndexSet;
-use log::{debug, info, warn};
+use log::{debug, info, trace, warn};
 use ruff_python_ast::{ModModule, Stmt, StmtImportFrom, visitor::Visitor};
 
 use crate::{
@@ -777,11 +777,13 @@ impl BundleOrchestrator {
             "ImportDiscoveryVisitor found {} imports",
             discovered_imports.len()
         );
-        for (i, import) in discovered_imports.iter().enumerate() {
-            debug!(
-                "Import {}: type={:?}, module={:?}",
-                i, import.import_type, import.module_name
-            );
+        if log::log_enabled!(log::Level::Trace) {
+            for (i, import) in discovered_imports.iter().enumerate() {
+                trace!(
+                    "Import {}: type={:?}, module={:?}",
+                    i, import.import_type, import.module_name
+                );
+            }
         }
         let mut imports_with_context = Vec::new();
 
