@@ -1,0 +1,11 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/xfail_importlib_deduplication/main.py
+---
+ExecutionResults {
+    status: Failed(
+        1,
+    ),
+    stdout: "mymodule.py is being executed!\npackage/submodule.py is being executed!\npackage/__init__.py is being executed!\n=== Testing importlib.import_module deduplication ===\n\n1. Normal import - mymodule id: 4335914288",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 39, in <module>",
+}
