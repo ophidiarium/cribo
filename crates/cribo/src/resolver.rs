@@ -231,7 +231,7 @@ impl ModuleResolver {
             Ok(canonical) => canonical,
             Err(e) => {
                 // Log warning but don't fail - return the original path
-                debug!("Failed to canonicalize path {}: {}", path.display(), e);
+                warn!("Failed to canonicalize path {}: {}", path.display(), e);
                 path
             }
         }
