@@ -549,7 +549,8 @@ impl ModuleResolver {
                 let file_path = search_dir.join(format!("{resolved_name}.py"));
                 if file_path.is_file() {
                     debug!("Found ImportlibStatic module at: {file_path:?}");
-                    return Ok(Some((resolved_name.clone(), file_path)));
+                    let canonical = self.canonicalize_path(file_path);
+                    return Ok(Some((resolved_name.clone(), canonical)));
                 }
             }
 
@@ -561,7 +562,8 @@ impl ModuleResolver {
                     let file_path = module_path.join(format!("{component}.py"));
                     if file_path.is_file() {
                         debug!("Found ImportlibStatic module at: {file_path:?}");
-                        return Ok(Some((resolved_name.clone(), file_path)));
+                        let canonical = self.canonicalize_path(file_path);
+                        return Ok(Some((resolved_name.clone(), canonical)));
                     }
                 }
                 module_path = module_path.join(component);
@@ -571,7 +573,8 @@ impl ModuleResolver {
             let init_path = module_path.join("__init__.py");
             if init_path.is_file() {
                 debug!("Found ImportlibStatic package at: {init_path:?}");
-                return Ok(Some((resolved_name.clone(), init_path)));
+                let canonical = self.canonicalize_path(init_path);
+                return Ok(Some((resolved_name.clone(), canonical)));
             }
         }
 
