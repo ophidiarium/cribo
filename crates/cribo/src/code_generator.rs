@@ -9498,6 +9498,48 @@ impl HybridStaticBundler {
 
             let resolved = parts.join(".");
 
+            // Handle the case where relative import resolves to empty or just the package itself
+            // This happens with "from . import something" in a package __init__.py
+            if resolved.is_empty() {
+                // For "from . import X" in a package, the resolved module is the current package
+                // We need to check if we're in a package __init__.py
+                if import_from.level == 1 && import_from.module.is_none() {
+                    // This is "from . import X" - we need to determine the parent package
+                    // For a module like "requests.utils", the parent is "requests"
+                    // For a module like "__init__", it's the current directory
+                    if current_module.contains('.') {
+                        // Module has a parent package - extract it
+                        let parent_parts: Vec<&str> = current_module.split('.').collect();
+                        let parent = parent_parts[..parent_parts.len() - 1].join(".");
+                        log::debug!(
+                            "Relative import 'from . import' in module '{current_module}' - \
+                             returning parent package '{parent}'"
+                        );
+                        return Some(parent);
+                    } else if current_module == "__init__" {
+                        // This is a package __init__.py doing "from . import X"
+                        // The package name should be derived from the directory
+                        log::debug!(
+                            "Relative import 'from . import' in __init__ module - this case needs \
+                             special handling"
+                        );
+                        // For now, we'll return None and let it be handled elsewhere
+                        return None;
+                    } else {
+                        // Single-level module doing "from . import X" - this is importing from the
+                        // same directory We need to return empty string to
+                        // indicate current directory
+                        log::debug!(
+                            "Relative import 'from . import' in root-level module \
+                             '{current_module}' - returning empty for current directory"
+                        );
+                        return Some(String::new());
+                    }
+                }
+                log::debug!("Invalid relative import - resolved to empty module");
+                return None;
+            }
+
             // Check for potential circular import
             if resolved == current_module {
                 log::warn!("Potential circular import detected: {current_module} importing itself");

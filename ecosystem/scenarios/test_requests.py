@@ -93,7 +93,7 @@ def test_requests_bundled():
     tmp_dir = ensure_test_directories()
 
     # Paths
-    requests_init = Path("ecosystem/packages/requests/src/requests/__init__.py")
+    requests_init = Path(__file__).parent.parent / "packages" / "requests" / "src" / "requests"
     bundled_output = tmp_dir / "requests_bundled.py"
 
     print("🔧 Bundling requests library...")
