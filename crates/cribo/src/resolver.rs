@@ -225,6 +225,18 @@ pub struct ModuleResolver {
 }
 
 impl ModuleResolver {
+    /// Canonicalize a path, handling errors gracefully
+    fn canonicalize_path(&self, path: PathBuf) -> PathBuf {
+        match path.canonicalize() {
+            Ok(canonical) => canonical,
+            Err(e) => {
+                // Log warning but don't fail - return the original path
+                warn!("Failed to canonicalize path {}: {}", path.display(), e);
+                path
+            }
+        }
+    }
+
     pub fn new(config: Config) -> Result<Self> {
         Self::new_with_overrides(config, None, None)
     }
@@ -433,11 +445,13 @@ impl ModuleResolver {
             // Check if it's a package directory with __init__.py
             let init_path = base_dir.join("__init__.py");
             if init_path.exists() {
-                return Ok(Some(init_path));
+                let canonical = self.canonicalize_path(init_path);
+                return Ok(Some(canonical));
             }
             // Otherwise, it might be a namespace package
             if base_dir.is_dir() {
-                return Ok(Some(base_dir.to_path_buf()));
+                let canonical = self.canonicalize_path(base_dir.to_path_buf());
+                return Ok(Some(canonical));
             }
             return Ok(None);
         }
@@ -452,20 +466,119 @@ impl ModuleResolver {
         // 1. Check for package (__init__.py)
         let init_path = target_path.join("__init__.py");
         if init_path.exists() {
-            return Ok(Some(init_path));
+            let canonical = self.canonicalize_path(init_path);
+            return Ok(Some(canonical));
         }
 
         // 2. Check for module file (.py)
         let py_path = target_path.with_extension("py");
         if py_path.exists() {
-            return Ok(Some(py_path));
+            let canonical = self.canonicalize_path(py_path);
+            return Ok(Some(canonical));
         }
 
         // 3. Check for namespace package (directory without __init__.py)
         if target_path.is_dir() {
-            return Ok(Some(target_path));
+            let canonical = self.canonicalize_path(target_path);
+            return Ok(Some(canonical));
         }
 
+        Ok(None)
+    }
+
+    /// Resolve an ImportlibStatic import that may have invalid Python identifiers
+    /// This handles cases like importlib.import_module("data-processor")
+    pub fn resolve_importlib_static(&mut self, module_name: &str) -> Result<Option<PathBuf>> {
+        self.resolve_importlib_static_with_context(module_name, None)
+            .map(|opt| opt.map(|(_, path)| path))
+    }
+
+    /// Resolve ImportlibStatic imports with optional package context for relative imports
+    /// Returns a tuple of (resolved_module_name, path)
+    pub fn resolve_importlib_static_with_context(
+        &mut self,
+        module_name: &str,
+        package_context: Option<&str>,
+    ) -> Result<Option<(String, PathBuf)>> {
+        // Handle relative imports with package context
+        let resolved_name = if let Some(package) = package_context {
+            if module_name.starts_with('.') {
+                // Count the number of leading dots
+                let level = module_name.chars().take_while(|&c| c == '.').count();
+                let name_part = module_name.trim_start_matches('.');
+
+                // Split the package to handle parent navigation
+                let mut package_parts: Vec<&str> = package.split('.').collect();
+
+                // Go up 'level - 1' levels (one dot means current package)
+                if level > 1 && package_parts.len() >= level - 1 {
+                    package_parts.truncate(package_parts.len() - (level - 1));
+                }
+
+                // Append the name part if it's not empty
+                if !name_part.is_empty() {
+                    package_parts.push(name_part);
+                }
+
+                package_parts.join(".")
+            } else {
+                // Absolute import, use as-is
+                module_name.to_string()
+            }
+        } else {
+            module_name.to_string()
+        };
+
+        debug!(
+            "Resolving ImportlibStatic: '{}' with package '{}' -> '{}'",
+            module_name,
+            package_context.unwrap_or("None"),
+            resolved_name
+        );
+
+        // For ImportlibStatic imports, we look for files with the exact name
+        // (including hyphens and other invalid Python identifier characters)
+        let search_dirs = self.get_search_directories();
+
+        for search_dir in &search_dirs {
+            // Convert module name to file path (replace dots with slashes)
+            let path_components: Vec<&str> = resolved_name.split('.').collect();
+
+            if path_components.len() == 1 {
+                // Single component - try as direct file
+                let file_path = search_dir.join(format!("{resolved_name}.py"));
+                if file_path.is_file() {
+                    debug!("Found ImportlibStatic module at: {file_path:?}");
+                    let canonical = self.canonicalize_path(file_path);
+                    return Ok(Some((resolved_name.clone(), canonical)));
+                }
+            }
+
+            // Try as a nested module path
+            let mut module_path = search_dir.clone();
+            for (i, component) in path_components.iter().enumerate() {
+                if i == path_components.len() - 1 {
+                    // Last component - try as file
+                    let file_path = module_path.join(format!("{component}.py"));
+                    if file_path.is_file() {
+                        debug!("Found ImportlibStatic module at: {file_path:?}");
+                        let canonical = self.canonicalize_path(file_path);
+                        return Ok(Some((resolved_name.clone(), canonical)));
+                    }
+                }
+                module_path = module_path.join(component);
+            }
+
+            // Try as a package directory with __init__.py
+            let init_path = module_path.join("__init__.py");
+            if init_path.is_file() {
+                debug!("Found ImportlibStatic package at: {init_path:?}");
+                let canonical = self.canonicalize_path(init_path);
+                return Ok(Some((resolved_name.clone(), canonical)));
+            }
+        }
+
+        // Not found
         Ok(None)
     }
 
@@ -498,14 +611,16 @@ impl ModuleResolver {
                 let package_init = current_path.join(part).join("__init__.py");
                 if package_init.is_file() {
                     debug!("Found package at: {package_init:?}");
-                    return Ok(Some(package_init));
+                    let canonical = self.canonicalize_path(package_init);
+                    return Ok(Some(canonical));
                 }
 
                 // Check for module file
                 let module_file = current_path.join(format!("{part}.py"));
                 if module_file.is_file() {
                     debug!("Found module file at: {module_file:?}");
-                    return Ok(Some(module_file));
+                    let canonical = self.canonicalize_path(module_file);
+                    return Ok(Some(canonical));
                 }
 
                 // Check for namespace package (directory without __init__.py)
@@ -513,7 +628,8 @@ impl ModuleResolver {
                 if namespace_dir.is_dir() {
                     debug!("Found namespace package at: {namespace_dir:?}");
                     // Return the directory path to indicate this is a namespace package
-                    return Ok(Some(namespace_dir));
+                    let canonical = self.canonicalize_path(namespace_dir);
+                    return Ok(Some(canonical));
                 }
             } else {
                 // For intermediate parts, they must be packages
@@ -1043,31 +1159,43 @@ mod tests {
         // Test "from . import module3" (same directory)
         assert_eq!(
             resolver.resolve_module_path_with_context(".module3", Some(&module3_path))?,
-            Some(root.join("mypackage/subpackage/deeper/module3.py"))
+            Some(
+                root.join("mypackage/subpackage/deeper/module3.py")
+                    .canonicalize()?
+            )
         );
 
         // Test "from .. import module2" (parent directory)
         assert_eq!(
             resolver.resolve_module_path_with_context("..module2", Some(&module3_path))?,
-            Some(root.join("mypackage/subpackage/module2.py"))
+            Some(
+                root.join("mypackage/subpackage/module2.py")
+                    .canonicalize()?
+            )
         );
 
         // Test "from ... import module1" (grandparent directory)
         assert_eq!(
             resolver.resolve_module_path_with_context("...module1", Some(&module3_path))?,
-            Some(root.join("mypackage/module1.py"))
+            Some(root.join("mypackage/module1.py").canonicalize()?)
         );
 
         // Test "from . import" (current package)
         assert_eq!(
             resolver.resolve_module_path_with_context(".", Some(&module3_path))?,
-            Some(root.join("mypackage/subpackage/deeper/__init__.py"))
+            Some(
+                root.join("mypackage/subpackage/deeper/__init__.py")
+                    .canonicalize()?
+            )
         );
 
         // Test "from .. import" (parent package)
         assert_eq!(
             resolver.resolve_module_path_with_context("..", Some(&module3_path))?,
-            Some(root.join("mypackage/subpackage/__init__.py"))
+            Some(
+                root.join("mypackage/subpackage/__init__.py")
+                    .canonicalize()?
+            )
         );
 
         // Test relative import from a package __init__.py
@@ -1076,13 +1204,19 @@ mod tests {
         // Test "from . import module2" from __init__.py
         assert_eq!(
             resolver.resolve_module_path_with_context(".module2", Some(&subpackage_init))?,
-            Some(root.join("mypackage/subpackage/module2.py"))
+            Some(
+                root.join("mypackage/subpackage/module2.py")
+                    .canonicalize()?
+            )
         );
 
         // Test "from .deeper import module3"
         assert_eq!(
             resolver.resolve_module_path_with_context(".deeper.module3", Some(&subpackage_init))?,
-            Some(root.join("mypackage/subpackage/deeper/module3.py"))
+            Some(
+                root.join("mypackage/subpackage/deeper/module3.py")
+                    .canonicalize()?
+            )
         );
 
         // Test error case: too many dots

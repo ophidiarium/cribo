@@ -8,9 +8,11 @@ input_file: crates/cribo/tests/fixtures/future_imports_basic/main.py
 
 from __future__ import annotations
 from typing import Any, Dict, List, Union
+import functools
 import types
 """Submodule with future imports."""
 """Package initialization with future import."""
+@functools.cache
 def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
     module = types.SimpleNamespace()
 
@@ -30,6 +32,7 @@ def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
     FormattedOutput = Union[str, Dict[str, Any]]
     module.FormattedOutput = FormattedOutput
     return module
+@functools.cache
 def __cribo_init___cribo_41d36f_mypackage_core():
     module = types.SimpleNamespace()
 
@@ -49,11 +52,9 @@ def __cribo_init___cribo_41d36f_mypackage_core():
 mypackage = types.SimpleNamespace()
 mypackage.__name__ = 'mypackage'
 mypackage.submodule = types.SimpleNamespace()
-_cribo_temp_mypackage_core = __cribo_init___cribo_41d36f_mypackage_core()
-_cribo_temp_mypackage_submodule_utils = __cribo_init___cribo_c3d681_mypackage_submodule_utils()
-mypackage.core = _cribo_temp_mypackage_core
-mypackage.submodule.utils = _cribo_temp_mypackage_submodule_utils
+mypackage.core = __cribo_init___cribo_41d36f_mypackage_core()
 process_data = mypackage.core.process_data
+mypackage.submodule.utils = __cribo_init___cribo_c3d681_mypackage_submodule_utils()
 validate_input = mypackage.submodule.utils.validate_input
 def main() -> None:
     """Main function with type annotations that require future import."""

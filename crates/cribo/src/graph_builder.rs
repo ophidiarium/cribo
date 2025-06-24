@@ -21,6 +21,10 @@ struct ForStmtContext<'a, 'b> {
 pub struct GraphBuilder<'a> {
     graph: &'a mut ModuleDepGraph,
     current_scope: ScopeType,
+    /// Track import aliases for importlib detection
+    /// Maps local name -> module path (e.g., "il" -> "importlib", "im" ->
+    /// "importlib.import_module")
+    import_aliases: FxHashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -35,6 +39,7 @@ impl<'a> GraphBuilder<'a> {
         Self {
             graph,
             current_scope: ScopeType::Module,
+            import_aliases: FxHashMap::default(),
         }
     }
 
@@ -74,6 +79,7 @@ impl<'a> GraphBuilder<'a> {
             Stmt::Assign(assign) => self.process_assign(assign),
             Stmt::AnnAssign(ann_assign) => self.process_ann_assign(ann_assign),
             Stmt::Expr(expr_stmt) => self.process_expr_stmt(&expr_stmt.value),
+            Stmt::Assert(assert_stmt) => self.process_assert_stmt(assert_stmt),
             Stmt::If(if_stmt) => self.process_if_stmt(if_stmt),
             Stmt::For(for_stmt) => self.process_for_stmt(for_stmt),
             Stmt::While(while_stmt) => self.process_while_stmt(while_stmt),
@@ -94,6 +100,12 @@ impl<'a> GraphBuilder<'a> {
                 .unwrap_or(module_name);
 
             log::trace!("Processing import: {module_name} as {local_name}");
+
+            // Track importlib aliases for later detection
+            if module_name == "importlib" {
+                self.import_aliases
+                    .insert(local_name.to_string(), "importlib".to_string());
+            }
 
             let mut imported_names = FxHashSet::default();
             let mut var_decls = FxHashSet::default();
@@ -203,6 +215,14 @@ impl<'a> GraphBuilder<'a> {
                 // Check for explicit re-export pattern: from foo import Bar as Bar
                 if alias.asname.as_ref().map(|n| n.as_str()) == Some(imported_name) {
                     reexported_names.insert(local_name.to_string());
+                }
+
+                // Track import_module from importlib
+                if module_name == "importlib" && imported_name == "import_module" {
+                    self.import_aliases.insert(
+                        local_name.to_string(),
+                        "importlib.import_module".to_string(),
+                    );
                 }
             }
         }
@@ -459,42 +479,82 @@ impl<'a> GraphBuilder<'a> {
             self.collect_reads_from_assignment_target(target, &mut read_vars);
         }
 
-        // Check if this is an __all__ assignment
-        let is_all_assignment = targets.contains(&"__all__".to_string());
-        let mut reexported_names = FxHashSet::default();
+        // Check if this is an importlib.import_module() assignment
+        if let Some(module_name) = self.is_static_importlib_call(&assign.value) {
+            // This is an importlib.import_module() assignment
+            // Track it as an import for tree-shaking purposes
+            log::debug!(
+                "Found importlib.import_module('{module_name}') assignment to: {targets:?}"
+            );
 
-        if is_all_assignment {
-            // Extract names from __all__ value
-            if let Expr::List(list_expr) = assign.value.as_ref() {
-                reexported_names.extend(list_expr.elts.iter().filter_map(
-                    |element| match element {
-                        Expr::StringLiteral(string_lit) => Some(string_lit.value.to_string()),
-                        _ => None,
+            // Create an Import item for each target variable
+            for target in &targets {
+                let mut imported_names = FxHashSet::default();
+                imported_names.insert(module_name.clone());
+
+                let item_data = ItemData {
+                    item_type: ItemType::Import {
+                        module: module_name.clone(),
+                        alias: Some(target.clone()),
                     },
-                ));
+                    var_decls: [target.clone()].into_iter().collect(),
+                    read_vars: read_vars.clone(),
+                    eventual_read_vars: FxHashSet::default(),
+                    write_vars: FxHashSet::default(),
+                    eventual_write_vars: FxHashSet::default(),
+                    has_side_effects: true, // Import always has side effects
+                    span: None,
+                    imported_names,
+                    reexported_names: FxHashSet::default(),
+                    defined_symbols: [target.clone()].into_iter().collect(),
+                    symbol_dependencies: FxHashMap::default(),
+                    attribute_accesses: FxHashMap::default(),
+                };
+
+                self.graph.add_item(item_data);
             }
+
+            Ok(())
+        } else {
+            // Regular assignment
+            // Check if this is an __all__ assignment
+            let is_all_assignment = targets.contains(&"__all__".to_string());
+            let mut reexported_names = FxHashSet::default();
+
+            if is_all_assignment {
+                // Extract names from __all__ value
+                if let Expr::List(list_expr) = assign.value.as_ref() {
+                    reexported_names.extend(list_expr.elts.iter().filter_map(
+                        |element| match element {
+                            Expr::StringLiteral(string_lit) => Some(string_lit.value.to_string()),
+                            _ => None,
+                        },
+                    ));
+                }
+            }
+
+            let item_data = ItemData {
+                item_type: ItemType::Assignment {
+                    targets: targets.clone(),
+                },
+                var_decls: var_decls.clone(),
+                read_vars,
+                eventual_read_vars: reexported_names.clone(), /* Names in __all__ are "eventually
+                                                               * read" */
+                write_vars: FxHashSet::default(),
+                eventual_write_vars: FxHashSet::default(),
+                has_side_effects: Self::expression_has_side_effects(&assign.value),
+                span: None,
+                imported_names: FxHashSet::default(),
+                reexported_names,
+                defined_symbols: var_decls,
+                symbol_dependencies: FxHashMap::default(),
+                attribute_accesses,
+            };
+
+            self.graph.add_item(item_data);
+            Ok(())
         }
-
-        let item_data = ItemData {
-            item_type: ItemType::Assignment {
-                targets: targets.clone(),
-            },
-            var_decls: var_decls.clone(),
-            read_vars,
-            eventual_read_vars: reexported_names.clone(), // Names in __all__ are "eventually read"
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
-            has_side_effects: Self::expression_has_side_effects(&assign.value),
-            span: None,
-            imported_names: FxHashSet::default(),
-            reexported_names,
-            defined_symbols: var_decls,
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses,
-        };
-
-        self.graph.add_item(item_data);
-        Ok(())
     }
 
     /// Process an annotated assignment statement
@@ -573,6 +633,49 @@ impl<'a> GraphBuilder<'a> {
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
             has_side_effects,
+            span: None,
+            imported_names: FxHashSet::default(),
+            reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses,
+        };
+
+        self.graph.add_item(item_data);
+        Ok(())
+    }
+
+    /// Process assert statement
+    fn process_assert_stmt(&mut self, assert_stmt: &ast::StmtAssert) -> Result<()> {
+        let mut read_vars = FxHashSet::default();
+        let mut attribute_accesses = FxHashMap::default();
+
+        // Collect variables from the test expression
+        self.collect_vars_in_expr_with_attrs(
+            &assert_stmt.test,
+            &mut read_vars,
+            &mut attribute_accesses,
+        );
+
+        // Also collect from the message expression if present
+        if let Some(msg) = &assert_stmt.msg {
+            self.collect_vars_in_expr_with_attrs(msg, &mut read_vars, &mut attribute_accesses);
+        }
+
+        log::debug!(
+            "Processing assert statement, read_vars: {read_vars:?}, attribute_accesses: \
+             {attribute_accesses:?}"
+        );
+
+        let item_data = ItemData {
+            item_type: ItemType::Expression, // Assert is treated as an expression with side effects
+            var_decls: FxHashSet::default(),
+            read_vars,
+            eventual_read_vars: FxHashSet::default(),
+            write_vars: FxHashSet::default(),
+            eventual_write_vars: FxHashSet::default(),
+            has_side_effects: true, /* Assert statements have side effects (can raise
+                                     * AssertionError) */
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
@@ -1157,6 +1260,47 @@ impl<'a> GraphBuilder<'a> {
                             write_vars.insert(name.to_string());
                         }
                     }
+                    Stmt::Import(import_stmt) => {
+                        // Track imported modules as read variables
+                        for alias in &import_stmt.names {
+                            let local_name = alias
+                                .asname
+                                .as_ref()
+                                .map(|n| n.as_str())
+                                .unwrap_or(alias.name.as_str());
+                            read_vars.insert(local_name.to_string());
+                        }
+                    }
+                    Stmt::ImportFrom(import_from) => {
+                        // Track imported names as read variables
+                        if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*"
+                        {
+                            // Star imports are complex, skip for now
+                        } else {
+                            for alias in &import_from.names {
+                                let local_name = alias
+                                    .asname
+                                    .as_ref()
+                                    .map(|n| n.as_str())
+                                    .unwrap_or(alias.name.as_str());
+                                read_vars.insert(local_name.to_string());
+                            }
+                        }
+                    }
+                    Stmt::Assert(assert_stmt) => {
+                        self.collect_vars_in_expr_with_attrs(
+                            &assert_stmt.test,
+                            read_vars,
+                            attribute_accesses,
+                        );
+                        if let Some(msg) = &assert_stmt.msg {
+                            self.collect_vars_in_expr_with_attrs(
+                                msg,
+                                read_vars,
+                                attribute_accesses,
+                            );
+                        }
+                    }
                     _ => {} // Other statements
                 }
             }
@@ -1310,6 +1454,50 @@ impl<'a> GraphBuilder<'a> {
         }
         ctx.stack.push(&for_stmt.body);
         ctx.stack.push(&for_stmt.orelse);
+    }
+
+    /// Check if an expression is an importlib.import_module() call with a static string argument
+    fn is_static_importlib_call(&self, expr: &Expr) -> Option<String> {
+        if let Expr::Call(call) = expr {
+            // Check if this is importlib.import_module() or an alias
+            let is_import_module = match &*call.func {
+                // Direct call: importlib.import_module() or alias.import_module()
+                Expr::Attribute(attr) if attr.attr.as_str() == "import_module" => {
+                    if let Expr::Name(name) = &*attr.value {
+                        let name_str = name.id.as_str();
+                        // Check if it's importlib directly or an alias
+                        name_str == "importlib"
+                            || self
+                                .import_aliases
+                                .get(name_str)
+                                .is_some_and(|v| v == "importlib")
+                    } else {
+                        false
+                    }
+                }
+                // Direct function call: import_module() or im()
+                Expr::Name(name) => {
+                    let name_str = name.id.as_str();
+                    // Check if this is import_module or an alias for it
+                    name_str == "import_module"
+                        || self
+                            .import_aliases
+                            .get(name_str)
+                            .is_some_and(|v| v == "importlib.import_module")
+                }
+                _ => false,
+            };
+
+            if is_import_module {
+                // Extract the module name if it's a static string
+                if let Some(arg) = call.arguments.args.first()
+                    && let Expr::StringLiteral(string_lit) = arg
+                {
+                    return Some(string_lit.value.to_string());
+                }
+            }
+        }
+        None
     }
 
     /// Handle with statement variable collection

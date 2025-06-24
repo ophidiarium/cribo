@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/file_deduplication_basic/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Direct import: app.utils\nFrom import: app.utils\nImportlib: app.utils\nSUCCESS: All imports reference the same module!",
+    stderr: "",
+}

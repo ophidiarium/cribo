@@ -11,11 +11,11 @@ use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use ruff_python_ast::{
-    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
-    ExprFString, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, FString,
-    FStringFlags, FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
-    InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef,
-    StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
+    Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
+    ExprContext, ExprFString, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral,
+    ExprSubscript, FString, FStringFlags, FStringValue, Identifier, InterpolatedElement,
+    InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign,
+    StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
     StringLiteralValue,
 };
 use ruff_text_size::TextRange;
@@ -439,6 +439,13 @@ struct RecursiveImportTransformer<'a> {
     global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
     /// Track local variable assignments to avoid treating them as module aliases
     local_variables: FxIndexSet<String>,
+    /// Track if any importlib.import_module calls were transformed
+    importlib_transformed: bool,
+    /// Track variables that were assigned from importlib.import_module() of inlined modules
+    /// Maps variable name to the inlined module name
+    importlib_inlined_modules: FxIndexMap<String, String>,
+    /// Track if we created any types.SimpleNamespace calls
+    created_namespace_objects: bool,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -454,7 +461,98 @@ impl<'a> RecursiveImportTransformer<'a> {
             is_wrapper_init: params.is_wrapper_init,
             global_deferred_imports: params.global_deferred_imports,
             local_variables: FxIndexSet::default(),
+            importlib_transformed: false,
+            importlib_inlined_modules: FxIndexMap::default(),
+            created_namespace_objects: false,
         }
+    }
+
+    /// Check if this is an importlib.import_module() call
+    fn is_importlib_import_module_call(&self, call: &ExprCall) -> bool {
+        match &call.func.as_ref() {
+            // Direct call: importlib.import_module()
+            Expr::Attribute(attr) if attr.attr.as_str() == "import_module" => {
+                match &attr.value.as_ref() {
+                    Expr::Name(name) => {
+                        let name_str = name.id.as_str();
+                        // Check if it's 'importlib' directly or an alias that maps to 'importlib'
+                        name_str == "importlib"
+                            || self.import_aliases.get(name_str) == Some(&"importlib".to_string())
+                    }
+                    _ => false,
+                }
+            }
+            // Function call: im() where im is import_module
+            Expr::Name(name) => {
+                // Check if this name is an alias for importlib.import_module
+                self.import_aliases
+                    .get(name.id.as_str())
+                    .is_some_and(|module| module == "importlib.import_module")
+            }
+            _ => false,
+        }
+    }
+
+    /// Transform importlib.import_module("module-name") to direct module reference
+    fn transform_importlib_import_module(&mut self, call: &ExprCall) -> Option<Expr> {
+        // Get the first argument which should be the module name
+        if let Some(arg) = call.arguments.args.first()
+            && let Expr::StringLiteral(lit) = arg
+        {
+            let module_name = lit.value.to_str();
+
+            // Handle relative imports with package context
+            let resolved_name = if module_name.starts_with('.') && call.arguments.args.len() >= 2 {
+                // Get the package context from the second argument
+                if let Expr::StringLiteral(package_lit) = &call.arguments.args[1] {
+                    let package = package_lit.value.to_str();
+
+                    // Resolve relative import
+                    let level = module_name.chars().take_while(|&c| c == '.').count();
+                    let name_part = module_name.trim_start_matches('.');
+
+                    let mut package_parts: Vec<&str> = package.split('.').collect();
+
+                    // Go up 'level - 1' levels (one dot means current package)
+                    if level > 1 && package_parts.len() >= level - 1 {
+                        package_parts.truncate(package_parts.len() - (level - 1));
+                    }
+
+                    // Append the name part if it's not empty
+                    if !name_part.is_empty() {
+                        package_parts.push(name_part);
+                    }
+
+                    package_parts.join(".")
+                } else {
+                    module_name.to_string()
+                }
+            } else {
+                module_name.to_string()
+            };
+
+            // Check if this module was bundled
+            if self.bundler.bundled_modules.contains(&resolved_name) {
+                log::debug!(
+                    "Transforming importlib.import_module('{module_name}') to module access \
+                     '{resolved_name}'"
+                );
+
+                self.importlib_transformed = true;
+
+                // Check if this creates a namespace object
+                if self.bundler.inlined_modules.contains(&resolved_name) {
+                    self.created_namespace_objects = true;
+                }
+
+                // Use common logic for module access
+                return Some(
+                    self.bundler
+                        .create_module_access_expr(&resolved_name, self.symbol_renames),
+                );
+            }
+        }
+        None
     }
 
     /// Transform a module recursively, handling all imports at any depth
@@ -476,12 +574,33 @@ impl<'a> RecursiveImportTransformer<'a> {
         let mut i = 0;
         while i < stmts.len() {
             // First check if this is an import statement that needs transformation
-            let needs_transformation = matches!(&stmts[i], Stmt::Import(_) | Stmt::ImportFrom(_))
-                && !self.bundler.is_hoisted_import(&stmts[i]);
+            let is_import = matches!(&stmts[i], Stmt::Import(_) | Stmt::ImportFrom(_));
+            let is_hoisted = if is_import {
+                self.bundler.is_hoisted_import(&stmts[i])
+            } else {
+                false
+            };
+
+            if is_import {
+                log::debug!(
+                    "transform_statements: Found import in module '{}', is_hoisted={}",
+                    self.module_name,
+                    is_hoisted
+                );
+            }
+
+            let needs_transformation = is_import && !is_hoisted;
 
             if needs_transformation {
                 // Transform the import statement
                 let transformed = self.transform_statement(&mut stmts[i]);
+
+                log::debug!(
+                    "transform_statements: Transforming import in module '{}', got {} statements \
+                     back",
+                    self.module_name,
+                    transformed.len()
+                );
 
                 // Remove the original statement
                 stmts.remove(i);
@@ -545,10 +664,39 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.transform_statements(&mut try_stmt.finalbody);
                     }
                     Stmt::Assign(assign) => {
+                        // First check if this is an assignment from importlib.import_module()
+                        let mut importlib_module = None;
+                        if let Expr::Call(call) = &assign.value.as_ref()
+                            && self.is_importlib_import_module_call(call)
+                        {
+                            // Get the module name from the call
+                            if let Some(arg) = call.arguments.args.first()
+                                && let Expr::StringLiteral(lit) = arg
+                            {
+                                let module_name = lit.value.to_str();
+                                // Only track if it's an inlined module (not a wrapper module)
+                                if self.bundler.inlined_modules.contains(module_name) {
+                                    importlib_module = Some(module_name.to_string());
+                                }
+                            }
+                        }
+
                         // Track local variable assignments
                         for target in &assign.targets {
                             if let Expr::Name(name) = target {
-                                self.local_variables.insert(name.id.to_string());
+                                let var_name = name.id.to_string();
+                                self.local_variables.insert(var_name.clone());
+
+                                // If this was assigned from importlib.import_module() of an inlined
+                                // module, track it specially
+                                if let Some(module) = &importlib_module {
+                                    log::debug!(
+                                        "Tracking importlib assignment: {var_name} = \
+                                         importlib.import_module('{module}') [inlined module]"
+                                    );
+                                    self.importlib_inlined_modules
+                                        .insert(var_name, module.clone());
+                                }
                             }
                         }
                         for target in &mut assign.targets {
@@ -603,21 +751,25 @@ impl<'a> RecursiveImportTransformer<'a> {
                     vec![stmt.clone()]
                 } else {
                     // Track import aliases before rewriting
-                    // But not in the entry module - in the entry module, imports create namespace
-                    // objects
-                    if !self.is_entry_module {
-                        for alias in &import_stmt.names {
-                            let module_name = alias.name.as_str();
-                            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+                    for alias in &import_stmt.names {
+                        let module_name = alias.name.as_str();
+                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-                            // Only track if it's an aliased import of an inlined module
-                            if alias.asname.is_some()
-                                && self.bundler.inlined_modules.contains(module_name)
-                            {
-                                log::debug!("Tracking import alias: {local_name} -> {module_name}");
-                                self.import_aliases
-                                    .insert(local_name.to_string(), module_name.to_string());
-                            }
+                        // Track if it's an aliased import of an inlined module (but not in entry
+                        // module)
+                        if !self.is_entry_module
+                            && alias.asname.is_some()
+                            && self.bundler.inlined_modules.contains(module_name)
+                        {
+                            log::debug!("Tracking import alias: {local_name} -> {module_name}");
+                            self.import_aliases
+                                .insert(local_name.to_string(), module_name.to_string());
+                        }
+                        // Also track importlib aliases for static import resolution (in any module)
+                        else if module_name == "importlib" && alias.asname.is_some() {
+                            log::debug!("Tracking importlib alias: {local_name} -> importlib");
+                            self.import_aliases
+                                .insert(local_name.to_string(), "importlib".to_string());
                         }
                     }
 
@@ -627,29 +779,65 @@ impl<'a> RecursiveImportTransformer<'a> {
             }
             Stmt::ImportFrom(import_from) => {
                 log::debug!(
-                    "RecursiveImportTransformer::transform_statement: Found ImportFrom statement"
+                    "RecursiveImportTransformer::transform_statement: Found ImportFrom statement \
+                     (is_hoisted: {is_hoisted})"
                 );
-                if is_hoisted {
-                    vec![stmt.clone()]
-                } else {
-                    // Track import aliases before handling the import
-                    if let Some(module) = &import_from.module {
-                        let _module_str = module.as_str();
+                // Track import aliases before handling the import (even for hoisted imports)
+                if let Some(module) = &import_from.module {
+                    let module_str = module.as_str();
+                    log::debug!(
+                        "Processing ImportFrom in RecursiveImportTransformer: from {} import {:?} \
+                         (is_entry_module: {})",
+                        module_str,
+                        import_from
+                            .names
+                            .iter()
+                            .map(|a| format!(
+                                "{}{}",
+                                a.name.as_str(),
+                                a.asname
+                                    .as_ref()
+                                    .map(|n| format!(" as {n}"))
+                                    .unwrap_or_default()
+                            ))
+                            .collect::<Vec<_>>(),
+                        self.is_entry_module
+                    );
 
-                        // Resolve relative imports first
-                        let resolved_module = if let Some(module_path) = self.module_path {
-                            self.bundler.resolve_relative_import_with_context(
-                                import_from,
-                                self.module_name,
-                                Some(module_path),
-                            )
-                        } else {
-                            self.bundler
-                                .resolve_relative_import(import_from, self.module_name)
-                        };
+                    // Special handling for importlib imports
+                    if module_str == "importlib" {
+                        for alias in &import_from.names {
+                            let imported_name = alias.name.as_str();
+                            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-                        if let Some(resolved) = &resolved_module {
-                            // Track aliases for imported symbols
+                            if imported_name == "import_module" {
+                                log::debug!(
+                                    "Tracking importlib.import_module alias: {local_name} -> \
+                                     importlib.import_module"
+                                );
+                                self.import_aliases.insert(
+                                    local_name.to_string(),
+                                    "importlib.import_module".to_string(),
+                                );
+                            }
+                        }
+                    }
+
+                    // Resolve relative imports first
+                    let resolved_module = if let Some(module_path) = self.module_path {
+                        self.bundler.resolve_relative_import_with_context(
+                            import_from,
+                            self.module_name,
+                            Some(module_path),
+                        )
+                    } else {
+                        self.bundler
+                            .resolve_relative_import(import_from, self.module_name)
+                    };
+
+                    if let Some(resolved) = &resolved_module {
+                        // Track aliases for imported symbols (non-importlib)
+                        if resolved != "importlib" {
                             for alias in &import_from.names {
                                 let imported_name = alias.name.as_str();
                                 let local_name =
@@ -693,7 +881,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                             }
                         }
                     }
+                }
 
+                // Now handle the import based on whether it's hoisted
+                if is_hoisted {
+                    vec![stmt.clone()]
+                } else {
                     self.handle_import_from(import_from)
                 }
             }
@@ -724,6 +917,13 @@ impl<'a> RecursiveImportTransformer<'a> {
             self.bundler
                 .resolve_relative_import(import_from, self.module_name)
         };
+
+        log::debug!(
+            "handle_import_from: resolved_module={:?}, is_wrapper_init={}, current_module={}",
+            resolved_module,
+            self.is_wrapper_init,
+            self.module_name
+        );
 
         // For entry module, check if this import would duplicate deferred imports
         if self.is_entry_module
@@ -1268,7 +1468,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     }
 
     /// Transform an expression, rewriting module attribute access to direct references
-    fn transform_expr(&self, expr: &mut Expr) {
+    fn transform_expr(&mut self, expr: &mut Expr) {
         // First check if this is an attribute expression and collect the path
         let attribute_info = if matches!(expr, Expr::Attribute(_)) {
             Some(self.collect_attribute_path(expr))
@@ -1305,8 +1505,67 @@ impl<'a> RecursiveImportTransformer<'a> {
                             }
                         }
 
+                        // First check if the base is a variable assigned from
+                        // importlib.import_module()
+                        if let Some(module_name) = self.importlib_inlined_modules.get(&base) {
+                            // This is accessing attributes on a variable that was assigned from
+                            // importlib.import_module() of an inlined module
+                            if attr_path.len() == 1 {
+                                let attr_name = &attr_path[0];
+                                log::debug!(
+                                    "Transforming {base}.{attr_name} - {base} was assigned from \
+                                     importlib.import_module('{module_name}') [inlined module]"
+                                );
+
+                                // Check if this symbol was renamed during inlining
+                                let new_expr = if let Some(module_renames) =
+                                    self.symbol_renames.get(module_name)
+                                {
+                                    if let Some(renamed) = module_renames.get(attr_name) {
+                                        // Use the renamed symbol
+                                        let renamed_str = renamed.clone();
+                                        log::debug!(
+                                            "Rewrote {base}.{attr_name} to {renamed_str} (renamed \
+                                             symbol from importlib inlined module)"
+                                        );
+                                        Expr::Name(ExprName {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            id: renamed_str.into(),
+                                            ctx: attr_expr.ctx,
+                                            range: attr_expr.range,
+                                        })
+                                    } else {
+                                        // Use the original name
+                                        log::debug!(
+                                            "Rewrote {base}.{attr_name} to {attr_name} (symbol \
+                                             from importlib inlined module)"
+                                        );
+                                        Expr::Name(ExprName {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            id: attr_name.into(),
+                                            ctx: attr_expr.ctx,
+                                            range: attr_expr.range,
+                                        })
+                                    }
+                                } else {
+                                    // Module wasn't found in renames, use original
+                                    log::debug!(
+                                        "Rewrote {base}.{attr_name} to {attr_name} (no renames \
+                                         for importlib inlined module)"
+                                    );
+                                    Expr::Name(ExprName {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        id: attr_name.into(),
+                                        ctx: attr_expr.ctx,
+                                        range: attr_expr.range,
+                                    })
+                                };
+                                *expr = new_expr;
+                                return;
+                            }
+                        }
                         // Check if the base refers to an inlined module
-                        if let Some(actual_module) = self.find_module_for_alias(&base)
+                        else if let Some(actual_module) = self.find_module_for_alias(&base)
                             && self.bundler.inlined_modules.contains(&actual_module)
                         {
                             // For a single attribute access (e.g., greetings.message or
@@ -1482,6 +1741,14 @@ impl<'a> RecursiveImportTransformer<'a> {
                 } // Close the if let Some((base_name, attr_path)) = attribute_info
             }
             Expr::Call(call_expr) => {
+                // Check if this is importlib.import_module() with a static string literal
+                if self.is_importlib_import_module_call(call_expr)
+                    && let Some(transformed) = self.transform_importlib_import_module(call_expr)
+                {
+                    *expr = transformed;
+                    return;
+                }
+
                 self.transform_expr(&mut call_expr.func);
                 for arg in &mut call_expr.arguments.args {
                     self.transform_expr(arg);
@@ -1721,6 +1988,8 @@ impl<'a> RecursiveImportTransformer<'a> {
 /// Hybrid static bundler that uses sys.modules and hash-based naming
 /// This approach avoids forward reference issues while maintaining Python module semantics
 pub struct HybridStaticBundler {
+    /// Track if importlib was fully transformed and should be removed
+    importlib_fully_transformed: bool,
     /// Map from original module name to synthetic module name
     module_registry: FxIndexMap<String, String>,
     /// Map from synthetic module name to init function name
@@ -1728,8 +1997,8 @@ pub struct HybridStaticBundler {
     /// Collected future imports
     future_imports: FxIndexSet<String>,
     /// Collected stdlib imports that are safe to hoist
-    /// Maps module name to set of imported names for deduplication
-    stdlib_import_from_map: FxIndexMap<String, FxIndexSet<String>>,
+    /// Maps module name to map of imported names to their aliases (None if no alias)
+    stdlib_import_from_map: FxIndexMap<String, FxIndexMap<String, Option<String>>>,
     /// Regular import statements (import module)
     stdlib_import_statements: Vec<Stmt>,
     /// Track which modules have been bundled
@@ -1771,6 +2040,28 @@ pub struct HybridStaticBundler {
 }
 
 impl HybridStaticBundler {
+    /// Check if a string is a valid Python identifier
+    fn is_valid_python_identifier(name: &str) -> bool {
+        // Use ruff's identifier validation which handles Unicode and keywords
+        ruff_python_stdlib::identifiers::is_identifier(name)
+    }
+
+    /// Sanitize a module name for use in a Python identifier
+    /// This is a simple character replacement - collision handling should be done by the caller
+    fn sanitize_module_name_for_identifier(name: &str) -> String {
+        name.chars()
+            .map(|c| match c {
+                // Replace common invalid characters with descriptive names
+                '-' => '_',
+                '.' => '_',
+                ' ' => '_',
+                // For other non-alphanumeric characters, replace with underscore
+                c if c.is_alphanumeric() || c == '_' => c,
+                _ => '_',
+            })
+            .collect::<String>()
+    }
+
     /// Check if a renamed symbol exists after tree-shaking
     fn renamed_symbol_exists(
         &self,
@@ -1795,6 +2086,269 @@ impl HybridStaticBundler {
 
         false
     }
+
+    /// Remove importlib import if it's unused after transformation
+    fn remove_unused_importlib(&self, ast: &mut ModModule) {
+        // Check if importlib is actually used in the code
+        let mut importlib_used = false;
+
+        // Check all expressions in the AST for importlib usage
+        for stmt in &ast.body {
+            if self.stmt_uses_importlib(stmt) {
+                importlib_used = true;
+                break;
+            }
+        }
+
+        if !importlib_used {
+            log::debug!("importlib is unused after transformation, removing import");
+            ast.body.retain(|stmt| {
+                if let Stmt::Import(import_stmt) = stmt {
+                    // Check if this is import importlib
+                    !import_stmt
+                        .names
+                        .iter()
+                        .any(|alias| alias.name.as_str() == "importlib")
+                } else {
+                    true
+                }
+            });
+        }
+    }
+
+    /// Check if a statement uses importlib
+    fn stmt_uses_importlib(&self, stmt: &Stmt) -> bool {
+        match stmt {
+            Stmt::Expr(expr_stmt) => self.expr_uses_importlib(&expr_stmt.value),
+            Stmt::Assign(assign) => self.expr_uses_importlib(&assign.value),
+            Stmt::AugAssign(aug_assign) => self.expr_uses_importlib(&aug_assign.value),
+            Stmt::AnnAssign(ann_assign) => ann_assign
+                .value
+                .as_ref()
+                .is_some_and(|v| self.expr_uses_importlib(v)),
+            Stmt::FunctionDef(func_def) => {
+                func_def.body.iter().any(|s| self.stmt_uses_importlib(s))
+            }
+            Stmt::ClassDef(class_def) => class_def.body.iter().any(|s| self.stmt_uses_importlib(s)),
+            Stmt::If(if_stmt) => {
+                self.expr_uses_importlib(&if_stmt.test)
+                    || if_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+                    || if_stmt.elif_else_clauses.iter().any(|clause| {
+                        clause
+                            .test
+                            .as_ref()
+                            .is_some_and(|t| self.expr_uses_importlib(t))
+                            || clause.body.iter().any(|s| self.stmt_uses_importlib(s))
+                    })
+            }
+            Stmt::While(while_stmt) => {
+                self.expr_uses_importlib(&while_stmt.test)
+                    || while_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+                    || while_stmt
+                        .orelse
+                        .iter()
+                        .any(|s| self.stmt_uses_importlib(s))
+            }
+            Stmt::For(for_stmt) => {
+                self.expr_uses_importlib(&for_stmt.iter)
+                    || for_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+                    || for_stmt.orelse.iter().any(|s| self.stmt_uses_importlib(s))
+            }
+            Stmt::With(with_stmt) => {
+                with_stmt.items.iter().any(|item| {
+                    self.expr_uses_importlib(&item.context_expr)
+                        || item
+                            .optional_vars
+                            .as_ref()
+                            .is_some_and(|v| self.expr_uses_importlib(v))
+                }) || with_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+            }
+            Stmt::Try(try_stmt) => {
+                try_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+                    || try_stmt.handlers.iter().any(|handler| match handler {
+                        ExceptHandler::ExceptHandler(eh) => {
+                            eh.body.iter().any(|s| self.stmt_uses_importlib(s))
+                        }
+                    })
+                    || try_stmt.orelse.iter().any(|s| self.stmt_uses_importlib(s))
+                    || try_stmt
+                        .finalbody
+                        .iter()
+                        .any(|s| self.stmt_uses_importlib(s))
+            }
+            Stmt::Assert(assert_stmt) => {
+                self.expr_uses_importlib(&assert_stmt.test)
+                    || assert_stmt
+                        .msg
+                        .as_ref()
+                        .is_some_and(|m| self.expr_uses_importlib(m))
+            }
+            Stmt::Return(ret) => ret
+                .value
+                .as_ref()
+                .is_some_and(|v| self.expr_uses_importlib(v)),
+            Stmt::Raise(raise_stmt) => {
+                raise_stmt
+                    .exc
+                    .as_ref()
+                    .is_some_and(|e| self.expr_uses_importlib(e))
+                    || raise_stmt
+                        .cause
+                        .as_ref()
+                        .is_some_and(|c| self.expr_uses_importlib(c))
+            }
+            Stmt::Delete(del) => del.targets.iter().any(|t| self.expr_uses_importlib(t)),
+            // Statements that don't contain expressions
+            Stmt::Import(_) | Stmt::ImportFrom(_) => false, /* Already handled by import */
+            // transformation
+            Stmt::Pass(_) | Stmt::Break(_) | Stmt::Continue(_) => false,
+            Stmt::Global(_) | Stmt::Nonlocal(_) => false,
+            // Match and TypeAlias need special handling
+            Stmt::Match(match_stmt) => {
+                self.expr_uses_importlib(&match_stmt.subject)
+                    || match_stmt
+                        .cases
+                        .iter()
+                        .any(|case| case.body.iter().any(|s| self.stmt_uses_importlib(s)))
+            }
+            Stmt::TypeAlias(type_alias) => self.expr_uses_importlib(&type_alias.value),
+            Stmt::IpyEscapeCommand(_) => false, // IPython specific, unlikely to use importlib
+        }
+    }
+
+    /// Check if an expression uses importlib
+    #[allow(clippy::only_used_in_recursion)]
+    fn expr_uses_importlib(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Name(name) => name.id.as_str() == "importlib",
+            Expr::Attribute(attr) => self.expr_uses_importlib(&attr.value),
+            Expr::Call(call) => {
+                self.expr_uses_importlib(&call.func)
+                    || call
+                        .arguments
+                        .args
+                        .iter()
+                        .any(|arg| self.expr_uses_importlib(arg))
+                    || call
+                        .arguments
+                        .keywords
+                        .iter()
+                        .any(|kw| self.expr_uses_importlib(&kw.value))
+            }
+            Expr::Subscript(sub) => {
+                self.expr_uses_importlib(&sub.value) || self.expr_uses_importlib(&sub.slice)
+            }
+            Expr::Tuple(tuple) => tuple.elts.iter().any(|e| self.expr_uses_importlib(e)),
+            Expr::List(list) => list.elts.iter().any(|e| self.expr_uses_importlib(e)),
+            Expr::Set(set) => set.elts.iter().any(|e| self.expr_uses_importlib(e)),
+            Expr::Dict(dict) => dict.items.iter().any(|item| {
+                item.key
+                    .as_ref()
+                    .is_some_and(|k| self.expr_uses_importlib(k))
+                    || self.expr_uses_importlib(&item.value)
+            }),
+            Expr::ListComp(comp) => {
+                self.expr_uses_importlib(&comp.elt)
+                    || comp.generators.iter().any(|generator| {
+                        self.expr_uses_importlib(&generator.iter)
+                            || generator
+                                .ifs
+                                .iter()
+                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                    })
+            }
+            Expr::SetComp(comp) => {
+                self.expr_uses_importlib(&comp.elt)
+                    || comp.generators.iter().any(|generator| {
+                        self.expr_uses_importlib(&generator.iter)
+                            || generator
+                                .ifs
+                                .iter()
+                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                    })
+            }
+            Expr::DictComp(comp) => {
+                self.expr_uses_importlib(&comp.key)
+                    || self.expr_uses_importlib(&comp.value)
+                    || comp.generators.iter().any(|generator| {
+                        self.expr_uses_importlib(&generator.iter)
+                            || generator
+                                .ifs
+                                .iter()
+                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                    })
+            }
+            Expr::Generator(generator_exp) => {
+                self.expr_uses_importlib(&generator_exp.elt)
+                    || generator_exp.generators.iter().any(|g| {
+                        self.expr_uses_importlib(&g.iter)
+                            || g.ifs
+                                .iter()
+                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                    })
+            }
+            Expr::BoolOp(bool_op) => bool_op.values.iter().any(|v| self.expr_uses_importlib(v)),
+            Expr::UnaryOp(unary) => self.expr_uses_importlib(&unary.operand),
+            Expr::BinOp(bin_op) => {
+                self.expr_uses_importlib(&bin_op.left) || self.expr_uses_importlib(&bin_op.right)
+            }
+            Expr::Compare(cmp) => {
+                self.expr_uses_importlib(&cmp.left)
+                    || cmp.comparators.iter().any(|c| self.expr_uses_importlib(c))
+            }
+            Expr::If(if_exp) => {
+                self.expr_uses_importlib(&if_exp.test)
+                    || self.expr_uses_importlib(&if_exp.body)
+                    || self.expr_uses_importlib(&if_exp.orelse)
+            }
+            Expr::Lambda(lambda) => {
+                // Check default parameter values
+                lambda.parameters.as_ref().is_some_and(|params| {
+                    params.args.iter().any(|arg| {
+                        arg.default
+                            .as_ref()
+                            .is_some_and(|d| self.expr_uses_importlib(d))
+                    })
+                }) || self.expr_uses_importlib(&lambda.body)
+            }
+            Expr::Await(await_expr) => self.expr_uses_importlib(&await_expr.value),
+            Expr::Yield(yield_expr) => yield_expr
+                .value
+                .as_ref()
+                .is_some_and(|v| self.expr_uses_importlib(v)),
+            Expr::YieldFrom(yield_from) => self.expr_uses_importlib(&yield_from.value),
+            Expr::Starred(starred) => self.expr_uses_importlib(&starred.value),
+            Expr::Named(named) => {
+                self.expr_uses_importlib(&named.target) || self.expr_uses_importlib(&named.value)
+            }
+            Expr::Slice(slice) => {
+                slice
+                    .lower
+                    .as_ref()
+                    .is_some_and(|l| self.expr_uses_importlib(l))
+                    || slice
+                        .upper
+                        .as_ref()
+                        .is_some_and(|u| self.expr_uses_importlib(u))
+                    || slice
+                        .step
+                        .as_ref()
+                        .is_some_and(|s| self.expr_uses_importlib(s))
+            }
+            // Literals don't use importlib
+            Expr::StringLiteral(_)
+            | Expr::BytesLiteral(_)
+            | Expr::NumberLiteral(_)
+            | Expr::BooleanLiteral(_)
+            | Expr::NoneLiteral(_)
+            | Expr::EllipsisLiteral(_) => false,
+            // F-strings and T-strings are unlikely to directly use importlib
+            Expr::FString(_) => false,
+            Expr::TString(_) => false,
+            // IPython specific, unlikely to use importlib
+            Expr::IpyEscapeCommand(_) => false,
+        }
+    }
 }
 
 impl Default for HybridStaticBundler {
@@ -1807,6 +2361,7 @@ impl Default for HybridStaticBundler {
 impl HybridStaticBundler {
     pub fn new() -> Self {
         Self {
+            importlib_fully_transformed: false,
             module_registry: FxIndexMap::default(),
             init_functions: FxIndexMap::default(),
             future_imports: FxIndexSet::default(),
@@ -2567,20 +3122,62 @@ impl HybridStaticBundler {
         for module_name in wrapped_modules {
             deps_map.insert(module_name.clone(), Vec::new());
 
-            // Add child modules as dependencies to ensure they're initialized first
-            // For example, "models" depends on "models.base" and "models.user"
-            // because models/__init__.py might import from them
+            // Add parent modules as dependencies to ensure they're initialized first
+            // For example, "models.base" depends on "models"
+            // because Python always initializes parent packages before submodules
+            // UNLESS the parent imports from this child
             for other_module in wrapped_modules {
                 if other_module != module_name
-                    && other_module.starts_with(module_name)
-                    && other_module[module_name.len()..].starts_with('.')
+                    && module_name.starts_with(other_module)
+                    && module_name[other_module.len()..].starts_with('.')
                 {
-                    // other_module is a child of module_name
-                    debug!("  - {module_name} depends on child module {other_module}");
-                    if let Some(module_deps) = deps_map.get_mut(module_name)
-                        && !module_deps.contains(other_module)
+                    // module_name is a child of other_module
+                    // Check if the parent imports from this child
+                    let parent_imports_child = if let Some((_, _, parent_deps)) =
+                        all_modules.iter().find(|(name, _, _)| name == other_module)
                     {
-                        module_deps.push(other_module.clone());
+                        // Dependencies might be stored as relative imports
+                        // e.g., ".connection" for "core.database.connection"
+                        let relative_name = if module_name.starts_with(&format!("{other_module}."))
+                        {
+                            format!(".{}", &module_name[other_module.len() + 1..])
+                        } else {
+                            module_name.to_string()
+                        };
+
+                        let imports_child = parent_deps.contains(module_name)
+                            || parent_deps.contains(&relative_name);
+                        if imports_child {
+                            debug!(
+                                "    Found: parent {other_module} has dependency on child \
+                                 {module_name}"
+                            );
+                        }
+                        imports_child
+                    } else {
+                        debug!("    No dependency info found for parent {other_module}");
+                        false
+                    };
+
+                    if parent_imports_child {
+                        // Parent imports from child, so parent depends on child
+                        debug!(
+                            "  - Parent {other_module} imports from child {module_name}, \
+                             reversing dependency"
+                        );
+                        if let Some(parent_deps) = deps_map.get_mut(other_module)
+                            && !parent_deps.contains(module_name)
+                        {
+                            parent_deps.push(module_name.clone());
+                        }
+                    } else {
+                        // Normal case: child depends on parent
+                        debug!("  - {module_name} depends on parent module {other_module}");
+                        if let Some(module_deps) = deps_map.get_mut(module_name)
+                            && !module_deps.contains(other_module)
+                        {
+                            module_deps.push(other_module.clone());
+                        }
                     }
                 }
             }
@@ -2655,10 +3252,7 @@ impl HybridStaticBundler {
 
     /// Generate synthetic module name using content hash
     fn get_synthetic_module_name(&self, module_name: &str, content_hash: &str) -> String {
-        let module_name_escaped = module_name
-            .chars()
-            .map(|c| if c == '.' { '_' } else { c })
-            .collect::<String>();
+        let module_name_escaped = Self::sanitize_module_name_for_identifier(module_name);
         // Use first 6 characters of content hash for readability
         let short_hash = &content_hash[..6];
         format!("__cribo_{short_hash}_{module_name_escaped}")
@@ -3129,8 +3723,23 @@ impl HybridStaticBundler {
             // and circular dependencies can all be handled through static transformation
             let has_side_effects = Self::has_side_effects(ast);
 
-            if has_side_effects {
-                log::debug!("Module '{module_name}' has side effects - using wrapper approach");
+            // Check if this module has an invalid identifier (can't be imported normally)
+            // These modules are likely imported via importlib and need to be wrapped
+            // Note: Module names with dots are valid (e.g., "core.utils.helpers"), so we only
+            // check if the module name itself (without dots) is invalid
+            let module_base_name = module_name.split('.').next_back().unwrap_or(module_name);
+            let has_invalid_identifier = !Self::is_valid_python_identifier(module_base_name);
+
+            if has_side_effects || has_invalid_identifier {
+                if has_invalid_identifier {
+                    log::debug!(
+                        "Module '{module_name}' has invalid Python identifier - using wrapper \
+                         approach"
+                    );
+                } else {
+                    log::debug!("Module '{module_name}' has side effects - using wrapper approach");
+                }
+
                 wrapper_modules.push((
                     module_name.clone(),
                     ast.clone(),
@@ -3169,10 +3778,11 @@ impl HybridStaticBundler {
             self.collect_imports_from_module(ast, module_name, module_path);
         }
 
-        // If we have wrapper modules, inject types as stdlib dependency
+        // If we have wrapper modules, inject types and functools as stdlib dependencies
         if !wrapper_modules.is_empty() {
-            log::debug!("Adding types import for wrapper modules");
+            log::debug!("Adding types and functools imports for wrapper modules");
             self.add_stdlib_import("types");
+            self.add_stdlib_import("functools");
         }
 
         // If we have namespace imports, inject types as stdlib dependency
@@ -3251,6 +3861,8 @@ impl HybridStaticBundler {
             self.add_stdlib_import("types");
         }
 
+        // We'll add types import later if we actually create namespace objects for importlib
+
         // Register wrapper modules
         for (module_name, _ast, _module_path, content_hash) in &wrapper_modules {
             self.module_exports.insert(
@@ -3268,8 +3880,8 @@ impl HybridStaticBundler {
             self.init_functions.insert(synthetic_name, init_func_name);
         }
 
-        // Add imports first
-        self.add_hoisted_imports(&mut final_body);
+        // Note: We'll add hoisted imports later after all transformations are done
+        // to ensure we capture all needed imports (like types for namespace objects)
 
         // Check if we have wrapper modules
         let has_wrapper_modules = !wrapper_modules.is_empty();
@@ -3694,20 +4306,16 @@ impl HybridStaticBundler {
             );
             debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
 
-            // Initialize all modules in dependency order
-            for module_name in &sorted_wrapped {
-                debug!("  - Initializing module: {module_name}");
-                if let Some(synthetic_name) = self.module_registry.get(module_name).cloned() {
-                    let init_stmts = self.generate_module_init_call(&synthetic_name);
-                    final_body.extend(init_stmts);
-                }
-            }
+            // DO NOT initialize modules here - they should be initialized when imported
+            // This preserves Python's lazy import semantics
+            debug!("Skipping eager module initialization - modules will initialize on import");
 
             // After all modules are initialized, assign temporary variables to their namespace
             // locations For parent modules that are also wrapper modules, we need to
             // merge their attributes
             for module_name in &sorted_wrapped {
-                let temp_var_name = format!("_cribo_temp_{}", module_name.cow_replace(".", "_"));
+                // Direct module name instead of temp variable
+                // No longer need to track sanitized names since we use direct assignment
 
                 // Check if this module has submodules (is a parent module)
                 let is_parent_module = sorted_wrapped
@@ -3734,51 +4342,14 @@ impl HybridStaticBundler {
                             namespace_path.push_str(part);
                         }
 
-                        // Generate merge code for dotted parent modules
-                        self.generate_merge_module_attributes(
-                            &mut final_body,
-                            &namespace_path,
-                            &temp_var_name,
+                        // For dotted parent modules, they were already handled during init
+                        debug!(
+                            "Dotted parent module '{module_name}' already had attributes merged \
+                             during init"
                         );
                     } else {
-                        // Normal dotted module assignment
-                        let parts: Vec<&str> = module_name.split('.').collect();
-
-                        // Create the namespace assignment: models.base = _cribo_temp_models_base
-                        let mut target_expr = Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: parts[0].into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        });
-
-                        for (i, part) in parts[1..].iter().enumerate() {
-                            let ctx = if i == parts.len() - 2 {
-                                ExprContext::Store // Last part is Store context
-                            } else {
-                                ExprContext::Load
-                            };
-                            target_expr = Expr::Attribute(ExprAttribute {
-                                node_index: AtomicNodeIndex::dummy(),
-                                value: Box::new(target_expr),
-                                attr: Identifier::new(*part, TextRange::default()),
-                                ctx,
-                                range: TextRange::default(),
-                            });
-                        }
-
-                        // models.base = _cribo_temp_models_base
-                        final_body.push(Stmt::Assign(StmtAssign {
-                            node_index: AtomicNodeIndex::dummy(),
-                            targets: vec![target_expr],
-                            value: Box::new(Expr::Name(ExprName {
-                                node_index: AtomicNodeIndex::dummy(),
-                                id: temp_var_name.into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            range: TextRange::default(),
-                        }));
+                        // Dotted modules are already assigned during init via attribute expressions
+                        debug!("Dotted module '{module_name}' already assigned during init");
                     }
                 } else {
                     // For simple module names that are parent modules, we need to merge attributes
@@ -3786,33 +4357,14 @@ impl HybridStaticBundler {
                         debug!(
                             "Module '{module_name}' is both a wrapper module and parent namespace"
                         );
-                        // Instead of overwriting, merge the wrapper module's attributes into the
-                        // namespace This is done by copying all attributes
-                        // from the temporary module to the namespace
-                        self.generate_merge_module_attributes(
-                            &mut final_body,
-                            module_name,
-                            &temp_var_name,
+                        // Parent modules were already handled during init with merge logic
+                        debug!(
+                            "Parent module '{module_name}' already had attributes merged during \
+                             init"
                         );
                     } else {
-                        // Simple assignment for non-parent modules
-                        debug!("Assigning simple module '{module_name}' = '{temp_var_name}'");
-                        final_body.push(Stmt::Assign(StmtAssign {
-                            node_index: AtomicNodeIndex::dummy(),
-                            targets: vec![Expr::Name(ExprName {
-                                node_index: AtomicNodeIndex::dummy(),
-                                id: module_name.into(),
-                                ctx: ExprContext::Store,
-                                range: TextRange::default(),
-                            })],
-                            value: Box::new(Expr::Name(ExprName {
-                                node_index: AtomicNodeIndex::dummy(),
-                                id: temp_var_name.into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            range: TextRange::default(),
-                        }));
+                        // Simple modules are already assigned during init via direct assignment
+                        debug!("Module '{module_name}' already assigned during init");
                     }
                 }
             }
@@ -3932,23 +4484,80 @@ impl HybridStaticBundler {
             // Apply recursive import transformation to the entry module
             log::debug!("Creating RecursiveImportTransformer for entry module '{module_name}'");
             let mut entry_deferred_imports = Vec::new();
-            let mut transformer = RecursiveImportTransformer::new(
-                RecursiveImportTransformerParams {
-                    bundler: self,
-                    module_name: &module_name,
-                    module_path: Some(&module_path),
-                    symbol_renames: &symbol_renames,
-                    deferred_imports: &mut entry_deferred_imports,
-                    is_entry_module: true,  // This is the entry module
-                    is_wrapper_init: false, // Not a wrapper init
-                    global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports for checking */
-                },
-            );
-            log::debug!(
-                "Transforming entry module '{module_name}' with RecursiveImportTransformer"
-            );
-            transformer.transform_module(&mut ast);
-            log::debug!("Finished transforming entry module '{module_name}'");
+
+            // Check if importlib has been fully transformed
+            let (importlib_was_transformed, created_namespace_objects) = {
+                let mut transformer = RecursiveImportTransformer::new(
+                    RecursiveImportTransformerParams {
+                        bundler: self,
+                        module_name: &module_name,
+                        module_path: Some(&module_path),
+                        symbol_renames: &symbol_renames,
+                        deferred_imports: &mut entry_deferred_imports,
+                        is_entry_module: true,  // This is the entry module
+                        is_wrapper_init: false, // Not a wrapper init
+                        global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports for checking */
+                    },
+                );
+
+                // Pre-populate hoisted importlib aliases for the entry module
+                if let Some(importlib_imports) = self.stdlib_import_from_map.get("importlib") {
+                    for (name, alias_opt) in importlib_imports {
+                        if name == "import_module"
+                            && let Some(alias) = alias_opt
+                        {
+                            log::debug!(
+                                "Pre-populating importlib.import_module alias for entry module: \
+                                 {alias} -> importlib.import_module"
+                            );
+                            transformer
+                                .import_aliases
+                                .insert(alias.clone(), "importlib.import_module".to_string());
+                        }
+                    }
+                }
+                log::debug!(
+                    "Transforming entry module '{module_name}' with RecursiveImportTransformer"
+                );
+                transformer.transform_module(&mut ast);
+                log::debug!("Finished transforming entry module '{module_name}'");
+
+                (
+                    transformer.importlib_transformed,
+                    transformer.created_namespace_objects,
+                )
+            };
+
+            // Track if namespace objects were created
+            if created_namespace_objects {
+                log::debug!("Namespace objects were created, adding types import");
+                self.add_stdlib_import("types");
+            }
+
+            // If importlib was transformed, remove importlib import
+            if importlib_was_transformed {
+                log::debug!("importlib was transformed, removing import if present");
+                self.importlib_fully_transformed = true;
+                ast.body.retain(|stmt| {
+                    match stmt {
+                        Stmt::Import(import_stmt) => {
+                            // Check if this is import importlib
+                            !import_stmt
+                                .names
+                                .iter()
+                                .any(|alias| alias.name.as_str() == "importlib")
+                        }
+                        Stmt::ImportFrom(import_from) => {
+                            // Check if this is from importlib import ...
+                            import_from
+                                .module
+                                .as_ref()
+                                .is_none_or(|m| m.as_str() != "importlib")
+                        }
+                        _ => true,
+                    }
+                });
+            }
 
             // Process statements in order
             for stmt in &ast.body {
@@ -4003,35 +4612,76 @@ impl HybridStaticBundler {
 
                         // Check if this assignment already exists in final_body to avoid duplicates
                         let is_duplicate = if assign.targets.len() == 1 {
-                            // Check the exact assignment pattern
-                            if let (Expr::Name(target), _value) =
-                                (&assign.targets[0], &assign.value.as_ref())
-                            {
-                                // Look for exact duplicate in final_body
-                                final_body.iter().any(|stmt| {
-                                    if let Stmt::Assign(existing) = stmt {
-                                        if existing.targets.len() == 1 {
-                                            if let Expr::Name(existing_target) =
-                                                &existing.targets[0]
-                                            {
-                                                // Check if it's the same assignment
-                                                existing_target.id == target.id
-                                                    && Self::expr_equals(
-                                                        &existing.value,
-                                                        &assign.value,
-                                                    )
+                            match &assign.targets[0] {
+                                // Check name assignments
+                                Expr::Name(target) => {
+                                    // Look for exact duplicate in final_body
+                                    final_body.iter().any(|stmt| {
+                                        if let Stmt::Assign(existing) = stmt {
+                                            if existing.targets.len() == 1 {
+                                                if let Expr::Name(existing_target) =
+                                                    &existing.targets[0]
+                                                {
+                                                    // Check if it's the same assignment
+                                                    existing_target.id == target.id
+                                                        && Self::expr_equals(
+                                                            &existing.value,
+                                                            &assign.value,
+                                                        )
+                                                } else {
+                                                    false
+                                                }
                                             } else {
                                                 false
                                             }
                                         } else {
                                             false
                                         }
+                                    })
+                                }
+                                // Check attribute assignments like schemas.user = ...
+                                Expr::Attribute(target_attr) => {
+                                    let target_path = self.extract_attribute_path(target_attr);
+
+                                    // Check if this is a module init assignment
+                                    if let Expr::Call(call) = &assign.value.as_ref()
+                                        && let Expr::Name(func_name) = &call.func.as_ref()
+                                        && func_name.id.as_str().starts_with("__cribo_init_")
+                                    {
+                                        // Check in final_body for same module init
+                                        final_body.iter().any(|stmt| {
+                                            if let Stmt::Assign(existing) = stmt
+                                                && existing.targets.len() == 1
+                                                && let Expr::Attribute(existing_attr) =
+                                                    &existing.targets[0]
+                                                && let Expr::Call(existing_call) =
+                                                    &existing.value.as_ref()
+                                                && let Expr::Name(existing_func) =
+                                                    &existing_call.func.as_ref()
+                                                && existing_func
+                                                    .id
+                                                    .as_str()
+                                                    .starts_with("__cribo_init_")
+                                            {
+                                                let existing_path =
+                                                    self.extract_attribute_path(existing_attr);
+                                                if existing_path == target_path {
+                                                    log::debug!(
+                                                        "Found duplicate module init in \
+                                                         final_body: {} = {}",
+                                                        target_path,
+                                                        func_name.id.as_str()
+                                                    );
+                                                    return true;
+                                                }
+                                            }
+                                            false
+                                        })
                                     } else {
                                         false
                                     }
-                                })
-                            } else {
-                                false
+                                }
+                                _ => false,
                             }
                         } else {
                             false
@@ -4103,23 +4753,66 @@ impl HybridStaticBundler {
             // Add entry module's deferred imports with deduplication
             for stmt in entry_deferred_imports {
                 let is_duplicate = if let Stmt::Assign(assign) = &stmt {
-                    if let Expr::Name(target) = &assign.targets[0] {
-                        let target_name = target.id.as_str();
+                    match &assign.targets[0] {
+                        Expr::Name(target) => {
+                            let target_name = target.id.as_str();
 
-                        // Check against existing deferred imports
-                        all_deferred_imports.iter().any(|existing| {
-                            if let Stmt::Assign(existing_assign) = existing
-                                && let [Expr::Name(existing_target)] =
-                                    existing_assign.targets.as_slice()
-                                && existing_target.id.as_str() == target_name
+                            // Check against existing deferred imports
+                            all_deferred_imports.iter().any(|existing| {
+                                if let Stmt::Assign(existing_assign) = existing
+                                    && let [Expr::Name(existing_target)] =
+                                        existing_assign.targets.as_slice()
+                                    && existing_target.id.as_str() == target_name
+                                {
+                                    // Check if the values are the same
+                                    return Self::expr_equals(
+                                        &existing_assign.value,
+                                        &assign.value,
+                                    );
+                                }
+                                false
+                            })
+                        }
+                        Expr::Attribute(target_attr) => {
+                            // For attribute assignments like schemas.user = ...
+                            let target_path = self.extract_attribute_path(target_attr);
+
+                            // Check if this is a module init assignment
+                            if let Expr::Call(call) = &assign.value.as_ref()
+                                && let Expr::Name(func_name) = &call.func.as_ref()
+                                && func_name.id.as_str().starts_with("__cribo_init_")
                             {
-                                // Check if the values are the same
-                                return Self::expr_equals(&existing_assign.value, &assign.value);
+                                // Check against existing deferred imports for same module init
+                                all_deferred_imports.iter().any(|existing| {
+                                    if let Stmt::Assign(existing_assign) = existing
+                                        && existing_assign.targets.len() == 1
+                                        && let Expr::Attribute(existing_attr) =
+                                            &existing_assign.targets[0]
+                                        && let Expr::Call(existing_call) =
+                                            &existing_assign.value.as_ref()
+                                        && let Expr::Name(existing_func) =
+                                            &existing_call.func.as_ref()
+                                        && existing_func.id.as_str().starts_with("__cribo_init_")
+                                    {
+                                        let existing_path =
+                                            self.extract_attribute_path(existing_attr);
+                                        if existing_path == target_path {
+                                            log::debug!(
+                                                "Found duplicate module init in entry deferred \
+                                                 imports: {} = {}",
+                                                target_path,
+                                                func_name.id.as_str()
+                                            );
+                                            return true;
+                                        }
+                                    }
+                                    false
+                                })
+                            } else {
+                                false
                             }
-                            false
-                        })
-                    } else {
-                        false
+                        }
+                        _ => false,
                     }
                 } else {
                     false
@@ -4161,10 +4854,12 @@ impl HybridStaticBundler {
             }
 
             // Add init calls first
+            let mut entry_used_sanitized_names = FxIndexSet::default();
             for synthetic_name in needed_init_calls {
                 // Note: This is in a context where we can't mutate self, so we'll rely on
                 // the namespaces being pre-created by identify_required_namespaces
-                let init_stmts = self.generate_module_init_call(&synthetic_name);
+                let init_stmts = self
+                    .generate_module_init_call(&synthetic_name, &mut entry_used_sanitized_names);
                 final_body.extend(init_stmts);
             }
 
@@ -4194,6 +4889,13 @@ impl HybridStaticBundler {
             final_body.extend(deduped_imports);
         }
 
+        // Add hoisted imports at the beginning of final_body
+        // This is done here after all transformations to ensure we capture all needed imports
+        let mut hoisted_imports = Vec::new();
+        self.add_hoisted_imports(&mut hoisted_imports);
+        hoisted_imports.extend(final_body);
+        final_body = hoisted_imports;
+
         let mut result = ModModule {
             node_index: self.create_transformed_node("Bundled module root".to_string()),
             range: TextRange::default(),
@@ -4202,6 +4904,10 @@ impl HybridStaticBundler {
 
         // Assign proper node indices to all nodes in the final AST
         self.assign_node_indices_to_ast(&mut result);
+
+        // Post-processing: Remove importlib import if it's unused
+        // This happens when all importlib.import_module() calls were transformed
+        self.remove_unused_importlib(&mut result);
 
         // Log transformation statistics
         let stats = self.transformation_context.get_stats();
@@ -4453,6 +5159,14 @@ impl HybridStaticBundler {
         }
 
         transformer.transform_module(&mut ast);
+
+        // If namespace objects were created, we need types import
+        // (though wrapper modules already have types import)
+        if transformer.created_namespace_objects {
+            log::debug!(
+                "Namespace objects were created in wrapper module, types import already present"
+            );
+        }
 
         // Store deferred imports to add after module body
         let deferred_imports_to_add = wrapper_deferred_imports.clone();
@@ -4799,7 +5513,8 @@ impl HybridStaticBundler {
             transform_globals_in_stmt(stmt);
         }
 
-        // Create the init function
+        // Create the init function with @functools.cache decorator
+        // This ensures the module is only initialized once (singleton pattern)
         Ok(Stmt::FunctionDef(StmtFunctionDef {
             node_index: AtomicNodeIndex::dummy(),
             name: Identifier::new(init_func_name, TextRange::default()),
@@ -4815,7 +5530,22 @@ impl HybridStaticBundler {
             }),
             returns: None,
             body,
-            decorator_list: vec![],
+            decorator_list: vec![Decorator {
+                node_index: AtomicNodeIndex::dummy(),
+                expression: Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "functools".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("cache", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                }),
+                range: TextRange::default(),
+            }],
             is_async: false,
             range: TextRange::default(),
         }))
@@ -5432,20 +6162,41 @@ impl HybridStaticBundler {
         for stmt in existing_body {
             if let Stmt::Assign(assign) = stmt
                 && assign.targets.len() == 1
-                && let Expr::Name(target) = &assign.targets[0]
             {
-                let target_str = target.id.as_str();
+                // Handle attribute assignments like schemas.user = ...
+                if let Expr::Attribute(target_attr) = &assign.targets[0] {
+                    let target_path = self.extract_attribute_path(target_attr);
 
-                // Handle simple name assignments
-                if let Expr::Name(value) = &assign.value.as_ref() {
-                    let key = format!("{} = {}", target_str, value.id.as_str());
-                    seen_assignments.insert(key);
+                    // Handle init function calls
+                    if let Expr::Call(call) = &assign.value.as_ref()
+                        && let Expr::Name(name) = &call.func.as_ref()
+                    {
+                        let func_name = name.id.as_str();
+                        if func_name.starts_with("__cribo_init_") {
+                            // Use just the target path as the key for module init assignments
+                            let key = target_path.clone();
+                            log::debug!(
+                                "Found existing module init assignment: {key} = {func_name}"
+                            );
+                            seen_assignments.insert(key);
+                        }
+                    }
                 }
-                // Handle attribute assignments like User = services.auth.manager.User
-                else if let Expr::Attribute(attr) = &assign.value.as_ref() {
-                    let attr_path = self.extract_attribute_path(attr);
-                    let key = format!("{target_str} = {attr_path}");
-                    seen_assignments.insert(key);
+                // Handle simple name assignments
+                else if let Expr::Name(target) = &assign.targets[0] {
+                    let target_str = target.id.as_str();
+
+                    // Handle simple name assignments
+                    if let Expr::Name(value) = &assign.value.as_ref() {
+                        let key = format!("{} = {}", target_str, value.id.as_str());
+                        seen_assignments.insert(key);
+                    }
+                    // Handle attribute assignments like User = services.auth.manager.User
+                    else if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                        let attr_path = self.extract_attribute_path(attr);
+                        let key = format!("{target_str} = {attr_path}");
+                        seen_assignments.insert(key);
+                    }
                 }
             }
         }
@@ -5483,6 +6234,43 @@ impl HybridStaticBundler {
                 }
                 // Check for symbol assignments
                 Stmt::Assign(assign) => {
+                    // First check if this is an attribute assignment with an init function call
+                    // like: schemas.user = __cribo_init___cribo_f275a8_schemas_user()
+                    if assign.targets.len() == 1
+                        && let Expr::Attribute(target_attr) = &assign.targets[0]
+                    {
+                        let target_path = self.extract_attribute_path(target_attr);
+
+                        // Check if value is an init function call
+                        if let Expr::Call(call) = &assign.value.as_ref()
+                            && let Expr::Name(name) = &call.func.as_ref()
+                        {
+                            let func_name = name.id.as_str();
+                            if func_name.starts_with("__cribo_init_") {
+                                // For module init assignments, just check the target path
+                                // since the same module should only be initialized once
+                                let key = target_path.clone();
+                                log::debug!(
+                                    "Checking deferred module init assignment: {key} = {func_name}"
+                                );
+                                if seen_assignments.contains(&key) {
+                                    log::debug!(
+                                        "Skipping duplicate module init assignment: {key} = \
+                                         {func_name}"
+                                    );
+                                    continue; // Skip this statement entirely
+                                } else {
+                                    log::debug!(
+                                        "Adding new module init assignment: {key} = {func_name}"
+                                    );
+                                    seen_assignments.insert(key);
+                                    result.push(stmt);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
                     // Check if this is an assignment like: UserSchema =
                     // sys.modules['schemas.user'].UserSchema
                     if let Expr::Attribute(attr) = &assign.value.as_ref() {
@@ -5632,7 +6420,11 @@ impl HybridStaticBundler {
     }
 
     /// Generate a call to initialize a module
-    fn generate_module_init_call(&mut self, synthetic_name: &str) -> Vec<Stmt> {
+    fn generate_module_init_call(
+        &mut self,
+        synthetic_name: &str,
+        _used_sanitized_names: &mut FxIndexSet<String>,
+    ) -> Vec<Stmt> {
         let mut statements = Vec::new();
 
         if let Some(init_func_name) = self.init_functions.get(synthetic_name) {
@@ -5644,37 +6436,120 @@ impl HybridStaticBundler {
                 .map(|(orig_name, _)| orig_name.as_str())
                 .unwrap_or(synthetic_name);
 
-            // Always use temporary variables for wrapper modules to avoid overwriting namespaces
-            // Create a temporary variable name for the module
-            let temp_var_name = format!("_cribo_temp_{}", module_name.cow_replace(".", "_"));
+            // Check if this module is a parent namespace that already exists
+            // This happens when a module like 'services.auth' has both:
+            // 1. Its own __init__.py (wrapper module)
+            // 2. Submodules like 'services.auth.manager'
+            let is_parent_namespace = self.module_registry.iter().any(|(name, _)| {
+                name != module_name && name.starts_with(&format!("{module_name}."))
+            });
 
-            // _cribo_temp_module_name = __cribo_init_synthetic_name()
-            statements.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
+            if is_parent_namespace {
+                // For parent namespaces, we need to merge attributes instead of overwriting
+                // Generate code that calls the init function and merges its attributes
+                debug!("Module '{module_name}' is a parent namespace - generating merge code");
+
+                // Call the init function and merge attributes inline
+                // for attr in dir(__cribo_init_xxx()):
+                //     if not attr.startswith('_'):
+                //         setattr(namespace, attr, getattr(result, attr))
+
+                // First, create a variable to hold the init result
+                let init_result_var = "__cribo_init_result";
+                statements.push(Stmt::Assign(StmtAssign {
                     node_index: AtomicNodeIndex::dummy(),
-                    id: temp_var_name.into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Call(ExprCall {
-                    node_index: AtomicNodeIndex::dummy(),
-                    func: Box::new(Expr::Name(ExprName {
+                    targets: vec![Expr::Name(ExprName {
                         node_index: AtomicNodeIndex::dummy(),
-                        id: init_func_name.as_str().into(),
-                        ctx: ExprContext::Load,
+                        id: init_result_var.into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Call(ExprCall {
+                        node_index: AtomicNodeIndex::dummy(),
+                        func: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: init_func_name.as_str().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        arguments: ruff_python_ast::Arguments {
+                            node_index: AtomicNodeIndex::dummy(),
+                            args: Box::from([]),
+                            keywords: Box::from([]),
+                            range: TextRange::default(),
+                        },
                         range: TextRange::default(),
                     })),
-                    arguments: ruff_python_ast::Arguments {
-                        node_index: AtomicNodeIndex::dummy(),
-                        args: Box::from([]),
-                        keywords: Box::from([]),
-                        range: TextRange::default(),
-                    },
                     range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+                }));
+
+                // Then generate the merge code
+                self.generate_merge_module_attributes(
+                    &mut statements,
+                    module_name,
+                    init_result_var,
+                );
+            } else {
+                // Direct assignment for modules that aren't parent namespaces
+                let target_expr = if module_name.contains('.') {
+                    // For dotted modules like models.base, create an attribute expression
+                    let parts: Vec<&str> = module_name.split('.').collect();
+                    let mut expr = Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: parts[0].into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+
+                    for (i, part) in parts[1..].iter().enumerate() {
+                        let ctx = if i == parts.len() - 2 {
+                            ExprContext::Store // Last part is Store context
+                        } else {
+                            ExprContext::Load
+                        };
+                        expr = Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(expr),
+                            attr: Identifier::new(*part, TextRange::default()),
+                            ctx,
+                            range: TextRange::default(),
+                        });
+                    }
+                    expr
+                } else {
+                    // For simple modules, use direct name
+                    Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: module_name.into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })
+                };
+
+                // Generate: module_name = __cribo_init_synthetic_name()
+                // or: parent.child = __cribo_init_synthetic_name()
+                statements.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
+                    targets: vec![target_expr],
+                    value: Box::new(Expr::Call(ExprCall {
+                        node_index: AtomicNodeIndex::dummy(),
+                        func: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: init_func_name.as_str().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        arguments: ruff_python_ast::Arguments {
+                            node_index: AtomicNodeIndex::dummy(),
+                            args: Box::from([]),
+                            keywords: Box::from([]),
+                            range: TextRange::default(),
+                        },
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+            }
         } else {
             statements.push(Stmt::Pass(ruff_python_ast::StmtPass {
                 node_index: AtomicNodeIndex::dummy(),
@@ -6068,16 +6943,25 @@ impl HybridStaticBundler {
         sorted_modules.sort_by_key(|(module_name, _)| *module_name);
 
         for (module_name, imported_names) in sorted_modules {
+            // Skip importlib if it was fully transformed
+            if module_name == "importlib" && self.importlib_fully_transformed {
+                log::debug!("Skipping importlib from hoisted imports as it was fully transformed");
+                continue;
+            }
+
             // Sort the imported names for deterministic output
-            let mut sorted_names: Vec<String> = imported_names.iter().cloned().collect();
-            sorted_names.sort();
+            let mut sorted_names: Vec<(String, Option<String>)> = imported_names
+                .iter()
+                .map(|(name, alias)| (name.clone(), alias.clone()))
+                .collect();
+            sorted_names.sort_by_key(|(name, _)| name.clone());
 
             let aliases: Vec<ruff_python_ast::Alias> = sorted_names
                 .into_iter()
-                .map(|name| ruff_python_ast::Alias {
+                .map(|(name, alias_opt)| ruff_python_ast::Alias {
                     node_index: AtomicNodeIndex::dummy(),
                     name: Identifier::new(&name, TextRange::default()),
-                    asname: None,
+                    asname: alias_opt.map(|a| Identifier::new(&a, TextRange::default())),
                     range: TextRange::default(),
                 })
                 .collect();
@@ -6190,15 +7074,18 @@ impl HybridStaticBundler {
                 self.future_imports.insert(alias.name.to_string());
             }
         } else if self.is_safe_stdlib_module(module_name) {
-            // Get or create the set of imported names for this module
+            // Get or create the map of imported names for this module
             let imported_names = self
                 .stdlib_import_from_map
                 .entry(module_name.to_string())
                 .or_default();
 
-            // Add all imported names to the set (this automatically deduplicates)
+            // Add all imported names with their aliases
             for alias in &import_from.names {
-                imported_names.insert(alias.name.to_string());
+                imported_names.insert(
+                    alias.name.to_string(),
+                    alias.asname.as_ref().map(|n| n.to_string()),
+                );
             }
         } else if !self.is_bundled_module_or_package(module_name) {
             // This is a third-party import (not stdlib, not bundled)
@@ -7803,70 +8690,13 @@ impl HybridStaticBundler {
         let mut assignments = Vec::new();
         let mut initialized_modules = FxIndexSet::default();
 
-        // Pre-check if this is a wrapper module that needs initialization
-        let module_needs_init = if self.module_registry.contains_key(module_name) {
-            if inside_wrapper_init {
-                // Inside a wrapper module's init function, we can't reference ANY global namespace
-                // because it hasn't been set up yet. We need to initialize all wrapper modules
-                // locally.
-                true
-            } else if module_name.contains('.') {
-                // In other contexts, nested modules like schemas.user are initialized during
-                // global namespace creation
-                false
-            } else {
-                // Top-level wrapper modules may need initialization
-                true
-            }
-        } else {
-            false
-        };
+        // Track which modules we've already initialized in this import context
+        // to avoid duplicate initialization calls
+        let mut locally_initialized = FxIndexSet::default();
 
-        // If we need to initialize the module, do it once before processing any imports
-        let module_var_name = if module_needs_init && !initialized_modules.contains(module_name) {
-            let local_module_var = format!(
-                "_cribo_module_{}",
-                module_name.cow_replace('.', "_").as_ref()
-            );
-
-            // We need to determine the correct source variable to reference
-            let source_var =
-                if inside_wrapper_init || self.module_registry.contains_key(module_name) {
-                    // Inside wrapper init OR when importing from a wrapper module,
-                    // use the temporary variable which will contain the initialized module
-                    format!("_cribo_temp_{}", module_name.cow_replace(".", "_"))
-                } else if module_name.contains('.') {
-                    // For dotted modules outside wrapper init, reference the temporary variable if
-                    // it exists
-                    format!("_cribo_temp_{}", module_name.cow_replace(".", "_"))
-                } else {
-                    // For top-level modules outside wrapper init that are not wrapper modules,
-                    // reference the module directly
-                    module_name.to_string()
-                };
-
-            // Add: _cribo_module_xxx = source_var (either the module or temp variable)
-            assignments.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: local_module_var.clone().into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: source_var.into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
-            initialized_modules.insert(module_name.to_string());
-            Some(local_module_var)
-        } else {
-            None
-        };
+        // For wrapper modules, we always need to ensure they're initialized before accessing
+        // attributes Don't create the temporary variable approach - it causes issues with
+        // namespace reassignment
 
         for alias in &import_from.names {
             let imported_name = alias.name.as_str();
@@ -7879,7 +8709,8 @@ impl HybridStaticBundler {
             // and might re-export this name
             let parent_is_wrapper = self.module_registry.contains_key(module_name);
             let submodule_exists = self.bundled_modules.contains(&full_module_path)
-                && self.module_registry.contains_key(&full_module_path);
+                && (self.module_registry.contains_key(&full_module_path)
+                    || self.inlined_modules.contains(&full_module_path));
 
             // If both the parent is a wrapper and a submodule exists, we need to decide
             // In Python, attributes from __init__.py take precedence over submodules
@@ -7890,9 +8721,9 @@ impl HybridStaticBundler {
                     // If __all__ is defined and doesn't include this name, it's the submodule
                     !export_list.contains(&imported_name.to_string())
                 } else {
-                    // No __all__ defined or no export info - assume it's an attribute (safer
-                    // default)
-                    false
+                    // No __all__ defined - check if the submodule actually exists
+                    // If it does, we're importing the submodule not an attribute
+                    submodule_exists
                 }
             } else {
                 // Simple case: just check if it's a submodule
@@ -7901,43 +8732,100 @@ impl HybridStaticBundler {
 
             if importing_submodule {
                 // We're importing a submodule, not an attribute
-                // First, ensure the submodule is initialized if it's a wrapper module
-                if let Some(synthetic_name) = self.module_registry.get(&full_module_path) {
-                    // Only add initialization call if we haven't already initialized this module
-                    if !initialized_modules.contains(&full_module_path) {
-                        // Add initialization call: __cribo_init_<synthetic>()
-                        let init_func_name = format!("__cribo_init_{synthetic_name}");
-                        assignments.push(Stmt::Expr(ruff_python_ast::StmtExpr {
-                            node_index: AtomicNodeIndex::dummy(),
-                            value: Box::new(Expr::Call(ExprCall {
-                                node_index: AtomicNodeIndex::dummy(),
-                                func: Box::new(Expr::Name(ExprName {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    id: init_func_name.into(),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                arguments: Arguments {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    args: Box::from([]),
-                                    keywords: Box::from([]),
-                                    range: TextRange::default(),
-                                },
-                                range: TextRange::default(),
-                            })),
-                            range: TextRange::default(),
-                        }));
-                        initialized_modules.insert(full_module_path.clone());
-                    }
-                }
-
-                // Create: target = module.submodule (direct namespace reference)
                 log::debug!(
                     "Importing submodule '{imported_name}' from '{module_name}' via from import"
                 );
 
+                // When inside a wrapper init, we need to initialize modules we're importing from
+                if inside_wrapper_init {
+                    // First, ensure the parent module is initialized if it's a wrapper module
+                    if self.module_registry.contains_key(module_name)
+                        && !locally_initialized.contains(module_name)
+                    {
+                        assignments
+                            .extend(self.create_module_initialization_for_import(module_name));
+                        locally_initialized.insert(module_name.to_string());
+                    }
+                    // Then ensure the submodule is initialized if it's a wrapper module
+                    if self.module_registry.contains_key(&full_module_path)
+                        && !locally_initialized.contains(&full_module_path)
+                    {
+                        // Check if we already have this module initialization in assignments
+                        let already_initialized = assignments.iter().any(|stmt| {
+                            if let Stmt::Assign(assign) = stmt
+                                && assign.targets.len() == 1
+                                && let Expr::Attribute(attr) = &assign.targets[0]
+                                && let Expr::Call(call) = &assign.value.as_ref()
+                                && let Expr::Name(func_name) = &call.func.as_ref()
+                                && func_name.id.as_str().starts_with("__cribo_init_")
+                            {
+                                let attr_path = self.extract_attribute_path(attr);
+                                attr_path == full_module_path
+                            } else {
+                                false
+                            }
+                        });
+
+                        if !already_initialized {
+                            assignments.extend(
+                                self.create_module_initialization_for_import(&full_module_path),
+                            );
+                        }
+                        locally_initialized.insert(full_module_path.clone());
+                        initialized_modules.insert(full_module_path.clone());
+                    }
+                } else {
+                    // Not inside wrapper init - normal lazy initialization
+                    if self.module_registry.contains_key(module_name)
+                        && !locally_initialized.contains(module_name)
+                    {
+                        // Initialize parent module if needed
+                        assignments
+                            .extend(self.create_module_initialization_for_import(module_name));
+                        locally_initialized.insert(module_name.to_string());
+                    }
+                    if self.module_registry.contains_key(&full_module_path)
+                        && !locally_initialized.contains(&full_module_path)
+                    {
+                        // Check if we already have this module initialization in assignments
+                        let already_initialized = assignments.iter().any(|stmt| {
+                            if let Stmt::Assign(assign) = stmt
+                                && assign.targets.len() == 1
+                                && let Expr::Attribute(attr) = &assign.targets[0]
+                                && let Expr::Call(call) = &assign.value.as_ref()
+                                && let Expr::Name(func_name) = &call.func.as_ref()
+                                && func_name.id.as_str().starts_with("__cribo_init_")
+                            {
+                                let attr_path = self.extract_attribute_path(attr);
+                                attr_path == full_module_path
+                            } else {
+                                false
+                            }
+                        });
+
+                        if !already_initialized {
+                            // Initialize submodule if needed
+                            assignments.extend(
+                                self.create_module_initialization_for_import(&full_module_path),
+                            );
+                        }
+                        locally_initialized.insert(full_module_path.clone());
+                        initialized_modules.insert(full_module_path.clone());
+                    }
+                }
+
                 // Build the direct namespace reference
-                let namespace_expr = if full_module_path.contains('.') {
+                let namespace_expr = if self.inlined_modules.contains(&full_module_path) {
+                    // For inlined modules, use the temporary variable directly
+                    // Use direct module name for inlined modules
+                    let module_var_name = full_module_path.clone();
+                    Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: module_var_name.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })
+                } else if full_module_path.contains('.') {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = full_module_path.split('.').collect();
                     let mut expr = Expr::Name(ExprName {
@@ -7979,16 +8867,42 @@ impl HybridStaticBundler {
                 }));
             } else {
                 // Regular attribute import
+                // Ensure the module is initialized first if it's a wrapper module
+                if self.module_registry.contains_key(module_name)
+                    && !locally_initialized.contains(module_name)
+                {
+                    // Check if this module is already initialized in any deferred imports
+                    let module_init_exists = assignments.iter().any(|stmt| {
+                        if let Stmt::Assign(assign) = stmt
+                            && assign.targets.len() == 1
+                            && let Expr::Call(call) = &assign.value.as_ref()
+                            && let Expr::Name(func_name) = &call.func.as_ref()
+                            && func_name.id.as_str().starts_with("__cribo_init_")
+                        {
+                            // Check if the target matches our module
+                            match &assign.targets[0] {
+                                Expr::Attribute(attr) => {
+                                    let attr_path = self.extract_attribute_path(attr);
+                                    attr_path == module_name
+                                }
+                                Expr::Name(name) => name.id.as_str() == module_name,
+                                _ => false,
+                            }
+                        } else {
+                            false
+                        }
+                    });
+
+                    if !module_init_exists {
+                        // Initialize the module before accessing its attributes
+                        assignments
+                            .extend(self.create_module_initialization_for_import(module_name));
+                    }
+                    locally_initialized.insert(module_name.to_string());
+                }
+
                 // Create: target = module.imported_name
-                let module_expr = if let Some(ref var_name) = module_var_name {
-                    // We initialized the module locally, use the local variable
-                    Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: var_name.clone().into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })
-                } else if module_name.contains('.') {
+                let module_expr = if module_name.contains('.') {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = module_name.split('.').collect();
                     let mut expr = Expr::Name(ExprName {
@@ -10472,7 +11386,10 @@ impl HybridStaticBundler {
 
             // Check if this module is inlined
             if self.inlined_modules.contains(&module_name) {
-                log::debug!("Module '{module_name}' is an inlined module");
+                log::debug!(
+                    "Module '{module_name}' is an inlined module, \
+                     inside_wrapper_init={inside_wrapper_init}"
+                );
                 // Handle imports from inlined modules
                 return self.handle_imports_from_inlined_module(
                     &import_from,
@@ -10494,6 +11411,22 @@ impl HybridStaticBundler {
             }
 
             if !has_bundled_submodules {
+                log::debug!(
+                    "No bundled submodules found for module '{module_name}', checking if it's a \
+                     wrapper module"
+                );
+
+                // Check if this module is in the module_registry (wrapper module)
+                if self.module_registry.contains_key(&module_name) {
+                    log::debug!("Module '{module_name}' is a wrapper module in module_registry");
+                    // This is a wrapper module, we need to transform it
+                    return self.transform_bundled_import_from_multiple_with_context(
+                        import_from,
+                        &module_name,
+                        inside_wrapper_init,
+                    );
+                }
+
                 // No bundled submodules, keep original import
                 // For relative imports from non-bundled modules, convert to absolute import
                 if import_from.level > 0 {
@@ -10738,6 +11671,10 @@ impl HybridStaticBundler {
                         // a.b.c)
                         self.create_parent_namespaces(&parts, &mut result_stmts);
 
+                        // Initialize the module at import time
+                        result_stmts
+                            .extend(self.create_module_initialization_for_import(module_name));
+
                         let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
                         // If there's no alias, we need to handle the dotted name specially
@@ -10809,9 +11746,13 @@ impl HybridStaticBundler {
                 }
 
                 if self.module_registry.contains_key(module_name) {
-                    // Module uses wrapper approach - transform to sys.modules access
+                    // Module uses wrapper approach - need to initialize it now
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                    // Skip self-assignments - the module is already initialized
+
+                    // First, ensure the module is initialized
+                    result_stmts.extend(self.create_module_initialization_for_import(module_name));
+
+                    // Then create assignment if needed (skip self-assignments)
                     if target_name.as_str() != module_name {
                         result_stmts.push(
                             self.create_module_reference_assignment(
@@ -10870,6 +11811,9 @@ impl HybridStaticBundler {
                     // a.b.c)
                     self.create_parent_namespaces_entry_module(&parts, &mut result_stmts);
 
+                    // Initialize the module at import time
+                    result_stmts.extend(self.create_module_initialization_for_import(module_name));
+
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
                     // If there's no alias, we need to handle the dotted name specially
@@ -10900,9 +11844,13 @@ impl HybridStaticBundler {
                 }
 
                 if self.module_registry.contains_key(module_name) {
-                    // Module uses wrapper approach - transform to sys.modules access
+                    // Module uses wrapper approach - need to initialize it now
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                    // Skip self-assignments - the module is already initialized
+
+                    // First, ensure the module is initialized
+                    result_stmts.extend(self.create_module_initialization_for_import(module_name));
+
+                    // Then create assignment if needed (skip self-assignments)
                     if target_name.as_str() != module_name {
                         result_stmts.push(
                             self.create_module_reference_assignment(
@@ -11114,6 +12062,132 @@ impl HybridStaticBundler {
         })
     }
 
+    /// Create module initialization statements for wrapper modules when they are imported
+    fn create_module_initialization_for_import(&self, module_name: &str) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+
+        // Check if this is a wrapper module that needs initialization
+        if let Some(synthetic_name) = self.module_registry.get(module_name) {
+            // Generate the init call
+            let init_func_name = format!("__cribo_init_{synthetic_name}");
+
+            // Call the init function and get the result
+            let init_call = Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
+                func: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: init_func_name.clone().into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            });
+
+            // Generate the appropriate assignment based on module type
+            stmts.extend(self.generate_module_assignment_from_init(module_name, init_call));
+
+            // Log the initialization for debugging
+            if module_name.contains('.') {
+                log::debug!(
+                    "Created module initialization: {} = {}()",
+                    module_name,
+                    &init_func_name
+                );
+            }
+        }
+
+        stmts
+    }
+
+    /// Generate module assignment from init function result
+    fn generate_module_assignment_from_init(
+        &self,
+        module_name: &str,
+        init_call: Expr,
+    ) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+
+        // Check if this module is a parent namespace that already exists
+        let is_parent_namespace = self
+            .module_registry
+            .iter()
+            .any(|(name, _)| name != module_name && name.starts_with(&format!("{module_name}.")));
+
+        if is_parent_namespace {
+            // Use temp variable and merge attributes for parent namespaces
+            let init_result_var = "__cribo_init_result";
+
+            // Store init result in temp variable
+            stmts.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: init_result_var.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(init_call),
+                range: TextRange::default(),
+            }));
+
+            // Merge attributes from init result into existing namespace
+            self.generate_merge_module_attributes(&mut stmts, module_name, init_result_var);
+        } else {
+            // Direct assignment for simple and dotted modules
+            let target_expr = if module_name.contains('.') {
+                // Create attribute expression for dotted modules
+                let parts: Vec<&str> = module_name.split('.').collect();
+                let mut expr = Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: parts[0].into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+
+                for part in &parts[1..parts.len() - 1] {
+                    expr = Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(expr),
+                        attr: Identifier::new(*part, TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+                }
+
+                Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(expr),
+                    attr: Identifier::new(parts[parts.len() - 1], TextRange::default()),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })
+            } else {
+                // Simple name expression
+                Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: module_name.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })
+            };
+
+            stmts.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![target_expr],
+                value: Box::new(init_call),
+                range: TextRange::default(),
+            }));
+        }
+
+        stmts
+    }
+
     /// Create parent namespaces for dotted imports
     fn create_parent_namespaces(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
         for i in 1..parts.len() {
@@ -11201,12 +12275,12 @@ impl HybridStaticBundler {
         &self,
         statements: &mut Vec<Stmt>,
         namespace_name: &str,
-        temp_module_name: &str,
+        source_module_name: &str,
     ) {
         // Generate code like:
-        // for attr in dir(_cribo_temp_mypackage):
+        // for attr in dir(mypackage):
         //     if not attr.startswith('_'):
-        //         setattr(mypackage, attr, getattr(_cribo_temp_mypackage, attr))
+        //         setattr(mypackage, attr, getattr(mypackage, attr))
 
         let attr_var = "attr";
         let loop_target = Expr::Name(ExprName {
@@ -11216,7 +12290,7 @@ impl HybridStaticBundler {
             range: TextRange::default(),
         });
 
-        // dir(_cribo_temp_mypackage)
+        // dir(mypackage)
         let dir_call = Expr::Call(ExprCall {
             node_index: AtomicNodeIndex::dummy(),
             func: Box::new(Expr::Name(ExprName {
@@ -11229,7 +12303,7 @@ impl HybridStaticBundler {
                 node_index: AtomicNodeIndex::dummy(),
                 args: Box::from([Expr::Name(ExprName {
                     node_index: AtomicNodeIndex::dummy(),
-                    id: temp_module_name.into(),
+                    id: source_module_name.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 })]),
@@ -11277,7 +12351,7 @@ impl HybridStaticBundler {
             range: TextRange::default(),
         });
 
-        // getattr(_cribo_temp_mypackage, attr)
+        // getattr(mypackage, attr)
         let getattr_call = Expr::Call(ExprCall {
             node_index: AtomicNodeIndex::dummy(),
             func: Box::new(Expr::Name(ExprName {
@@ -11291,7 +12365,7 @@ impl HybridStaticBundler {
                 args: Box::from([
                     Expr::Name(ExprName {
                         node_index: AtomicNodeIndex::dummy(),
-                        id: temp_module_name.into(),
+                        id: source_module_name.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     }),
@@ -12679,6 +13753,7 @@ impl HybridStaticBundler {
             && let Some(export_list) = exports
         {
             for export in export_list {
+                // Check if this export was already added as a renamed symbol
                 if !module_renames.contains_key(export) && !seen_args.contains(export) {
                     // Check if this symbol survived tree-shaking
                     if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
@@ -12742,6 +13817,162 @@ impl HybridStaticBundler {
                 },
                 range: TextRange::default(),
             })),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Create expression for module access - either wrapper reference or namespace object
+    fn create_module_access_expr(
+        &self,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Expr {
+        // Check if this is a wrapper module
+        if let Some(synthetic_name) = self.module_registry.get(module_name) {
+            // This is a wrapper module - we need to call its init function
+            // This handles modules with invalid Python identifiers like "my-module"
+            let init_func_name = format!("__cribo_init_{synthetic_name}");
+
+            // Create init function call
+            Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
+                func: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: init_func_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })
+        } else if self.inlined_modules.contains(module_name) {
+            // This is an inlined module - create namespace object
+            self.create_namespace_call_for_inlined_module(
+                module_name,
+                symbol_renames.get(module_name),
+            )
+        } else {
+            // This module wasn't bundled - shouldn't happen for static imports
+            log::warn!("Module '{module_name}' referenced in static import but not bundled");
+            Expr::NoneLiteral(ExprNoneLiteral {
+                node_index: AtomicNodeIndex::dummy(),
+                range: TextRange::default(),
+            })
+        }
+    }
+
+    /// Create a namespace call expression for an inlined module
+    fn create_namespace_call_for_inlined_module(
+        &self,
+        module_name: &str,
+        module_renames: Option<&FxIndexMap<String, String>>,
+    ) -> Expr {
+        // Create a types.SimpleNamespace with all the module's symbols
+        let mut keywords = Vec::new();
+        let mut seen_args = FxIndexSet::default();
+
+        // Add all renamed symbols as keyword arguments, avoiding duplicates
+        if let Some(renames) = module_renames {
+            for (original_name, renamed_name) in renames {
+                // Skip if we've already added this argument name
+                if seen_args.contains(original_name) {
+                    log::debug!(
+                        "Skipping duplicate namespace argument '{original_name}' for module \
+                         '{module_name}'"
+                    );
+                    continue;
+                }
+
+                // Check if this symbol survived tree-shaking
+                if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                    && !kept_symbols.contains(&(module_name.to_string(), original_name.clone()))
+                {
+                    log::debug!(
+                        "Skipping tree-shaken symbol '{original_name}' from namespace for module \
+                         '{module_name}'"
+                    );
+                    continue;
+                }
+
+                seen_args.insert(original_name.clone());
+
+                keywords.push(Keyword {
+                    node_index: AtomicNodeIndex::dummy(),
+                    arg: Some(Identifier::new(original_name, TextRange::default())),
+                    value: Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: renamed_name.clone().into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    }),
+                    range: TextRange::default(),
+                });
+            }
+        }
+
+        // Also check if module has module-level variables that weren't renamed
+        if let Some(exports) = self.module_exports.get(module_name)
+            && let Some(export_list) = exports
+        {
+            for export in export_list {
+                // Check if this export was already added as a renamed symbol
+                let was_renamed =
+                    module_renames.is_some_and(|renames| renames.contains_key(export));
+                if !was_renamed && !seen_args.contains(export) {
+                    // Check if this symbol survived tree-shaking
+                    if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                        && !kept_symbols.contains(&(module_name.to_string(), export.clone()))
+                    {
+                        log::debug!(
+                            "Skipping tree-shaken export '{export}' from namespace for module \
+                             '{module_name}'"
+                        );
+                        continue;
+                    }
+
+                    // This export wasn't renamed and wasn't already added, add it directly
+                    seen_args.insert(export.clone());
+                    keywords.push(Keyword {
+                        node_index: AtomicNodeIndex::dummy(),
+                        arg: Some(Identifier::new(export, TextRange::default())),
+                        value: Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: export.clone().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        }),
+                        range: TextRange::default(),
+                    });
+                }
+            }
+        }
+
+        // Create types.SimpleNamespace(**kwargs) call
+        Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
+            func: Box::new(Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: "types".into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            arguments: Arguments {
+                node_index: AtomicNodeIndex::dummy(),
+                args: Box::from([]),
+                keywords: keywords.into_boxed_slice(),
+                range: TextRange::default(),
+            },
             range: TextRange::default(),
         })
     }
