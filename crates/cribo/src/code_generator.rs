@@ -13599,12 +13599,26 @@ impl HybridStaticBundler {
         symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Expr {
         // Check if this is a wrapper module
-        if self.module_registry.contains_key(module_name) {
-            // This is a wrapper module - return direct reference to the module
-            Expr::Name(ExprName {
+        if let Some(synthetic_name) = self.module_registry.get(module_name) {
+            // This is a wrapper module - we need to call its init function
+            // This handles modules with invalid Python identifiers like "my-module"
+            let init_func_name = format!("__cribo_init_{synthetic_name}");
+
+            // Create init function call
+            Expr::Call(ExprCall {
                 node_index: AtomicNodeIndex::dummy(),
-                id: module_name.into(),
-                ctx: ExprContext::Load,
+                func: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: init_func_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
                 range: TextRange::default(),
             })
         } else if self.inlined_modules.contains(module_name) {
