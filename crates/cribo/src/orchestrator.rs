@@ -131,6 +131,44 @@ impl BundleOrchestrator {
         Option<CircularDependencyAnalysis>,
         Option<TreeShaker>,
     )> {
+        // Handle directory as entry point
+        let entry_path = if entry_path.is_dir() {
+            // Check for __main__.py first
+            let main_py = entry_path.join("__main__.py");
+            if main_py.exists() && main_py.is_file() {
+                info!(
+                    "Using __main__.py as entry point from directory: {}",
+                    entry_path.display()
+                );
+                main_py
+            } else {
+                // Check for __init__.py
+                let init_py = entry_path.join("__init__.py");
+                if init_py.exists() && init_py.is_file() {
+                    info!(
+                        "Using __init__.py as entry point from directory: {}",
+                        entry_path.display()
+                    );
+                    init_py
+                } else {
+                    return Err(anyhow!(
+                        "Directory {} does not contain __main__.py or __init__.py",
+                        entry_path.display()
+                    ));
+                }
+            }
+        } else if entry_path.is_file() {
+            entry_path.to_path_buf()
+        } else {
+            return Err(anyhow!(
+                "Entry path {} does not exist or is not a file or directory",
+                entry_path.display()
+            ));
+        };
+
+        // Use a reference to the resolved entry_path for the rest of the function
+        let entry_path = &entry_path;
+
         debug!("Entry: {entry_path:?}");
         debug!(
             "Using target Python version: {} (Python 3.{})",
@@ -140,18 +178,33 @@ impl BundleOrchestrator {
 
         // Auto-detect the entry point's directory as a source directory
         if let Some(entry_dir) = entry_path.parent() {
+            // Check if this is a package __init__.py or __main__.py file
+            let filename = entry_path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("");
+            let is_package_entry = filename == "__init__.py" || filename == "__main__.py";
+
+            // If it's __init__.py or __main__.py, use the parent's parent as the src directory
+            // to preserve the package structure
+            let src_dir = if is_package_entry {
+                entry_dir.parent().unwrap_or(entry_dir)
+            } else {
+                entry_dir
+            };
+
             // Canonicalize the path to avoid duplicates due to different lexical representations
-            let entry_dir = match entry_dir.canonicalize() {
+            let src_dir = match src_dir.canonicalize() {
                 Ok(canonical_path) => canonical_path,
                 Err(_) => {
                     // Fall back to the original path if canonicalization fails (e.g., path doesn't
                     // exist)
-                    entry_dir.to_path_buf()
+                    src_dir.to_path_buf()
                 }
             };
-            if !self.config.src.contains(&entry_dir) {
-                debug!("Adding entry directory to src paths: {entry_dir:?}");
-                self.config.src.insert(0, entry_dir);
+            if !self.config.src.contains(&src_dir) {
+                debug!("Adding entry directory to src paths: {src_dir:?}");
+                self.config.src.insert(0, src_dir);
             }
         }
 
