@@ -29,6 +29,13 @@ type ModuleQueue = Vec<(String, PathBuf)>;
 type ProcessedModules = IndexSet<String>;
 /// Type alias for parsed module data with AST and source
 type ParsedModuleData = (String, PathBuf, Vec<String>, ModModule, String);
+/// Type alias for import extraction result
+type ImportExtractionResult = Vec<(
+    String,
+    bool,
+    Option<crate::visitors::ImportType>,
+    Option<String>,
+)>;
 
 /// Context for import extraction operations
 struct ImportExtractionContext<'a> {
@@ -761,14 +768,7 @@ impl BundleOrchestrator {
         &self,
         file_path: &Path,
         mut resolver: Option<&mut ModuleResolver>,
-    ) -> Result<
-        Vec<(
-            String,
-            bool,
-            Option<crate::visitors::ImportType>,
-            Option<String>,
-        )>,
-    > {
+    ) -> Result<ImportExtractionResult> {
         let source = fs::read_to_string(file_path)
             .with_context(|| format!("Failed to read file: {file_path:?}"))?;
         let source = normalize_line_endings(source);
