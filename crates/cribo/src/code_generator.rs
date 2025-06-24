@@ -6255,7 +6255,8 @@ impl HybridStaticBundler {
                                 );
                                 if seen_assignments.contains(&key) {
                                     log::debug!(
-                                        "Skipping duplicate module init assignment: {key} = {func_name}"
+                                        "Skipping duplicate module init assignment: {key} = \
+                                         {func_name}"
                                     );
                                     continue; // Skip this statement entirely
                                 } else {
