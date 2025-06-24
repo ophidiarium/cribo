@@ -11,11 +11,11 @@ use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use ruff_python_ast::{
-    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
-    ExprFString, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, FString,
-    FStringFlags, FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
-    InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef,
-    StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
+    Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
+    ExprContext, ExprFString, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral,
+    ExprSubscript, FString, FStringFlags, FStringValue, Identifier, InterpolatedElement,
+    InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign,
+    StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
     StringLiteralValue,
 };
 use ruff_text_size::TextRange;
@@ -3778,10 +3778,11 @@ impl HybridStaticBundler {
             self.collect_imports_from_module(ast, module_name, module_path);
         }
 
-        // If we have wrapper modules, inject types as stdlib dependency
+        // If we have wrapper modules, inject types and functools as stdlib dependencies
         if !wrapper_modules.is_empty() {
-            log::debug!("Adding types import for wrapper modules");
+            log::debug!("Adding types and functools imports for wrapper modules");
             self.add_stdlib_import("types");
+            self.add_stdlib_import("functools");
         }
 
         // If we have namespace imports, inject types as stdlib dependency
@@ -5428,7 +5429,8 @@ impl HybridStaticBundler {
             transform_globals_in_stmt(stmt);
         }
 
-        // Create the init function
+        // Create the init function with @functools.cache decorator
+        // This ensures the module is only initialized once (singleton pattern)
         Ok(Stmt::FunctionDef(StmtFunctionDef {
             node_index: AtomicNodeIndex::dummy(),
             name: Identifier::new(init_func_name, TextRange::default()),
@@ -5444,7 +5446,22 @@ impl HybridStaticBundler {
             }),
             returns: None,
             body,
-            decorator_list: vec![],
+            decorator_list: vec![Decorator {
+                node_index: AtomicNodeIndex::dummy(),
+                expression: Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "functools".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("cache", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                }),
+                range: TextRange::default(),
+            }],
             is_async: false,
             range: TextRange::default(),
         }))
@@ -6061,20 +6078,37 @@ impl HybridStaticBundler {
         for stmt in existing_body {
             if let Stmt::Assign(assign) = stmt
                 && assign.targets.len() == 1
-                && let Expr::Name(target) = &assign.targets[0]
             {
-                let target_str = target.id.as_str();
+                // Handle attribute assignments like schemas.user = ...
+                if let Expr::Attribute(target_attr) = &assign.targets[0] {
+                    let target_path = self.extract_attribute_path(target_attr);
 
-                // Handle simple name assignments
-                if let Expr::Name(value) = &assign.value.as_ref() {
-                    let key = format!("{} = {}", target_str, value.id.as_str());
-                    seen_assignments.insert(key);
+                    // Handle init function calls
+                    if let Expr::Call(call) = &assign.value.as_ref()
+                        && let Expr::Name(name) = &call.func.as_ref() {
+                            let func_name = name.id.as_str();
+                            if func_name.starts_with("__cribo_init_") {
+                                let key = format!("{target_path} = {func_name}");
+                                log::debug!("Found existing module init assignment: {key}");
+                                seen_assignments.insert(key);
+                            }
+                        }
                 }
-                // Handle attribute assignments like User = services.auth.manager.User
-                else if let Expr::Attribute(attr) = &assign.value.as_ref() {
-                    let attr_path = self.extract_attribute_path(attr);
-                    let key = format!("{target_str} = {attr_path}");
-                    seen_assignments.insert(key);
+                // Handle simple name assignments
+                else if let Expr::Name(target) = &assign.targets[0] {
+                    let target_str = target.id.as_str();
+
+                    // Handle simple name assignments
+                    if let Expr::Name(value) = &assign.value.as_ref() {
+                        let key = format!("{} = {}", target_str, value.id.as_str());
+                        seen_assignments.insert(key);
+                    }
+                    // Handle attribute assignments like User = services.auth.manager.User
+                    else if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                        let attr_path = self.extract_attribute_path(attr);
+                        let key = format!("{target_str} = {attr_path}");
+                        seen_assignments.insert(key);
+                    }
                 }
             }
         }
@@ -6112,6 +6146,32 @@ impl HybridStaticBundler {
                 }
                 // Check for symbol assignments
                 Stmt::Assign(assign) => {
+                    // First check if this is an attribute assignment with an init function call
+                    // like: schemas.user = __cribo_init___cribo_f275a8_schemas_user()
+                    if assign.targets.len() == 1
+                        && let Expr::Attribute(target_attr) = &assign.targets[0] {
+                            let target_path = self.extract_attribute_path(target_attr);
+
+                            // Check if value is an init function call
+                            if let Expr::Call(call) = &assign.value.as_ref()
+                                && let Expr::Name(name) = &call.func.as_ref() {
+                                    let func_name = name.id.as_str();
+                                    if func_name.starts_with("__cribo_init_") {
+                                        let key = format!("{target_path} = {func_name}");
+                                        if seen_assignments.contains(&key) {
+                                            log::debug!(
+                                                "Skipping duplicate module init assignment: {key}"
+                                            );
+                                            continue; // Skip this statement entirely
+                                        } else {
+                                            seen_assignments.insert(key);
+                                            result.push(stmt);
+                                            continue;
+                                        }
+                                    }
+                                }
+                        }
+
                     // Check if this is an assignment like: UserSchema =
                     // sys.modules['schemas.user'].UserSchema
                     if let Expr::Attribute(attr) = &assign.value.as_ref() {

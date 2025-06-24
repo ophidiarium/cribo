@@ -7,6 +7,7 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_symbols_collision/main.py
 # https://github.com/ophidiarium/cribo
 
 from typing import Any, Dict, List, Optional
+import functools
 import types
 class BaseModel:
     """Base model class with method name conflicts"""
@@ -227,6 +228,7 @@ def process_6(data):
     return f"db_processed: {data}"
 """\nDatabase connection module with naming conflicts\n"""
 models_base = types.SimpleNamespace(BaseModel=BaseModel, initialize=initialize, Logger=Logger_1)
+@functools.cache
 def __cribo_init___cribo_6ccb3a_services_auth_manager():
     module = types.SimpleNamespace()
     DBConnection = Connection_5
