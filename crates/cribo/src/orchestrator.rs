@@ -1351,54 +1351,17 @@ impl BundleOrchestrator {
         if let Some(crate::visitors::ImportType::ImportlibStatic) = import_type {
             debug!("Processing ImportlibStatic import: {import}");
 
-            // First try to resolve with package context for relative imports
-            if import.starts_with('.') && package_context.is_some() {
-                // Get the resolved module name from the resolver
-                let resolved_name = if let Some(package) = package_context.as_deref() {
-                    // Count the number of leading dots
-                    let level = import.chars().take_while(|&c| c == '.').count();
-                    let name_part = import.trim_start_matches('.');
-
-                    // Split the package to handle parent navigation
-                    let mut package_parts: Vec<&str> = package.split('.').collect();
-
-                    // Go up 'level - 1' levels (one dot means current package)
-                    if level > 1 && package_parts.len() >= level - 1 {
-                        package_parts.truncate(package_parts.len() - (level - 1));
-                    }
-
-                    // Append the name part if it's not empty
-                    if !name_part.is_empty() {
-                        package_parts.push(name_part);
-                    }
-
-                    package_parts.join(".")
-                } else {
-                    import.to_string()
-                };
-
-                debug!("Resolved relative ImportlibStatic '{import}' to '{resolved_name}'");
-
-                // Now resolve the path using the resolved name
-                if let Ok(Some(import_path)) = params.resolver.resolve_module_path(&resolved_name) {
-                    debug!("Resolved ImportlibStatic '{resolved_name}' to path: {import_path:?}");
-                    self.add_to_discovery_queue_if_new(&resolved_name, import_path, params);
-                } else if !is_in_error_handler {
-                    return Err(anyhow!(
-                        "Failed to resolve ImportlibStatic module '{}' (resolved from '{}'). \
-                         \nThis import would fail at runtime with: ModuleNotFoundError: No module \
-                         named '{}'",
-                        resolved_name,
-                        import,
-                        resolved_name
-                    ));
-                }
-            } else if let Ok(Some(import_path)) = params
+            // Try to resolve ImportlibStatic with package context
+            if let Ok(Some((resolved_name, import_path))) = params
                 .resolver
                 .resolve_importlib_static_with_context(import, package_context.as_deref())
             {
-                debug!("Resolved ImportlibStatic '{import}' to path: {import_path:?}");
-                self.add_to_discovery_queue_if_new(import, import_path, params);
+                debug!(
+                    "Resolved ImportlibStatic '{import}' to module '{resolved_name}' at path: \
+                     {import_path:?}"
+                );
+                // Use the resolved name instead of the original import
+                self.add_to_discovery_queue_if_new(&resolved_name, import_path, params);
             } else {
                 // Try normal resolution in case it's a valid Python identifier
                 match params.resolver.classify_import(import) {

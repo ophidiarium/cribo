@@ -490,14 +490,16 @@ impl ModuleResolver {
     /// This handles cases like importlib.import_module("data-processor")
     pub fn resolve_importlib_static(&mut self, module_name: &str) -> Result<Option<PathBuf>> {
         self.resolve_importlib_static_with_context(module_name, None)
+            .map(|opt| opt.map(|(_, path)| path))
     }
 
     /// Resolve ImportlibStatic imports with optional package context for relative imports
+    /// Returns a tuple of (resolved_module_name, path)
     pub fn resolve_importlib_static_with_context(
         &mut self,
         module_name: &str,
         package_context: Option<&str>,
-    ) -> Result<Option<PathBuf>> {
+    ) -> Result<Option<(String, PathBuf)>> {
         // Handle relative imports with package context
         let resolved_name = if let Some(package) = package_context {
             if module_name.starts_with('.') {
@@ -547,7 +549,7 @@ impl ModuleResolver {
                 let file_path = search_dir.join(format!("{resolved_name}.py"));
                 if file_path.is_file() {
                     debug!("Found ImportlibStatic module at: {file_path:?}");
-                    return Ok(Some(file_path));
+                    return Ok(Some((resolved_name.clone(), file_path)));
                 }
             }
 
@@ -559,7 +561,7 @@ impl ModuleResolver {
                     let file_path = module_path.join(format!("{component}.py"));
                     if file_path.is_file() {
                         debug!("Found ImportlibStatic module at: {file_path:?}");
-                        return Ok(Some(file_path));
+                        return Ok(Some((resolved_name.clone(), file_path)));
                     }
                 }
                 module_path = module_path.join(component);
@@ -569,7 +571,7 @@ impl ModuleResolver {
             let init_path = module_path.join("__init__.py");
             if init_path.is_file() {
                 debug!("Found ImportlibStatic package at: {init_path:?}");
-                return Ok(Some(init_path));
+                return Ok(Some((resolved_name.clone(), init_path)));
             }
         }
 
