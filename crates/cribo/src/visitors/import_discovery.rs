@@ -3,7 +3,7 @@
 //! Also performs semantic analysis to determine import usage patterns.
 
 use ruff_python_ast::{
-    Expr, ExprName, Stmt, StmtImport, StmtImportFrom,
+    Expr, ExprAttribute, ExprCall, ExprName, ExprStringLiteral, Stmt, StmtImport, StmtImportFrom,
     visitor::{Visitor, walk_expr, walk_stmt},
 };
 use ruff_text_size::TextRange;
@@ -41,6 +41,19 @@ pub struct ImportUsage {
     pub _name_used: String,
 }
 
+/// Type of import statement
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ImportType {
+    /// import module
+    Direct,
+    /// from module import ...
+    From,
+    /// from . import ... (relative)
+    Relative { level: u32 },
+    /// importlib.import_module("module") with static string
+    ImportlibStatic,
+}
+
 /// An import discovered during AST traversal
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredImport {
@@ -54,6 +67,8 @@ pub struct DiscoveredImport {
     pub range: TextRange,
     /// Import level for relative imports
     pub level: u32,
+    /// Type of import
+    pub import_type: ImportType,
     /// Execution contexts where this import is used
     pub execution_contexts: HashSet<ExecutionContext>,
     /// Whether this import is used in a class __init__ method
@@ -62,6 +77,9 @@ pub struct DiscoveredImport {
     pub is_movable: bool,
     /// Whether this import is only used within TYPE_CHECKING blocks
     pub is_type_checking_only: bool,
+    /// Package context for relative ImportlibStatic imports (e.g., "package" in
+    /// importlib.import_module(".submodule", "package"))
+    pub package_context: Option<String>,
 }
 
 /// Where an import was discovered in the AST
@@ -110,6 +128,8 @@ pub struct ImportDiscoveryVisitor<'a> {
     current_context: ExecutionContext,
     /// Whether we're in a type checking block
     in_type_checking: bool,
+    /// Track if we have importlib imported
+    has_importlib: bool,
 }
 
 impl<'a> Default for ImportDiscoveryVisitor<'a> {
@@ -121,6 +141,7 @@ impl<'a> Default for ImportDiscoveryVisitor<'a> {
 impl<'a> ImportDiscoveryVisitor<'a> {
     /// Create a new import discovery visitor
     pub fn new() -> Self {
+        log::debug!("Creating new ImportDiscoveryVisitor");
         Self {
             imports: Vec::new(),
             scope_stack: Vec::new(),
@@ -130,6 +151,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             _module_id: None,
             current_context: ExecutionContext::ModuleLevel,
             in_type_checking: false,
+            has_importlib: false,
         }
     }
 
@@ -147,6 +169,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             _module_id: Some(module_id),
             current_context: ExecutionContext::ModuleLevel,
             in_type_checking: false,
+            has_importlib: false,
         }
     }
 
@@ -305,6 +328,71 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         ) || module_name.starts_with('_')
     }
 
+    /// Check if this is a static importlib.import_module call
+    fn is_static_importlib_call(&self, call: &ExprCall) -> bool {
+        match &*call.func {
+            // importlib.import_module(...) or il.import_module(...) where il is an alias
+            Expr::Attribute(ExprAttribute { attr, value, .. }) => {
+                if attr.as_str() == "import_module"
+                    && let Expr::Name(ExprName { id, .. }) = &**value
+                {
+                    let name = id.as_str();
+                    // Check if it's importlib directly or an alias to importlib
+                    return name == "importlib"
+                        || self
+                            .imported_names
+                            .get(name)
+                            .is_some_and(|module| module == "importlib");
+                }
+            }
+            // import_module(...) or im(...) where im is an alias
+            Expr::Name(ExprName { id, .. }) => {
+                let name = id.as_str();
+                // Direct check for import_module
+                if name == "import_module" && self.has_importlib {
+                    return true;
+                }
+                // Check if this is an alias for import_module
+                // Look for imports like "from importlib import import_module as im"
+                if let Some(_import_info) = self.imports.iter().find(|imp| {
+                    if let ImportType::From = imp.import_type {
+                        imp.module_name.as_deref() == Some("importlib")
+                            && imp.names.iter().any(|(orig, alias)| {
+                                orig == "import_module" && alias.as_deref() == Some(name)
+                            })
+                    } else {
+                        false
+                    }
+                }) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+        false
+    }
+
+    /// Extract literal module name from importlib.import_module call
+    fn extract_literal_module_name(&self, call: &ExprCall) -> Option<String> {
+        // Only handle static string literals
+        if let Some(arg) = call.arguments.args.first()
+            && let Expr::StringLiteral(ExprStringLiteral { value, .. }) = arg
+        {
+            return Some(value.to_str().to_string());
+        }
+        None
+    }
+
+    fn extract_package_context(&self, call: &ExprCall) -> Option<String> {
+        // Extract the second argument if it exists (package context for relative imports)
+        if call.arguments.args.len() >= 2
+            && let Expr::StringLiteral(ExprStringLiteral { value, .. }) = &call.arguments.args[1]
+        {
+            return Some(value.to_str().to_string());
+        }
+        None
+    }
+
     /// Record an import statement
     fn record_import(&mut self, stmt: &StmtImport) {
         for alias in &stmt.names {
@@ -319,6 +407,11 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             self.imported_names
                 .insert(imported_as.clone(), module_name.clone());
 
+            // Check if we're importing importlib
+            if module_name == "importlib" {
+                self.has_importlib = true;
+            }
+
             let import = DiscoveredImport {
                 module_name: Some(module_name),
                 names: vec![(
@@ -328,10 +421,12 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 location: self.current_location(),
                 range: stmt.range,
                 level: 0,
+                import_type: ImportType::Direct,
                 execution_contexts: HashSet::default(),
                 is_used_in_init: false,
                 is_movable: false,
                 is_type_checking_only: self.in_type_checking,
+                package_context: None,
             };
             self.imports.push(import);
         }
@@ -352,12 +447,23 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 let imported_as = asname.as_ref().unwrap_or(&name).clone();
                 if let Some(mod_name) = &module_name {
                     self.imported_names
-                        .insert(imported_as, format!("{mod_name}.{name}"));
+                        .insert(imported_as.clone(), format!("{mod_name}.{name}"));
+                }
+
+                // Check if we're importing import_module from importlib
+                if module_name.as_deref() == Some("importlib") && name == "import_module" {
+                    self.has_importlib = true;
                 }
 
                 (name, asname)
             })
             .collect();
+
+        let import_type = if stmt.level > 0 {
+            ImportType::Relative { level: stmt.level }
+        } else {
+            ImportType::From
+        };
 
         let import = DiscoveredImport {
             module_name,
@@ -365,10 +471,12 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             location: self.current_location(),
             range: stmt.range,
             level: stmt.level,
+            import_type,
             execution_contexts: HashSet::default(),
             is_used_in_init: false,
             is_movable: false,
             is_type_checking_only: self.in_type_checking,
+            package_context: None,
         };
         self.imports.push(import);
     }
@@ -378,10 +486,18 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
             Stmt::Import(import_stmt) => {
+                log::debug!("Processing import statement");
                 self.record_import(import_stmt);
             }
             Stmt::ImportFrom(import_from) => {
+                log::debug!("Processing import from statement");
                 self.record_import_from(import_from);
+            }
+            Stmt::Assign(_assign_stmt) => {
+                log::debug!("Processing assignment statement");
+                // Just walk the statement - ImportlibStatic imports are handled in visit_expr
+                walk_stmt(self, stmt);
+                return; // Don't call walk_stmt again
             }
             Stmt::FunctionDef(func) => {
                 self.scope_stack
@@ -446,41 +562,85 @@ impl<'a> Visitor<'a> for ImportDiscoveryVisitor<'a> {
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
-        if let Expr::Name(ExprName { id, range, .. }) = expr {
-            let name = id.to_string();
+        match expr {
+            Expr::Call(call) => {
+                // Check for importlib.import_module("literal")
+                if self.is_static_importlib_call(call)
+                    && let Some(module_name) = self.extract_literal_module_name(call)
+                {
+                    let package_context = self.extract_package_context(call);
+                    log::debug!(
+                        "Found static importlib call for module: {module_name}, package: \
+                         {package_context:?}"
+                    );
 
-            // Check if this is an imported name
-            if self.imported_names.contains_key(&name) {
-                let context = self.get_current_execution_context();
+                    // Determine import level for relative imports
+                    let level = if module_name.starts_with('.') {
+                        module_name.chars().take_while(|&c| c == '.').count() as u32
+                    } else {
+                        0
+                    };
 
-                // Record usage
-                self.name_usage
-                    .entry(name.clone())
-                    .or_default()
-                    .push(ImportUsage {
-                        _location: *range,
-                        _context: context,
-                        _name_used: name.clone(),
-                    });
+                    // Track this as an import
+                    let import = DiscoveredImport {
+                        module_name: Some(module_name.clone()),
+                        names: vec![], // No specific names for direct module import
+                        location: self.current_location(),
+                        range: call.range,
+                        level,
+                        import_type: ImportType::ImportlibStatic,
+                        execution_contexts: HashSet::default(),
+                        is_used_in_init: false,
+                        is_movable: false,
+                        is_type_checking_only: self.in_type_checking,
+                        package_context,
+                    };
+                    self.imports.push(import);
 
-                // Update the import's execution contexts
-                if let Some(module_source) = self.imported_names.get(&name) {
-                    // Find the corresponding import and update its contexts
-                    for import in &mut self.imports {
-                        if import.module_name.as_ref() == Some(module_source)
-                            || import
-                                .names
-                                .iter()
-                                .any(|(n, alias)| alias.as_ref().unwrap_or(n) == &name)
-                        {
-                            import.execution_contexts.insert(context);
-                            if matches!(context, ExecutionContext::ClassMethod { is_init: true }) {
-                                import.is_used_in_init = true;
+                    // Track import mapping - the module itself is what's imported
+                    self.imported_names.insert(module_name.clone(), module_name);
+                }
+            }
+            Expr::Name(ExprName { id, range, .. }) => {
+                let name = id.to_string();
+
+                // Check if this is an imported name
+                if self.imported_names.contains_key(&name) {
+                    let context = self.get_current_execution_context();
+
+                    // Record usage
+                    self.name_usage
+                        .entry(name.clone())
+                        .or_default()
+                        .push(ImportUsage {
+                            _location: *range,
+                            _context: context,
+                            _name_used: name.clone(),
+                        });
+
+                    // Update the import's execution contexts
+                    if let Some(module_source) = self.imported_names.get(&name) {
+                        // Find the corresponding import and update its contexts
+                        for import in &mut self.imports {
+                            if import.module_name.as_ref() == Some(module_source)
+                                || import
+                                    .names
+                                    .iter()
+                                    .any(|(n, alias)| alias.as_ref().unwrap_or(n) == &name)
+                            {
+                                import.execution_contexts.insert(context);
+                                if matches!(
+                                    context,
+                                    ExecutionContext::ClassMethod { is_init: true }
+                                ) {
+                                    import.is_used_in_init = true;
+                                }
                             }
                         }
                     }
                 }
             }
+            _ => {}
         }
 
         // Continue traversal
@@ -511,8 +671,10 @@ from sys import path
         assert_eq!(imports.len(), 2);
         assert_eq!(imports[0].module_name, Some("os".to_string()));
         assert!(matches!(imports[0].location, ImportLocation::Module));
+        assert!(matches!(imports[0].import_type, ImportType::Direct));
         assert_eq!(imports[1].module_name, Some("sys".to_string()));
         assert_eq!(imports[1].names, vec![("path".to_string(), None)]);
+        assert!(matches!(imports[1].import_type, ImportType::From));
     }
 
     #[test]
@@ -536,8 +698,10 @@ def my_function():
             imports[0].location,
             ImportLocation::Function(ref name) if name == "my_function"
         ));
+        assert!(matches!(imports[0].import_type, ImportType::Direct));
         assert_eq!(imports[1].module_name, Some("datetime".to_string()));
         assert_eq!(imports[1].names, vec![("datetime".to_string(), None)]);
+        assert!(matches!(imports[1].import_type, ImportType::From));
     }
 
     #[test]
@@ -613,6 +777,105 @@ class MyClass:
                 matches!(&scopes[0], ScopeElement::Class(c) if c == "MyClass") &&
                 matches!(&scopes[1], ScopeElement::Function(m) if m == "method") &&
                 matches!(&scopes[2], ScopeElement::Function(f) if f == "nested_function")
+        ));
+    }
+
+    #[test]
+    fn test_importlib_static_discovery() {
+        let source = r#"
+import importlib
+from importlib import import_module
+
+# Direct importlib.import_module call
+mod1 = importlib.import_module("json")
+
+# Using imported import_module
+mod2 = import_module("datetime")
+
+# Dynamic import (should not be discovered)
+module_name = "os"
+mod3 = importlib.import_module(module_name)
+
+# In a function
+def load_module():
+    return importlib.import_module("collections")
+"#;
+        let parsed = parse_module(source).expect("Failed to parse test module");
+        let mut visitor = ImportDiscoveryVisitor::new();
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
+        let imports = visitor.into_imports();
+
+        // Should have: importlib, import_module, json, datetime, collections
+        assert_eq!(imports.len(), 5);
+
+        // First two are regular imports
+        assert_eq!(imports[0].module_name, Some("importlib".to_string()));
+        assert!(matches!(imports[0].import_type, ImportType::Direct));
+
+        assert_eq!(imports[1].module_name, Some("importlib".to_string()));
+        assert_eq!(imports[1].names, vec![("import_module".to_string(), None)]);
+        assert!(matches!(imports[1].import_type, ImportType::From));
+
+        // Static importlib calls
+        assert_eq!(imports[2].module_name, Some("json".to_string()));
+        assert!(matches!(
+            imports[2].import_type,
+            ImportType::ImportlibStatic
+        ));
+        assert!(matches!(imports[2].location, ImportLocation::Module));
+
+        assert_eq!(imports[3].module_name, Some("datetime".to_string()));
+        assert!(matches!(
+            imports[3].import_type,
+            ImportType::ImportlibStatic
+        ));
+        assert!(matches!(imports[3].location, ImportLocation::Module));
+
+        assert_eq!(imports[4].module_name, Some("collections".to_string()));
+        assert!(matches!(
+            imports[4].import_type,
+            ImportType::ImportlibStatic
+        ));
+        assert!(matches!(
+            imports[4].location,
+            ImportLocation::Function(ref name) if name == "load_module"
+        ));
+    }
+
+    #[test]
+    fn test_relative_imports() {
+        let source = r#"
+from . import utils
+from .. import parent_module
+from ...package import sibling
+"#;
+        let parsed = parse_module(source).expect("Failed to parse test module");
+        let mut visitor = ImportDiscoveryVisitor::new();
+        for stmt in &parsed.syntax().body {
+            visitor.visit_stmt(stmt);
+        }
+        let imports = visitor.into_imports();
+
+        assert_eq!(imports.len(), 3);
+
+        assert_eq!(imports[0].level, 1);
+        assert!(matches!(
+            imports[0].import_type,
+            ImportType::Relative { level: 1 }
+        ));
+
+        assert_eq!(imports[1].level, 2);
+        assert!(matches!(
+            imports[1].import_type,
+            ImportType::Relative { level: 2 }
+        ));
+
+        assert_eq!(imports[2].level, 3);
+        assert!(matches!(
+            imports[2].import_type,
+            ImportType::Relative { level: 3 }
         ));
     }
 }

@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/importlib_deduplication/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "=== Testing importlib.import_module deduplication ===\n\nmymodule.py is being executed!\n   Are they the same object? True\npackage/__init__.py is being executed!\npackage/submodule.py is being executed!\n   Are they the same object? True\n   Are they the same object? True\n\n=== Testing modification propagation ===\nSet mymodule.test_value = 'Modified!'\nmymodule2.test_value = Modified!\nAfter reimport mymodule_new.counter = 1\nAre they the same object? True\nOriginal mymodule still has counter = 1",
+    stderr: "",
+}

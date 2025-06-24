@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/importlib_static_renaming/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "foo.greet('World'): Hello, World!\nfoo.get_value(): 42\nfoo.MESSAGE: This is foo module\n\nbar_module.process('data'): Processed: data\nbar_module.VERSION: 1.0.0\ncalc.add(5, 3): 8\ncalc.multiply(4, 7): 28\n\nfoo has greet: True\nalso_foo has greet: True\nbar_module has process: True\nalso_bar has process: True\n\nalso_foo.greet('Python'): Hello, Python!\nalso_bar.process('test'): Processed: test\n\nAll importlib renaming patterns work correctly!",
+    stderr: "",
+}

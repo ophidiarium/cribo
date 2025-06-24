@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/importlib_static/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Processor: Data Processor with Hyphen\nProcessing result: Processing test data with hyphenated module\nProcessor info: This is a data processor from a module with a hyphen\nProcessor version: 1.0-hyphenated\n\nAPI request: Making request to https://api.example.com/users\nAPI version: 2.0-stable\nSupported endpoints: ['users', 'posts', 'comments']\n\nClass description: This is a metaclass named TestClass\nClass types: ['abstract', 'concrete', 'meta']\nDefault class name: KeywordModule\n\nFunction definition: def calculate(x, y)\nBuiltin functions: ['print', 'len', 'range', 'sorted']\n\nLoop results: ['Processing: apple', 'Processing: banana', 'Processing: cherry']\nLoop types: ['for', 'while', 'comprehension']\nMax iterations: 1000\n\nYear config: {'year': 2024, 'version': '2024.1.0', 'features': ['new-ui', 'dark-mode', 'api-v3']}\nSupported years: [2022, 2023, 2024]\nConfig prefix: config-",
+    stderr: "",
+}

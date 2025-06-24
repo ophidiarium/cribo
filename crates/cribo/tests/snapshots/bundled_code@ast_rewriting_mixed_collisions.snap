@@ -7,6 +7,7 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_mixed_collisions/main.py
 # https://github.com/ophidiarium/cribo
 
 from typing import Any, Dict, List, Optional
+import functools
 import types
 class BaseModel:
     """Base model class with method name conflicts"""
@@ -239,6 +240,7 @@ def process_7(data):
 """\nDatabase connection module with naming conflicts\n"""
 models_base = types.SimpleNamespace(BaseModel=BaseModel, Logger=Logger_1, initialize=initialize, result=result_2)
 _cribo_services_auth_manager_result = None
+@functools.cache
 def __cribo_init___cribo_ee1d45_services_auth_manager():
     module = types.SimpleNamespace()
     DBConnection = Connection_6
@@ -375,8 +377,6 @@ models.__name__ = 'models'
 services = types.SimpleNamespace()
 services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
-_cribo_temp_services_auth_manager = __cribo_init___cribo_ee1d45_services_auth_manager()
-services.auth.manager = _cribo_temp_services_auth_manager
 core_validate = validate_6
 UserLogger = Logger_2
 util_process = process_6
@@ -384,6 +384,7 @@ UtilLogger = Logger_4
 helper_validate = validate_6
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
+services.auth.manager = __cribo_init___cribo_ee1d45_services_auth_manager()
 auth_process = services.auth.manager.process
 auth_validate = services.auth.manager.validate
 UserModel = User_2
