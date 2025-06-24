@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/ophidiarium/cribo/compare/v0.5.1...v0.5.2) (2025-06-24)
+
+
+### Features
+
+* implement static importlib support and file deduplication ([#157](https://github.com/ophidiarium/cribo/issues/157)) ([10a539c](https://github.com/ophidiarium/cribo/commit/10a539cc277918aeefaefcca5c7f9c769e33604e))
+* post-checkout hooks ([1045544](https://github.com/ophidiarium/cribo/commit/1045544e45290d5ca160fefe9d00340ac77b7d73))
+
 ## [0.5.1](https://github.com/ophidiarium/cribo/compare/v0.5.0...v0.5.1) (2025-06-22)
 
 
