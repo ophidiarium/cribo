@@ -278,6 +278,9 @@ dev = [
     { name = "maturin" },
     { name = "vale" },
 ]
+ecosystem = [
+    { name = "requests" },
+]
 fixtures = [
     { name = "pandera", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, extra = ["io", "polars", "pyspark"], marker = "python_full_version < '3.9'" },
     { name = "pandera", version = "0.24.0", source = { registry = "https://pypi.org/simple" }, extra = ["io", "polars", "pyspark"], marker = "python_full_version >= '3.9'" },
@@ -293,6 +296,7 @@ dev = [
     { name = "maturin" },
     { name = "vale", specifier = ">=3.11.2.0" },
 ]
+ecosystem = [{ name = "requests", specifier = ">=2.32.0" }]
 fixtures = [
     { name = "pandera", extras = ["io", "polars", "pyspark"], specifier = ">=0.22.1" },
     { name = "pydantic", extras = ["email", "timezone"], specifier = ">=2.5.3" },
@@ -580,7 +584,7 @@ resolution-markers = [
     "python_full_version == '3.9.*'",
 ]
 dependencies = [
-    { name = "zipp", version = "3.23.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "zipp", version = "3.23.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/76/66/650a33bd90f786193e4de4b3ad86ea60b53c89b669a5c7be931fac31cdb0/importlib_metadata-8.7.0.tar.gz", hash = "sha256:d13b81ad223b890aa16c5471f2ac3056cf76c5f10f82d6f9292f0b415f389000", size = 56641, upload-time = "2025-04-27T15:29:01.736Z" }
 wheels = [

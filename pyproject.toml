@@ -42,6 +42,10 @@ fixtures = [
     "pandera[io,polars,pyspark]>=0.22.1",
     "pydantic[email,timezone]>=2.5.3",
 ]
+# dependencies for ecosystem testing
+ecosystem = [
+    "requests>=2.32.0",
+]
 
 [tool.maturin]
 bindings      = "bin"
@@ -51,14 +55,15 @@ manifest-path = "crates/cribo/Cargo.toml"
 [tool.uv]
 link-mode = "symlink"
 prerelease = "if-necessary-or-explicit"
-default-groups = ["dev", "fixtures"]
+default-groups = ["dev", "fixtures", "ecosystem"]
 required-environments = [
     "sys_platform == 'linux'",
     "sys_platform == 'win32'",
     "sys_platform == 'darwin'",
 ]
+workspace = { exclude = ["ecosystem"] }
 
 [tool.ruff]
-exclude        = [".venv", "references"]
+exclude        = [".venv", "references", "ecosystem"]
 force-exclude  = true
 target-version = "py312"
