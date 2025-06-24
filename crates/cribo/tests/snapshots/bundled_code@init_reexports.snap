@@ -7,7 +7,6 @@ input_file: crates/cribo/tests/fixtures/init_reexports/main.py
 # https://github.com/ophidiarium/cribo
 
 import functools
-import os
 import types
 """Utils subpackage with re-exports."""
 """Constants module."""
@@ -29,6 +28,7 @@ def process_data(data):
 def __cribo_init___cribo_de6c46_mypackage_config():
     module = types.SimpleNamespace()
     """Configuration module."""
+    import os
 
     class Config:
         """Configuration class."""

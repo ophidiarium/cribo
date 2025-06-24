@@ -7,7 +7,6 @@ input_file: crates/cribo/tests/fixtures/cross_package_mixed_import/main.py
 # https://github.com/ophidiarium/cribo
 
 import functools
-import sys
 import types
 def process_user(name: str) -> str:
     """Process a user-related string.\n\n    This function is imported by core.database.connection,\n    demonstrating a cross-package absolute import.\n    """
@@ -56,6 +55,7 @@ _cribo_core__config = None
 def __cribo_init___cribo_563ea2_models():
     module = types.SimpleNamespace()
     """Models package with conditional imports and circular dependency handling."""
+    import sys
     _VERSION = "1.0.0"
     module._VERSION = _VERSION
 

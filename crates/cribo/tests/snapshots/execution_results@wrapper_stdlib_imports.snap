@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/wrapper_stdlib_imports/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Module loaded - this is a side effect\nLogger name: test\nSuccess: stdlib imports work in wrapper functions!",
+    stderr: "",
+}

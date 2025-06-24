@@ -3774,7 +3774,31 @@ impl HybridStaticBundler {
         }
 
         // Second pass: collect imports from ALL modules (for hoisting)
+        // But we need to know which modules will be wrapped to avoid hoisting their stdlib imports
+        let wrapper_module_names: FxIndexSet<String> = modules_normalized
+            .iter()
+            .filter_map(|(module_name, ast, _, _)| {
+                if module_name == params.entry_module_name {
+                    return None;
+                }
+                let has_side_effects = Self::has_side_effects(ast);
+                let module_base_name = module_name.split('.').next_back().unwrap_or(module_name);
+                let has_invalid_identifier = !Self::is_valid_python_identifier(module_base_name);
+                if has_side_effects || has_invalid_identifier {
+                    Some(module_name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         for (module_name, ast, module_path, _) in &modules_normalized {
+            // Skip collecting imports from wrapper modules - they'll keep their imports inside the
+            // function
+            if wrapper_module_names.contains(module_name) {
+                log::debug!("Skipping import collection from wrapper module: {module_name}");
+                continue;
+            }
             self.collect_imports_from_module(ast, module_name, module_path);
         }
 
@@ -5202,22 +5226,11 @@ impl HybridStaticBundler {
         // Now process the transformed module
         for stmt in ast.body {
             match &stmt {
-                Stmt::Import(import_stmt) => {
-                    // Skip stdlib imports that have been hoisted
-                    let mut skip_stmt = false;
-                    for alias in &import_stmt.names {
-                        if self.is_safe_stdlib_module(alias.name.as_str()) {
-                            // This stdlib import has been hoisted, skip it
-                            skip_stmt = true;
-                            break;
-                        }
-                    }
-
-                    if !skip_stmt {
-                        // Non-stdlib imports have already been transformed by
-                        // RecursiveImportTransformer
-                        body.push(stmt.clone());
-                    }
+                Stmt::Import(_) => {
+                    // For wrapper functions, we need to keep ALL imports (including stdlib)
+                    // Even though stdlib imports are hoisted at the module level, they're not
+                    // accessible inside the function scope without being imported there
+                    body.push(stmt.clone());
                 }
                 Stmt::ImportFrom(import_from) => {
                     // Skip __future__ imports - they cannot appear inside functions
@@ -5225,15 +5238,8 @@ impl HybridStaticBundler {
                         continue;
                     }
 
-                    // Skip stdlib imports that have been hoisted
-                    if let Some(module_name) = import_from.module.as_ref()
-                        && self.is_safe_stdlib_module(module_name.as_str())
-                    {
-                        // This stdlib import has been hoisted, skip it
-                        continue;
-                    }
-
-                    // Other imports have already been transformed by RecursiveImportTransformer
+                    // For wrapper functions, we need to keep ALL imports (including stdlib)
+                    // in the function scope, even though stdlib imports are hoisted at module level
                     body.push(stmt.clone());
                 }
                 Stmt::ClassDef(class_def) => {
