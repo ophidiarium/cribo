@@ -243,6 +243,7 @@ _cribo_services_auth_manager_result = None
 @functools.cache
 def __cribo_init___cribo_ee1d45_services_auth_manager():
     module = types.SimpleNamespace()
+    module.__name__ = 'services.auth.manager'
     DBConnection = Connection_6
     """\nAuthentication manager with complex naming conflicts\n"""
     base = models_base

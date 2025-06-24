@@ -28,6 +28,33 @@ use crate::{
     visitors::SideEffectDetector,
 };
 
+/// # Safe Stdlib Import Hoisting
+///
+/// The code generator hoists ALL safe stdlib imports to the top of the bundle, regardless of
+/// whether they come from inlinable modules or wrapper modules (modules with side effects).
+///
+/// ## Key behaviors:
+///
+/// 1. **Safe stdlib modules** are determined by `is_safe_stdlib_module()` which excludes modules
+///    that modify global state (e.g., antigravity, turtle, tkinter).
+///
+/// 2. **Import normalization** converts aliased imports to their canonical form:
+///    - `import json as js` → `import json` (and rewrites `js.dumps` → `json.dumps`)
+///    - `from pathlib import Path as PyPath` → `import pathlib` (and rewrites `PyPath` →
+///      `pathlib.Path`)
+///    - `from collections.abc import MutableMapping` → `import collections` (and rewrites
+///      `MutableMapping` → `collections.abc.MutableMapping`)
+///
+/// 3. **All safe stdlib imports are hoisted** to the bundle top level, including:
+///    - Direct imports from inlinable modules
+///    - Imports from wrapper modules (even though the wrapper keeps a copy inside)
+///    - Submodule imports (e.g., `collections.abc`) are converted to root module imports
+///
+/// 4. **Third-party imports are NOT hoisted** as they may have side effects. They remain in their
+///    original location to preserve execution order.
+///
+/// This ensures that all stdlib functionality is available at the bundle level while maintaining
+/// deterministic and safe execution order.
 /// Type alias for IndexMap with FxHasher for better performance
 type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 /// Type alias for IndexSet with FxHasher for better performance
@@ -446,6 +473,9 @@ struct RecursiveImportTransformer<'a> {
     importlib_inlined_modules: FxIndexMap<String, String>,
     /// Track if we created any types.SimpleNamespace calls
     created_namespace_objects: bool,
+    /// Track imports from wrapper modules that need to be rewritten
+    /// Maps local name to (wrapper_module, original_name)
+    wrapper_module_imports: FxIndexMap<String, (String, String)>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -464,6 +494,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             importlib_transformed: false,
             importlib_inlined_modules: FxIndexMap::default(),
             created_namespace_objects: false,
+            wrapper_module_imports: FxIndexMap::default(),
         }
     }
 
@@ -625,6 +656,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.transform_statements(&mut func_def.body);
                     }
                     Stmt::ClassDef(class_def) => {
+                        // Transform base classes
+                        if let Some(ref mut arguments) = class_def.arguments {
+                            for base in &mut arguments.args {
+                                self.transform_expr(base);
+                            }
+                        }
                         self.transform_statements(&mut class_def.body);
                     }
                     Stmt::If(if_stmt) => {
@@ -1425,30 +1462,33 @@ impl<'a> RecursiveImportTransformer<'a> {
                 let current_module_is_inlined =
                     self.bundler.inlined_modules.contains(self.module_name);
 
-                // Defer imports from wrapper modules when:
-                // 1. Current module is inlined (to ensure wrapper is initialized first)
-                // 2. Current module is entry module AND the check above determined all symbols are
-                //    already deferred (handled by early return above)
+                // When an inlined module imports from a wrapper module, we need to
+                // track the imports and rewrite all usages within the module
                 if !self.is_entry_module && current_module_is_inlined {
                     log::debug!(
-                        "  Deferring wrapper module imports for module '{}' (inlined: {})",
+                        "  Tracking wrapper module imports for rewriting in module '{}' (inlined: \
+                         {})",
                         self.module_name,
                         current_module_is_inlined
                     );
 
-                    // Generate the standard transformation which includes init calls
-                    let empty_renames = FxIndexMap::default();
-                    let import_stmts = self
-                        .bundler
-                        .rewrite_import_in_stmt_multiple_with_full_context(
-                            Stmt::ImportFrom(import_from.clone()),
-                            self.module_name,
-                            &empty_renames,
-                            self.is_wrapper_init,
+                    // Track each imported symbol for rewriting
+                    for alias in &import_from.names {
+                        let imported_name = alias.name.as_str();
+                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                        // Store mapping: local_name -> (wrapper_module, imported_name)
+                        self.wrapper_module_imports.insert(
+                            local_name.to_string(),
+                            (resolved.to_string(), imported_name.to_string()),
                         );
 
-                    // Defer these imports until after all modules are inlined
-                    self.deferred_imports.extend(import_stmts);
+                        log::debug!(
+                            "    Tracking import: {local_name} -> {resolved}.{imported_name}"
+                        );
+                    }
+
+                    // Return empty - we'll rewrite all usages instead of creating imports
                     return vec![];
                 }
                 // For wrapper modules importing from other wrapper modules,
@@ -1923,7 +1963,31 @@ impl<'a> RecursiveImportTransformer<'a> {
                     });
                 }
             }
-            // Name, Constants, etc. don't need transformation
+            // Check if Name expressions need to be rewritten for wrapper module imports
+            Expr::Name(name_expr) => {
+                let name = name_expr.id.as_str();
+
+                // Check if this name was imported from a wrapper module and needs rewriting
+                if let Some((wrapper_module, imported_name)) = self.wrapper_module_imports.get(name)
+                {
+                    log::debug!("Rewriting name '{name}' to '{wrapper_module}.{imported_name}'");
+
+                    // Create wrapper_module.imported_name attribute access
+                    *expr = Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: wrapper_module.into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new(imported_name, TextRange::default()),
+                        ctx: name_expr.ctx,
+                        range: name_expr.range,
+                    });
+                }
+            }
+            // Constants, etc. don't need transformation
             _ => {}
         }
     }
@@ -2037,6 +2101,10 @@ pub struct HybridStaticBundler {
     transformation_context: TransformationContext,
     /// Module/symbol pairs that should be kept after tree shaking
     tree_shaking_keep_symbols: Option<indexmap::IndexSet<(String, String)>>,
+    /// Track normalized stdlib imports per module
+    /// Maps module name to map of (imported_name -> canonical_form)
+    /// e.g., "compat" -> {"MutableMapping" -> "collections.abc.MutableMapping"}
+    normalized_stdlib_imports: FxIndexMap<String, FxIndexMap<String, String>>,
 }
 
 impl HybridStaticBundler {
@@ -2383,6 +2451,7 @@ impl HybridStaticBundler {
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
+            normalized_stdlib_imports: FxIndexMap::default(),
         }
     }
 
@@ -3587,6 +3656,8 @@ impl HybridStaticBundler {
         }
 
         // Trim unused imports from all modules
+        // Note: stdlib import normalization now happens in the orchestrator
+        // before dependency graph building, so imports are already normalized
         let mut modules = self.trim_unused_imports_from_modules(
             params.modules,
             params.graph,
@@ -3690,6 +3761,7 @@ impl HybridStaticBundler {
         }
 
         // Separate modules into inlinable and wrapper modules
+        // Note: modules are already normalized before unused import trimming
         let mut inlinable_modules = Vec::new();
         let mut wrapper_modules = Vec::new();
         let mut module_exports_map = FxIndexMap::default();
@@ -3767,14 +3839,15 @@ impl HybridStaticBundler {
             );
         }
 
-        // First pass: normalize stdlib import aliases in ALL modules before collecting imports
-        let mut modules_normalized = modules;
-        for (_module_name, ast, _, _) in &mut modules_normalized {
-            self.normalize_stdlib_import_aliases(ast);
+        // Collect imports from inlinable modules for hoisting
+        for (module_name, ast, module_path, _) in &inlinable_modules {
+            self.collect_imports_from_module(ast, module_name, module_path);
         }
 
-        // Second pass: collect imports from ALL modules (for hoisting)
-        for (module_name, ast, module_path, _) in &modules_normalized {
+        // Also collect stdlib imports from wrapper modules for hoisting
+        // These stdlib imports need to be available at the top level
+        for (module_name, ast, module_path, _) in &wrapper_modules {
+            log::debug!("Collecting stdlib imports from wrapper module: {module_name}");
             self.collect_imports_from_module(ast, module_name, module_path);
         }
 
@@ -3812,7 +3885,7 @@ impl HybridStaticBundler {
                                     // Check if this dotted import refers to a first-party module
                                     // by checking if any bundled module matches this dotted path
                                     let is_first_party_dotted =
-                                        modules_normalized.iter().any(|(name, _, _, _)| {
+                                        modules.iter().any(|(name, _, _, _)| {
                                             name == module_name
                                                 || module_name.starts_with(&format!("{name}."))
                                         });
@@ -3901,13 +3974,12 @@ impl HybridStaticBundler {
         };
 
         // Convert ModuleId-based renames to module name-based renames
-        for (module_name, _, _, _) in &modules_normalized {
+        for (module_name, _, _, _) in &modules {
             self.collect_module_renames(module_name, &semantic_ctx, &mut symbol_renames);
         }
 
         // Collect global symbols from the entry module first (for compatibility)
-        let mut global_symbols =
-            self.collect_global_symbols(&modules_normalized, params.entry_module_name);
+        let mut global_symbols = self.collect_global_symbols(&modules, params.entry_module_name);
 
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
@@ -3917,7 +3989,7 @@ impl HybridStaticBundler {
             log::debug!("Building symbol dependency graph for circular modules");
 
             // Convert modules to the format expected by build_symbol_dependency_graph
-            let modules_for_graph: Vec<(String, ModModule, PathBuf, String)> = modules_normalized
+            let modules_for_graph: Vec<(String, ModModule, PathBuf, String)> = modules
                 .iter()
                 .map(|(name, ast, path, hash)| {
                     (name.clone(), ast.clone(), path.clone(), hash.clone())
@@ -4032,6 +4104,107 @@ impl HybridStaticBundler {
 
         // Add pre-declarations at the very beginning
         final_body.extend(circular_predeclarations);
+
+        // Before inlining modules, check which wrapper modules they depend on
+        let mut wrapper_modules_needed_by_inlined = FxIndexSet::default();
+        for (module_name, ast, _, _) in &inlinable_modules {
+            // Check imports in the module
+            for stmt in &ast.body {
+                if let Stmt::ImportFrom(import_from) = stmt
+                    && let Some(ref module) = import_from.module
+                {
+                    let resolved_module = module.as_str();
+                    // Check if this is a wrapper module
+                    if self.module_registry.contains_key(resolved_module) {
+                        wrapper_modules_needed_by_inlined.insert(resolved_module.to_string());
+                        log::debug!(
+                            "Inlined module '{module_name}' imports from wrapper module \
+                             '{resolved_module}'"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Process normalized imports from inlined modules to ensure they are hoisted
+        for (_module_name, ast, _, _) in &inlinable_modules {
+            // Scan for import statements and add normalized stdlib imports to our hoisted list
+            for stmt in &ast.body {
+                if let Stmt::Import(import_stmt) = stmt {
+                    for alias in &import_stmt.names {
+                        let module_name = alias.name.as_str();
+                        if self.is_safe_stdlib_module(module_name) && alias.asname.is_none() {
+                            // This is a normalized stdlib import (no alias), ensure it's
+                            // hoisted
+                            self.add_stdlib_import(module_name);
+                        }
+                    }
+                }
+            }
+        }
+
+        // If there are wrapper modules needed by inlined modules, we need to define their
+        // init functions BEFORE inlining the modules that use them
+        if !wrapper_modules_needed_by_inlined.is_empty() && has_wrapper_modules {
+            log::debug!(
+                "Need to define wrapper module init functions early for: \
+                 {wrapper_modules_needed_by_inlined:?}"
+            );
+
+            // Process globals for the needed wrapper modules
+            let mut module_globals = FxIndexMap::default();
+            let mut lifted_declarations = Vec::new();
+
+            for (module_name, ast, _, _) in &wrapper_modules_saved {
+                if wrapper_modules_needed_by_inlined.contains(module_name) {
+                    let params = ProcessGlobalsParams {
+                        module_name,
+                        ast,
+                        semantic_ctx: &semantic_ctx,
+                    };
+                    self.process_wrapper_module_globals(
+                        &params,
+                        &mut module_globals,
+                        &mut lifted_declarations,
+                    );
+                }
+            }
+
+            // Add lifted declarations if any
+            if !lifted_declarations.is_empty() {
+                debug!(
+                    "Adding {} lifted global declarations for early wrapper modules",
+                    lifted_declarations.len()
+                );
+                final_body.extend(lifted_declarations.clone());
+                self.lifted_global_declarations.extend(lifted_declarations);
+            }
+
+            // Define the init functions for wrapper modules needed by inlined modules
+            for (module_name, ast, module_path, _) in &wrapper_modules_saved {
+                if wrapper_modules_needed_by_inlined.contains(module_name) {
+                    let synthetic_name = self.module_registry[module_name].clone();
+                    let global_info = module_globals.get(module_name).cloned();
+                    let ctx = ModuleTransformContext {
+                        module_name,
+                        synthetic_name: &synthetic_name,
+                        module_path,
+                        global_info,
+                    };
+                    // Generate init function with empty symbol_renames for now
+                    let empty_renames = FxIndexMap::default();
+                    let init_function =
+                        self.transform_module_to_init_function(ctx, ast.clone(), &empty_renames)?;
+                    final_body.push(init_function);
+
+                    // Initialize the wrapper module immediately after defining it
+                    let mut temp_names = FxIndexSet::default();
+                    let init_stmts =
+                        self.generate_module_init_call(&synthetic_name, &mut temp_names);
+                    final_body.extend(init_stmts);
+                }
+            }
+        }
 
         // Inline the inlinable modules FIRST to populate symbol_renames
         // This ensures we know what symbols have been renamed before processing wrapper modules and
@@ -4220,6 +4393,15 @@ impl HybridStaticBundler {
             let mut all_lifted_declarations = Vec::new();
 
             for (module_name, ast, _, _) in &wrapper_modules_saved {
+                // Skip modules that were already processed early
+                if wrapper_modules_needed_by_inlined.contains(module_name) {
+                    log::debug!(
+                        "Skipping globals processing for wrapper module '{module_name}' - already \
+                         processed early"
+                    );
+                    continue;
+                }
+
                 let params = ProcessGlobalsParams {
                     module_name,
                     ast,
@@ -4250,6 +4432,12 @@ impl HybridStaticBundler {
 
             // Second pass: transform modules with global info
             for (module_name, ast, module_path, _content_hash) in &wrapper_modules_saved {
+                // Skip modules that were already defined early for inlined module dependencies
+                if wrapper_modules_needed_by_inlined.contains(module_name) {
+                    log::debug!("Skipping wrapper module '{module_name}' - already defined early");
+                    continue;
+                }
+
                 let synthetic_name = self.module_registry[module_name].clone();
                 let global_info = module_globals.get(module_name).cloned();
                 let ctx = ModuleTransformContext {
@@ -4272,7 +4460,13 @@ impl HybridStaticBundler {
             debug!("Creating parent namespaces before module initialization");
 
             // Pre-scan to identify all required namespaces
-            self.identify_required_namespaces(&modules_normalized);
+            // Combine inlinable and wrapper modules back together
+            let all_modules = inlinable_modules
+                .iter()
+                .chain(wrapper_modules_saved.iter())
+                .cloned()
+                .collect::<Vec<_>>();
+            self.identify_required_namespaces(&all_modules);
 
             // Create namespace statements BEFORE module initialization
             let namespace_statements = self.create_namespace_statements();
@@ -4374,7 +4568,7 @@ impl HybridStaticBundler {
             // correctly
             // Check what modules are imported in the entry module to avoid duplicates
             let entry_imported_modules =
-                self.get_entry_module_imports(&modules_normalized, params.entry_module_name);
+                self.get_entry_module_imports(&all_modules, params.entry_module_name);
 
             debug!(
                 "About to generate submodule attributes, current body length: {}",
@@ -4449,11 +4643,12 @@ impl HybridStaticBundler {
         }
 
         // Finally, add entry module code (it's always last in topological order)
-        for (module_name, mut ast, module_path, _) in modules_normalized {
-            if module_name != params.entry_module_name {
-                continue;
-            }
+        // Find the entry module in our modules list
+        let entry_module = modules
+            .into_iter()
+            .find(|(name, _, _, _)| name == params.entry_module_name);
 
+        if let Some((module_name, mut ast, module_path, _)) = entry_module {
             log::debug!("Processing entry module: '{module_name}'");
             log::debug!("Entry module has {} statements", ast.body.len());
 
@@ -5087,7 +5282,7 @@ impl HybridStaticBundler {
         let mut body = Vec::new();
 
         // Create module object (returns multiple statements)
-        body.extend(self.create_module_object_stmt(ctx.synthetic_name, ctx.module_path));
+        body.extend(self.create_module_object_stmt(ctx.module_name, ctx.module_path));
 
         // Apply globals lifting if needed
         let lifted_names = if let Some(ref global_info) = ctx.global_info {
@@ -5203,20 +5398,40 @@ impl HybridStaticBundler {
         for stmt in ast.body {
             match &stmt {
                 Stmt::Import(import_stmt) => {
-                    // Skip stdlib imports that have been hoisted
-                    let mut skip_stmt = false;
-                    for alias in &import_stmt.names {
-                        if self.is_safe_stdlib_module(alias.name.as_str()) {
-                            // This stdlib import has been hoisted, skip it
-                            skip_stmt = true;
-                            break;
-                        }
+                    // Skip imports that are already hoisted
+                    if !self.is_hoisted_import(&stmt) {
+                        body.push(stmt.clone());
                     }
 
-                    if !skip_stmt {
-                        // Non-stdlib imports have already been transformed by
-                        // RecursiveImportTransformer
-                        body.push(stmt.clone());
+                    // Check if this module has normalized imports that need module attributes
+                    if let Some(normalized_imports) =
+                        self.normalized_stdlib_imports.get(ctx.module_name)
+                    {
+                        for alias in &import_stmt.names {
+                            let imported_module = alias.name.as_str();
+
+                            // Check if any normalized imports are from this module
+                            for (symbol_name, canonical_form) in normalized_imports {
+                                // If the canonical form starts with this module name, we need to
+                                // create the assignment
+                                if canonical_form.starts_with(&format!("{imported_module}.")) {
+                                    // Extract just the symbol name from the canonical form
+                                    // e.g., "collections.abc.MutableMapping" -> "MutableMapping"
+                                    if let Some(last_part) = canonical_form.split('.').next_back()
+                                        && last_part == symbol_name
+                                        && self.should_export_symbol(symbol_name, ctx.module_name)
+                                    {
+                                        // Create module.MutableMapping =
+                                        // collections.abc.MutableMapping
+                                        body.push(self.create_module_attr_assignment_from_expr(
+                                            "module",
+                                            symbol_name,
+                                            canonical_form,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 Stmt::ImportFrom(import_from) => {
@@ -5225,16 +5440,21 @@ impl HybridStaticBundler {
                         continue;
                     }
 
-                    // Skip stdlib imports that have been hoisted
-                    if let Some(module_name) = import_from.module.as_ref()
-                        && self.is_safe_stdlib_module(module_name.as_str())
-                    {
-                        // This stdlib import has been hoisted, skip it
-                        continue;
+                    // Skip imports that are already hoisted
+                    if !self.is_hoisted_import(&stmt) {
+                        body.push(stmt.clone());
                     }
 
-                    // Other imports have already been transformed by RecursiveImportTransformer
-                    body.push(stmt.clone());
+                    // Create module attribute assignments for imported names
+                    // This ensures that imported symbols are accessible outside the wrapper
+                    for alias in &import_from.names {
+                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                        // Check if this symbol should be exported
+                        if self.should_export_symbol(local_name, ctx.module_name) {
+                            body.push(self.create_module_attr_assignment("module", local_name));
+                        }
+                    }
                 }
                 Stmt::ClassDef(class_def) => {
                     // Add class definition
@@ -5267,12 +5487,24 @@ impl HybridStaticBundler {
                     }
                 }
                 Stmt::Assign(assign) => {
+                    // Skip __all__ assignments - they have no meaning for types.SimpleNamespace
+                    if let Some(name) = self.extract_simple_assign_target(assign)
+                        && name == "__all__"
+                    {
+                        continue;
+                    }
+
                     // Skip self-referential assignments like `process = process`
                     // These are meaningless in the init function context and cause errors
                     if !self.is_self_referential_assignment(assign) {
+                        // Clone and transform the assignment to handle __name__ references
+                        let mut assign_clone = assign.clone();
+                        let dummy_vars = rustc_hash::FxHashSet::default();
+                        self.transform_expr_for_module_vars(&mut assign_clone.value, &dummy_vars);
+
                         // For simple assignments, also set as module attribute if it should be
                         // exported
-                        body.push(stmt.clone());
+                        body.push(Stmt::Assign(assign_clone));
 
                         // Check if this assignment came from a transformed import
                         if let Some(name) = self.extract_simple_assign_target(assign) {
@@ -5355,8 +5587,11 @@ impl HybridStaticBundler {
                     body.extend(additional_exports);
                 }
                 _ => {
-                    // Other statements execute normally
-                    body.push(stmt.clone());
+                    // Clone and transform other statements to handle __name__ references
+                    let mut stmt_clone = stmt.clone();
+                    let dummy_vars = rustc_hash::FxHashSet::default();
+                    self.transform_stmt_for_module_vars(&mut stmt_clone, &dummy_vars);
+                    body.push(stmt_clone);
                 }
             }
         }
@@ -5470,10 +5705,7 @@ impl HybridStaticBundler {
             }
         }
 
-        // Generate __all__ for the bundled module only if the original module had explicit __all__
-        if self.modules_with_explicit_all.contains(ctx.module_name) {
-            body.push(self.create_all_assignment_for_module(ctx.module_name));
-        }
+        // Skip __all__ generation - it has no meaning for types.SimpleNamespace objects
 
         // For imports from inlined modules that don't create assignments,
         // we still need to set them as module attributes if they're exported
@@ -5767,7 +5999,7 @@ impl HybridStaticBundler {
     }
 
     /// Create module object
-    fn create_module_object_stmt(&self, _synthetic_name: &str, _module_path: &Path) -> Vec<Stmt> {
+    fn create_module_object_stmt(&self, module_name: &str, _module_path: &Path) -> Vec<Stmt> {
         let module_call = Expr::Call(ExprCall {
             node_index: AtomicNodeIndex::dummy(),
             func: Box::new(Expr::Attribute(ExprAttribute {
@@ -5804,6 +6036,33 @@ impl HybridStaticBundler {
                 value: Box::new(module_call),
                 range: TextRange::default(),
             }),
+            // module.__name__ = "module_name"
+            Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "module".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("__name__", TextRange::default()),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: StringLiteralValue::single(StringLiteral {
+                        node_index: AtomicNodeIndex::dummy(),
+                        range: TextRange::default(),
+                        value: module_name.to_string().into_boxed_str(),
+                        flags: StringLiteralFlags::empty(),
+                    }),
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            }),
         ]
     }
 
@@ -5829,6 +6088,65 @@ impl HybridStaticBundler {
                 ctx: ExprContext::Load,
                 range: TextRange::default(),
             })),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Create a module attribute assignment from a dotted expression
+    /// e.g., module.MutableMapping = collections.abc.MutableMapping
+    fn create_module_attr_assignment_from_expr(
+        &self,
+        module_var: &str,
+        attr_name: &str,
+        dotted_name: &str,
+    ) -> Stmt {
+        // Parse the dotted name and create the appropriate expression
+        let parts: Vec<&str> = dotted_name.split('.').collect();
+        let expr = if parts.len() == 1 {
+            // Simple name
+            Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: parts[0].into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })
+        } else {
+            // Build nested attribute expression from dotted name
+            let mut expr = Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: parts[0].into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            });
+
+            for part in &parts[1..] {
+                expr = Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(expr),
+                    attr: Identifier::new(*part, TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+            }
+
+            expr
+        };
+
+        Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: module_var.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new(attr_name, TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(expr),
             range: TextRange::default(),
         })
     }
@@ -5907,8 +6225,25 @@ impl HybridStaticBundler {
     ) {
         match expr {
             Expr::Name(name_expr) => {
+                // Special case: transform __name__ to module.__name__
+                if name_expr.id.as_str() == "__name__" && matches!(name_expr.ctx, ExprContext::Load)
+                {
+                    // Transform __name__ -> module.__name__
+                    *expr = Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: "module".into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new("__name__", TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+                }
                 // If this is a module-level variable being read, transform to module.var
-                if module_level_vars.contains(name_expr.id.as_str())
+                else if module_level_vars.contains(name_expr.id.as_str())
                     && matches!(name_expr.ctx, ExprContext::Load)
                 {
                     // Transform foo -> module.foo
@@ -6975,11 +7310,10 @@ impl HybridStaticBundler {
             }));
         }
 
-        // NOTE: We do NOT hoist third-party imports because they may have side effects.
-        // Only stdlib imports that are known to be side-effect-free are hoisted.
-        // Third-party imports remain in their original location (inside wrapper functions
-        // or at module level for inlined modules) to preserve execution order and
-        // potential side effects.
+        // IMPORTANT: Only safe stdlib imports are hoisted to the bundle top level.
+        // Third-party imports are NEVER hoisted because they may have side effects
+        // (e.g., registering plugins, modifying global state, network calls).
+        // Third-party imports remain in their original location to preserve execution order.
 
         // Regular stdlib import statements - deduplicated and sorted by module name
         let mut seen_modules = FxIndexSet::default();
@@ -7089,8 +7423,8 @@ impl HybridStaticBundler {
             }
         } else if !self.is_bundled_module_or_package(module_name) {
             // This is a third-party import (not stdlib, not bundled)
-            // We do NOT collect third-party imports for hoisting because they may have
-            // side effects. They will remain in their original location within the module.
+            // Third-party imports are NEVER hoisted to preserve execution order and
+            // potential side effects. They remain in their original location.
             log::debug!(
                 "Skipping third-party import from module '{module_name}' - will not be hoisted"
             );
@@ -7173,7 +7507,7 @@ impl HybridStaticBundler {
     }
 
     /// Normalize import aliases by removing them for stdlib modules
-    fn normalize_import_aliases(&self, import_stmt: &mut StmtImport) {
+    fn normalize_import_aliases(&mut self, import_stmt: &mut StmtImport) {
         for alias in &mut import_stmt.names {
             let module_name = alias.name.as_str();
             if !self.is_safe_stdlib_module(module_name) || alias.asname.is_none() {
@@ -7204,27 +7538,68 @@ impl HybridStaticBundler {
     }
 
     /// Normalize stdlib import aliases within a single file
-    /// Converts "import json as j" to "import json" and rewrites all "j.dumps" to "json.dumps"
-    fn normalize_stdlib_import_aliases(&self, ast: &mut ModModule) {
+    /// NOTE: This is now deprecated - normalization happens in the orchestrator
+    /// before dependency graph building. Kept for reference only.
+    #[allow(dead_code)]
+    fn normalize_stdlib_import_aliases(&mut self, module_name: &str, ast: &mut ModModule) {
         // Step 1: Build alias-to-canonical mapping for this file
         let mut alias_to_canonical = FxIndexMap::default();
+        let mut modules_to_convert = FxIndexSet::default(); // Track which modules need conversion from "from" to regular import
 
         for stmt in &ast.body {
-            if let Stmt::Import(import_stmt) = stmt {
-                self.collect_stdlib_aliases(import_stmt, &mut alias_to_canonical);
+            match stmt {
+                Stmt::Import(import_stmt) => {
+                    self.collect_stdlib_aliases(import_stmt, &mut alias_to_canonical);
+                }
+                Stmt::ImportFrom(import_from) => {
+                    // Skip relative imports
+                    if import_from.level > 0 {
+                        continue;
+                    }
+
+                    if let Some(ref module) = import_from.module {
+                        let module_name = module.as_str();
+                        if self.is_safe_stdlib_module(module_name) {
+                            // Extract the root module for stdlib imports
+                            // e.g., "collections.abc" -> "collections"
+                            let root_module = module_name.split('.').next().unwrap_or(module_name);
+
+                            // Collect aliases from "from" imports
+                            for alias in &import_from.names {
+                                if let Some(ref alias_name) = alias.asname {
+                                    // Map alias to module.name (e.g., PyPath -> pathlib.Path)
+                                    let canonical =
+                                        format!("{}.{}", module_name, alias.name.as_str());
+                                    alias_to_canonical
+                                        .insert(alias_name.as_str().to_string(), canonical);
+                                } else {
+                                    // Even without alias, we might need to convert to module.name
+                                    // form
+                                    let name = alias.name.as_str();
+                                    let canonical = format!("{module_name}.{name}");
+                                    alias_to_canonical.insert(name.to_string(), canonical);
+                                }
+                            }
+                            // Convert only the root module, not submodules
+                            modules_to_convert.insert(root_module.to_string());
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
-        if alias_to_canonical.is_empty() {
+        if alias_to_canonical.is_empty() && modules_to_convert.is_empty() {
             return; // No aliases to normalize
         }
 
         log::debug!("Normalizing stdlib aliases: {alias_to_canonical:?}");
+        log::debug!("Modules to convert from 'from' imports: {modules_to_convert:?}");
 
         // Step 2: Transform all expressions that reference aliases
         for stmt in &mut ast.body {
             match stmt {
-                Stmt::Import(_) => {
+                Stmt::Import(_) | Stmt::ImportFrom(_) => {
                     // We'll handle import statements separately
                 }
                 _ => {
@@ -7233,11 +7608,72 @@ impl HybridStaticBundler {
             }
         }
 
-        // Step 3: Transform import statements to canonical form
-        for stmt in &mut ast.body {
-            if let Stmt::Import(import_stmt) = stmt {
-                self.normalize_import_aliases(import_stmt);
+        // Step 3: Transform import statements
+        let mut new_imports = Vec::new();
+        let mut indices_to_remove = Vec::new();
+
+        for (idx, stmt) in ast.body.iter_mut().enumerate() {
+            match stmt {
+                Stmt::Import(import_stmt) => {
+                    self.normalize_import_aliases(import_stmt);
+                }
+                Stmt::ImportFrom(import_from) => {
+                    // Skip relative imports
+                    if import_from.level > 0 {
+                        continue;
+                    }
+
+                    if let Some(ref module) = import_from.module {
+                        let module_name = module.as_str();
+                        // Check if this is a safe stdlib module or submodule
+                        if self.is_safe_stdlib_module(module_name) {
+                            // Extract the root module name
+                            let root_module = module_name.split('.').next().unwrap_or(module_name);
+
+                            if modules_to_convert.contains(root_module) {
+                                // Mark this import for removal
+                                indices_to_remove.push(idx);
+
+                                // Create a regular import for the FULL module path, not just root
+                                // e.g., "collections.abc" not just "collections"
+                                if !new_imports.iter().any(|m: &String| m == module_name) {
+                                    new_imports.push(module_name.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
+        }
+
+        // Track normalized imports for this module if it has any
+        if !alias_to_canonical.is_empty() {
+            self.normalized_stdlib_imports
+                .entry(module_name.to_string())
+                .or_default()
+                .extend(alias_to_canonical.clone());
+        }
+
+        // Step 4: Remove the from imports and add regular imports
+        // Remove in reverse order to maintain indices
+        for idx in indices_to_remove.into_iter().rev() {
+            ast.body.remove(idx);
+        }
+
+        // Add the new regular imports at the beginning
+        for module_name in new_imports.into_iter().rev() {
+            let import_stmt = Stmt::Import(StmtImport {
+                node_index: AtomicNodeIndex::dummy(),
+                names: vec![ruff_python_ast::Alias {
+                    node_index: AtomicNodeIndex::dummy(),
+                    name: Identifier::new(&module_name, TextRange::default()),
+                    asname: None,
+                    range: TextRange::default(),
+                }],
+                range: TextRange::default(),
+            });
+            ast.body.insert(0, import_stmt);
         }
     }
 
@@ -7369,13 +7805,22 @@ impl HybridStaticBundler {
     ) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
-                // Rewrite in default arguments
+                // Rewrite in parameter annotations and defaults
                 let params = &mut func_def.parameters;
                 for param in &mut params.args {
+                    if let Some(ref mut annotation) = param.parameter.annotation {
+                        self.rewrite_aliases_in_expr(annotation, alias_to_canonical);
+                    }
                     if let Some(ref mut default) = param.default {
                         self.rewrite_aliases_in_expr(default, alias_to_canonical);
                     }
                 }
+
+                // Rewrite return type annotation
+                if let Some(ref mut returns) = func_def.returns {
+                    self.rewrite_aliases_in_expr(returns, alias_to_canonical);
+                }
+
                 // Rewrite in function body
                 for stmt in &mut func_def.body {
                     self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
@@ -7461,6 +7906,7 @@ impl HybridStaticBundler {
             }
             Stmt::AnnAssign(ann_assign) => {
                 self.rewrite_aliases_in_expr(&mut ann_assign.target, alias_to_canonical);
+                self.rewrite_aliases_in_expr(&mut ann_assign.annotation, alias_to_canonical);
                 if let Some(ref mut value) = ann_assign.value {
                     self.rewrite_aliases_in_expr(value, alias_to_canonical);
                 }
@@ -7570,12 +8016,27 @@ fn rewrite_aliases_in_expr_impl(expr: &mut Expr, alias_to_canonical: &FxIndexMap
         }
         Expr::Attribute(attr_expr) => {
             // Handle cases like j.dumps -> json.dumps
+            // First check if this is a direct attribute on an aliased name
+            if let Expr::Name(name_expr) = attr_expr.value.as_ref() {
+                let name_str = name_expr.id.as_str();
+                if alias_to_canonical.contains_key(name_str) {
+                    log::debug!(
+                        "Found attribute access on alias: {}.{}",
+                        name_str,
+                        attr_expr.attr.as_str()
+                    );
+                }
+            }
             rewrite_aliases_in_expr_impl(&mut attr_expr.value, alias_to_canonical);
         }
         Expr::Call(call_expr) => {
             rewrite_aliases_in_expr_impl(&mut call_expr.func, alias_to_canonical);
             for arg in &mut call_expr.arguments.args {
                 rewrite_aliases_in_expr_impl(arg, alias_to_canonical);
+            }
+            // Also process keyword arguments
+            for keyword in &mut call_expr.arguments.keywords {
+                rewrite_aliases_in_expr_impl(&mut keyword.value, alias_to_canonical);
             }
         }
         Expr::List(list_expr) => {
@@ -7655,11 +8116,8 @@ fn rewrite_aliases_in_expr_impl(expr: &mut Expr, alias_to_canonical: &FxIndexMap
         Expr::Subscript(subscript_expr) => {
             // Rewrite the value expression (e.g., the `obj` in `obj[key]`)
             rewrite_aliases_in_expr_impl(&mut subscript_expr.value, alias_to_canonical);
-            // DO NOT rewrite string literals in slice position - they are dictionary keys,
-            // not variable references. Only rewrite if the slice is a Name expression.
-            if matches!(subscript_expr.slice.as_ref(), Expr::Name(_)) {
-                rewrite_aliases_in_expr_impl(&mut subscript_expr.slice, alias_to_canonical);
-            }
+            // Rewrite the slice - this handles type annotations like Dict[str, Any]
+            rewrite_aliases_in_expr_impl(&mut subscript_expr.slice, alias_to_canonical);
         }
         Expr::Slice(slice_expr) => {
             if let Some(ref mut lower) = slice_expr.lower {
@@ -10376,7 +10834,23 @@ impl HybridStaticBundler {
         // Process each statement in the module
         for stmt in statements {
             match &stmt {
-                Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                Stmt::Import(import_stmt) => {
+                    // Imports have already been transformed by RecursiveImportTransformer
+                    // Include them in the inlined output
+                    if !self.is_hoisted_import(&stmt) {
+                        log::debug!(
+                            "Including non-hoisted import in inlined module '{}': {:?}",
+                            module_name,
+                            import_stmt
+                                .names
+                                .iter()
+                                .map(|a| (a.name.as_str(), a.asname.as_ref().map(|n| n.as_str())))
+                                .collect::<Vec<_>>()
+                        );
+                        ctx.inlined_stmts.push(stmt.clone());
+                    }
+                }
+                Stmt::ImportFrom(_) => {
                     // Imports have already been transformed by RecursiveImportTransformer
                     // Include them in the inlined output
                     if !self.is_hoisted_import(&stmt) {

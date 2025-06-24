@@ -22,6 +22,7 @@ _cribo_module_mixed_patterns_counter = None
 @functools.cache
 def __cribo_init___cribo_c75306_module_mixed_patterns():
     module = types.SimpleNamespace()
+    module.__name__ = 'module_mixed_patterns'
     """Module demonstrating mixed global access patterns."""
     foo = "module3_foo"
     module.foo = foo
@@ -74,6 +75,7 @@ def __cribo_init___cribo_c75306_module_mixed_patterns():
 @functools.cache
 def __cribo_init___cribo_5101f4_module_globals_dict():
     module = types.SimpleNamespace()
+    module.__name__ = 'module_globals_dict'
     """Module demonstrating globals() dictionary access."""
     bar = "module2_bar"
     module.bar = bar

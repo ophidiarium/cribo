@@ -11,6 +11,7 @@ import types
 @functools.cache
 def __cribo_init___cribo_332fbf_my_module():
     module = types.SimpleNamespace()
+    module.__name__ = 'my-module'
     value = 42
     module.value = value
 

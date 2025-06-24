@@ -1,0 +1,498 @@
+use std::hash::BuildHasherDefault;
+
+use indexmap::{IndexMap, IndexSet};
+use log::debug;
+use ruff_python_ast::{
+    Expr, ExprAttribute, ExprContext, ExprName, Identifier, ModModule, Stmt, StmtClassDef,
+    StmtFunctionDef, StmtImport,
+};
+use ruff_text_size::TextRange;
+use rustc_hash::FxHasher;
+
+/// Type alias for IndexMap with FxHasher for better performance
+type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
+/// Type alias for IndexSet with FxHasher for better performance
+type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
+
+/// Normalizes stdlib import aliases within a module's AST
+/// Converts "import json as j" to "import json" and rewrites all "j.dumps" to "json.dumps"
+/// Also converts "from pathlib import Path as PyPath" to "import pathlib" and rewrites "PyPath" to
+/// "pathlib.Path"
+pub fn normalize_stdlib_imports(ast: &mut ModModule) -> FxIndexMap<String, String> {
+    let normalizer = StdlibNormalizer::new();
+    normalizer.normalize(ast)
+}
+
+struct StdlibNormalizer {
+    // No state needed for now
+}
+
+impl StdlibNormalizer {
+    fn new() -> Self {
+        Self {}
+    }
+
+    /// Main normalization entry point
+    fn normalize(&self, ast: &mut ModModule) -> FxIndexMap<String, String> {
+        // Step 1: Build alias-to-canonical mapping for this file
+        let mut alias_to_canonical = FxIndexMap::default();
+        let mut modules_to_convert = FxIndexSet::default();
+
+        for stmt in &ast.body {
+            match stmt {
+                Stmt::Import(import_stmt) => {
+                    self.collect_stdlib_aliases(import_stmt, &mut alias_to_canonical);
+                }
+                Stmt::ImportFrom(import_from) => {
+                    // Skip relative imports
+                    if import_from.level > 0 {
+                        continue;
+                    }
+
+                    if let Some(ref module) = import_from.module {
+                        let module_name = module.as_str();
+                        if self.is_safe_stdlib_module(module_name) {
+                            // Extract the root module for stdlib imports
+                            let root_module = module_name.split('.').next().unwrap_or(module_name);
+
+                            // Collect aliases from "from" imports
+                            let mut has_aliases = false;
+                            for alias in &import_from.names {
+                                if let Some(ref alias_name) = alias.asname {
+                                    // Map alias to module.name (e.g., PyPath -> pathlib.Path)
+                                    let canonical =
+                                        format!("{}.{}", module_name, alias.name.as_str());
+                                    alias_to_canonical
+                                        .insert(alias_name.as_str().to_string(), canonical);
+                                    has_aliases = true;
+                                }
+                            }
+
+                            // Only convert to regular import if there are aliases
+                            // Don't convert direct imports like "from typing import Optional"
+                            if has_aliases {
+                                // Convert only the root module, not submodules
+                                modules_to_convert.insert(root_module.to_string());
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if alias_to_canonical.is_empty() && modules_to_convert.is_empty() {
+            return alias_to_canonical; // No aliases to normalize
+        }
+
+        debug!("Normalizing stdlib aliases: {alias_to_canonical:?}");
+        debug!("Modules to convert from 'from' imports: {modules_to_convert:?}");
+
+        // Step 2: Transform all expressions that reference aliases
+        for (idx, stmt) in ast.body.iter_mut().enumerate() {
+            match stmt {
+                Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                    // We'll handle import statements separately
+                }
+                _ => {
+                    let stmt_type = match stmt {
+                        Stmt::FunctionDef(f) => format!("FunctionDef({})", f.name.as_str()),
+                        Stmt::ClassDef(c) => format!("ClassDef({})", c.name.as_str()),
+                        Stmt::Assign(_) => "Assign".to_string(),
+                        Stmt::Expr(_) => "Expr".to_string(),
+                        _ => format!("{:?}", std::mem::discriminant(stmt)),
+                    };
+                    debug!("Rewriting aliases in statement at index {idx}: {stmt_type}");
+                    self.rewrite_aliases_in_stmt(stmt, &alias_to_canonical);
+                }
+            }
+        }
+
+        // Step 3: Transform import statements
+        let mut new_imports = Vec::new();
+        let mut indices_to_remove = Vec::new();
+
+        for (idx, stmt) in ast.body.iter_mut().enumerate() {
+            match stmt {
+                Stmt::Import(import_stmt) => {
+                    debug!(
+                        "Processing import statement at index {}: {:?}",
+                        idx,
+                        import_stmt
+                            .names
+                            .iter()
+                            .map(|a| (a.name.as_str(), a.asname.as_ref().map(|n| n.as_str())))
+                            .collect::<Vec<_>>()
+                    );
+                    self.normalize_import_aliases(import_stmt);
+                }
+                Stmt::ImportFrom(import_from) => {
+                    // Skip relative imports
+                    if import_from.level > 0 {
+                        continue;
+                    }
+
+                    if let Some(ref module) = import_from.module {
+                        let module_name = module.as_str();
+                        // Check if this is a safe stdlib module or submodule
+                        if self.is_safe_stdlib_module(module_name) {
+                            // Extract the root module name
+                            let root_module = module_name.split('.').next().unwrap_or(module_name);
+
+                            if modules_to_convert.contains(root_module) {
+                                // Only remove if ALL imports have aliases
+                                let all_have_aliases =
+                                    import_from.names.iter().all(|alias| alias.asname.is_some());
+
+                                if all_have_aliases {
+                                    // Mark this import for removal
+                                    indices_to_remove.push(idx);
+
+                                    // Create a regular import for the FULL module path, not just
+                                    // root e.g., "collections.
+                                    // abc" not just "collections"
+                                    if !new_imports.iter().any(|m: &String| m == module_name) {
+                                        new_imports.push(module_name.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Step 4: Remove the from imports and add regular imports
+        // Remove in reverse order to maintain indices
+        for idx in indices_to_remove.into_iter().rev() {
+            ast.body.remove(idx);
+        }
+
+        // Add the new regular imports at the beginning (after __future__ imports)
+        let future_import_count = ast
+            .body
+            .iter()
+            .take_while(|stmt| {
+                if let Stmt::ImportFrom(import_from) = stmt {
+                    import_from
+                        .module
+                        .as_ref()
+                        .is_some_and(|m| m.as_str() == "__future__")
+                } else {
+                    false
+                }
+            })
+            .count();
+
+        for module_name in new_imports.into_iter().rev() {
+            let import_stmt = Stmt::Import(StmtImport {
+                node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
+                names: vec![ruff_python_ast::Alias {
+                    node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
+                    name: Identifier::new(&module_name, TextRange::default()),
+                    asname: None,
+                    range: TextRange::default(),
+                }],
+                range: TextRange::default(),
+            });
+            ast.body.insert(future_import_count, import_stmt);
+        }
+
+        alias_to_canonical
+    }
+
+    /// Check if a module is safe to hoist
+    fn is_safe_stdlib_module(&self, module_name: &str) -> bool {
+        match module_name {
+            // Modules that modify global state - DO NOT HOIST
+            "antigravity" | "this" | "__hello__" | "__phello__" => false,
+            "site" | "sitecustomize" | "usercustomize" => false,
+            "readline" | "rlcompleter" => false,
+            "turtle" | "tkinter" => false,
+            "webbrowser" => false,
+            "platform" | "locale" => false,
+
+            _ => {
+                let root_module = module_name.split('.').next().unwrap_or(module_name);
+                ruff_python_stdlib::sys::is_known_standard_library(10, root_module)
+            }
+        }
+    }
+
+    /// Collect stdlib aliases from import statement
+    fn collect_stdlib_aliases(
+        &self,
+        import_stmt: &StmtImport,
+        alias_to_canonical: &mut FxIndexMap<String, String>,
+    ) {
+        for alias in &import_stmt.names {
+            let module_name = alias.name.as_str();
+            if !self.is_safe_stdlib_module(module_name) {
+                continue;
+            }
+            if let Some(ref alias_name) = alias.asname {
+                // This is an aliased import: import json as j
+                alias_to_canonical.insert(alias_name.as_str().to_string(), module_name.to_string());
+            }
+        }
+    }
+
+    /// Normalize import aliases by removing them for stdlib modules
+    fn normalize_import_aliases(&self, import_stmt: &mut StmtImport) {
+        for alias in &mut import_stmt.names {
+            let module_name = alias.name.as_str();
+            if !self.is_safe_stdlib_module(module_name) {
+                debug!("Skipping non-safe stdlib module: {module_name}");
+                continue;
+            }
+            if alias.asname.is_none() {
+                continue;
+            }
+            // Remove the alias, keeping only the canonical name
+            alias.asname = None;
+            debug!("Normalized import to canonical: import {module_name}");
+        }
+    }
+
+    /// Recursively rewrite aliases in statements
+    fn rewrite_aliases_in_stmt(
+        &self,
+        stmt: &mut Stmt,
+        alias_to_canonical: &FxIndexMap<String, String>,
+    ) {
+        match stmt {
+            Stmt::Expr(expr_stmt) => {
+                self.rewrite_aliases_in_expr(&mut expr_stmt.value, alias_to_canonical);
+            }
+            Stmt::Assign(assign) => {
+                self.rewrite_aliases_in_expr(&mut assign.value, alias_to_canonical);
+                for target in &mut assign.targets {
+                    self.rewrite_aliases_in_expr(target, alias_to_canonical);
+                }
+            }
+            Stmt::Return(return_stmt) => {
+                debug!("Rewriting aliases in return statement");
+                if let Some(ref mut value) = return_stmt.value {
+                    self.rewrite_aliases_in_expr(value, alias_to_canonical);
+                }
+            }
+            Stmt::FunctionDef(func_def) => {
+                self.rewrite_aliases_in_function(func_def, alias_to_canonical);
+            }
+            Stmt::ClassDef(class_def) => {
+                self.rewrite_aliases_in_class(class_def, alias_to_canonical);
+            }
+            // Handle other statement types as needed
+            _ => {
+                debug!(
+                    "Unhandled statement type in rewrite_aliases_in_stmt: {:?}",
+                    std::mem::discriminant(stmt)
+                );
+            }
+        }
+    }
+
+    /// Rewrite aliases in expressions
+    fn rewrite_aliases_in_expr(
+        &self,
+        expr: &mut Expr,
+        alias_to_canonical: &FxIndexMap<String, String>,
+    ) {
+        match expr {
+            Expr::Name(name_expr) if matches!(name_expr.ctx, ExprContext::Load) => {
+                // Check if this is an aliased import that should be rewritten
+                if let Some(canonical) = alias_to_canonical.get(name_expr.id.as_str()) {
+                    debug!(
+                        "Rewriting name '{}' to '{}'",
+                        name_expr.id.as_str(),
+                        canonical
+                    );
+                    // Replace simple name with the canonical form
+                    if canonical.contains('.') {
+                        // Convert to attribute access (e.g., pathlib.Path)
+                        let parts: Vec<&str> = canonical.split('.').collect();
+                        let mut result = Expr::Name(ExprName {
+                            node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
+                            id: parts[0].into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        });
+                        for part in &parts[1..] {
+                            result = Expr::Attribute(ExprAttribute {
+                                node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
+                                value: Box::new(result),
+                                attr: Identifier::new(*part, TextRange::default()),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            });
+                        }
+                        *expr = result;
+                    } else {
+                        // Simple module name
+                        name_expr.id = canonical.clone().into();
+                    }
+                }
+            }
+            Expr::Attribute(attr_expr) => {
+                // Check if the base is an aliased module
+                if let Expr::Name(name_expr) = &mut *attr_expr.value {
+                    if let Some(canonical) = alias_to_canonical.get(name_expr.id.as_str()) {
+                        debug!(
+                            "Rewriting attribute base '{}' to '{}' in attribute expression",
+                            name_expr.id.as_str(),
+                            canonical
+                        );
+                        name_expr.id = canonical.clone().into();
+                    }
+                } else {
+                    debug!(
+                        "Attribute base is not a Name expression, it's {:?}",
+                        std::mem::discriminant(&*attr_expr.value)
+                    );
+                }
+                // Recursively process the value
+                self.rewrite_aliases_in_expr(&mut attr_expr.value, alias_to_canonical);
+            }
+            Expr::Call(call_expr) => {
+                // Debug the function being called
+                if let Expr::Name(name) = &*call_expr.func {
+                    debug!("Call expression with function name: {}", name.id.as_str());
+                } else if let Expr::Attribute(attr) = &*call_expr.func
+                    && let Expr::Name(base) = &*attr.value
+                {
+                    debug!(
+                        "Call expression with attribute: {}.{}",
+                        base.id.as_str(),
+                        attr.attr.as_str()
+                    );
+                }
+
+                self.rewrite_aliases_in_expr(&mut call_expr.func, alias_to_canonical);
+                for (i, arg) in call_expr.arguments.args.iter_mut().enumerate() {
+                    debug!("  Rewriting call arg {i}");
+                    self.rewrite_aliases_in_expr(arg, alias_to_canonical);
+                }
+                for keyword in &mut call_expr.arguments.keywords {
+                    self.rewrite_aliases_in_expr(&mut keyword.value, alias_to_canonical);
+                }
+            }
+            // Handle other expression types recursively
+            Expr::List(list_expr) => {
+                debug!("Rewriting aliases in list expression");
+                for elem in &mut list_expr.elts {
+                    self.rewrite_aliases_in_expr(elem, alias_to_canonical);
+                }
+            }
+            Expr::Tuple(tuple_expr) => {
+                debug!("Rewriting aliases in tuple expression");
+                for elem in &mut tuple_expr.elts {
+                    self.rewrite_aliases_in_expr(elem, alias_to_canonical);
+                }
+            }
+            Expr::Subscript(subscript_expr) => {
+                debug!("Rewriting aliases in subscript expression");
+                self.rewrite_aliases_in_expr(&mut subscript_expr.value, alias_to_canonical);
+                self.rewrite_aliases_in_expr(&mut subscript_expr.slice, alias_to_canonical);
+            }
+            _ => {
+                debug!(
+                    "Unhandled expression type in rewrite_aliases_in_expr: {:?}",
+                    std::mem::discriminant(expr)
+                );
+            }
+        }
+    }
+
+    /// Rewrite aliases in function definitions
+    fn rewrite_aliases_in_function(
+        &self,
+        func_def: &mut StmtFunctionDef,
+        alias_to_canonical: &FxIndexMap<String, String>,
+    ) {
+        debug!("Rewriting aliases in function: {}", func_def.name.as_str());
+
+        // First handle global statements specially
+        self.rewrite_global_statements_in_function(func_def, alias_to_canonical);
+
+        // Then rewrite the rest of the function body
+        for (idx, stmt) in func_def.body.iter_mut().enumerate() {
+            match stmt {
+                Stmt::Global(_) => {
+                    // Already handled above
+                }
+                _ => {
+                    debug!(
+                        "  Rewriting aliases in function body statement {}: {:?}",
+                        idx,
+                        std::mem::discriminant(stmt)
+                    );
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+        }
+    }
+
+    /// Rewrite only global statements in function, not other references
+    fn rewrite_global_statements_in_function(
+        &self,
+        func_def: &mut StmtFunctionDef,
+        alias_to_canonical: &FxIndexMap<String, String>,
+    ) {
+        for stmt in &mut func_def.body {
+            self.rewrite_global_statements_only(stmt, alias_to_canonical);
+        }
+    }
+
+    /// Recursively rewrite only global statements, not other name references
+    fn rewrite_global_statements_only(
+        &self,
+        stmt: &mut Stmt,
+        alias_to_canonical: &FxIndexMap<String, String>,
+    ) {
+        match stmt {
+            Stmt::Global(global_stmt) => {
+                // Apply renames to global variable names
+                for name in &mut global_stmt.names {
+                    let name_str = name.as_str();
+                    if let Some(new_name) = alias_to_canonical.get(name_str) {
+                        debug!("Rewriting global statement variable '{name_str}' to '{new_name}'");
+                        *name = Identifier::new(new_name, TextRange::default());
+                    }
+                }
+            }
+            // For control flow statements, recurse into their bodies
+            Stmt::If(if_stmt) => {
+                for stmt in &mut if_stmt.body {
+                    self.rewrite_global_statements_only(stmt, alias_to_canonical);
+                }
+                for clause in &mut if_stmt.elif_else_clauses {
+                    for stmt in &mut clause.body {
+                        self.rewrite_global_statements_only(stmt, alias_to_canonical);
+                    }
+                }
+            }
+            // Handle other control flow statements similarly...
+            _ => {}
+        }
+    }
+
+    /// Rewrite aliases in class definitions
+    fn rewrite_aliases_in_class(
+        &self,
+        class_def: &mut StmtClassDef,
+        alias_to_canonical: &FxIndexMap<String, String>,
+    ) {
+        // Rewrite base classes
+        if let Some(arguments) = &mut class_def.arguments {
+            for base in &mut arguments.args {
+                self.rewrite_aliases_in_expr(base, alias_to_canonical);
+            }
+        }
+
+        // Rewrite class body
+        for stmt in &mut class_def.body {
+            self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+        }
+    }
+}

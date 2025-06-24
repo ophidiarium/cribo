@@ -20,6 +20,7 @@ def validate_email(email: str) -> bool:
 @functools.cache
 def __cribo_init___cribo_f275a8_schemas_user():
     module = types.SimpleNamespace()
+    module.__name__ = 'schemas.user'
     """User schema definitions using Pydantic."""
     from pydantic import BaseModel, EmailStr, Field
 
@@ -59,12 +60,11 @@ schemas = types.SimpleNamespace()
 schemas.__name__ = 'schemas'
 utils = types.SimpleNamespace()
 utils.__name__ = 'utils'
+"""Pydantic test project entry point."""
+from pydantic import ValidationError
 schemas.user = __cribo_init___cribo_f275a8_schemas_user()
 UserSchema = schemas.user.UserSchema
 CreateUserRequest = schemas.user.CreateUserRequest
-UserResponse = schemas.user.UserResponse
-"""Pydantic test project entry point."""
-from pydantic import ValidationError
 def main():
     """Main function demonstrating Pydantic usage."""
     user_data = {"name": "John Doe", "email": "john@example.com", "age": 25}

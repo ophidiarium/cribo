@@ -11,6 +11,7 @@ import types
 @functools.cache
 def __cribo_init___cribo_e25798_foo():
     module = types.SimpleNamespace()
+    module.__name__ = 'foo'
     source = "foo/__init__.py (package)"
     module.source = source
     value = "CORRECT - package"

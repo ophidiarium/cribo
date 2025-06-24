@@ -11,6 +11,7 @@ import types
 @functools.cache
 def __cribo_init___cribo_75ebb7_package_submodule():
     module = types.SimpleNamespace()
+    module.__name__ = 'package.submodule'
     print("package/submodule.py is being executed!")
     sub_counter = 10
     module.sub_counter = sub_counter
@@ -18,11 +19,13 @@ def __cribo_init___cribo_75ebb7_package_submodule():
 @functools.cache
 def __cribo_init___cribo_20ca72_package():
     module = types.SimpleNamespace()
+    module.__name__ = 'package'
     print("package/__init__.py is being executed!")
     return module
 @functools.cache
 def __cribo_init___cribo_26ef78_mymodule():
     module = types.SimpleNamespace()
+    module.__name__ = 'mymodule'
     print("mymodule.py is being executed!")
     counter = 1
     module.counter = counter

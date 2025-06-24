@@ -59,6 +59,7 @@ def calculate_total(values: List[int]) -> int:
 @functools.cache
 def __cribo_init___cribo_fddf57_models_user():
     module = types.SimpleNamespace()
+    module.__name__ = 'models.user'
     """\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 
     class UserRole(Enum):

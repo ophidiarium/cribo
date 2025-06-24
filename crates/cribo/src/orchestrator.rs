@@ -737,7 +737,20 @@ impl BundleOrchestrator {
             let parsed = ruff_python_parser::parse_module(&source)
                 .with_context(|| format!("Failed to parse Python file: {module_path:?}"))?;
 
-            let ast = parsed.into_syntax();
+            let mut ast = parsed.into_syntax();
+
+            // Normalize stdlib imports BEFORE semantic analysis and graph building
+            // This ensures the dependency graph sees the normalized imports
+            let normalized_imports =
+                crate::stdlib_normalization::normalize_stdlib_imports(&mut ast);
+            if !normalized_imports.is_empty() {
+                debug!("Module '{module_name}' normalized imports: {normalized_imports:?}");
+
+                // Debug: Print first few statements to see if rewriting happened
+                for (i, stmt) in ast.body.iter().take(3).enumerate() {
+                    debug!("  Statement {}: {:?}", i, std::mem::discriminant(stmt));
+                }
+            }
 
             // Perform semantic analysis on this module
             self.semantic_bundler

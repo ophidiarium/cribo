@@ -231,6 +231,7 @@ models_base = types.SimpleNamespace(BaseModel=BaseModel, initialize=initialize, 
 @functools.cache
 def __cribo_init___cribo_6ccb3a_services_auth_manager():
     module = types.SimpleNamespace()
+    module.__name__ = 'services.auth.manager'
     DBConnection = Connection_5
     """\nAuthentication manager with complex naming conflicts\n"""
     base = models_base

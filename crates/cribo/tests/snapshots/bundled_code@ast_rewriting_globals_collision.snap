@@ -48,6 +48,7 @@ _cribo_models_base_Connection = None
 @functools.cache
 def __cribo_init___cribo_0a162a_models_base():
     module = types.SimpleNamespace()
+    module.__name__ = 'models.base'
     """Base models module - imports only from core to avoid circular dependencies"""
     process = lambda x: f"base_process: {x}"
     module.process = process
@@ -93,6 +94,7 @@ def __cribo_init___cribo_0a162a_models_base():
 @functools.cache
 def __cribo_init___cribo_293a98_models():
     module = types.SimpleNamespace()
+    module.__name__ = 'models'
     Logger = lambda x: f"models_logger_{x}"
     module.Logger = Logger
     process = "models_process"
@@ -101,6 +103,7 @@ def __cribo_init___cribo_293a98_models():
 @functools.cache
 def __cribo_init___cribo_1f9e6c_models_user():
     module = types.SimpleNamespace()
+    module.__name__ = 'models.user'
     util_process = process_7
     UtilLogger = Logger_6
     """User models module - imports from core and base, no circular dependencies"""
@@ -170,6 +173,7 @@ def __cribo_init___cribo_1f9e6c_models_user():
 @functools.cache
 def __cribo_init___cribo_84bf42_services_auth():
     module = types.SimpleNamespace()
+    module.__name__ = 'services.auth'
     Connection = lambda: "auth_package_connection"
     module.Connection = Connection
     Logger = 42
@@ -178,6 +182,7 @@ def __cribo_init___cribo_84bf42_services_auth():
 @functools.cache
 def __cribo_init___cribo_b2dda7_services():
     module = types.SimpleNamespace()
+    module.__name__ = 'services'
     process = lambda x, y: f"services_process: {x}, {y}"
     module.process = process
     validate = "services_validate"
@@ -186,6 +191,7 @@ def __cribo_init___cribo_b2dda7_services():
 @functools.cache
 def __cribo_init___cribo_0ecebd_services_auth_manager():
     module = types.SimpleNamespace()
+    module.__name__ = 'services.auth.manager'
     """Authentication manager - imports from core and models only, no circular dependencies"""
     core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
     DBConnection = core.database.connection.Connection
@@ -253,6 +259,7 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
 @functools.cache
 def __cribo_init___cribo_df9c8d_core_database_connection():
     module = types.SimpleNamespace()
+    module.__name__ = 'core.database.connection'
     """Database connection module - imports only from core.utils to avoid circular dependencies"""
     process = None
     module.process = process

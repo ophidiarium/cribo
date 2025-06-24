@@ -15,6 +15,7 @@ import types
 @functools.cache
 def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
     module = types.SimpleNamespace()
+    module.__name__ = 'mypackage.submodule.utils'
 
     def validate_input(data: InputData) -> bool:
         """Validate input data structure.\n\n    Uses forward reference that requires future import.\n    """
@@ -35,6 +36,7 @@ def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
 @functools.cache
 def __cribo_init___cribo_41d36f_mypackage_core():
     module = types.SimpleNamespace()
+    module.__name__ = 'mypackage.core'
 
     def process_data(data: Dict[str, Any]) -> Dict[str, Any]:
         """Process input data and return results.\n\n    This function uses forward references in type hints.\n    """

@@ -28,6 +28,7 @@ def process_data(data):
 @functools.cache
 def __cribo_init___cribo_de6c46_mypackage_config():
     module = types.SimpleNamespace()
+    module.__name__ = 'mypackage.config'
     """Configuration module."""
 
     class Config:
@@ -43,13 +44,13 @@ def __cribo_init___cribo_de6c46_mypackage_config():
 @functools.cache
 def __cribo_init___cribo_a81151_mypackage():
     module = types.SimpleNamespace()
+    module.__name__ = 'mypackage'
     """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
     mypackage.config = __cribo_init___cribo_de6c46_mypackage_config()
     config = mypackage.config.config
     module.config = config
     __version__ = "1.0.0"
     module.__version__ = __version__
-    __all__ = ["process_data", "format_data", "config", "helper_function", "__version__"]
     DEBUG_MODE = config.DEBUG
     utils = types.SimpleNamespace()
     utils.helper_function = helper_function
@@ -57,7 +58,6 @@ def __cribo_init___cribo_a81151_mypackage():
     formatter.format_data = format_data
     data_processor = types.SimpleNamespace()
     data_processor.process_data = process_data
-    module.__all__ = ['process_data', 'format_data', 'config', 'helper_function', '__version__']
     module.process_data = process_data
     module.format_data = format_data
     module.helper_function = helper_function

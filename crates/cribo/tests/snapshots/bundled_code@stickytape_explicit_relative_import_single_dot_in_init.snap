@@ -12,15 +12,14 @@ message_2 = "Hello"
 @functools.cache
 def __cribo_init___cribo_b4af24_greetings():
     module = types.SimpleNamespace()
+    module.__name__ = 'greetings'
     greeting = types.SimpleNamespace()
     module.greeting = greeting
     greeting.message = message_2
-    __all__ = ["message"]
     message = greeting.message
     module.message = message
     greeting = types.SimpleNamespace()
     greeting.message = message_2
-    module.__all__ = ['message']
     return module
 greetings = types.SimpleNamespace()
 greetings.__name__ = 'greetings'
