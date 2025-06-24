@@ -4612,35 +4612,76 @@ impl HybridStaticBundler {
 
                         // Check if this assignment already exists in final_body to avoid duplicates
                         let is_duplicate = if assign.targets.len() == 1 {
-                            // Check the exact assignment pattern
-                            if let (Expr::Name(target), _value) =
-                                (&assign.targets[0], &assign.value.as_ref())
-                            {
-                                // Look for exact duplicate in final_body
-                                final_body.iter().any(|stmt| {
-                                    if let Stmt::Assign(existing) = stmt {
-                                        if existing.targets.len() == 1 {
-                                            if let Expr::Name(existing_target) =
-                                                &existing.targets[0]
-                                            {
-                                                // Check if it's the same assignment
-                                                existing_target.id == target.id
-                                                    && Self::expr_equals(
-                                                        &existing.value,
-                                                        &assign.value,
-                                                    )
+                            match &assign.targets[0] {
+                                // Check name assignments
+                                Expr::Name(target) => {
+                                    // Look for exact duplicate in final_body
+                                    final_body.iter().any(|stmt| {
+                                        if let Stmt::Assign(existing) = stmt {
+                                            if existing.targets.len() == 1 {
+                                                if let Expr::Name(existing_target) =
+                                                    &existing.targets[0]
+                                                {
+                                                    // Check if it's the same assignment
+                                                    existing_target.id == target.id
+                                                        && Self::expr_equals(
+                                                            &existing.value,
+                                                            &assign.value,
+                                                        )
+                                                } else {
+                                                    false
+                                                }
                                             } else {
                                                 false
                                             }
                                         } else {
                                             false
                                         }
+                                    })
+                                }
+                                // Check attribute assignments like schemas.user = ...
+                                Expr::Attribute(target_attr) => {
+                                    let target_path = self.extract_attribute_path(target_attr);
+
+                                    // Check if this is a module init assignment
+                                    if let Expr::Call(call) = &assign.value.as_ref()
+                                        && let Expr::Name(func_name) = &call.func.as_ref()
+                                        && func_name.id.as_str().starts_with("__cribo_init_")
+                                    {
+                                        // Check in final_body for same module init
+                                        final_body.iter().any(|stmt| {
+                                            if let Stmt::Assign(existing) = stmt
+                                                && existing.targets.len() == 1
+                                                && let Expr::Attribute(existing_attr) =
+                                                    &existing.targets[0]
+                                                && let Expr::Call(existing_call) =
+                                                    &existing.value.as_ref()
+                                                && let Expr::Name(existing_func) =
+                                                    &existing_call.func.as_ref()
+                                                && existing_func
+                                                    .id
+                                                    .as_str()
+                                                    .starts_with("__cribo_init_")
+                                            {
+                                                let existing_path =
+                                                    self.extract_attribute_path(existing_attr);
+                                                if existing_path == target_path {
+                                                    log::debug!(
+                                                        "Found duplicate module init in \
+                                                         final_body: {} = {}",
+                                                        target_path,
+                                                        func_name.id.as_str()
+                                                    );
+                                                    return true;
+                                                }
+                                            }
+                                            false
+                                        })
                                     } else {
                                         false
                                     }
-                                })
-                            } else {
-                                false
+                                }
+                                _ => false,
                             }
                         } else {
                             false
@@ -4712,23 +4753,66 @@ impl HybridStaticBundler {
             // Add entry module's deferred imports with deduplication
             for stmt in entry_deferred_imports {
                 let is_duplicate = if let Stmt::Assign(assign) = &stmt {
-                    if let Expr::Name(target) = &assign.targets[0] {
-                        let target_name = target.id.as_str();
+                    match &assign.targets[0] {
+                        Expr::Name(target) => {
+                            let target_name = target.id.as_str();
 
-                        // Check against existing deferred imports
-                        all_deferred_imports.iter().any(|existing| {
-                            if let Stmt::Assign(existing_assign) = existing
-                                && let [Expr::Name(existing_target)] =
-                                    existing_assign.targets.as_slice()
-                                && existing_target.id.as_str() == target_name
+                            // Check against existing deferred imports
+                            all_deferred_imports.iter().any(|existing| {
+                                if let Stmt::Assign(existing_assign) = existing
+                                    && let [Expr::Name(existing_target)] =
+                                        existing_assign.targets.as_slice()
+                                    && existing_target.id.as_str() == target_name
+                                {
+                                    // Check if the values are the same
+                                    return Self::expr_equals(
+                                        &existing_assign.value,
+                                        &assign.value,
+                                    );
+                                }
+                                false
+                            })
+                        }
+                        Expr::Attribute(target_attr) => {
+                            // For attribute assignments like schemas.user = ...
+                            let target_path = self.extract_attribute_path(target_attr);
+
+                            // Check if this is a module init assignment
+                            if let Expr::Call(call) = &assign.value.as_ref()
+                                && let Expr::Name(func_name) = &call.func.as_ref()
+                                && func_name.id.as_str().starts_with("__cribo_init_")
                             {
-                                // Check if the values are the same
-                                return Self::expr_equals(&existing_assign.value, &assign.value);
+                                // Check against existing deferred imports for same module init
+                                all_deferred_imports.iter().any(|existing| {
+                                    if let Stmt::Assign(existing_assign) = existing
+                                        && existing_assign.targets.len() == 1
+                                        && let Expr::Attribute(existing_attr) =
+                                            &existing_assign.targets[0]
+                                        && let Expr::Call(existing_call) =
+                                            &existing_assign.value.as_ref()
+                                        && let Expr::Name(existing_func) =
+                                            &existing_call.func.as_ref()
+                                        && existing_func.id.as_str().starts_with("__cribo_init_")
+                                    {
+                                        let existing_path =
+                                            self.extract_attribute_path(existing_attr);
+                                        if existing_path == target_path {
+                                            log::debug!(
+                                                "Found duplicate module init in entry deferred \
+                                                 imports: {} = {}",
+                                                target_path,
+                                                func_name.id.as_str()
+                                            );
+                                            return true;
+                                        }
+                                    }
+                                    false
+                                })
+                            } else {
+                                false
                             }
-                            false
-                        })
-                    } else {
-                        false
+                        }
+                        _ => false,
                     }
                 } else {
                     false
@@ -6085,14 +6169,18 @@ impl HybridStaticBundler {
 
                     // Handle init function calls
                     if let Expr::Call(call) = &assign.value.as_ref()
-                        && let Expr::Name(name) = &call.func.as_ref() {
-                            let func_name = name.id.as_str();
-                            if func_name.starts_with("__cribo_init_") {
-                                let key = format!("{target_path} = {func_name}");
-                                log::debug!("Found existing module init assignment: {key}");
-                                seen_assignments.insert(key);
-                            }
+                        && let Expr::Name(name) = &call.func.as_ref()
+                    {
+                        let func_name = name.id.as_str();
+                        if func_name.starts_with("__cribo_init_") {
+                            // Use just the target path as the key for module init assignments
+                            let key = target_path.clone();
+                            log::debug!(
+                                "Found existing module init assignment: {key} = {func_name}"
+                            );
+                            seen_assignments.insert(key);
                         }
+                    }
                 }
                 // Handle simple name assignments
                 else if let Expr::Name(target) = &assign.targets[0] {
@@ -6149,28 +6237,38 @@ impl HybridStaticBundler {
                     // First check if this is an attribute assignment with an init function call
                     // like: schemas.user = __cribo_init___cribo_f275a8_schemas_user()
                     if assign.targets.len() == 1
-                        && let Expr::Attribute(target_attr) = &assign.targets[0] {
-                            let target_path = self.extract_attribute_path(target_attr);
+                        && let Expr::Attribute(target_attr) = &assign.targets[0]
+                    {
+                        let target_path = self.extract_attribute_path(target_attr);
 
-                            // Check if value is an init function call
-                            if let Expr::Call(call) = &assign.value.as_ref()
-                                && let Expr::Name(name) = &call.func.as_ref() {
-                                    let func_name = name.id.as_str();
-                                    if func_name.starts_with("__cribo_init_") {
-                                        let key = format!("{target_path} = {func_name}");
-                                        if seen_assignments.contains(&key) {
-                                            log::debug!(
-                                                "Skipping duplicate module init assignment: {key}"
-                                            );
-                                            continue; // Skip this statement entirely
-                                        } else {
-                                            seen_assignments.insert(key);
-                                            result.push(stmt);
-                                            continue;
-                                        }
-                                    }
+                        // Check if value is an init function call
+                        if let Expr::Call(call) = &assign.value.as_ref()
+                            && let Expr::Name(name) = &call.func.as_ref()
+                        {
+                            let func_name = name.id.as_str();
+                            if func_name.starts_with("__cribo_init_") {
+                                // For module init assignments, just check the target path
+                                // since the same module should only be initialized once
+                                let key = target_path.clone();
+                                log::debug!(
+                                    "Checking deferred module init assignment: {key} = {func_name}"
+                                );
+                                if seen_assignments.contains(&key) {
+                                    log::debug!(
+                                        "Skipping duplicate module init assignment: {key} = {func_name}"
+                                    );
+                                    continue; // Skip this statement entirely
+                                } else {
+                                    log::debug!(
+                                        "Adding new module init assignment: {key} = {func_name}"
+                                    );
+                                    seen_assignments.insert(key);
+                                    result.push(stmt);
+                                    continue;
                                 }
+                            }
                         }
+                    }
 
                     // Check if this is an assignment like: UserSchema =
                     // sys.modules['schemas.user'].UserSchema
@@ -8651,9 +8749,27 @@ impl HybridStaticBundler {
                     if self.module_registry.contains_key(&full_module_path)
                         && !locally_initialized.contains(&full_module_path)
                     {
-                        assignments.extend(
-                            self.create_module_initialization_for_import(&full_module_path),
-                        );
+                        // Check if we already have this module initialization in assignments
+                        let already_initialized = assignments.iter().any(|stmt| {
+                            if let Stmt::Assign(assign) = stmt
+                                && assign.targets.len() == 1
+                                && let Expr::Attribute(attr) = &assign.targets[0]
+                                && let Expr::Call(call) = &assign.value.as_ref()
+                                && let Expr::Name(func_name) = &call.func.as_ref()
+                                && func_name.id.as_str().starts_with("__cribo_init_")
+                            {
+                                let attr_path = self.extract_attribute_path(attr);
+                                attr_path == full_module_path
+                            } else {
+                                false
+                            }
+                        });
+
+                        if !already_initialized {
+                            assignments.extend(
+                                self.create_module_initialization_for_import(&full_module_path),
+                            );
+                        }
                         locally_initialized.insert(full_module_path.clone());
                         initialized_modules.insert(full_module_path.clone());
                     }
@@ -8670,10 +8786,28 @@ impl HybridStaticBundler {
                     if self.module_registry.contains_key(&full_module_path)
                         && !locally_initialized.contains(&full_module_path)
                     {
-                        // Initialize submodule if needed
-                        assignments.extend(
-                            self.create_module_initialization_for_import(&full_module_path),
-                        );
+                        // Check if we already have this module initialization in assignments
+                        let already_initialized = assignments.iter().any(|stmt| {
+                            if let Stmt::Assign(assign) = stmt
+                                && assign.targets.len() == 1
+                                && let Expr::Attribute(attr) = &assign.targets[0]
+                                && let Expr::Call(call) = &assign.value.as_ref()
+                                && let Expr::Name(func_name) = &call.func.as_ref()
+                                && func_name.id.as_str().starts_with("__cribo_init_")
+                            {
+                                let attr_path = self.extract_attribute_path(attr);
+                                attr_path == full_module_path
+                            } else {
+                                false
+                            }
+                        });
+
+                        if !already_initialized {
+                            // Initialize submodule if needed
+                            assignments.extend(
+                                self.create_module_initialization_for_import(&full_module_path),
+                            );
+                        }
                         locally_initialized.insert(full_module_path.clone());
                         initialized_modules.insert(full_module_path.clone());
                     }
@@ -8736,8 +8870,33 @@ impl HybridStaticBundler {
                 if self.module_registry.contains_key(module_name)
                     && !locally_initialized.contains(module_name)
                 {
-                    // Initialize the module before accessing its attributes
-                    assignments.extend(self.create_module_initialization_for_import(module_name));
+                    // Check if this module is already initialized in any deferred imports
+                    let module_init_exists = assignments.iter().any(|stmt| {
+                        if let Stmt::Assign(assign) = stmt
+                            && assign.targets.len() == 1
+                            && let Expr::Call(call) = &assign.value.as_ref()
+                            && let Expr::Name(func_name) = &call.func.as_ref()
+                            && func_name.id.as_str().starts_with("__cribo_init_")
+                        {
+                            // Check if the target matches our module
+                            match &assign.targets[0] {
+                                Expr::Attribute(attr) => {
+                                    let attr_path = self.extract_attribute_path(attr);
+                                    attr_path == module_name
+                                }
+                                Expr::Name(name) => name.id.as_str() == module_name,
+                                _ => false,
+                            }
+                        } else {
+                            false
+                        }
+                    });
+
+                    if !module_init_exists {
+                        // Initialize the module before accessing its attributes
+                        assignments
+                            .extend(self.create_module_initialization_for_import(module_name));
+                    }
                     locally_initialized.insert(module_name.to_string());
                 }
 
@@ -11916,7 +12075,7 @@ impl HybridStaticBundler {
                 node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Name(ExprName {
                     node_index: AtomicNodeIndex::dummy(),
-                    id: init_func_name.into(),
+                    id: init_func_name.clone().into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 })),
@@ -11931,6 +12090,15 @@ impl HybridStaticBundler {
 
             // Generate the appropriate assignment based on module type
             stmts.extend(self.generate_module_assignment_from_init(module_name, init_call));
+
+            // Log the initialization for debugging
+            if module_name.contains('.') {
+                log::debug!(
+                    "Created module initialization: {} = {}()",
+                    module_name,
+                    &init_func_name
+                );
+            }
         }
 
         stmts
