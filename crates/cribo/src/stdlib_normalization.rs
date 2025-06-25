@@ -3,8 +3,8 @@ use std::hash::BuildHasherDefault;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use ruff_python_ast::{
-    Expr, ExprAttribute, ExprContext, ExprName, Identifier, ModModule, Stmt, StmtAssign,
-    StmtClassDef, StmtFunctionDef, StmtImport,
+    ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier, ModModule, Stmt,
+    StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
 };
 use ruff_text_size::TextRange;
 use rustc_hash::FxHasher;
@@ -388,6 +388,90 @@ impl StdlibNormalizer {
                     Self::rewrite_aliases_in_expr(value, alias_to_canonical);
                 }
             }
+            Stmt::If(if_stmt) => {
+                Self::rewrite_aliases_in_expr(&mut if_stmt.test, alias_to_canonical);
+                for stmt in &mut if_stmt.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+                for clause in &mut if_stmt.elif_else_clauses {
+                    if let Some(ref mut condition) = clause.test {
+                        Self::rewrite_aliases_in_expr(condition, alias_to_canonical);
+                    }
+                    for stmt in &mut clause.body {
+                        self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                    }
+                }
+            }
+            Stmt::While(while_stmt) => {
+                Self::rewrite_aliases_in_expr(&mut while_stmt.test, alias_to_canonical);
+                for stmt in &mut while_stmt.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+                for stmt in &mut while_stmt.orelse {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                Self::rewrite_aliases_in_expr(&mut for_stmt.iter, alias_to_canonical);
+                for stmt in &mut for_stmt.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+                for stmt in &mut for_stmt.orelse {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+            Stmt::With(with_stmt) => {
+                for item in &mut with_stmt.items {
+                    Self::rewrite_aliases_in_expr(&mut item.context_expr, alias_to_canonical);
+                }
+                for stmt in &mut with_stmt.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                for stmt in &mut try_stmt.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+                for handler in &mut try_stmt.handlers {
+                    self.rewrite_aliases_in_except_handler(handler, alias_to_canonical);
+                }
+                for stmt in &mut try_stmt.orelse {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+                for stmt in &mut try_stmt.finalbody {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+            Stmt::AugAssign(aug_assign) => {
+                Self::rewrite_aliases_in_expr(&mut aug_assign.target, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut aug_assign.value, alias_to_canonical);
+            }
+            Stmt::Raise(raise_stmt) => {
+                if let Some(ref mut exc) = raise_stmt.exc {
+                    Self::rewrite_aliases_in_expr(exc, alias_to_canonical);
+                }
+                if let Some(ref mut cause) = raise_stmt.cause {
+                    Self::rewrite_aliases_in_expr(cause, alias_to_canonical);
+                }
+            }
+            Stmt::Assert(assert_stmt) => {
+                Self::rewrite_aliases_in_expr(&mut assert_stmt.test, alias_to_canonical);
+                if let Some(ref mut msg) = assert_stmt.msg {
+                    Self::rewrite_aliases_in_expr(msg, alias_to_canonical);
+                }
+            }
+            Stmt::Delete(delete_stmt) => {
+                for target in &mut delete_stmt.targets {
+                    Self::rewrite_aliases_in_expr(target, alias_to_canonical);
+                }
+            }
+            Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::Pass(_)
+            | Stmt::Break(_)
+            | Stmt::Continue(_) => {
+                // These statements don't contain expressions to rewrite
+            }
             // Handle other statement types as needed
             _ => {
                 debug!(
@@ -633,6 +717,24 @@ impl StdlibNormalizer {
                     "Unhandled expression type in rewrite_aliases_in_expr: {:?}",
                     std::mem::discriminant(expr)
                 );
+            }
+        }
+    }
+
+    /// Rewrite aliases in exception handlers
+    fn rewrite_aliases_in_except_handler(
+        &self,
+        handler: &mut ExceptHandler,
+        alias_to_canonical: &FxIndexMap<String, String>,
+    ) {
+        match handler {
+            ExceptHandler::ExceptHandler(except_handler) => {
+                if let Some(ref mut type_) = except_handler.type_ {
+                    Self::rewrite_aliases_in_expr(type_, alias_to_canonical);
+                }
+                for stmt in &mut except_handler.body {
+                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
             }
         }
     }
