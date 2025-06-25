@@ -99,7 +99,13 @@ jobs:
             # Add bundle size information if available
             if [ -d target/tmp ]; then
               echo -e "\n### 📦 Bundle Sizes\n"
-              find target/tmp -name "*_bundled.py" -exec ls -lh {} \; | awk '{print "- " $9 ": " $5}'
+              find target/tmp -name "*_bundled.py" -exec ls -lh {} \; | awk '{
+                # Extract package name from path like "target/tmp/requests_bundled.py"
+                split($9, path_parts, "/")
+                filename = path_parts[length(path_parts)]
+                gsub(/_bundled\.py$/, "", filename)
+                print "- " filename ": " $5
+              }'
             fi
           } > ecosystem-report.md
 
