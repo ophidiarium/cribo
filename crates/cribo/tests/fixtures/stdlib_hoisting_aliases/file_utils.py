@@ -21,8 +21,8 @@ def get_mock_file_info() -> dict:
     # Use aliased Path with a fixed path
     path_obj = PyPath("/home/user/test.txt")
 
-    # Use aliased datetime with fixed timestamp for deterministic output
-    mod_time = DT.fromtimestamp(1700000000)  # Fixed timestamp: 2023-11-14
+    # Use aliased datetime with fixed ISO string for deterministic output
+    mod_time = DT.fromisoformat("2023-11-14T23:13:20")
 
     # Create mock data
     info = {
