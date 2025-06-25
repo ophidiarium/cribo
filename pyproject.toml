@@ -35,6 +35,7 @@ Issues        = "https://github.com/ophidiarium/cribo/issues"
 dev = [
     "lefthook>=1.11.13",
     "maturin",
+    "pyrefly>=0.21.0",
     "vale>=3.11.2.0",
 ]
 # dependencies used for fixtures testing

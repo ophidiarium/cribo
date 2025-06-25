@@ -13,6 +13,7 @@
         "toml": true,
         "typos": true,
         "ruff": true,
+        "pyrefly": true,
         "mcp-server-github": true,
         "mcp-server-context7": true
     },
@@ -22,5 +23,25 @@
                 "directories": [".venv"]
             }
         }
+    },
+    // Use pyrefly as lsp, ruff as lint
+    "Python": {
+        "language_servers": ["pyrefly", "ruff", "!pyright", "!pylsp"],
+        "format_on_save": "on",
+        "formatter": [
+            {
+                "code_actions": {
+                    // Organize imports
+                    "source.organizeImports.ruff": false,
+                    // Fix all auto-fixable lint violations
+                    "source.fixAll.ruff": false
+                }
+            },
+            {
+                "language_server": {
+                    "name": "ruff"
+                }
+            }
+        ]
     }
 }

@@ -276,6 +276,7 @@ source = { editable = "." }
 dev = [
     { name = "lefthook" },
     { name = "maturin" },
+    { name = "pyrefly" },
     { name = "vale" },
 ]
 ecosystem = [
@@ -294,6 +295,7 @@ fixtures = [
 dev = [
     { name = "lefthook", specifier = ">=1.11.13" },
     { name = "maturin" },
+    { name = "pyrefly", specifier = ">=0.21.0" },
     { name = "vale", specifier = ">=3.11.2.0" },
 ]
 ecosystem = [{ name = "requests", specifier = ">=2.32.0" }]
@@ -1867,6 +1869,22 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b0/77/a5b8c569bf593b0140bde72ea885a803b82086995367bf2037de0159d924/pygments-2.19.2.tar.gz", hash = "sha256:636cb2477cec7f8952536970bc533bc43743542f70392ae026374600add5b887", size = 4968631, upload-time = "2025-06-21T13:39:12.283Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/21/705964c7812476f378728bdf590ca4b771ec72385c533964653c68e86bdc/pygments-2.19.2-py3-none-any.whl", hash = "sha256:86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b", size = 1225217, upload-time = "2025-06-21T13:39:07.939Z" },
+]
+
+[[package]]
+name = "pyrefly"
+version = "0.21.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/3f/8a30ed93cb027a18080d7e670b2bbf14135b031fe74443eaa850494d9aa8/pyrefly-0.21.0.tar.gz", hash = "sha256:e05a083047dcba25e730c7e0c70b3dc48ba420f17ef73265f169bc95f487a99d", size = 1056016, upload-time = "2025-06-23T17:45:22.033Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7b/dd/5b1a4a3a713be65e2af02563f8baa70ea69d594d681cb1c36b38319eee90/pyrefly-0.21.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:b44e6172421de12fa14d380bcd416fa64d474aec9f1829e6985b18471b1fcee1", size = 5820971, upload-time = "2025-06-23T17:45:04.928Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/40/df55322e761b798903c951ad5699585046f9e926e6b3b6686cb0056024a4/pyrefly-0.21.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:0d7ea3b86ac3c8680b290389ca3706cbbb046899247a963ac7384c57880e6f2f", size = 5404314, upload-time = "2025-06-23T17:45:07.007Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/a5/b3d526bf75ab8708cc85cd0db571af0179b566964fe2c9aae717f3a03090/pyrefly-0.21.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:101ecb84b0442e85a92bcb15a2dfd844f7a6abae8f980661849c71102447443e", size = 5611017, upload-time = "2025-06-23T17:45:08.989Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/02/4d4b0ddade7e2980a13e14062770535666a84dfab3293c33e154dfff6ae1/pyrefly-0.21.0-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:b934004ddcdcbe55efeb732d0c0155a781a184e374fec9cd031e819ac1b92eff", size = 6285992, upload-time = "2025-06-23T17:45:11.991Z" },
+    { url = "https://files.pythonhosted.org/packages/29/7c/2c3922ee3bdd82a827a893a80aeddf119e38ce8406035a6eda6ae480885e/pyrefly-0.21.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0c66446bc5f7e912dab923adf93f636307c834ab53ddd9422e56d101910d960a", size = 6066455, upload-time = "2025-06-23T17:45:13.587Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/c8/c8d391f3535046cb79154d4dfcc01b0d022d5af2701627cbe9a518dd50bc/pyrefly-0.21.0-py3-none-win32.whl", hash = "sha256:a4cb8acf2dc831759cb43fa0326e07085cb21da7202212e70d9478bfc40b7a28", size = 5569924, upload-time = "2025-06-23T17:45:15.36Z" },
+    { url = "https://files.pythonhosted.org/packages/85/79/58c94192acbc234ff9290c22063bf8f11d65a7b61eb61f9260fa6fb4b1f3/pyrefly-0.21.0-py3-none-win_amd64.whl", hash = "sha256:765d19f2b48d5dd3dae0752676e2d6e388025fa6337947031ff628160b8cf568", size = 5946646, upload-time = "2025-06-23T17:45:17.433Z" },
+    { url = "https://files.pythonhosted.org/packages/75/6e/d476584e93e3c63609dde26a57bc23f732c22b0e9bd17462282268aec758/pyrefly-0.21.0-py3-none-win_arm64.whl", hash = "sha256:a3fc4fffb625a5610b68fc3bf07e4d33b5b1c279512e0251b3d3d4f7c3ed1541", size = 5595515, upload-time = "2025-06-23T17:45:19.4Z" },
 ]
 
 [[package]]
