@@ -378,18 +378,18 @@ impl StdlibNormalizer {
     ) {
         match stmt {
             Stmt::Expr(expr_stmt) => {
-                self.rewrite_aliases_in_expr(&mut expr_stmt.value, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut expr_stmt.value, alias_to_canonical);
             }
             Stmt::Assign(assign) => {
-                self.rewrite_aliases_in_expr(&mut assign.value, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut assign.value, alias_to_canonical);
                 for target in &mut assign.targets {
-                    self.rewrite_aliases_in_expr(target, alias_to_canonical);
+                    Self::rewrite_aliases_in_expr(target, alias_to_canonical);
                 }
             }
             Stmt::Return(return_stmt) => {
                 debug!("Rewriting aliases in return statement");
                 if let Some(ref mut value) = return_stmt.value {
-                    self.rewrite_aliases_in_expr(value, alias_to_canonical);
+                    Self::rewrite_aliases_in_expr(value, alias_to_canonical);
                 }
             }
             Stmt::FunctionDef(func_def) => {
@@ -400,12 +400,12 @@ impl StdlibNormalizer {
             }
             Stmt::AnnAssign(ann_assign) => {
                 // Rewrite the annotation
-                self.rewrite_aliases_in_expr(&mut ann_assign.annotation, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut ann_assign.annotation, alias_to_canonical);
                 // Rewrite the target
-                self.rewrite_aliases_in_expr(&mut ann_assign.target, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut ann_assign.target, alias_to_canonical);
                 // Rewrite the value if present
                 if let Some(ref mut value) = ann_assign.value {
-                    self.rewrite_aliases_in_expr(value, alias_to_canonical);
+                    Self::rewrite_aliases_in_expr(value, alias_to_canonical);
                 }
             }
             // Handle other statement types as needed
@@ -419,12 +419,7 @@ impl StdlibNormalizer {
     }
 
     /// Rewrite aliases in expressions
-    #[allow(clippy::only_used_in_recursion)]
-    fn rewrite_aliases_in_expr(
-        &self,
-        expr: &mut Expr,
-        alias_to_canonical: &FxIndexMap<String, String>,
-    ) {
+    fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<String, String>) {
         match expr {
             Expr::Name(name_expr) if matches!(name_expr.ctx, ExprContext::Load) => {
                 // Check if this is an aliased import that should be rewritten
@@ -478,7 +473,7 @@ impl StdlibNormalizer {
                     );
                 }
                 // Recursively process the value
-                self.rewrite_aliases_in_expr(&mut attr_expr.value, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut attr_expr.value, alias_to_canonical);
             }
             Expr::Call(call_expr) => {
                 // Debug the function being called
@@ -494,32 +489,32 @@ impl StdlibNormalizer {
                     );
                 }
 
-                self.rewrite_aliases_in_expr(&mut call_expr.func, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut call_expr.func, alias_to_canonical);
                 for (i, arg) in call_expr.arguments.args.iter_mut().enumerate() {
                     debug!("  Rewriting call arg {i}");
-                    self.rewrite_aliases_in_expr(arg, alias_to_canonical);
+                    Self::rewrite_aliases_in_expr(arg, alias_to_canonical);
                 }
                 for keyword in &mut call_expr.arguments.keywords {
-                    self.rewrite_aliases_in_expr(&mut keyword.value, alias_to_canonical);
+                    Self::rewrite_aliases_in_expr(&mut keyword.value, alias_to_canonical);
                 }
             }
             // Handle other expression types recursively
             Expr::List(list_expr) => {
                 debug!("Rewriting aliases in list expression");
                 for elem in &mut list_expr.elts {
-                    self.rewrite_aliases_in_expr(elem, alias_to_canonical);
+                    Self::rewrite_aliases_in_expr(elem, alias_to_canonical);
                 }
             }
             Expr::Tuple(tuple_expr) => {
                 debug!("Rewriting aliases in tuple expression");
                 for elem in &mut tuple_expr.elts {
-                    self.rewrite_aliases_in_expr(elem, alias_to_canonical);
+                    Self::rewrite_aliases_in_expr(elem, alias_to_canonical);
                 }
             }
             Expr::Subscript(subscript_expr) => {
                 debug!("Rewriting aliases in subscript expression");
-                self.rewrite_aliases_in_expr(&mut subscript_expr.value, alias_to_canonical);
-                self.rewrite_aliases_in_expr(&mut subscript_expr.slice, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut subscript_expr.value, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut subscript_expr.slice, alias_to_canonical);
             }
             _ => {
                 debug!(
@@ -541,33 +536,33 @@ impl StdlibNormalizer {
         // Rewrite parameter annotations
         for param in &mut func_def.parameters.posonlyargs {
             if let Some(ref mut annotation) = param.parameter.annotation {
-                self.rewrite_aliases_in_expr(annotation, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(annotation, alias_to_canonical);
             }
         }
         for param in &mut func_def.parameters.args {
             if let Some(ref mut annotation) = param.parameter.annotation {
-                self.rewrite_aliases_in_expr(annotation, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(annotation, alias_to_canonical);
             }
         }
         for param in &mut func_def.parameters.kwonlyargs {
             if let Some(ref mut annotation) = param.parameter.annotation {
-                self.rewrite_aliases_in_expr(annotation, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(annotation, alias_to_canonical);
             }
         }
         if let Some(ref mut vararg) = func_def.parameters.vararg
             && let Some(ref mut annotation) = vararg.annotation
         {
-            self.rewrite_aliases_in_expr(annotation, alias_to_canonical);
+            Self::rewrite_aliases_in_expr(annotation, alias_to_canonical);
         }
         if let Some(ref mut kwarg) = func_def.parameters.kwarg
             && let Some(ref mut annotation) = kwarg.annotation
         {
-            self.rewrite_aliases_in_expr(annotation, alias_to_canonical);
+            Self::rewrite_aliases_in_expr(annotation, alias_to_canonical);
         }
 
         // Rewrite return type annotation
         if let Some(ref mut returns) = func_def.returns {
-            self.rewrite_aliases_in_expr(returns, alias_to_canonical);
+            Self::rewrite_aliases_in_expr(returns, alias_to_canonical);
         }
 
         // First handle global statements specially
@@ -598,14 +593,12 @@ impl StdlibNormalizer {
         alias_to_canonical: &FxIndexMap<String, String>,
     ) {
         for stmt in &mut func_def.body {
-            self.rewrite_global_statements_only(stmt, alias_to_canonical);
+            Self::rewrite_global_statements_only(stmt, alias_to_canonical);
         }
     }
 
     /// Recursively rewrite only global statements, not other name references
-    #[allow(clippy::only_used_in_recursion)]
     fn rewrite_global_statements_only(
-        &self,
         stmt: &mut Stmt,
         alias_to_canonical: &FxIndexMap<String, String>,
     ) {
@@ -623,11 +616,11 @@ impl StdlibNormalizer {
             // For control flow statements, recurse into their bodies
             Stmt::If(if_stmt) => {
                 for stmt in &mut if_stmt.body {
-                    self.rewrite_global_statements_only(stmt, alias_to_canonical);
+                    Self::rewrite_global_statements_only(stmt, alias_to_canonical);
                 }
                 for clause in &mut if_stmt.elif_else_clauses {
                     for stmt in &mut clause.body {
-                        self.rewrite_global_statements_only(stmt, alias_to_canonical);
+                        Self::rewrite_global_statements_only(stmt, alias_to_canonical);
                     }
                 }
             }
@@ -645,7 +638,7 @@ impl StdlibNormalizer {
         // Rewrite base classes
         if let Some(arguments) = &mut class_def.arguments {
             for base in &mut arguments.args {
-                self.rewrite_aliases_in_expr(base, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(base, alias_to_canonical);
             }
         }
 

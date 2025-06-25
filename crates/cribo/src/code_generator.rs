@@ -6377,87 +6377,11 @@ impl HybridStaticBundler {
         }
 
         // Collect all local variables assigned in the function body
-        self.collect_local_vars(&func_def.body, &mut local_vars);
+        collect_local_vars(&func_def.body, &mut local_vars);
 
         // Transform the function body, excluding local variables
         for stmt in &mut func_def.body {
             self.transform_stmt_for_module_vars_with_locals(stmt, module_level_vars, &local_vars);
-        }
-    }
-
-    /// Collect local variables defined in a list of statements
-    #[allow(clippy::only_used_in_recursion)]
-    fn collect_local_vars(&self, stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<String>) {
-        for stmt in stmts {
-            match stmt {
-                Stmt::Assign(assign) => {
-                    // Collect assignment targets as local variables
-                    for target in &assign.targets {
-                        if let Expr::Name(name) = target {
-                            local_vars.insert(name.id.to_string());
-                        }
-                    }
-                }
-                Stmt::AnnAssign(ann_assign) => {
-                    // Collect annotated assignment targets
-                    if let Expr::Name(name) = ann_assign.target.as_ref() {
-                        local_vars.insert(name.id.to_string());
-                    }
-                }
-                Stmt::For(for_stmt) => {
-                    // Collect for loop targets
-                    if let Expr::Name(name) = for_stmt.target.as_ref() {
-                        local_vars.insert(name.id.to_string());
-                    }
-                    // Recursively collect from body
-                    self.collect_local_vars(&for_stmt.body, local_vars);
-                    self.collect_local_vars(&for_stmt.orelse, local_vars);
-                }
-                Stmt::If(if_stmt) => {
-                    // Recursively collect from branches
-                    self.collect_local_vars(&if_stmt.body, local_vars);
-                    for clause in &if_stmt.elif_else_clauses {
-                        self.collect_local_vars(&clause.body, local_vars);
-                    }
-                }
-                Stmt::While(while_stmt) => {
-                    self.collect_local_vars(&while_stmt.body, local_vars);
-                    self.collect_local_vars(&while_stmt.orelse, local_vars);
-                }
-                Stmt::With(with_stmt) => {
-                    // Collect with statement targets
-                    for item in &with_stmt.items {
-                        if let Some(ref optional_vars) = item.optional_vars
-                            && let Expr::Name(name) = optional_vars.as_ref()
-                        {
-                            local_vars.insert(name.id.to_string());
-                        }
-                    }
-                    self.collect_local_vars(&with_stmt.body, local_vars);
-                }
-                Stmt::Try(try_stmt) => {
-                    self.collect_local_vars(&try_stmt.body, local_vars);
-                    for handler in &try_stmt.handlers {
-                        let ExceptHandler::ExceptHandler(eh) = handler;
-                        // Collect exception name if present
-                        if let Some(ref name) = eh.name {
-                            local_vars.insert(name.to_string());
-                        }
-                        self.collect_local_vars(&eh.body, local_vars);
-                    }
-                    self.collect_local_vars(&try_stmt.orelse, local_vars);
-                    self.collect_local_vars(&try_stmt.finalbody, local_vars);
-                }
-                Stmt::FunctionDef(func_def) => {
-                    // Function definitions create local names
-                    local_vars.insert(func_def.name.to_string());
-                }
-                Stmt::ClassDef(class_def) => {
-                    // Class definitions create local names
-                    local_vars.insert(class_def.name.to_string());
-                }
-                _ => {}
-            }
         }
     }
 
@@ -6476,20 +6400,20 @@ impl HybridStaticBundler {
             Stmt::Assign(assign) => {
                 // Transform assignment targets and values
                 for target in &mut assign.targets {
-                    self.transform_expr_for_module_vars_with_locals(
+                    Self::transform_expr_for_module_vars_with_locals(
                         target,
                         module_level_vars,
                         local_vars,
                     );
                 }
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut assign.value,
                     module_level_vars,
                     local_vars,
                 );
             }
             Stmt::Expr(expr_stmt) => {
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut expr_stmt.value,
                     module_level_vars,
                     local_vars,
@@ -6497,7 +6421,7 @@ impl HybridStaticBundler {
             }
             Stmt::Return(return_stmt) => {
                 if let Some(value) = &mut return_stmt.value {
-                    self.transform_expr_for_module_vars_with_locals(
+                    Self::transform_expr_for_module_vars_with_locals(
                         value,
                         module_level_vars,
                         local_vars,
@@ -6505,7 +6429,7 @@ impl HybridStaticBundler {
                 }
             }
             Stmt::If(if_stmt) => {
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut if_stmt.test,
                     module_level_vars,
                     local_vars,
@@ -6519,7 +6443,7 @@ impl HybridStaticBundler {
                 }
                 for clause in &mut if_stmt.elif_else_clauses {
                     if let Some(condition) = &mut clause.test {
-                        self.transform_expr_for_module_vars_with_locals(
+                        Self::transform_expr_for_module_vars_with_locals(
                             condition,
                             module_level_vars,
                             local_vars,
@@ -6535,12 +6459,12 @@ impl HybridStaticBundler {
                 }
             }
             Stmt::For(for_stmt) => {
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut for_stmt.target,
                     module_level_vars,
                     local_vars,
                 );
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut for_stmt.iter,
                     module_level_vars,
                     local_vars,
@@ -6554,7 +6478,7 @@ impl HybridStaticBundler {
                 }
             }
             Stmt::While(while_stmt) => {
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut while_stmt.test,
                     module_level_vars,
                     local_vars,
@@ -6614,9 +6538,7 @@ impl HybridStaticBundler {
     }
 
     /// Transform an expression with awareness of local variables
-    #[allow(clippy::only_used_in_recursion)]
     fn transform_expr_for_module_vars_with_locals(
-        &self,
         expr: &mut Expr,
         module_level_vars: &rustc_hash::FxHashSet<String>,
         local_vars: &rustc_hash::FxHashSet<String>,
@@ -6665,20 +6587,20 @@ impl HybridStaticBundler {
                 }
             }
             Expr::Call(call) => {
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut call.func,
                     module_level_vars,
                     local_vars,
                 );
                 for arg in &mut call.arguments.args {
-                    self.transform_expr_for_module_vars_with_locals(
+                    Self::transform_expr_for_module_vars_with_locals(
                         arg,
                         module_level_vars,
                         local_vars,
                     );
                 }
                 for keyword in &mut call.arguments.keywords {
-                    self.transform_expr_for_module_vars_with_locals(
+                    Self::transform_expr_for_module_vars_with_locals(
                         &mut keyword.value,
                         module_level_vars,
                         local_vars,
@@ -6686,12 +6608,12 @@ impl HybridStaticBundler {
                 }
             }
             Expr::BinOp(binop) => {
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut binop.left,
                     module_level_vars,
                     local_vars,
                 );
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut binop.right,
                     module_level_vars,
                     local_vars,
@@ -6700,13 +6622,13 @@ impl HybridStaticBundler {
             Expr::Dict(dict) => {
                 for item in &mut dict.items {
                     if let Some(key) = &mut item.key {
-                        self.transform_expr_for_module_vars_with_locals(
+                        Self::transform_expr_for_module_vars_with_locals(
                             key,
                             module_level_vars,
                             local_vars,
                         );
                     }
-                    self.transform_expr_for_module_vars_with_locals(
+                    Self::transform_expr_for_module_vars_with_locals(
                         &mut item.value,
                         module_level_vars,
                         local_vars,
@@ -6715,7 +6637,7 @@ impl HybridStaticBundler {
             }
             Expr::List(list_expr) => {
                 for elem in &mut list_expr.elts {
-                    self.transform_expr_for_module_vars_with_locals(
+                    Self::transform_expr_for_module_vars_with_locals(
                         elem,
                         module_level_vars,
                         local_vars,
@@ -6723,19 +6645,19 @@ impl HybridStaticBundler {
                 }
             }
             Expr::Attribute(attr) => {
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut attr.value,
                     module_level_vars,
                     local_vars,
                 );
             }
             Expr::Subscript(subscript) => {
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut subscript.value,
                     module_level_vars,
                     local_vars,
                 );
-                self.transform_expr_for_module_vars_with_locals(
+                Self::transform_expr_for_module_vars_with_locals(
                     &mut subscript.slice,
                     module_level_vars,
                     local_vars,
@@ -8523,6 +8445,81 @@ fn rewrite_aliases_in_expr_impl(expr: &mut Expr, alias_to_canonical: &FxIndexMap
         _ => {
             // Log unhandled expression types for future reference
             log::trace!("Unhandled expression type in alias rewriting");
+        }
+    }
+}
+
+/// Collect local variables defined in a list of statements
+fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<String>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Assign(assign) => {
+                // Collect assignment targets as local variables
+                for target in &assign.targets {
+                    if let Expr::Name(name) = target {
+                        local_vars.insert(name.id.to_string());
+                    }
+                }
+            }
+            Stmt::AnnAssign(ann_assign) => {
+                // Collect annotated assignment targets
+                if let Expr::Name(name) = ann_assign.target.as_ref() {
+                    local_vars.insert(name.id.to_string());
+                }
+            }
+            Stmt::For(for_stmt) => {
+                // Collect for loop targets
+                if let Expr::Name(name) = for_stmt.target.as_ref() {
+                    local_vars.insert(name.id.to_string());
+                }
+                // Recursively collect from body
+                collect_local_vars(&for_stmt.body, local_vars);
+                collect_local_vars(&for_stmt.orelse, local_vars);
+            }
+            Stmt::If(if_stmt) => {
+                // Recursively collect from branches
+                collect_local_vars(&if_stmt.body, local_vars);
+                for clause in &if_stmt.elif_else_clauses {
+                    collect_local_vars(&clause.body, local_vars);
+                }
+            }
+            Stmt::While(while_stmt) => {
+                collect_local_vars(&while_stmt.body, local_vars);
+                collect_local_vars(&while_stmt.orelse, local_vars);
+            }
+            Stmt::With(with_stmt) => {
+                // Collect with statement targets
+                for item in &with_stmt.items {
+                    if let Some(ref optional_vars) = item.optional_vars
+                        && let Expr::Name(name) = optional_vars.as_ref()
+                    {
+                        local_vars.insert(name.id.to_string());
+                    }
+                }
+                collect_local_vars(&with_stmt.body, local_vars);
+            }
+            Stmt::Try(try_stmt) => {
+                collect_local_vars(&try_stmt.body, local_vars);
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(eh) = handler;
+                    // Collect exception name if present
+                    if let Some(ref name) = eh.name {
+                        local_vars.insert(name.to_string());
+                    }
+                    collect_local_vars(&eh.body, local_vars);
+                }
+                collect_local_vars(&try_stmt.orelse, local_vars);
+                collect_local_vars(&try_stmt.finalbody, local_vars);
+            }
+            Stmt::FunctionDef(func_def) => {
+                // Function definitions create local names
+                local_vars.insert(func_def.name.to_string());
+            }
+            Stmt::ClassDef(class_def) => {
+                // Class definitions create local names
+                local_vars.insert(class_def.name.to_string());
+            }
+            _ => {}
         }
     }
 }
