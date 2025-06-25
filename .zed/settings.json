@@ -12,6 +12,7 @@
     "auto_install_extensions": {
         "toml": true,
         "typos": true,
+        "ruff": true,
         "mcp-server-github": true,
         "mcp-server-context7": true
     },
