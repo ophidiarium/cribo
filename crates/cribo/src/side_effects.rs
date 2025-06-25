@@ -11,7 +11,20 @@ use crate::visitors::SideEffectDetector;
 /// Check if a module name represents a safe stdlib module that can be hoisted
 /// without side effects
 pub fn is_safe_stdlib_module(module_name: &str) -> bool {
-    crate::stdlib_normalization::is_safe_stdlib_module(module_name)
+    match module_name {
+        // Modules that modify global state - DO NOT HOIST
+        "antigravity" | "this" | "__hello__" | "__phello__" => false,
+        "site" | "sitecustomize" | "usercustomize" => false,
+        "readline" | "rlcompleter" => false,
+        "turtle" | "tkinter" => false,
+        "webbrowser" => false,
+        "platform" | "locale" => false,
+
+        _ => {
+            let root_module = module_name.split('.').next().unwrap_or(module_name);
+            ruff_python_stdlib::sys::is_known_standard_library(10, root_module)
+        }
+    }
 }
 
 /// Check if an import statement would have side effects

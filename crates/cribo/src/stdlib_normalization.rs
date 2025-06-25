@@ -31,24 +31,6 @@ pub fn normalize_stdlib_imports(ast: &mut ModModule) -> NormalizationResult {
     normalizer.normalize(ast)
 }
 
-/// Check if a module is a safe stdlib module (no side effects on import)
-pub fn is_safe_stdlib_module(module_name: &str) -> bool {
-    match module_name {
-        // Modules that modify global state - DO NOT HOIST
-        "antigravity" | "this" | "__hello__" | "__phello__" => false,
-        "site" | "sitecustomize" | "usercustomize" => false,
-        "readline" | "rlcompleter" => false,
-        "turtle" | "tkinter" => false,
-        "webbrowser" => false,
-        "platform" | "locale" => false,
-
-        _ => {
-            let root_module = module_name.split('.').next().unwrap_or(module_name);
-            ruff_python_stdlib::sys::is_known_standard_library(10, root_module)
-        }
-    }
-}
-
 struct StdlibNormalizer {
     // No state needed for now
 }
@@ -261,7 +243,7 @@ impl StdlibNormalizer {
 
     /// Check if a module is safe to hoist
     fn is_safe_stdlib_module(&self, module_name: &str) -> bool {
-        is_safe_stdlib_module(module_name)
+        crate::side_effects::is_safe_stdlib_module(module_name)
     }
 
     /// Check if a path refers to a known stdlib submodule

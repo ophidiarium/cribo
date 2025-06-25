@@ -9785,7 +9785,7 @@ impl HybridStaticBundler {
 
     /// Check if a module is safe to hoist
     fn is_safe_stdlib_module(&self, module_name: &str) -> bool {
-        crate::stdlib_normalization::is_safe_stdlib_module(module_name)
+        crate::side_effects::is_safe_stdlib_module(module_name)
     }
 
     /// Handle imports from inlined modules in wrapper functions
