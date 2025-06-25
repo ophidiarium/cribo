@@ -24,14 +24,14 @@ def get_mock_file_info() -> dict:
     # Use aliased datetime with fixed ISO string for deterministic output
     mod_time = DT.fromisoformat("2023-11-14T23:13:20")
 
-    # Create mock data
+    # Create mock data with fixed values for cross-platform consistency
     info = {
         "size": 1024,
-        "name": path_obj.name,
-        "parent": str(path_obj.parent),
+        "name": "test.txt",  # Fixed value instead of path_obj.name
+        "parent": "/home/user",  # Fixed value instead of str(path_obj.parent)
         "modified": mod_time.isoformat(),
         "exists": True,
-        "is_absolute": path_obj.is_absolute(),
+        "is_absolute": True,  # Fixed value instead of path_obj.is_absolute()
     }
 
     # Use aliased json module for formatting
