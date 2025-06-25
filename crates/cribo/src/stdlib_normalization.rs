@@ -3,8 +3,8 @@ use std::hash::BuildHasherDefault;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use ruff_python_ast::{
-    Expr, ExprAttribute, ExprContext, ExprName, Identifier, ModModule, Stmt, StmtClassDef,
-    StmtFunctionDef, StmtImport,
+    Expr, ExprAttribute, ExprContext, ExprName, Identifier, ModModule, Stmt, StmtAssign,
+    StmtClassDef, StmtFunctionDef, StmtImport,
 };
 use ruff_text_size::TextRange;
 use rustc_hash::FxHasher;
@@ -277,8 +277,6 @@ impl StdlibNormalizer {
 
     /// Create an assignment statement: local_name = full_path
     fn create_assignment_statement(&self, local_name: &str, full_path: &str) -> Stmt {
-        use ruff_python_ast::{ExprAttribute, ExprContext, ExprName, StmtAssign};
-
         // Parse the full path to create attribute access
         // e.g., "collections.abc.MutableMapping" becomes collections.abc.MutableMapping
         let parts: Vec<&str> = full_path.split('.').collect();
