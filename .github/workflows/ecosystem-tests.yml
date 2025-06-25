@@ -12,6 +12,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  pull-requests: write
+  issues: write
+
 jobs:
   ecosystem-test:
     runs-on: ubuntu-latest
