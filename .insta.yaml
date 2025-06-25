@@ -1,8 +1,4 @@
-behavior:
-  update: unseen
-
 test:
-  auto_review: true
-  auto_accept_unseen: true
+  runner: nextest
   # whether to fallback to `cargo-test` if `nextest` is not available,
   test_runner_fallback: true
