@@ -187,41 +187,12 @@ impl StdlibNormalizer {
                                 // e.g., from collections.abc import MutableMapping
                                 // becomes: import collections.abc + MutableMapping =
                                 // collections.abc.MutableMapping
-                                for alias in &import_from.names {
-                                    let name = alias.name.as_str();
-                                    if name == "*" {
-                                        continue; // Skip star imports
-                                    }
-
-                                    let local_name =
-                                        alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-
-                                    // Check if this is importing a submodule (e.g., from http
-                                    // import cookiejar)
-                                    let submodule_path = format!("{module_name}.{name}");
-                                    if self.is_known_stdlib_submodule(&submodule_path) {
-                                        // This is a submodule import, we need to import it
-                                        // separately
-                                        if !new_imports
-                                            .iter()
-                                            .any(|m: &String| m == &submodule_path)
-                                        {
-                                            new_imports.push(submodule_path.clone());
-                                        }
-                                        // And create assignment: local_name = submodule_path
-                                        implicit_exports
-                                            .entry(module_name.to_string())
-                                            .or_default()
-                                            .push((local_name.to_string(), submodule_path));
-                                    } else {
-                                        // Regular attribute import
-                                        let full_path = format!("{module_name}.{name}");
-                                        implicit_exports
-                                            .entry(module_name.to_string())
-                                            .or_default()
-                                            .push((local_name.to_string(), full_path));
-                                    }
-                                }
+                                self.process_import_from_names(
+                                    import_from,
+                                    module_name,
+                                    &mut new_imports,
+                                    &mut implicit_exports,
+                                );
                             }
                         }
                     }
@@ -680,5 +651,62 @@ impl StdlibNormalizer {
         for stmt in &mut class_def.body {
             self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
         }
+    }
+
+    /// Process names from an import-from statement and collect imports and exports
+    fn process_import_from_names(
+        &self,
+        import_from: &ruff_python_ast::StmtImportFrom,
+        module_name: &str,
+        new_imports: &mut Vec<String>,
+        implicit_exports: &mut FxIndexMap<String, Vec<(String, String)>>,
+    ) {
+        for alias in &import_from.names {
+            let name = alias.name.as_str();
+            if name == "*" {
+                continue; // Skip star imports
+            }
+
+            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+            // Check if this is importing a submodule (e.g., from http import cookiejar)
+            let submodule_path = format!("{module_name}.{name}");
+            if self.is_known_stdlib_submodule(&submodule_path) {
+                self.handle_submodule_import(
+                    &submodule_path,
+                    local_name,
+                    module_name,
+                    new_imports,
+                    implicit_exports,
+                );
+            } else {
+                // Regular attribute import
+                let full_path = format!("{module_name}.{name}");
+                implicit_exports
+                    .entry(module_name.to_string())
+                    .or_default()
+                    .push((local_name.to_string(), full_path));
+            }
+        }
+    }
+
+    /// Handle submodule imports by adding to new_imports and implicit_exports
+    fn handle_submodule_import(
+        &self,
+        submodule_path: &str,
+        local_name: &str,
+        module_name: &str,
+        new_imports: &mut Vec<String>,
+        implicit_exports: &mut FxIndexMap<String, Vec<(String, String)>>,
+    ) {
+        // This is a submodule import, we need to import it separately
+        if !new_imports.iter().any(|m: &String| m == submodule_path) {
+            new_imports.push(submodule_path.to_string());
+        }
+        // And create assignment: local_name = submodule_path
+        implicit_exports
+            .entry(module_name.to_string())
+            .or_default()
+            .push((local_name.to_string(), submodule_path.to_string()));
     }
 }

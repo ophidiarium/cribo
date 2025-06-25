@@ -6386,6 +6386,7 @@ impl HybridStaticBundler {
     }
 
     /// Collect local variables defined in a list of statements
+    #[allow(clippy::only_used_in_recursion)]
     fn collect_local_vars(&self, stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<String>) {
         for stmt in stmts {
             match stmt {

@@ -140,15 +140,21 @@ impl BundleOrchestrator {
             .unwrap_or_else(|_| module_path.to_path_buf());
 
         // Check cache first
-        {
-            let cache = self.module_cache.lock().unwrap();
-            if let Some(cached) = cache.get(&canonical_path) {
-                debug!("Using cached module: {module_name}");
+        let cached_data = {
+            let cache = self
+                .module_cache
+                .lock()
+                .expect("Failed to acquire module cache lock");
+            cache.get(&canonical_path).cloned()
+        };
 
-                // If graph is provided but cached module doesn't have module_id,
-                // we need to add it to the graph
-                let module_id = if graph.is_some() && cached.module_id.is_none() {
-                    let graph = graph.unwrap();
+        if let Some(cached) = cached_data {
+            debug!("Using cached module: {module_name}");
+
+            // If graph is provided but cached module doesn't have module_id,
+            // we need to add it to the graph
+            let module_id = if let Some(graph) = graph {
+                if cached.module_id.is_none() {
                     let module_id =
                         graph.add_module(module_name.to_string(), module_path.to_path_buf());
 
@@ -163,16 +169,18 @@ impl BundleOrchestrator {
                     Some(module_id)
                 } else {
                     cached.module_id
-                };
+                }
+            } else {
+                cached.module_id
+            };
 
-                return Ok(ProcessedModule {
-                    ast: cached.ast.clone(),
-                    source: cached.source.clone(),
-                    normalized_imports: cached.normalized_imports.clone(),
-                    normalized_modules: cached.normalized_modules.clone(),
-                    module_id,
-                });
-            }
+            return Ok(ProcessedModule {
+                ast: cached.ast.clone(),
+                source: cached.source.clone(),
+                normalized_imports: cached.normalized_imports.clone(),
+                normalized_modules: cached.normalized_modules.clone(),
+                module_id,
+            });
         }
 
         debug!("Processing module: {module_name} from {module_path:?}");
@@ -220,7 +228,10 @@ impl BundleOrchestrator {
         };
 
         {
-            let mut cache = self.module_cache.lock().unwrap();
+            let mut cache = self
+                .module_cache
+                .lock()
+                .expect("Failed to acquire module cache lock");
             cache.insert(canonical_path, processed.clone());
         }
 
