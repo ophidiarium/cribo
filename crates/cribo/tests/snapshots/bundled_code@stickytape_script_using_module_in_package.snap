@@ -7,8 +7,9 @@ input_file: crates/cribo/tests/fixtures/stickytape_script_using_module_in_packag
 # https://github.com/ophidiarium/cribo
 
 import types
-message = "Hello"
 greetings = types.SimpleNamespace()
+greetings.__name__ = 'greetings'
+message = "Hello"
 greetings.greeting = types.SimpleNamespace()
 greetings.greeting.__all__ = ['message']
 greetings.greeting.message = message

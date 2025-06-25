@@ -230,3 +230,67 @@ fn test_stdout_error_handling() {
     // Stdout should be empty or minimal
     assert!(stdout.is_empty() || stdout.len() < 100);
 }
+
+#[test]
+fn test_directory_entry_with_main_py() {
+    let (stdout, _, exit_code) = run_cribo(&[
+        "--entry",
+        &get_fixture_path("directory_entry_main"),
+        "--stdout",
+    ]);
+
+    // Should succeed
+    assert_eq!(exit_code, 0);
+
+    with_settings!({
+        filters => get_cli_filters(),
+    }, {
+        assert_snapshot!("directory_entry_main_stdout", stdout);
+    });
+
+    // Should contain code from __main__.py, not __init__.py
+    assert!(stdout.contains("Running from __main__.py"));
+    assert!(!stdout.contains("This is __init__.py"));
+}
+
+#[test]
+fn test_directory_entry_with_init_py_only() {
+    let (stdout, _, exit_code) = run_cribo(&[
+        "--entry",
+        &get_fixture_path("directory_entry_init"),
+        "--stdout",
+    ]);
+
+    // Should succeed
+    assert_eq!(exit_code, 0);
+
+    with_settings!({
+        filters => get_cli_filters(),
+    }, {
+        assert_snapshot!("directory_entry_init_stdout", stdout);
+    });
+
+    // Should contain code from __init__.py
+    assert!(stdout.contains("Running from __init__.py as fallback"));
+}
+
+#[test]
+fn test_directory_entry_empty_fails() {
+    let (_, stderr, exit_code) = run_cribo(&[
+        "--entry",
+        &get_fixture_path("directory_entry_empty"),
+        "--stdout",
+    ]);
+
+    // Should fail
+    assert_ne!(exit_code, 0);
+
+    with_settings!({
+        filters => get_cli_filters(),
+    }, {
+        assert_snapshot!("directory_entry_empty_stderr", stderr);
+    });
+
+    // Should contain appropriate error message
+    assert!(stderr.contains("does not contain __main__.py or __init__.py"));
+}

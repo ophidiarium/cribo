@@ -19,8 +19,8 @@ pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
         *last_part = last_part[..last_part.len() - 3].to_owned();
     }
 
-    // Handle __init__.py files
-    if last_part == "__init__" {
+    // Handle __init__.py and __main__.py files
+    if last_part == "__init__" || last_part == "__main__" {
         parts.pop();
     }
 

@@ -11,6 +11,7 @@ import types
 @functools.cache
 def __cribo_init___cribo_5687a6_2024_config():
     module = types.SimpleNamespace()
+    module.__name__ = '2024-config'
     """Module starting with a number - can't be imported with regular import."""
 
     class Config2024:
@@ -34,6 +35,7 @@ def __cribo_init___cribo_5687a6_2024_config():
 @functools.cache
 def __cribo_init___cribo_ec6681_for():
     module = types.SimpleNamespace()
+    module.__name__ = 'for'
     """Module named 'for' - a Python keyword for loops."""
 
     class ForLoop:
@@ -60,6 +62,7 @@ def __cribo_init___cribo_ec6681_for():
 @functools.cache
 def __cribo_init___cribo_944eb6_def():
     module = types.SimpleNamespace()
+    module.__name__ = 'def'
     """Module named 'def' - another Python keyword."""
 
     class FunctionDefinition:
@@ -84,6 +87,7 @@ def __cribo_init___cribo_944eb6_def():
 @functools.cache
 def __cribo_init___cribo_004e55_class():
     module = types.SimpleNamespace()
+    module.__name__ = 'class'
     """Module named 'class' - a Python keyword that can't be used in import statements."""
 
     class MetaClass:
@@ -107,6 +111,7 @@ def __cribo_init___cribo_004e55_class():
 @functools.cache
 def __cribo_init___cribo_64c186_api_client():
     module = types.SimpleNamespace()
+    module.__name__ = 'api-client'
     """Another module with hyphen - demonstrating API client functionality."""
 
     class APIClient:
@@ -130,6 +135,7 @@ def __cribo_init___cribo_64c186_api_client():
 @functools.cache
 def __cribo_init___cribo_d8297b_data_processor():
     module = types.SimpleNamespace()
+    module.__name__ = 'data-processor'
     """Module with hyphen in name - can't be imported with regular import statement."""
 
     class DataProcessor:

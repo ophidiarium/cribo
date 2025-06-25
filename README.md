@@ -109,6 +109,9 @@ cargo build --release
 # Basic bundling
 cribo --entry src/main.py --output bundle.py
 
+# Bundle a package directory (looks for __main__.py or __init__.py)
+cribo --entry mypackage/ --output bundle.py
+
 # Generate requirements.txt
 cribo --entry src/main.py --output bundle.py --emit-requirements
 
@@ -123,7 +126,7 @@ cribo --entry src/main.py --output bundle.py --config my-cribo.toml
 
 ### CLI Options
 
-- `-e, --entry <PATH>`: Entry point Python script (required)
+- `-e, --entry <PATH>`: Entry point Python script or package directory (required). When pointing to a directory, Cribo will look for `__main__.py` first, then `__init__.py`
 - `-o, --output <PATH>`: Output bundled Python file (required)
 - `-v, --verbose...`: Increase verbosity level. Can be repeated for more detail:
   - No flag: warnings and errors only

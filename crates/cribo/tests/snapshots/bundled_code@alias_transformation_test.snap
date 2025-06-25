@@ -11,6 +11,9 @@ import json
 import math
 import os
 import sys
+import types
+utils = types.SimpleNamespace()
+utils.__name__ = 'utils'
 def helper_func(input_str):
     """A helper function that processes a string."""
     return f"Processed: {input_str.upper()}"

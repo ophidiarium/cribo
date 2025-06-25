@@ -7,6 +7,10 @@ input_file: crates/cribo/tests/fixtures/xfail_file_deduplication_symlinks/main.p
 # https://github.com/ophidiarium/cribo
 
 import types
+lib = types.SimpleNamespace()
+lib.__name__ = 'lib'
+shared = types.SimpleNamespace()
+shared.__name__ = 'shared'
 counter_1 = 0
 def get_location_1():
     return "lib/helpers.py"

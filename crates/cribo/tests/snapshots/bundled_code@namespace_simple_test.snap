@@ -7,6 +7,8 @@ input_file: crates/cribo/tests/fixtures/namespace_simple_test/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
+mymodule = types.SimpleNamespace()
+mymodule.__name__ = 'mymodule'
 CONSTANT = 42
 def greet(name: str) -> str:
     """Greet someone"""
