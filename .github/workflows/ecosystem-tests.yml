@@ -154,6 +154,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ecosystem-benchmark-results
+          if-no-files-found: ignore
           path: |
             target/criterion/
             ecosystem-report.md
