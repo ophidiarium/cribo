@@ -26,11 +26,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -45,10 +40,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+          python-version: 3.12
+
       - name: Install Python dependencies
-        run: |
-          pip install uv
-          uv sync
+        run: uv sync --all-groups
 
       - name: Build cribo (release mode)
         run: cargo build --release --bin cribo
