@@ -13,6 +13,8 @@ import random
 import types
 import urllib.parse
 import xml.etree.ElementTree
+utils = types.SimpleNamespace()
+utils.__name__ = 'utils'
 DEFAULT_CONFIG = {"debug": True, "timeout": 30}
 def get_config():
     """Get the default configuration."""

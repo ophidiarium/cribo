@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/stdlib_hoisting_aliases/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Initializing logger module...\nCurrent directory name: project\nMock file info: {'size': 1024, 'name': 'test.txt', 'parent': '/home/user', 'modified': '2023-11-14T23:13:20', 'exists': True, 'is_absolute': True}\n[STDOUT] Starting application\nLogger info: {\n  \"python_version\": \"3.12.0\",\n  \"logger_name\": \"logger\",\n  \"log_level\": \"NOTSET\",\n  \"handlers\": 0\n}\nAll tests completed successfully!",
+    stderr: "INFO - [ALIASED LOG] Starting application",
+}

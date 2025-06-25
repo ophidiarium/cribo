@@ -11,6 +11,7 @@ import types
 @functools.cache
 def __cribo_init___cribo_2a6a8f_test_import():
     module = types.SimpleNamespace()
+    module.__name__ = 'test_import'
     """Test module that tries to import pandera.polars.\n\nThis demonstrates what happens when we have a local 'pandera' module\nthat shadows the third-party pandera package, and we try to import\na submodule that only exists in the third-party package.\n"""
     print("Starting test_import.py")
     try:
@@ -36,6 +37,7 @@ def __cribo_init___cribo_2a6a8f_test_import():
 @functools.cache
 def __cribo_init___cribo_b061eb_pandera():
     module = types.SimpleNamespace()
+    module.__name__ = 'pandera'
     """First-party module that shadows the third-party pandera package."""
     print("Loading first-party pandera module")
     __version__ = "0.0.1-local"

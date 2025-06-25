@@ -72,14 +72,20 @@ impl SideEffectDetector {
     /// Helper to collect names from import statements
     fn collect_import_names(&mut self, import_stmt: &ruff_python_ast::StmtImport) {
         for alias in &import_stmt.names {
-            let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+            let module_name = alias.name.as_str();
+            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+            // Skip imports that don't have side effects
+            if !crate::side_effects::import_has_side_effects(module_name) {
+                continue;
+            }
 
             // For imports like "import xml.etree.ElementTree",
             // we need to track both the full path and the root binding
-            self.imported_names.insert(name.to_string());
+            self.imported_names.insert(local_name.to_string());
 
             // Also track the root module name (e.g., "xml" from "xml.etree.ElementTree")
-            if let Some(root) = name.split('.').next() {
+            if let Some(root) = local_name.split('.').next() {
                 self.imported_names.insert(root.to_string());
             }
         }
@@ -87,10 +93,8 @@ impl SideEffectDetector {
 
     /// Helper to collect names from import-from statements
     fn collect_import_from_names(&mut self, import_from: &ruff_python_ast::StmtImportFrom) {
-        // Skip typing imports - they're not side effects
-        if let Some(module) = &import_from.module
-            && module.as_str() == "typing"
-        {
+        // Skip imports that don't have side effects
+        if !crate::side_effects::from_import_has_side_effects(import_from) {
             return;
         }
 
@@ -405,12 +409,19 @@ impl<'a> Visitor<'a> for SideEffectDetector {
                     return;
                 }
 
-                // Attribute and subscript expressions are only side effects outside annotations
-                Expr::Attribute(_) | Expr::Subscript(_) => {
+                // Subscript expressions can have side effects (e.g., __getitem__ can have side
+                // effects)
+                Expr::Subscript(_) => {
                     if !self.in_annotation_context {
                         self.has_side_effects = true;
                         return;
                     }
+                }
+
+                // Attribute access is only a side effect if the base object might have side effects
+                // For now, we'll walk into it to check if the base has side effects
+                Expr::Attribute(_) => {
+                    // Continue walking to check the base object
                 }
 
                 // For other expressions, continue walking to check nested expressions
@@ -460,7 +471,6 @@ impl<'a> Visitor<'a> for ExpressionSideEffectDetector {
         match expr {
             // These expressions have side effects
             Expr::Call(_)
-            | Expr::Attribute(_)
             | Expr::Subscript(_)
             | Expr::Await(_)
             | Expr::Yield(_)
@@ -468,6 +478,23 @@ impl<'a> Visitor<'a> for ExpressionSideEffectDetector {
             | Expr::Lambda(_) => {
                 self.has_side_effects = true;
                 return;
+            }
+
+            // Attribute access only has side effects if:
+            // 1. It's on something other than a simple name (e.g., func().attr)
+            // 2. It's deeply nested (e.g., a.b.c.d might trigger multiple __getattr__)
+            Expr::Attribute(attr) => {
+                // Check if this is a simple attribute access on a name
+                if let Expr::Name(_) = &*attr.value {
+                    // Simple attribute access like messages.message or abc.ABC
+                    // These are common patterns that rarely have side effects
+                    // Continue walking to check the base name
+                } else {
+                    // Complex attribute access on non-name expressions
+                    // e.g., func().attr, (a + b).attr, etc.
+                    self.has_side_effects = true;
+                    return;
+                }
             }
 
             // For other expressions, continue walking to check nested expressions
@@ -521,8 +548,8 @@ foo()  # This is a side effect
     #[test]
     fn test_side_effects_imported_name() {
         let source = r#"
-import os
-x = os  # Using imported name is a potential side effect
+import django.setup
+x = django  # Using imported name that has side effects
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(SideEffectDetector::check_module(&module));
@@ -656,11 +683,25 @@ b"bytes"  # Bare bytes
     #[test]
     fn test_imported_name_root_binding() {
         let source = r#"
-import xml.etree.ElementTree
-x = xml  # Using the root binding should be detected as side effect
+import requests.adapters
+x = requests  # Using the root binding of a third-party module (always a side effect)
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(SideEffectDetector::check_module(&module));
+    }
+
+    #[test]
+    fn test_no_side_effects_safe_stdlib_import() {
+        let source = r#"
+import os
+import json
+import typing
+x = os  # Safe stdlib module usage is not a side effect
+y = json
+z = typing
+"#;
+        let module = parse_python(source).expect("Failed to parse test Python code");
+        assert!(!SideEffectDetector::check_module(&module));
     }
 
     #[test]

@@ -69,7 +69,7 @@ jobs:
         shell: bash
         env:
           NEXTEST_PROFILE: 'ci'
-        run: cargo insta test --all-features --unreferenced reject --test-runner nextest
+        run: cargo insta test --all-features --check --unreferenced reject
 
       - name: Install Cribo (development)
         run: uv run --with maturin -- maturin develop --release

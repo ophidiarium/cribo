@@ -47,6 +47,10 @@ tempfile          = { workspace = true }
 harness = false
 name    = "bundling"
 
+[[bench]]
+harness = false
+name    = "ecosystem"
+
 [lints.rust]
 exported_private_dependencies = { level = "allow", priority = 10 }
 

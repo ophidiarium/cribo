@@ -127,104 +127,6 @@ fn benchmark_module_resolution(c: &mut Criterion) {
     });
 }
 
-/// Benchmark AST parsing
-fn benchmark_ast_parsing(c: &mut Criterion) {
-    use ruff_python_parser;
-
-    let source = r#"
-import os
-import sys
-from typing import List, Dict, Optional
-from dataclasses import dataclass
-
-@dataclass
-class Config:
-    name: str
-    value: Optional[str] = None
-
-    def validate(self) -> bool:
-        return bool(self.name)
-
-def process_configs(configs: List[Config]) -> Dict[str, str]:
-    result = {}
-    for config in configs:
-        if config.validate():
-            result[config.name] = config.value or "default"
-    return result
-
-def main():
-    configs = [
-        Config("debug", "true"),
-        Config("verbose"),
-        Config("output", "/tmp/out.txt")
-    ]
-
-    processed = process_configs(configs)
-    for name, value in processed.items():
-        print(f"{name} = {value}")
-
-if __name__ == "__main__":
-    main()
-"#;
-
-    c.bench_function("parse_python_ast", |b| {
-        b.iter(|| {
-            let _ = ruff_python_parser::parse_module(black_box(source))
-                .expect("Parsing should succeed");
-        });
-    });
-}
-
-/// Benchmark import extraction
-fn benchmark_import_extraction(c: &mut Criterion) {
-    use cribo::orchestrator::BundleOrchestrator;
-
-    c.bench_function("extract_imports", |b| {
-        b.iter_with_setup(
-            || {
-                // Setup: Create a Python file with various import patterns
-                let temp_dir = TempDir::new().expect("Failed to create temp dir");
-                let test_file = temp_dir.path().join("test_imports.py");
-
-                fs::write(
-                    &test_file,
-                    r#"
-import os
-import sys
-from pathlib import Path
-from typing import List, Dict, Optional, Union
-from collections import defaultdict, Counter
-import json
-import math
-from datetime import datetime, timedelta
-from . import local_module
-from ..parent import parent_module
-from ...grandparent import grandparent_module
-import xml.etree.ElementTree as ET
-from urllib.parse import urlparse, urljoin
-"#,
-                )
-                .expect("Failed to write test file");
-
-                (temp_dir, test_file)
-            },
-            |(temp_dir, test_file)| {
-                // Benchmark: Extract imports
-                let bundler = BundleOrchestrator::new(Config::default());
-                let imports = bundler
-                    .extract_imports(black_box(&test_file), None)
-                    .expect("Import extraction should succeed");
-
-                // Ensure we actually extracted imports
-                assert!(!imports.is_empty());
-
-                // Keep temp_dir alive
-                drop(temp_dir);
-            },
-        );
-    });
-}
-
 /// Benchmark dependency graph construction
 fn benchmark_dependency_graph(c: &mut Criterion) {
     use std::path::PathBuf;
@@ -258,8 +160,6 @@ criterion_group!(
     benches,
     benchmark_bundling,
     benchmark_module_resolution,
-    benchmark_ast_parsing,
-    benchmark_import_extraction,
     benchmark_dependency_graph
 );
 criterion_main!(benches);

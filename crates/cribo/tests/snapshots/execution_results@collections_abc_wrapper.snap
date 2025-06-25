@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/collections_abc_wrapper/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Loading compat module...\nAccept header: application/json\nSuccess!",
+    stderr: "",
+}

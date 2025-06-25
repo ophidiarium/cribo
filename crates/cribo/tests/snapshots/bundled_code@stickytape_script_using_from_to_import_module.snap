@@ -7,6 +7,8 @@ input_file: crates/cribo/tests/fixtures/stickytape_script_using_from_to_import_m
 # https://github.com/ophidiarium/cribo
 
 import types
+greetings = types.SimpleNamespace()
+greetings.__name__ = 'greetings'
 message = "Hello"
 def get_default_greeting():
     return f"{message}, {config.DEFAULT_NAME}!"

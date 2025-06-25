@@ -7,6 +7,8 @@ input_file: crates/cribo/tests/fixtures/all_variable_handling/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
+nested_package = types.SimpleNamespace()
+nested_package.__name__ = 'nested_package'
 message_1 = "from conflict_module"
 SUB_CONSTANT = "submodule_value"
 def sub_function():

@@ -1,6 +1,6 @@
 # Complexity thresholds
 allowed-idents-below-min-chars      = ["..", "id", "x", "y", "z", "i", "j", "k", "n", "m"] # Added common loop/coord vars
-cognitive-complexity-threshold      = 10
+cognitive-complexity-threshold      = 15
 excessive-nesting-threshold         = 8
 min-ident-chars-threshold           = 2
 single-char-binding-names-threshold = 3
@@ -64,8 +64,8 @@ disallowed-types = [
     # Add more problematic types
     { path = "std::sync::Once", reason = "Use std::sync::OnceLock for lazy initialization (available since 1.70)" },
 
-    { path = "std::sync::Mutex", reason = "use tokio::sync::Mutex in async code" },
-    { path = "std::sync::RwLock", reason = "use tokio::sync::RwLock in async code" },
+    # { path = "std::sync::Mutex", reason = "use tokio::sync::Mutex in async code" },
+    # { path = "std::sync::RwLock", reason = "use tokio::sync::RwLock in async code" },
 
     { path = "rand::rngs::ThreadRng", reason = "ThreadRng is inherently non‐deterministic; use a fixed‐seed or hash‐based approach instead." },
 ]

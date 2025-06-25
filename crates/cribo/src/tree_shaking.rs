@@ -977,6 +977,7 @@ mod tests {
             reexported_names: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
+            is_normalized_import: false,
         });
 
         // Add an unused function
@@ -996,6 +997,7 @@ mod tests {
             reexported_names: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
+            is_normalized_import: false,
         });
 
         // Add entry module that uses only used_func
@@ -1020,6 +1022,7 @@ mod tests {
             reexported_names: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
+            is_normalized_import: false,
         });
 
         // Run tree shaking
