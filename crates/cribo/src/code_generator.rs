@@ -2161,7 +2161,7 @@ impl HybridStaticBundler {
 
         // Check all expressions in the AST for importlib usage
         for stmt in &ast.body {
-            if self.stmt_uses_importlib(stmt) {
+            if Self::stmt_uses_importlib(stmt) {
                 importlib_used = true;
                 break;
             }
@@ -2184,87 +2184,76 @@ impl HybridStaticBundler {
     }
 
     /// Check if a statement uses importlib
-    fn stmt_uses_importlib(&self, stmt: &Stmt) -> bool {
+    fn stmt_uses_importlib(stmt: &Stmt) -> bool {
         match stmt {
-            Stmt::Expr(expr_stmt) => self.expr_uses_importlib(&expr_stmt.value),
-            Stmt::Assign(assign) => self.expr_uses_importlib(&assign.value),
-            Stmt::AugAssign(aug_assign) => self.expr_uses_importlib(&aug_assign.value),
+            Stmt::Expr(expr_stmt) => Self::expr_uses_importlib(&expr_stmt.value),
+            Stmt::Assign(assign) => Self::expr_uses_importlib(&assign.value),
+            Stmt::AugAssign(aug_assign) => Self::expr_uses_importlib(&aug_assign.value),
             Stmt::AnnAssign(ann_assign) => ann_assign
                 .value
                 .as_ref()
-                .is_some_and(|v| self.expr_uses_importlib(v)),
-            Stmt::FunctionDef(func_def) => {
-                func_def.body.iter().any(|s| self.stmt_uses_importlib(s))
-            }
-            Stmt::ClassDef(class_def) => class_def.body.iter().any(|s| self.stmt_uses_importlib(s)),
+                .is_some_and(|v| Self::expr_uses_importlib(v)),
+            Stmt::FunctionDef(func_def) => func_def.body.iter().any(Self::stmt_uses_importlib),
+            Stmt::ClassDef(class_def) => class_def.body.iter().any(Self::stmt_uses_importlib),
             Stmt::If(if_stmt) => {
-                self.expr_uses_importlib(&if_stmt.test)
-                    || if_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+                Self::expr_uses_importlib(&if_stmt.test)
+                    || if_stmt.body.iter().any(Self::stmt_uses_importlib)
                     || if_stmt.elif_else_clauses.iter().any(|clause| {
-                        clause
-                            .test
-                            .as_ref()
-                            .is_some_and(|t| self.expr_uses_importlib(t))
-                            || clause.body.iter().any(|s| self.stmt_uses_importlib(s))
+                        clause.test.as_ref().is_some_and(Self::expr_uses_importlib)
+                            || clause.body.iter().any(Self::stmt_uses_importlib)
                     })
             }
             Stmt::While(while_stmt) => {
-                self.expr_uses_importlib(&while_stmt.test)
-                    || while_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
-                    || while_stmt
-                        .orelse
-                        .iter()
-                        .any(|s| self.stmt_uses_importlib(s))
+                Self::expr_uses_importlib(&while_stmt.test)
+                    || while_stmt.body.iter().any(Self::stmt_uses_importlib)
+                    || while_stmt.orelse.iter().any(Self::stmt_uses_importlib)
             }
             Stmt::For(for_stmt) => {
-                self.expr_uses_importlib(&for_stmt.iter)
-                    || for_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
-                    || for_stmt.orelse.iter().any(|s| self.stmt_uses_importlib(s))
+                Self::expr_uses_importlib(&for_stmt.iter)
+                    || for_stmt.body.iter().any(Self::stmt_uses_importlib)
+                    || for_stmt.orelse.iter().any(Self::stmt_uses_importlib)
             }
             Stmt::With(with_stmt) => {
                 with_stmt.items.iter().any(|item| {
-                    self.expr_uses_importlib(&item.context_expr)
+                    Self::expr_uses_importlib(&item.context_expr)
                         || item
                             .optional_vars
                             .as_ref()
-                            .is_some_and(|v| self.expr_uses_importlib(v))
-                }) || with_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+                            .is_some_and(|v| Self::expr_uses_importlib(v))
+                }) || with_stmt.body.iter().any(Self::stmt_uses_importlib)
             }
             Stmt::Try(try_stmt) => {
-                try_stmt.body.iter().any(|s| self.stmt_uses_importlib(s))
+                try_stmt.body.iter().any(Self::stmt_uses_importlib)
                     || try_stmt.handlers.iter().any(|handler| match handler {
                         ExceptHandler::ExceptHandler(eh) => {
-                            eh.body.iter().any(|s| self.stmt_uses_importlib(s))
+                            eh.body.iter().any(Self::stmt_uses_importlib)
                         }
                     })
-                    || try_stmt.orelse.iter().any(|s| self.stmt_uses_importlib(s))
-                    || try_stmt
-                        .finalbody
-                        .iter()
-                        .any(|s| self.stmt_uses_importlib(s))
+                    || try_stmt.orelse.iter().any(Self::stmt_uses_importlib)
+                    || try_stmt.finalbody.iter().any(Self::stmt_uses_importlib)
             }
             Stmt::Assert(assert_stmt) => {
-                self.expr_uses_importlib(&assert_stmt.test)
+                Self::expr_uses_importlib(&assert_stmt.test)
                     || assert_stmt
                         .msg
                         .as_ref()
-                        .is_some_and(|m| self.expr_uses_importlib(m))
+                        .is_some_and(|v| Self::expr_uses_importlib(v))
             }
             Stmt::Return(ret) => ret
                 .value
                 .as_ref()
-                .is_some_and(|v| self.expr_uses_importlib(v)),
+                .is_some_and(|v| Self::expr_uses_importlib(v)),
             Stmt::Raise(raise_stmt) => {
                 raise_stmt
                     .exc
                     .as_ref()
-                    .is_some_and(|e| self.expr_uses_importlib(e))
+                    .is_some_and(|v| Self::expr_uses_importlib(v))
                     || raise_stmt
                         .cause
                         .as_ref()
-                        .is_some_and(|c| self.expr_uses_importlib(c))
+                        .is_some_and(|v| Self::expr_uses_importlib(v))
             }
-            Stmt::Delete(del) => del.targets.iter().any(|t| self.expr_uses_importlib(t)),
+            Stmt::Delete(del) => del.targets.iter().any(Self::expr_uses_importlib),
             // Statements that don't contain expressions
             Stmt::Import(_) | Stmt::ImportFrom(_) => false, /* Already handled by import */
             // transformation
@@ -2272,101 +2261,83 @@ impl HybridStaticBundler {
             Stmt::Global(_) | Stmt::Nonlocal(_) => false,
             // Match and TypeAlias need special handling
             Stmt::Match(match_stmt) => {
-                self.expr_uses_importlib(&match_stmt.subject)
+                Self::expr_uses_importlib(&match_stmt.subject)
                     || match_stmt
                         .cases
                         .iter()
-                        .any(|case| case.body.iter().any(|s| self.stmt_uses_importlib(s)))
+                        .any(|case| case.body.iter().any(Self::stmt_uses_importlib))
             }
-            Stmt::TypeAlias(type_alias) => self.expr_uses_importlib(&type_alias.value),
+            Stmt::TypeAlias(type_alias) => Self::expr_uses_importlib(&type_alias.value),
             Stmt::IpyEscapeCommand(_) => false, // IPython specific, unlikely to use importlib
         }
     }
 
     /// Check if an expression uses importlib
-    #[allow(clippy::only_used_in_recursion)]
-    fn expr_uses_importlib(&self, expr: &Expr) -> bool {
+    fn expr_uses_importlib(expr: &Expr) -> bool {
         match expr {
             Expr::Name(name) => name.id.as_str() == "importlib",
-            Expr::Attribute(attr) => self.expr_uses_importlib(&attr.value),
+            Expr::Attribute(attr) => Self::expr_uses_importlib(&attr.value),
             Expr::Call(call) => {
-                self.expr_uses_importlib(&call.func)
-                    || call
-                        .arguments
-                        .args
-                        .iter()
-                        .any(|arg| self.expr_uses_importlib(arg))
+                Self::expr_uses_importlib(&call.func)
+                    || call.arguments.args.iter().any(Self::expr_uses_importlib)
                     || call
                         .arguments
                         .keywords
                         .iter()
-                        .any(|kw| self.expr_uses_importlib(&kw.value))
+                        .any(|kw| Self::expr_uses_importlib(&kw.value))
             }
             Expr::Subscript(sub) => {
-                self.expr_uses_importlib(&sub.value) || self.expr_uses_importlib(&sub.slice)
+                Self::expr_uses_importlib(&sub.value) || Self::expr_uses_importlib(&sub.slice)
             }
-            Expr::Tuple(tuple) => tuple.elts.iter().any(|e| self.expr_uses_importlib(e)),
-            Expr::List(list) => list.elts.iter().any(|e| self.expr_uses_importlib(e)),
-            Expr::Set(set) => set.elts.iter().any(|e| self.expr_uses_importlib(e)),
+            Expr::Tuple(tuple) => tuple.elts.iter().any(Self::expr_uses_importlib),
+            Expr::List(list) => list.elts.iter().any(Self::expr_uses_importlib),
+            Expr::Set(set) => set.elts.iter().any(Self::expr_uses_importlib),
             Expr::Dict(dict) => dict.items.iter().any(|item| {
-                item.key
-                    .as_ref()
-                    .is_some_and(|k| self.expr_uses_importlib(k))
-                    || self.expr_uses_importlib(&item.value)
+                item.key.as_ref().is_some_and(Self::expr_uses_importlib)
+                    || Self::expr_uses_importlib(&item.value)
             }),
             Expr::ListComp(comp) => {
-                self.expr_uses_importlib(&comp.elt)
+                Self::expr_uses_importlib(&comp.elt)
                     || comp.generators.iter().any(|generator| {
-                        self.expr_uses_importlib(&generator.iter)
-                            || generator
-                                .ifs
-                                .iter()
-                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                        Self::expr_uses_importlib(&generator.iter)
+                            || generator.ifs.iter().any(Self::expr_uses_importlib)
                     })
             }
             Expr::SetComp(comp) => {
-                self.expr_uses_importlib(&comp.elt)
+                Self::expr_uses_importlib(&comp.elt)
                     || comp.generators.iter().any(|generator| {
-                        self.expr_uses_importlib(&generator.iter)
-                            || generator
-                                .ifs
-                                .iter()
-                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                        Self::expr_uses_importlib(&generator.iter)
+                            || generator.ifs.iter().any(Self::expr_uses_importlib)
                     })
             }
             Expr::DictComp(comp) => {
-                self.expr_uses_importlib(&comp.key)
-                    || self.expr_uses_importlib(&comp.value)
+                Self::expr_uses_importlib(&comp.key)
+                    || Self::expr_uses_importlib(&comp.value)
                     || comp.generators.iter().any(|generator| {
-                        self.expr_uses_importlib(&generator.iter)
-                            || generator
-                                .ifs
-                                .iter()
-                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                        Self::expr_uses_importlib(&generator.iter)
+                            || generator.ifs.iter().any(Self::expr_uses_importlib)
                     })
             }
             Expr::Generator(generator_exp) => {
-                self.expr_uses_importlib(&generator_exp.elt)
+                Self::expr_uses_importlib(&generator_exp.elt)
                     || generator_exp.generators.iter().any(|g| {
-                        self.expr_uses_importlib(&g.iter)
-                            || g.ifs
-                                .iter()
-                                .any(|if_expr| self.expr_uses_importlib(if_expr))
+                        Self::expr_uses_importlib(&g.iter)
+                            || g.ifs.iter().any(Self::expr_uses_importlib)
                     })
             }
-            Expr::BoolOp(bool_op) => bool_op.values.iter().any(|v| self.expr_uses_importlib(v)),
-            Expr::UnaryOp(unary) => self.expr_uses_importlib(&unary.operand),
+            Expr::BoolOp(bool_op) => bool_op.values.iter().any(Self::expr_uses_importlib),
+            Expr::UnaryOp(unary) => Self::expr_uses_importlib(&unary.operand),
             Expr::BinOp(bin_op) => {
-                self.expr_uses_importlib(&bin_op.left) || self.expr_uses_importlib(&bin_op.right)
+                Self::expr_uses_importlib(&bin_op.left) || Self::expr_uses_importlib(&bin_op.right)
             }
             Expr::Compare(cmp) => {
-                self.expr_uses_importlib(&cmp.left)
-                    || cmp.comparators.iter().any(|c| self.expr_uses_importlib(c))
+                Self::expr_uses_importlib(&cmp.left)
+                    || cmp.comparators.iter().any(Self::expr_uses_importlib)
             }
             Expr::If(if_exp) => {
-                self.expr_uses_importlib(&if_exp.test)
-                    || self.expr_uses_importlib(&if_exp.body)
-                    || self.expr_uses_importlib(&if_exp.orelse)
+                Self::expr_uses_importlib(&if_exp.test)
+                    || Self::expr_uses_importlib(&if_exp.body)
+                    || Self::expr_uses_importlib(&if_exp.orelse)
             }
             Expr::Lambda(lambda) => {
                 // Check default parameter values
@@ -2374,33 +2345,33 @@ impl HybridStaticBundler {
                     params.args.iter().any(|arg| {
                         arg.default
                             .as_ref()
-                            .is_some_and(|d| self.expr_uses_importlib(d))
+                            .is_some_and(|d| Self::expr_uses_importlib(d))
                     })
-                }) || self.expr_uses_importlib(&lambda.body)
+                }) || Self::expr_uses_importlib(&lambda.body)
             }
-            Expr::Await(await_expr) => self.expr_uses_importlib(&await_expr.value),
+            Expr::Await(await_expr) => Self::expr_uses_importlib(&await_expr.value),
             Expr::Yield(yield_expr) => yield_expr
                 .value
                 .as_ref()
-                .is_some_and(|v| self.expr_uses_importlib(v)),
-            Expr::YieldFrom(yield_from) => self.expr_uses_importlib(&yield_from.value),
-            Expr::Starred(starred) => self.expr_uses_importlib(&starred.value),
+                .is_some_and(|v| Self::expr_uses_importlib(v)),
+            Expr::YieldFrom(yield_from) => Self::expr_uses_importlib(&yield_from.value),
+            Expr::Starred(starred) => Self::expr_uses_importlib(&starred.value),
             Expr::Named(named) => {
-                self.expr_uses_importlib(&named.target) || self.expr_uses_importlib(&named.value)
+                Self::expr_uses_importlib(&named.target) || Self::expr_uses_importlib(&named.value)
             }
             Expr::Slice(slice) => {
                 slice
                     .lower
                     .as_ref()
-                    .is_some_and(|l| self.expr_uses_importlib(l))
+                    .is_some_and(|l| Self::expr_uses_importlib(l))
                     || slice
                         .upper
                         .as_ref()
-                        .is_some_and(|u| self.expr_uses_importlib(u))
+                        .is_some_and(|u| Self::expr_uses_importlib(u))
                     || slice
                         .step
                         .as_ref()
-                        .is_some_and(|s| self.expr_uses_importlib(s))
+                        .is_some_and(|s| Self::expr_uses_importlib(s))
             }
             // Literals don't use importlib
             Expr::StringLiteral(_)
@@ -5683,7 +5654,7 @@ impl HybridStaticBundler {
                         } else {
                             rustc_hash::FxHashSet::default()
                         };
-                        self.transform_expr_for_module_vars(
+                        Self::transform_expr_for_module_vars(
                             &mut assign_clone.value,
                             &module_level_vars,
                         );
@@ -6683,26 +6654,26 @@ impl HybridStaticBundler {
             Stmt::Assign(assign) => {
                 // Transform assignment targets and values
                 for target in &mut assign.targets {
-                    self.transform_expr_for_module_vars(target, module_level_vars);
+                    Self::transform_expr_for_module_vars(target, module_level_vars);
                 }
-                self.transform_expr_for_module_vars(&mut assign.value, module_level_vars);
+                Self::transform_expr_for_module_vars(&mut assign.value, module_level_vars);
             }
             Stmt::Expr(expr_stmt) => {
-                self.transform_expr_for_module_vars(&mut expr_stmt.value, module_level_vars);
+                Self::transform_expr_for_module_vars(&mut expr_stmt.value, module_level_vars);
             }
             Stmt::Return(return_stmt) => {
                 if let Some(value) = &mut return_stmt.value {
-                    self.transform_expr_for_module_vars(value, module_level_vars);
+                    Self::transform_expr_for_module_vars(value, module_level_vars);
                 }
             }
             Stmt::If(if_stmt) => {
-                self.transform_expr_for_module_vars(&mut if_stmt.test, module_level_vars);
+                Self::transform_expr_for_module_vars(&mut if_stmt.test, module_level_vars);
                 for stmt in &mut if_stmt.body {
                     self.transform_stmt_for_module_vars(stmt, module_level_vars);
                 }
                 for clause in &mut if_stmt.elif_else_clauses {
                     if let Some(condition) = &mut clause.test {
-                        self.transform_expr_for_module_vars(condition, module_level_vars);
+                        Self::transform_expr_for_module_vars(condition, module_level_vars);
                     }
                     for stmt in &mut clause.body {
                         self.transform_stmt_for_module_vars(stmt, module_level_vars);
@@ -6710,8 +6681,8 @@ impl HybridStaticBundler {
                 }
             }
             Stmt::For(for_stmt) => {
-                self.transform_expr_for_module_vars(&mut for_stmt.target, module_level_vars);
-                self.transform_expr_for_module_vars(&mut for_stmt.iter, module_level_vars);
+                Self::transform_expr_for_module_vars(&mut for_stmt.target, module_level_vars);
+                Self::transform_expr_for_module_vars(&mut for_stmt.iter, module_level_vars);
                 for stmt in &mut for_stmt.body {
                     self.transform_stmt_for_module_vars(stmt, module_level_vars);
                 }
@@ -6723,9 +6694,7 @@ impl HybridStaticBundler {
     }
 
     /// Transform an expression to use module attributes for module-level variables
-    #[allow(clippy::only_used_in_recursion)]
     fn transform_expr_for_module_vars(
-        &self,
         expr: &mut Expr,
         module_level_vars: &rustc_hash::FxHashSet<String>,
     ) {
@@ -6771,37 +6740,37 @@ impl HybridStaticBundler {
                 }
             }
             Expr::Call(call) => {
-                self.transform_expr_for_module_vars(&mut call.func, module_level_vars);
+                Self::transform_expr_for_module_vars(&mut call.func, module_level_vars);
                 for arg in &mut call.arguments.args {
-                    self.transform_expr_for_module_vars(arg, module_level_vars);
+                    Self::transform_expr_for_module_vars(arg, module_level_vars);
                 }
                 for keyword in &mut call.arguments.keywords {
-                    self.transform_expr_for_module_vars(&mut keyword.value, module_level_vars);
+                    Self::transform_expr_for_module_vars(&mut keyword.value, module_level_vars);
                 }
             }
             Expr::BinOp(binop) => {
-                self.transform_expr_for_module_vars(&mut binop.left, module_level_vars);
-                self.transform_expr_for_module_vars(&mut binop.right, module_level_vars);
+                Self::transform_expr_for_module_vars(&mut binop.left, module_level_vars);
+                Self::transform_expr_for_module_vars(&mut binop.right, module_level_vars);
             }
             Expr::Dict(dict) => {
                 for item in &mut dict.items {
                     if let Some(key) = &mut item.key {
-                        self.transform_expr_for_module_vars(key, module_level_vars);
+                        Self::transform_expr_for_module_vars(key, module_level_vars);
                     }
-                    self.transform_expr_for_module_vars(&mut item.value, module_level_vars);
+                    Self::transform_expr_for_module_vars(&mut item.value, module_level_vars);
                 }
             }
             Expr::List(list_expr) => {
                 for elem in &mut list_expr.elts {
-                    self.transform_expr_for_module_vars(elem, module_level_vars);
+                    Self::transform_expr_for_module_vars(elem, module_level_vars);
                 }
             }
             Expr::Attribute(attr) => {
-                self.transform_expr_for_module_vars(&mut attr.value, module_level_vars);
+                Self::transform_expr_for_module_vars(&mut attr.value, module_level_vars);
             }
             Expr::Subscript(subscript) => {
-                self.transform_expr_for_module_vars(&mut subscript.value, module_level_vars);
-                self.transform_expr_for_module_vars(&mut subscript.slice, module_level_vars);
+                Self::transform_expr_for_module_vars(&mut subscript.value, module_level_vars);
+                Self::transform_expr_for_module_vars(&mut subscript.slice, module_level_vars);
             }
             _ => {
                 // Handle other expression types as needed
@@ -9160,32 +9129,32 @@ impl HybridStaticBundler {
     /// Collect variable names referenced in a statement
     fn collect_vars_in_stmt(&self, stmt: &Stmt, vars: &mut FxIndexSet<String>) {
         match stmt {
-            Stmt::Expr(expr_stmt) => self.collect_vars_in_expr(&expr_stmt.value, vars),
+            Stmt::Expr(expr_stmt) => Self::collect_vars_in_expr(&expr_stmt.value, vars),
             Stmt::Return(ret) => {
                 if let Some(value) = &ret.value {
-                    self.collect_vars_in_expr(value, vars);
+                    Self::collect_vars_in_expr(value, vars);
                 }
             }
             Stmt::Assign(assign) => {
-                self.collect_vars_in_expr(&assign.value, vars);
+                Self::collect_vars_in_expr(&assign.value, vars);
             }
             Stmt::If(if_stmt) => {
-                self.collect_vars_in_expr(&if_stmt.test, vars);
+                Self::collect_vars_in_expr(&if_stmt.test, vars);
                 self.collect_referenced_vars(&if_stmt.body, vars);
                 for clause in &if_stmt.elif_else_clauses {
                     if let Some(condition) = &clause.test {
-                        self.collect_vars_in_expr(condition, vars);
+                        Self::collect_vars_in_expr(condition, vars);
                     }
                     self.collect_referenced_vars(&clause.body, vars);
                 }
             }
             Stmt::For(for_stmt) => {
-                self.collect_vars_in_expr(&for_stmt.iter, vars);
+                Self::collect_vars_in_expr(&for_stmt.iter, vars);
                 self.collect_referenced_vars(&for_stmt.body, vars);
                 self.collect_referenced_vars(&for_stmt.orelse, vars);
             }
             Stmt::While(while_stmt) => {
-                self.collect_vars_in_expr(&while_stmt.test, vars);
+                Self::collect_vars_in_expr(&while_stmt.test, vars);
                 self.collect_referenced_vars(&while_stmt.body, vars);
                 self.collect_referenced_vars(&while_stmt.orelse, vars);
             }
@@ -9200,7 +9169,7 @@ impl HybridStaticBundler {
             }
             Stmt::With(with_stmt) => {
                 for item in &with_stmt.items {
-                    self.collect_vars_in_expr(&item.context_expr, vars);
+                    Self::collect_vars_in_expr(&item.context_expr, vars);
                 }
                 self.collect_referenced_vars(&with_stmt.body, vars);
             }
@@ -9209,68 +9178,67 @@ impl HybridStaticBundler {
     }
 
     /// Collect variable names referenced in an expression
-    #[allow(clippy::only_used_in_recursion)]
-    fn collect_vars_in_expr(&self, expr: &Expr, vars: &mut FxIndexSet<String>) {
+    fn collect_vars_in_expr(expr: &Expr, vars: &mut FxIndexSet<String>) {
         match expr {
             Expr::Name(name) => {
                 vars.insert(name.id.to_string());
             }
             Expr::Call(call) => {
-                self.collect_vars_in_expr(&call.func, vars);
+                Self::collect_vars_in_expr(&call.func, vars);
                 for arg in call.arguments.args.iter() {
-                    self.collect_vars_in_expr(arg, vars);
+                    Self::collect_vars_in_expr(arg, vars);
                 }
                 for keyword in call.arguments.keywords.iter() {
-                    self.collect_vars_in_expr(&keyword.value, vars);
+                    Self::collect_vars_in_expr(&keyword.value, vars);
                 }
             }
             Expr::Attribute(attr) => {
-                self.collect_vars_in_expr(&attr.value, vars);
+                Self::collect_vars_in_expr(&attr.value, vars);
             }
             Expr::BinOp(binop) => {
-                self.collect_vars_in_expr(&binop.left, vars);
-                self.collect_vars_in_expr(&binop.right, vars);
+                Self::collect_vars_in_expr(&binop.left, vars);
+                Self::collect_vars_in_expr(&binop.right, vars);
             }
             Expr::UnaryOp(unaryop) => {
-                self.collect_vars_in_expr(&unaryop.operand, vars);
+                Self::collect_vars_in_expr(&unaryop.operand, vars);
             }
             Expr::BoolOp(boolop) => {
                 for value in boolop.values.iter() {
-                    self.collect_vars_in_expr(value, vars);
+                    Self::collect_vars_in_expr(value, vars);
                 }
             }
             Expr::Compare(compare) => {
-                self.collect_vars_in_expr(&compare.left, vars);
+                Self::collect_vars_in_expr(&compare.left, vars);
                 for comparator in compare.comparators.iter() {
-                    self.collect_vars_in_expr(comparator, vars);
+                    Self::collect_vars_in_expr(comparator, vars);
                 }
             }
             Expr::List(list) => {
                 for elt in list.elts.iter() {
-                    self.collect_vars_in_expr(elt, vars);
+                    Self::collect_vars_in_expr(elt, vars);
                 }
             }
             Expr::Tuple(tuple) => {
                 for elt in tuple.elts.iter() {
-                    self.collect_vars_in_expr(elt, vars);
+                    Self::collect_vars_in_expr(elt, vars);
                 }
             }
             Expr::Dict(dict) => {
                 for item in dict.items.iter() {
                     if let Some(key) = &item.key {
-                        self.collect_vars_in_expr(key, vars);
+                        Self::collect_vars_in_expr(key, vars);
                     }
-                    self.collect_vars_in_expr(&item.value, vars);
+                    Self::collect_vars_in_expr(&item.value, vars);
                 }
             }
             Expr::Subscript(subscript) => {
-                self.collect_vars_in_expr(&subscript.value, vars);
-                self.collect_vars_in_expr(&subscript.slice, vars);
+                Self::collect_vars_in_expr(&subscript.value, vars);
+                Self::collect_vars_in_expr(&subscript.slice, vars);
             }
             Expr::If(if_expr) => {
-                self.collect_vars_in_expr(&if_expr.test, vars);
-                self.collect_vars_in_expr(&if_expr.body, vars);
-                self.collect_vars_in_expr(&if_expr.orelse, vars);
+                Self::collect_vars_in_expr(&if_expr.test, vars);
+                Self::collect_vars_in_expr(&if_expr.body, vars);
+                Self::collect_vars_in_expr(&if_expr.orelse, vars);
             }
             _ => {}
         }
@@ -11300,21 +11268,21 @@ impl HybridStaticBundler {
                     // Apply renames to function annotations (parameters and return type)
                     // Apply renames to function annotations (parameters and return type)
                     if let Some(ref mut returns) = func_def_clone.returns {
-                        self.resolve_import_aliases_in_expr(returns, &ctx.import_aliases);
+                        Self::resolve_import_aliases_in_expr(returns, &ctx.import_aliases);
                         self.rewrite_aliases_in_expr(returns, &module_renames);
                     }
 
                     // Apply renames to parameter annotations
                     for param in &mut func_def_clone.parameters.args {
                         if let Some(ref mut annotation) = param.parameter.annotation {
-                            self.resolve_import_aliases_in_expr(annotation, &ctx.import_aliases);
+                            Self::resolve_import_aliases_in_expr(annotation, &ctx.import_aliases);
                             self.rewrite_aliases_in_expr(annotation, &module_renames);
                         }
                     }
 
                     // Apply renames and resolve import aliases in function body
                     for body_stmt in &mut func_def_clone.body {
-                        self.resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);
+                        Self::resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);
                         self.rewrite_aliases_in_stmt(body_stmt, &module_renames);
                         // Also apply semantic renames from context
                         if let Some(semantic_renames) = ctx.module_renames.get(module_name) {
@@ -14054,7 +14022,7 @@ impl HybridStaticBundler {
         // Apply renames to base classes
         // Apply renames and resolve import aliases in class body
         for body_stmt in &mut class_def_clone.body {
-            self.resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);
+            Self::resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);
 
             // Build a combined rename map that includes renames from all modules
             // This is needed because global variables from other modules might be renamed
@@ -14190,7 +14158,7 @@ impl HybridStaticBundler {
         }
 
         // Apply existing renames to the RHS value BEFORE creating new rename for LHS
-        self.resolve_import_aliases_in_expr(&mut assign_clone.value, &ctx.import_aliases);
+        Self::resolve_import_aliases_in_expr(&mut assign_clone.value, &ctx.import_aliases);
         self.rewrite_aliases_in_expr(&mut assign_clone.value, module_renames);
 
         // Now create a new rename for the LHS
@@ -14351,9 +14319,7 @@ impl HybridStaticBundler {
     }
 
     /// Resolve import aliases in an expression
-    #[allow(clippy::only_used_in_recursion)]
     fn resolve_import_aliases_in_expr(
-        &self,
         expr: &mut Expr,
         import_aliases: &FxIndexMap<String, String>,
     ) {
@@ -14385,61 +14351,61 @@ impl HybridStaticBundler {
                 }
             }
             Expr::Attribute(attr_expr) => {
-                self.resolve_import_aliases_in_expr(&mut attr_expr.value, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut attr_expr.value, import_aliases);
             }
             Expr::Call(call_expr) => {
-                self.resolve_import_aliases_in_expr(&mut call_expr.func, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut call_expr.func, import_aliases);
                 for arg in &mut call_expr.arguments.args {
-                    self.resolve_import_aliases_in_expr(arg, import_aliases);
+                    Self::resolve_import_aliases_in_expr(arg, import_aliases);
                 }
                 for keyword in &mut call_expr.arguments.keywords {
-                    self.resolve_import_aliases_in_expr(&mut keyword.value, import_aliases);
+                    Self::resolve_import_aliases_in_expr(&mut keyword.value, import_aliases);
                 }
             }
             Expr::List(list_expr) => {
                 for elem in &mut list_expr.elts {
-                    self.resolve_import_aliases_in_expr(elem, import_aliases);
+                    Self::resolve_import_aliases_in_expr(elem, import_aliases);
                 }
             }
             Expr::Dict(dict_expr) => {
                 for item in &mut dict_expr.items {
                     if let Some(ref mut key) = item.key {
-                        self.resolve_import_aliases_in_expr(key, import_aliases);
+                        Self::resolve_import_aliases_in_expr(key, import_aliases);
                     }
-                    self.resolve_import_aliases_in_expr(&mut item.value, import_aliases);
+                    Self::resolve_import_aliases_in_expr(&mut item.value, import_aliases);
                 }
             }
             Expr::Tuple(tuple_expr) => {
                 for elem in &mut tuple_expr.elts {
-                    self.resolve_import_aliases_in_expr(elem, import_aliases);
+                    Self::resolve_import_aliases_in_expr(elem, import_aliases);
                 }
             }
             Expr::BinOp(binop_expr) => {
-                self.resolve_import_aliases_in_expr(&mut binop_expr.left, import_aliases);
-                self.resolve_import_aliases_in_expr(&mut binop_expr.right, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut binop_expr.left, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut binop_expr.right, import_aliases);
             }
             Expr::UnaryOp(unaryop_expr) => {
-                self.resolve_import_aliases_in_expr(&mut unaryop_expr.operand, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut unaryop_expr.operand, import_aliases);
             }
             Expr::Compare(compare_expr) => {
-                self.resolve_import_aliases_in_expr(&mut compare_expr.left, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut compare_expr.left, import_aliases);
                 for comparator in &mut compare_expr.comparators {
-                    self.resolve_import_aliases_in_expr(comparator, import_aliases);
+                    Self::resolve_import_aliases_in_expr(comparator, import_aliases);
                 }
             }
             Expr::BoolOp(boolop_expr) => {
                 for value in &mut boolop_expr.values {
-                    self.resolve_import_aliases_in_expr(value, import_aliases);
+                    Self::resolve_import_aliases_in_expr(value, import_aliases);
                 }
             }
             Expr::If(if_expr) => {
-                self.resolve_import_aliases_in_expr(&mut if_expr.test, import_aliases);
-                self.resolve_import_aliases_in_expr(&mut if_expr.body, import_aliases);
-                self.resolve_import_aliases_in_expr(&mut if_expr.orelse, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut if_expr.test, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut if_expr.body, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut if_expr.orelse, import_aliases);
             }
             Expr::Subscript(subscript_expr) => {
-                self.resolve_import_aliases_in_expr(&mut subscript_expr.value, import_aliases);
-                self.resolve_import_aliases_in_expr(&mut subscript_expr.slice, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut subscript_expr.value, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut subscript_expr.slice, import_aliases);
             }
             _ => {} // Other expressions don't contain identifiers to resolve
         }
@@ -14447,89 +14413,88 @@ impl HybridStaticBundler {
 
     /// Resolve import aliases in a statement
     fn resolve_import_aliases_in_stmt(
-        &self,
         stmt: &mut Stmt,
         import_aliases: &FxIndexMap<String, String>,
     ) {
         match stmt {
             Stmt::Assign(assign) => {
-                self.resolve_import_aliases_in_expr(&mut assign.value, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut assign.value, import_aliases);
             }
             Stmt::AnnAssign(ann_assign) => {
                 if let Some(ref mut value) = ann_assign.value {
-                    self.resolve_import_aliases_in_expr(value, import_aliases);
+                    Self::resolve_import_aliases_in_expr(value, import_aliases);
                 }
-                self.resolve_import_aliases_in_expr(&mut ann_assign.annotation, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut ann_assign.annotation, import_aliases);
             }
             Stmt::Return(return_stmt) => {
                 if let Some(ref mut value) = return_stmt.value {
-                    self.resolve_import_aliases_in_expr(value, import_aliases);
+                    Self::resolve_import_aliases_in_expr(value, import_aliases);
                 }
             }
             Stmt::Expr(expr_stmt) => {
-                self.resolve_import_aliases_in_expr(&mut expr_stmt.value, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut expr_stmt.value, import_aliases);
             }
             Stmt::If(if_stmt) => {
-                self.resolve_import_aliases_in_expr(&mut if_stmt.test, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut if_stmt.test, import_aliases);
                 for body_stmt in &mut if_stmt.body {
-                    self.resolve_import_aliases_in_stmt(body_stmt, import_aliases);
+                    Self::resolve_import_aliases_in_stmt(body_stmt, import_aliases);
                 }
                 for elif_else in &mut if_stmt.elif_else_clauses {
                     if let Some(ref mut condition) = elif_else.test {
-                        self.resolve_import_aliases_in_expr(condition, import_aliases);
+                        Self::resolve_import_aliases_in_expr(condition, import_aliases);
                     }
                     for body_stmt in &mut elif_else.body {
-                        self.resolve_import_aliases_in_stmt(body_stmt, import_aliases);
+                        Self::resolve_import_aliases_in_stmt(body_stmt, import_aliases);
                     }
                 }
             }
             Stmt::While(while_stmt) => {
-                self.resolve_import_aliases_in_expr(&mut while_stmt.test, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut while_stmt.test, import_aliases);
                 for body_stmt in &mut while_stmt.body {
-                    self.resolve_import_aliases_in_stmt(body_stmt, import_aliases);
+                    Self::resolve_import_aliases_in_stmt(body_stmt, import_aliases);
                 }
                 for else_stmt in &mut while_stmt.orelse {
-                    self.resolve_import_aliases_in_stmt(else_stmt, import_aliases);
+                    Self::resolve_import_aliases_in_stmt(else_stmt, import_aliases);
                 }
             }
             Stmt::For(for_stmt) => {
-                self.resolve_import_aliases_in_expr(&mut for_stmt.iter, import_aliases);
+                Self::resolve_import_aliases_in_expr(&mut for_stmt.iter, import_aliases);
                 for body_stmt in &mut for_stmt.body {
-                    self.resolve_import_aliases_in_stmt(body_stmt, import_aliases);
+                    Self::resolve_import_aliases_in_stmt(body_stmt, import_aliases);
                 }
                 for else_stmt in &mut for_stmt.orelse {
-                    self.resolve_import_aliases_in_stmt(else_stmt, import_aliases);
+                    Self::resolve_import_aliases_in_stmt(else_stmt, import_aliases);
                 }
             }
             Stmt::FunctionDef(func_def) => {
                 // Resolve in parameter defaults and annotations
                 for param in &mut func_def.parameters.args {
                     if let Some(ref mut default) = param.default {
-                        self.resolve_import_aliases_in_expr(default, import_aliases);
+                        Self::resolve_import_aliases_in_expr(default, import_aliases);
                     }
                     if let Some(ref mut annotation) = param.parameter.annotation {
-                        self.resolve_import_aliases_in_expr(annotation, import_aliases);
+                        Self::resolve_import_aliases_in_expr(annotation, import_aliases);
                     }
                 }
                 // Resolve in return type annotation
                 if let Some(ref mut returns) = func_def.returns {
-                    self.resolve_import_aliases_in_expr(returns, import_aliases);
+                    Self::resolve_import_aliases_in_expr(returns, import_aliases);
                 }
                 // Resolve in function body
                 for stmt in &mut func_def.body {
-                    self.resolve_import_aliases_in_stmt(stmt, import_aliases);
+                    Self::resolve_import_aliases_in_stmt(stmt, import_aliases);
                 }
             }
             Stmt::ClassDef(class_def) => {
                 // Resolve in base classes
                 if let Some(ref mut arguments) = class_def.arguments {
                     for arg in &mut arguments.args {
-                        self.resolve_import_aliases_in_expr(arg, import_aliases);
+                        Self::resolve_import_aliases_in_expr(arg, import_aliases);
                     }
                 }
                 // Resolve in class body
                 for stmt in &mut class_def.body {
-                    self.resolve_import_aliases_in_stmt(stmt, import_aliases);
+                    Self::resolve_import_aliases_in_stmt(stmt, import_aliases);
                 }
             }
             // Add more statement types as needed
