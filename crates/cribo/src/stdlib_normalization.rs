@@ -419,6 +419,7 @@ impl StdlibNormalizer {
     }
 
     /// Rewrite aliases in expressions
+    #[allow(clippy::only_used_in_recursion)]
     fn rewrite_aliases_in_expr(
         &self,
         expr: &mut Expr,
@@ -602,6 +603,7 @@ impl StdlibNormalizer {
     }
 
     /// Recursively rewrite only global statements, not other name references
+    #[allow(clippy::only_used_in_recursion)]
     fn rewrite_global_statements_only(
         &self,
         stmt: &mut Stmt,

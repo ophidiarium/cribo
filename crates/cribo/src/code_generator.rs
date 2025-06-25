@@ -6614,6 +6614,7 @@ impl HybridStaticBundler {
     }
 
     /// Transform an expression with awareness of local variables
+    #[allow(clippy::only_used_in_recursion)]
     fn transform_expr_for_module_vars_with_locals(
         &self,
         expr: &mut Expr,
