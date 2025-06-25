@@ -496,6 +496,138 @@ impl StdlibNormalizer {
                 Self::rewrite_aliases_in_expr(&mut subscript_expr.value, alias_to_canonical);
                 Self::rewrite_aliases_in_expr(&mut subscript_expr.slice, alias_to_canonical);
             }
+            Expr::BinOp(binop) => {
+                Self::rewrite_aliases_in_expr(&mut binop.left, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut binop.right, alias_to_canonical);
+            }
+            Expr::UnaryOp(unaryop) => {
+                Self::rewrite_aliases_in_expr(&mut unaryop.operand, alias_to_canonical);
+            }
+            Expr::Compare(compare) => {
+                Self::rewrite_aliases_in_expr(&mut compare.left, alias_to_canonical);
+                for comparator in &mut compare.comparators {
+                    Self::rewrite_aliases_in_expr(comparator, alias_to_canonical);
+                }
+            }
+            Expr::BoolOp(boolop) => {
+                for value in &mut boolop.values {
+                    Self::rewrite_aliases_in_expr(value, alias_to_canonical);
+                }
+            }
+            Expr::Dict(dict) => {
+                for item in &mut dict.items {
+                    if let Some(ref mut key) = item.key {
+                        Self::rewrite_aliases_in_expr(key, alias_to_canonical);
+                    }
+                    Self::rewrite_aliases_in_expr(&mut item.value, alias_to_canonical);
+                }
+            }
+            Expr::Set(set) => {
+                for elem in &mut set.elts {
+                    Self::rewrite_aliases_in_expr(elem, alias_to_canonical);
+                }
+            }
+            Expr::ListComp(comp) => {
+                Self::rewrite_aliases_in_expr(&mut comp.elt, alias_to_canonical);
+                for generator in &mut comp.generators {
+                    Self::rewrite_aliases_in_expr(&mut generator.iter, alias_to_canonical);
+                    for if_clause in &mut generator.ifs {
+                        Self::rewrite_aliases_in_expr(if_clause, alias_to_canonical);
+                    }
+                }
+            }
+            Expr::SetComp(comp) => {
+                Self::rewrite_aliases_in_expr(&mut comp.elt, alias_to_canonical);
+                for generator in &mut comp.generators {
+                    Self::rewrite_aliases_in_expr(&mut generator.iter, alias_to_canonical);
+                    for if_clause in &mut generator.ifs {
+                        Self::rewrite_aliases_in_expr(if_clause, alias_to_canonical);
+                    }
+                }
+            }
+            Expr::DictComp(comp) => {
+                Self::rewrite_aliases_in_expr(&mut comp.key, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut comp.value, alias_to_canonical);
+                for generator in &mut comp.generators {
+                    Self::rewrite_aliases_in_expr(&mut generator.iter, alias_to_canonical);
+                    for if_clause in &mut generator.ifs {
+                        Self::rewrite_aliases_in_expr(if_clause, alias_to_canonical);
+                    }
+                }
+            }
+            Expr::Generator(comp) => {
+                Self::rewrite_aliases_in_expr(&mut comp.elt, alias_to_canonical);
+                for generator in &mut comp.generators {
+                    Self::rewrite_aliases_in_expr(&mut generator.iter, alias_to_canonical);
+                    for if_clause in &mut generator.ifs {
+                        Self::rewrite_aliases_in_expr(if_clause, alias_to_canonical);
+                    }
+                }
+            }
+            Expr::Lambda(lambda) => {
+                // Lambda parameters might have annotations
+                if let Some(ref mut params) = lambda.parameters {
+                    for param in &mut params.posonlyargs {
+                        if let Some(ref mut annotation) = param.parameter.annotation {
+                            Self::rewrite_aliases_in_expr(annotation, alias_to_canonical);
+                        }
+                    }
+                    for param in &mut params.args {
+                        if let Some(ref mut annotation) = param.parameter.annotation {
+                            Self::rewrite_aliases_in_expr(annotation, alias_to_canonical);
+                        }
+                    }
+                    for param in &mut params.kwonlyargs {
+                        if let Some(ref mut annotation) = param.parameter.annotation {
+                            Self::rewrite_aliases_in_expr(annotation, alias_to_canonical);
+                        }
+                    }
+                }
+                // Process the body
+                Self::rewrite_aliases_in_expr(&mut lambda.body, alias_to_canonical);
+            }
+            Expr::If(ifexp) => {
+                Self::rewrite_aliases_in_expr(&mut ifexp.test, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut ifexp.body, alias_to_canonical);
+                Self::rewrite_aliases_in_expr(&mut ifexp.orelse, alias_to_canonical);
+            }
+            Expr::Yield(yield_expr) => {
+                if let Some(ref mut value) = yield_expr.value {
+                    Self::rewrite_aliases_in_expr(value, alias_to_canonical);
+                }
+            }
+            Expr::YieldFrom(yield_from) => {
+                Self::rewrite_aliases_in_expr(&mut yield_from.value, alias_to_canonical);
+            }
+            Expr::Await(await_expr) => {
+                Self::rewrite_aliases_in_expr(&mut await_expr.value, alias_to_canonical);
+            }
+            Expr::Starred(starred) => {
+                Self::rewrite_aliases_in_expr(&mut starred.value, alias_to_canonical);
+            }
+            Expr::Slice(slice) => {
+                if let Some(ref mut lower) = slice.lower {
+                    Self::rewrite_aliases_in_expr(lower, alias_to_canonical);
+                }
+                if let Some(ref mut upper) = slice.upper {
+                    Self::rewrite_aliases_in_expr(upper, alias_to_canonical);
+                }
+                if let Some(ref mut step) = slice.step {
+                    Self::rewrite_aliases_in_expr(step, alias_to_canonical);
+                }
+            }
+            Expr::Named(named) => {
+                Self::rewrite_aliases_in_expr(&mut named.value, alias_to_canonical);
+            }
+            // Literals don't need rewriting
+            Expr::StringLiteral(_)
+            | Expr::BytesLiteral(_)
+            | Expr::NumberLiteral(_)
+            | Expr::BooleanLiteral(_)
+            | Expr::NoneLiteral(_)
+            | Expr::EllipsisLiteral(_) => {
+                // No aliases to rewrite in literals
+            }
             _ => {
                 debug!(
                     "Unhandled expression type in rewrite_aliases_in_expr: {:?}",
