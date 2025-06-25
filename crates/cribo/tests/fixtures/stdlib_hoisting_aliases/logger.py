@@ -30,7 +30,7 @@ def get_logger_info() -> str:
     # Use aliased OrderedDict
     info = ODict(
         [
-            ("python_version", python_sys.version.split()[0]),
+            ("python_version", "3.12.0"),  # Fixed version for deterministic output
             ("logger_name", logger.name),
             ("log_level", log_lib.getLevelName(logger.level)),
             ("handlers", len(logger.handlers)),
