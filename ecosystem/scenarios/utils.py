@@ -91,16 +91,22 @@ def run_bundled_test(bundled_path: str, test_script: str) -> subprocess.Complete
     Returns:
         CompletedProcess instance with the test result
     """
-    import sys
+    original_sys_path = sys.path.copy()
+    try:
+        # Insert the bundle directory into sys.path
+        sys.path.insert(0, bundled_path)
 
-    result = subprocess.run([sys.executable, "-c", test_script], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, "-c", test_script], capture_output=True, text=True)
 
-    if result.returncode != 0:
-        print(f"❌ Tests failed with exit code {result.returncode}")
-        print(f"STDOUT:\n{result.stdout}")
-        print(f"STDERR:\n{result.stderr}")
+        if result.returncode != 0:
+            print(f"❌ Tests failed with exit code {result.returncode}")
+            print(f"STDOUT:\n{result.stdout}")
+            print(f"STDERR:\n{result.stderr}")
 
-    return result
+        return result
+    finally:
+        # Restore the original sys.path
+        sys.path = original_sys_path
 
 
 def format_bundle_size(size_bytes: int) -> str:
