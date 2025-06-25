@@ -1,12 +1,15 @@
 use std::{
     fs,
+    hash::BuildHasherDefault,
     path::{Path, PathBuf},
+    sync::OnceLock,
 };
 
 use anyhow::{Context, Result, anyhow};
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use log::{debug, info, trace, warn};
-use ruff_python_ast::{ModModule, Stmt, StmtImportFrom, visitor::Visitor};
+use ruff_python_ast::{ModModule, visitor::Visitor};
+use rustc_hash::FxHasher;
 
 use crate::{
     code_generator::HybridStaticBundler,
@@ -23,6 +26,18 @@ use crate::{
     visitors::{ImportDiscoveryVisitor, ImportLocation, ScopeElement},
 };
 
+/// Type alias for IndexMap with FxHasher for better performance
+type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
+
+/// Static empty parsed module for creating Stylist instances
+static EMPTY_PARSED_MODULE: OnceLock<ruff_python_parser::Parsed<ModModule>> = OnceLock::new();
+
+/// Get or create the empty parsed module for Stylist creation
+fn get_empty_parsed_module() -> &'static ruff_python_parser::Parsed<ModModule> {
+    EMPTY_PARSED_MODULE
+        .get_or_init(|| ruff_python_parser::parse_module("").expect("Failed to parse empty module"))
+}
+
 /// Type alias for module processing queue
 type ModuleQueue = Vec<(String, PathBuf)>;
 /// Type alias for processed modules set
@@ -36,20 +51,6 @@ type ImportExtractionResult = Vec<(
     Option<crate::visitors::ImportType>,
     Option<String>,
 )>;
-
-/// Context for import extraction operations
-struct ImportExtractionContext<'a> {
-    imports: &'a mut Vec<String>,
-    file_path: &'a Path,
-    resolver: Option<&'a mut ModuleResolver>,
-}
-
-/// Context for module import checking operations
-struct ModuleImportContext<'a> {
-    imports: &'a mut Vec<String>,
-    base_module: &'a str,
-    resolver: &'a mut ModuleResolver,
-}
 
 /// Parameters for discovery phase operations
 struct DiscoveryParams<'a> {
@@ -87,9 +88,26 @@ struct GraphBuildParams<'a> {
     graph: &'a mut CriboGraph,
 }
 
+/// Result of the AST processing pipeline
+#[derive(Clone)]
+struct ProcessedModule {
+    /// The transformed AST after all pipeline stages
+    ast: ModModule,
+    /// The original source code (needed for semantic analysis and code generation)
+    source: String,
+    /// Normalized imports map (alias -> canonical)
+    normalized_imports: FxIndexMap<String, String>,
+    /// Modules created by stdlib normalization (e.g., "abc", "collections")
+    normalized_modules: IndexSet<String, BuildHasherDefault<FxHasher>>,
+    /// Module ID if already added to dependency graph
+    module_id: Option<crate::cribo_graph::ModuleId>,
+}
+
 pub struct BundleOrchestrator {
     config: Config,
     semantic_bundler: SemanticBundler,
+    /// Cache of processed modules to ensure we only parse and transform once
+    module_cache: std::sync::Mutex<FxIndexMap<PathBuf, ProcessedModule>>,
 }
 
 impl BundleOrchestrator {
@@ -97,7 +115,122 @@ impl BundleOrchestrator {
         Self {
             config,
             semantic_bundler: SemanticBundler::new(),
+            module_cache: std::sync::Mutex::new(FxIndexMap::default()),
         }
+    }
+
+    /// Single entry point for parsing and processing modules
+    /// This is THE ONLY place where ruff_python_parser::parse_module should be called
+    ///
+    /// Pipeline:
+    /// 1. Check cache
+    /// 2. Read file and parse
+    /// 3. Semantic analysis (on raw AST)
+    /// 4. Stdlib normalization (transforms AST)
+    /// 5. Cache result
+    fn process_module(
+        &mut self,
+        module_path: &Path,
+        module_name: &str,
+        graph: Option<&mut CriboGraph>,
+    ) -> Result<ProcessedModule> {
+        // Canonicalize path for consistent caching
+        let canonical_path = module_path
+            .canonicalize()
+            .unwrap_or_else(|_| module_path.to_path_buf());
+
+        // Check cache first
+        {
+            let cache = self.module_cache.lock().unwrap();
+            if let Some(cached) = cache.get(&canonical_path) {
+                debug!("Using cached module: {module_name}");
+
+                // If graph is provided but cached module doesn't have module_id,
+                // we need to add it to the graph
+                let module_id = if graph.is_some() && cached.module_id.is_none() {
+                    let graph = graph.unwrap();
+                    let module_id =
+                        graph.add_module(module_name.to_string(), module_path.to_path_buf());
+
+                    // Perform semantic analysis
+                    self.semantic_bundler.analyze_module(
+                        module_id,
+                        &cached.ast,
+                        &cached.source,
+                        module_path,
+                    )?;
+
+                    Some(module_id)
+                } else {
+                    cached.module_id
+                };
+
+                return Ok(ProcessedModule {
+                    ast: cached.ast.clone(),
+                    source: cached.source.clone(),
+                    normalized_imports: cached.normalized_imports.clone(),
+                    normalized_modules: cached.normalized_modules.clone(),
+                    module_id,
+                });
+            }
+        }
+
+        debug!("Processing module: {module_name} from {module_path:?}");
+
+        // Step 1: Read and parse (ONLY place where parse_module is called)
+        let source = fs::read_to_string(module_path)
+            .with_context(|| format!("Failed to read file: {module_path:?}"))?;
+        let source = normalize_line_endings(source);
+
+        let parsed = ruff_python_parser::parse_module(&source)
+            .with_context(|| format!("Failed to parse Python file: {module_path:?}"))?;
+        let mut ast = parsed.into_syntax();
+
+        // Step 2: Add to graph and perform semantic analysis (if graph provided)
+        let module_id = if let Some(graph) = graph {
+            let module_id = graph.add_module(module_name.to_string(), module_path.to_path_buf());
+
+            // Semantic analysis on raw AST
+            self.semantic_bundler
+                .analyze_module(module_id, &ast, &source, module_path)?;
+
+            Some(module_id)
+        } else {
+            None
+        };
+
+        // Step 3: Stdlib normalization (transforms AST)
+        let normalization_result = crate::stdlib_normalization::normalize_stdlib_imports(&mut ast);
+        debug!(
+            "Normalized imports for {module_name}: {:?}",
+            normalization_result.alias_to_canonical
+        );
+        debug!(
+            "Normalized modules for {module_name}: {:?}",
+            normalization_result.normalized_modules
+        );
+
+        // Step 4: Cache the result
+        let processed = ProcessedModule {
+            ast: ast.clone(),
+            source: source.clone(),
+            normalized_imports: normalization_result.alias_to_canonical.clone(),
+            normalized_modules: normalization_result.normalized_modules.clone(),
+            module_id,
+        };
+
+        {
+            let mut cache = self.module_cache.lock().unwrap();
+            cache.insert(canonical_path, processed.clone());
+        }
+
+        Ok(ProcessedModule {
+            ast,
+            source,
+            normalized_imports: normalization_result.alias_to_canonical,
+            normalized_modules: normalization_result.normalized_modules,
+            module_id,
+        })
     }
 
     /// Format error message for unresolvable cycles
@@ -656,8 +789,8 @@ impl BundleOrchestrator {
         ));
         queued_modules.insert(params.entry_module_name.to_owned());
 
-        // Store module data for phase 2
-        type DiscoveryData = (String, PathBuf, Vec<String>); // (name, path, imports) for discovery phase
+        // Store module data for phase 2 including parsed AST
+        type DiscoveryData = (String, PathBuf, Vec<String>, ModModule, String); // (name, path, imports, ast, source) for discovery phase
         let mut discovered_modules: Vec<DiscoveryData> = Vec::new();
 
         // PHASE 1: Discover and collect all modules
@@ -679,17 +812,26 @@ impl BundleOrchestrator {
                 continue;
             }
 
-            // Parse the module and extract imports (including module imports)
+            // Process module through the pipeline (parse, semantic analysis, normalization)
+            let processed = self.process_module(&module_path, &module_name, None)?;
+
+            // Extract imports from the processed AST
             let imports_with_context =
-                self.extract_all_imports_with_context(&module_path, Some(params.resolver))?;
+                self.extract_imports_from_ast(&processed.ast, &module_path, Some(params.resolver))?;
             let imports: Vec<String> = imports_with_context
                 .iter()
                 .map(|(m, _, _, _)| m.clone())
                 .collect();
             debug!("Extracted imports from {module_name}: {imports:?}");
 
-            // Store module data for later processing
-            discovered_modules.push((module_name.clone(), module_path.clone(), imports.clone()));
+            // Store module data including parsed AST for later processing
+            discovered_modules.push((
+                module_name.clone(),
+                module_path.clone(),
+                imports.clone(),
+                processed.ast,
+                processed.source,
+            ));
             processed_modules.insert(module_name.clone());
 
             // Find and queue first-party imports for discovery
@@ -723,43 +865,25 @@ impl BundleOrchestrator {
         let mut module_id_map = indexmap::IndexMap::new();
         let mut parsed_modules: Vec<ParsedModuleData> = Vec::new();
 
-        for (module_name, module_path, imports) in discovered_modules.iter() {
-            let module_id = params
-                .graph
-                .add_module(module_name.clone(), module_path.clone());
+        for (module_name, module_path, imports, _ast, _source) in discovered_modules {
+            debug!("Phase 2: Processing module '{module_name}'");
+
+            // Re-process the module WITH graph context this time
+            // This will use cache but also add to graph and do semantic analysis
+            let processed = self.process_module(&module_path, &module_name, Some(params.graph))?;
+
+            let module_id = processed
+                .module_id
+                .expect("module_id should be set when graph provided");
             module_id_map.insert(module_name.clone(), module_id);
             debug!("Added module to graph: {module_name} with ID {module_id:?}");
 
-            // Parse the module AST and build detailed graph
-            let source = fs::read_to_string(module_path)
-                .with_context(|| format!("Failed to read file: {module_path:?}"))?;
-            let source = crate::util::normalize_line_endings(source);
-            let parsed = ruff_python_parser::parse_module(&source)
-                .with_context(|| format!("Failed to parse Python file: {module_path:?}"))?;
-
-            let mut ast = parsed.into_syntax();
-
-            // Normalize stdlib imports BEFORE semantic analysis and graph building
-            // This ensures the dependency graph sees the normalized imports
-            let normalized_imports =
-                crate::stdlib_normalization::normalize_stdlib_imports(&mut ast);
-            if !normalized_imports.is_empty() {
-                debug!("Module '{module_name}' normalized imports: {normalized_imports:?}");
-
-                // Debug: Print first few statements to see if rewriting happened
-                for (i, stmt) in ast.body.iter().take(3).enumerate() {
-                    debug!("  Statement {}: {:?}", i, std::mem::discriminant(stmt));
-                }
-            }
-
-            // Perform semantic analysis on this module
-            self.semantic_bundler
-                .analyze_module(module_id, &ast, &source, module_path)?;
-
             // Build dependency graph BEFORE no-ops removal
-            if let Some(module) = params.graph.get_module_by_name_mut(module_name) {
+            if let Some(module) = params.graph.get_module_by_name_mut(&module_name) {
                 let mut builder = crate::graph_builder::GraphBuilder::new(module);
-                builder.build_from_ast(&ast)?;
+                builder
+                    .set_normalized_modules(processed.normalized_modules.iter().cloned().collect());
+                builder.build_from_ast(&processed.ast)?;
             }
 
             // Store parsed module data for later use
@@ -767,8 +891,8 @@ impl BundleOrchestrator {
                 module_name.clone(),
                 module_path.clone(),
                 imports.clone(),
-                ast,
-                source,
+                processed.ast,
+                processed.source,
             ));
         }
 
@@ -799,51 +923,15 @@ impl BundleOrchestrator {
         Ok(parsed_modules)
     }
 
-    /// Extract import statements from a Python file using AST parsing
-    /// This handles all import variations including multi-line, aliased, relative, and
-    /// parenthesized imports
-    pub fn extract_imports(
+    /// Extract imports from an already-parsed AST with full context information
+    fn extract_imports_from_ast(
         &self,
-        file_path: &Path,
-        resolver: Option<&mut ModuleResolver>,
-    ) -> Result<Vec<String>> {
-        let source = fs::read_to_string(file_path)
-            .with_context(|| format!("Failed to read file: {file_path:?}"))?;
-        let source = normalize_line_endings(source);
-
-        let parsed = ruff_python_parser::parse_module(&source)
-            .with_context(|| format!("Failed to parse Python file: {file_path:?}"))?;
-
-        let mut imports = Vec::new();
-
-        let mut context = ImportExtractionContext {
-            imports: &mut imports,
-            file_path,
-            resolver,
-        };
-
-        for stmt in parsed.syntax().body.iter() {
-            self.extract_imports_from_statement(stmt, &mut context);
-        }
-
-        Ok(imports)
-    }
-
-    /// Extract ALL imports from a Python file with full context information
-    pub fn extract_all_imports_with_context(
-        &self,
+        ast: &ModModule,
         file_path: &Path,
         mut resolver: Option<&mut ModuleResolver>,
     ) -> Result<ImportExtractionResult> {
-        let source = fs::read_to_string(file_path)
-            .with_context(|| format!("Failed to read file: {file_path:?}"))?;
-        let source = normalize_line_endings(source);
-
-        let parsed = ruff_python_parser::parse_module(&source)
-            .with_context(|| format!("Failed to parse Python file: {file_path:?}"))?;
-
         let mut visitor = ImportDiscoveryVisitor::new();
-        for stmt in &parsed.syntax().body {
+        for stmt in &ast.body {
             visitor.visit_stmt(stmt);
         }
 
@@ -955,81 +1043,6 @@ impl BundleOrchestrator {
         }
     }
 
-    /// Extract ALL imports from a Python file, including those nested in functions and classes
-    pub fn extract_all_imports(
-        &self,
-        file_path: &Path,
-        mut resolver: Option<&mut ModuleResolver>,
-    ) -> Result<Vec<String>> {
-        let source = fs::read_to_string(file_path)
-            .with_context(|| format!("Failed to read file: {file_path:?}"))?;
-        let source = normalize_line_endings(source);
-
-        let parsed = ruff_python_parser::parse_module(&source)
-            .with_context(|| format!("Failed to parse Python file: {file_path:?}"))?;
-
-        // Use the visitor to discover all imports
-        // Note: For simple import discovery, we don't need semantic analysis
-        let mut visitor = ImportDiscoveryVisitor::new();
-        for stmt in &parsed.syntax().body {
-            visitor.visit_stmt(stmt);
-        }
-
-        let discovered_imports = visitor.into_imports();
-        let mut imports_set = IndexSet::new();
-
-        // Convert discovered imports to module names, handling relative imports
-        for import in &discovered_imports {
-            // Handle ImportlibStatic imports
-            if matches!(
-                import.import_type,
-                crate::visitors::ImportType::ImportlibStatic
-            ) {
-                self.process_importlib_static_import(import, &mut imports_set);
-            } else if import.level > 0 {
-                self.process_relative_import_set(
-                    import,
-                    file_path,
-                    &mut resolver,
-                    &mut imports_set,
-                );
-            } else if let Some(ref module_name) = import.module_name {
-                // Absolute imports
-                imports_set.insert(module_name.clone());
-
-                // Check if any imported names are actually submodules
-                // Only do this for non-relative imports to avoid issues
-                self.check_submodule_imports_set(
-                    module_name,
-                    import,
-                    &mut resolver,
-                    &mut imports_set,
-                );
-            } else if import.names.len() == 1 {
-                self.process_single_name_import_set(import, &mut resolver, &mut imports_set);
-            }
-        }
-
-        // Convert IndexSet to Vec to maintain the existing API
-        let imports: Vec<String> = imports_set.into_iter().collect();
-
-        // Log discovery of function-scoped imports for debugging
-        for import in &discovered_imports {
-            if !matches!(import.location, ImportLocation::Module) {
-                debug!(
-                    "Found nested import: {:?} at {:?}",
-                    import
-                        .module_name
-                        .as_ref()
-                        .unwrap_or(&"<names>".to_string()),
-                    import.location
-                );
-            }
-        }
-
-        Ok(imports)
-    }
-
     /// Process relative imports and add to IndexSet
     fn process_relative_import_set(
         &self,
@@ -1121,154 +1134,6 @@ impl BundleOrchestrator {
                 imports.insert(full_module_name);
                 debug!("Detected submodule import: {name} from {module_name}");
             }
-        }
-    }
-
-    /// Extract import module names from a single AST statement
-    fn extract_imports_from_statement(
-        &self,
-        stmt: &Stmt,
-        context: &mut ImportExtractionContext<'_>,
-    ) {
-        if let Stmt::Import(import_stmt) = stmt {
-            for alias in &import_stmt.names {
-                // For dotted imports like "xml.etree.ElementTree", we need to extract
-                // the root module name "xml" for classification purposes, but we should
-                // preserve the full import path for the output
-                #[allow(clippy::disallowed_methods)]
-                let module_name = alias.name.id.to_string();
-                context.imports.push(module_name);
-            }
-        } else if let Stmt::ImportFrom(import_from_stmt) = stmt {
-            self.process_import_from_statement(import_from_stmt, context);
-        }
-    }
-
-    /// Process a "from ... import ..." statement to extract module names
-    fn process_import_from_statement(
-        &self,
-        import_from_stmt: &StmtImportFrom,
-        context: &mut ImportExtractionContext<'_>,
-    ) {
-        let level = import_from_stmt.level;
-
-        if level == 0 {
-            if let Some(ref mut resolver) = context.resolver {
-                self.process_absolute_import_with_resolver(
-                    import_from_stmt,
-                    context.imports,
-                    resolver,
-                );
-            } else {
-                self.process_absolute_import(import_from_stmt, context.imports);
-            }
-            return;
-        }
-
-        // Handle relative imports
-        // TODO: Consider extending resolver support to relative imports as well
-        if let Some(base_module) = self.resolve_relative_import(context.file_path, level) {
-            self.process_resolved_relative_import(import_from_stmt, context.imports, &base_module);
-        } else {
-            self.process_fallback_relative_import(import_from_stmt, context.imports, level);
-        }
-    }
-
-    /// Process absolute imports (level == 0)
-    fn process_absolute_import(
-        &self,
-        import_from_stmt: &StmtImportFrom,
-        imports: &mut Vec<String>,
-    ) {
-        if let Some(ref module) = import_from_stmt.module {
-            #[allow(clippy::disallowed_methods)]
-            let m = module.id.to_string();
-            // Avoid duplicate absolute imports (e.g., import importlib + from importlib import)
-            if !imports.contains(&m) {
-                imports.push(m);
-            }
-        }
-    }
-
-    /// Enhanced version that can detect module imports using a resolver
-    fn process_absolute_import_with_resolver(
-        &self,
-        import_from_stmt: &StmtImportFrom,
-        imports: &mut Vec<String>,
-        resolver: &mut ModuleResolver,
-    ) {
-        if let Some(ref module) = import_from_stmt.module {
-            #[allow(clippy::disallowed_methods)]
-            let m = module.id.to_string();
-            // Add the package/module being imported from
-            if !imports.contains(&m) {
-                imports.push(m.clone());
-            }
-
-            // Check if any of the imported names are actually modules
-            let mut module_context = ModuleImportContext {
-                imports,
-                base_module: &m,
-                resolver,
-            };
-            self.check_and_add_module_imports(import_from_stmt, &mut module_context);
-        }
-    }
-
-    /// Process relative imports that were successfully resolved
-    fn process_resolved_relative_import(
-        &self,
-        import_from_stmt: &StmtImportFrom,
-        imports: &mut Vec<String>,
-        base_module: &str,
-    ) {
-        if let Some(ref module) = import_from_stmt.module {
-            // Relative import with explicit module name: from .module import something
-            let full_module = self.build_full_module_name(base_module, &module.id);
-            imports.push(full_module);
-        } else {
-            // Relative import without explicit module: from . import something
-            // Add each imported name as a full module name
-            for alias in &import_from_stmt.names {
-                let full_import = self.build_full_module_name(base_module, &alias.name.id);
-                imports.push(full_import);
-            }
-        }
-    }
-
-    /// Build a full module name by combining base module and target module
-    fn build_full_module_name(&self, base_module: &str, target_module: &str) -> String {
-        if base_module.is_empty() {
-            target_module.to_owned()
-        } else {
-            format!("{base_module}.{target_module}")
-        }
-    }
-
-    /// Process relative imports when resolution fails (fallback behavior)
-    fn process_fallback_relative_import(
-        &self,
-        import_from_stmt: &StmtImportFrom,
-        imports: &mut Vec<String>,
-        level: u32,
-    ) {
-        if let Some(ref module) = import_from_stmt.module {
-            let module_name = self.format_module_name(&module.id, level);
-            imports.push(module_name);
-        } else {
-            let dots = ".".repeat(level as usize);
-            imports.push(dots);
-        }
-    }
-
-    /// Format module name based on relative import level
-    /// Assumes module is always non-empty when called
-    fn format_module_name(&self, module: &str, level: u32) -> String {
-        if level > 0 {
-            let dots = ".".repeat(level as usize);
-            format!("{dots}{module}")
-        } else {
-            module.to_owned()
         }
     }
 
@@ -1606,34 +1471,6 @@ impl BundleOrchestrator {
         Ok(())
     }
 
-    /// Helper method to check and add module imports to reduce nesting
-    fn check_and_add_module_imports(
-        &self,
-        import_from_stmt: &StmtImportFrom,
-        context: &mut ModuleImportContext<'_>,
-    ) {
-        for alias in &import_from_stmt.names {
-            #[allow(clippy::disallowed_methods)]
-            let imported_name = alias.name.id.to_string();
-            let full_module_name = format!("{}.{}", context.base_module, imported_name);
-
-            // Try to resolve the full module name to see if it's a module
-            let Ok(Some(_)) = context.resolver.resolve_module_path(&full_module_name) else {
-                continue;
-            };
-
-            // This is a module import (e.g., from greetings import greeting)
-            if context.imports.contains(&full_module_name) {
-                continue;
-            }
-            context.imports.push(full_module_name);
-            debug!(
-                "Detected module import: {} from {}",
-                imported_name, context.base_module
-            );
-        }
-    }
-
     /// Emit bundle using static bundler (no exec calls)
     fn emit_static_bundle(&mut self, params: StaticBundleParams<'_>) -> Result<String> {
         // First, detect and resolve conflicts after all modules have been analyzed
@@ -1675,29 +1512,11 @@ impl BundleOrchestrator {
                 ));
             }
         } else {
-            // Fall back to parsing modules if not pre-parsed
-            for (module_name, module_path, _imports) in params.sorted_modules {
-                let source = fs::read_to_string(module_path)
-                    .with_context(|| format!("Failed to read module file: {module_path:?}"))?;
-                let source = crate::util::normalize_line_endings(source);
-                // Calculate content hash for deterministic module naming
-                use sha2::{Digest, Sha256};
-                let mut hasher = Sha256::new();
-                hasher.update(source.as_bytes());
-                let hash = hasher.finalize();
-                let content_hash = format!("{hash:x}");
-
-                // Parse into AST
-                let ast = ruff_python_parser::parse_module(&source)
-                    .with_context(|| format!("Failed to parse module: {module_path:?}"))?;
-
-                module_asts.push((
-                    module_name.clone(),
-                    ast.into_syntax(),
-                    module_path.clone(),
-                    content_hash,
-                ));
-            }
+            // This fallback path should never be reached since we always pass pre-parsed modules
+            return Err(anyhow!(
+                "emit_static_bundle called without pre-parsed modules. This is a bug - all code \
+                 paths should provide parsed_modules"
+            ));
         }
 
         // Apply import rewriting if we have resolvable circular dependencies
@@ -1747,7 +1566,7 @@ impl BundleOrchestrator {
         })?;
 
         // Generate Python code from AST
-        let empty_parsed = ruff_python_parser::parse_module("")?;
+        let empty_parsed = get_empty_parsed_module();
         let stylist = ruff_python_codegen::Stylist::from_tokens(empty_parsed.tokens(), "");
 
         let mut code_parts = Vec::new();

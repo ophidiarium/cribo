@@ -30,6 +30,10 @@ def get_mock_file_info() -> dict:
 def __cribo_init___cribo_00f089_logger():
     module = types.SimpleNamespace()
     module.__name__ = 'logger'
+    json_stringify = json.dumps
+    module.json_stringify = json_stringify
+    ODict = collections.OrderedDict
+    module.ODict = ODict
     """Logger module - has side effects (print), uses different aliased stdlib imports."""
     print("Initializing logger module...")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")

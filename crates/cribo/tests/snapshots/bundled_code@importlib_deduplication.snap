@@ -8,6 +8,9 @@ input_file: crates/cribo/tests/fixtures/importlib_deduplication/main.py
 
 import functools
 import types
+package = types.SimpleNamespace()
+package.__name__ = 'package'
+package.submodule = types.SimpleNamespace()
 @functools.cache
 def __cribo_init___cribo_75ebb7_package_submodule():
     module = types.SimpleNamespace()
@@ -32,8 +35,6 @@ def __cribo_init___cribo_26ef78_mymodule():
     test_value = "Original"
     module.test_value = test_value
     return module
-package = types.SimpleNamespace()
-package.__name__ = 'package'
 """Test how importlib.import_module handles sys.modules and deduplication"""
 print("=== Testing importlib.import_module deduplication ===\n")
 mymodule = __cribo_init___cribo_26ef78_mymodule()

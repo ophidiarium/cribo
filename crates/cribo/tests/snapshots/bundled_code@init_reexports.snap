@@ -9,6 +9,10 @@ input_file: crates/cribo/tests/fixtures/init_reexports/main.py
 import functools
 import os
 import types
+mypackage = types.SimpleNamespace()
+mypackage.__name__ = 'mypackage'
+mypackage.utils = types.SimpleNamespace()
+mypackage.config = types.SimpleNamespace()
 """Utils subpackage with re-exports."""
 """Constants module."""
 def helper_function(data):
@@ -62,9 +66,6 @@ def __cribo_init___cribo_a81151_mypackage():
     module.format_data = format_data
     module.helper_function = helper_function
     return module
-mypackage = types.SimpleNamespace()
-mypackage.__name__ = 'mypackage'
-mypackage.utils = types.SimpleNamespace()
 '''\nTest script demonstrating __init__.py re-export preservation.\n\nThis fixture tests that imports in __init__.py files are preserved even if they\nappear "unused" within that file, as they are typically re-exports for the package interface.\n'''
 __cribo_init_result = __cribo_init___cribo_a81151_mypackage()
 for attr in dir(__cribo_init_result):

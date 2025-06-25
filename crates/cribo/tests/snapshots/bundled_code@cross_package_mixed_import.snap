@@ -9,6 +9,12 @@ input_file: crates/cribo/tests/fixtures/cross_package_mixed_import/main.py
 import functools
 import sys
 import types
+core = types.SimpleNamespace()
+core.__name__ = 'core'
+core.database = types.SimpleNamespace()
+core.utils = types.SimpleNamespace()
+models = types.SimpleNamespace()
+models.__name__ = 'models'
 def process_user(name: str) -> str:
     """Process a user-related string.\n\n    This function is imported by core.database.connection,\n    demonstrating a cross-package absolute import.\n    """
     return f"user_{name}_processed"
@@ -113,7 +119,7 @@ def __cribo_init___cribo_1f0c3d_core_database_connection():
     module.get_base_model = get_base_model
     _connection_types = ["standard", "pooled", "async"]
     module._connection_types = _connection_types
-    CONNECTION_METADATA = {"supported_types": _connection_types, "validator": helper_validate.__name__, "processor": process_user.__name__, "core_version": CORE_MODEL_VERSION, "model_config": DEFAULT_MODEL_CONFIG}
+    CONNECTION_METADATA = {"supported_types": module._connection_types, "validator": helper_validate.__name__, "processor": process_user.__name__, "core_version": CORE_MODEL_VERSION, "model_config": DEFAULT_MODEL_CONFIG}
     module.CONNECTION_METADATA = CONNECTION_METADATA
 
     class Connection:
@@ -221,12 +227,6 @@ def __cribo_init___cribo_f00e4b_core():
     module.validate = validate
     module.get_config = get_config
     return module
-core = types.SimpleNamespace()
-core.__name__ = 'core'
-core.database = types.SimpleNamespace()
-core.utils = types.SimpleNamespace()
-models = types.SimpleNamespace()
-models.__name__ = 'models'
 """Test fixture demonstrating cross-package mixed import patterns.\n\nThis tests the specific pattern where a module uses both:\n1. Deep absolute imports crossing package boundaries (e.g., from models.user)\n2. Relative imports within its package (e.g., from ..utils.helpers)\n3. Import order dependencies with __init__.py files\n"""
 __cribo_init_result = __cribo_init___cribo_f00e4b_core()
 for attr in dir(__cribo_init_result):

@@ -8,6 +8,17 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_globals_collision/main.py
 
 import functools
 import types
+core = types.SimpleNamespace()
+core.__name__ = 'core'
+core.database = types.SimpleNamespace()
+core.utils = types.SimpleNamespace()
+models = types.SimpleNamespace()
+models.__name__ = 'models'
+services = types.SimpleNamespace()
+services.__name__ = 'services'
+services.auth = types.SimpleNamespace()
+models.base = types.SimpleNamespace()
+models.user = types.SimpleNamespace()
 process_count = 0
 validate_cache = {}
 Logger_6 = str
@@ -313,15 +324,6 @@ def __cribo_init___cribo_df9c8d_core_database_connection():
         return conn
     module.create_connection = create_connection
     return module
-core = types.SimpleNamespace()
-core.__name__ = 'core'
-core.database = types.SimpleNamespace()
-core.utils = types.SimpleNamespace()
-models = types.SimpleNamespace()
-models.__name__ = 'models'
-services = types.SimpleNamespace()
-services.__name__ = 'services'
-services.auth = types.SimpleNamespace()
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\nWITHOUT circular dependencies\n"""
 core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
 db_process = core.database.connection.process

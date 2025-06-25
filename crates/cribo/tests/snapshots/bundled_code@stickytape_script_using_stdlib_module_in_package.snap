@@ -7,8 +7,8 @@ input_file: crates/cribo/tests/fixtures/stickytape_script_using_stdlib_module_in
 # https://github.com/ophidiarium/cribo
 
 import types
-message = "Hello"
 import xml.etree.ElementTree
+message = "Hello"
 greeting = types.SimpleNamespace()
 greeting.__all__ = ['message']
 greeting.message = message
