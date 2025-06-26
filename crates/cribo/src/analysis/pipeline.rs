@@ -7,10 +7,11 @@ use anyhow::Result;
 use log::{debug, info};
 
 use crate::{
-    analysis::{AnalysisResults, CircularDependencyAnalyzer},
+    analysis::{AnalysisResults, CircularDependencyAnalyzer, SymbolConflictDetector},
     cribo_graph::CriboGraph,
     orchestrator::ModuleRegistry,
     semantic_bundler::SemanticBundler,
+    semantic_model_provider::SemanticModelProvider,
     tree_shaking::TreeShaker,
 };
 
@@ -25,8 +26,9 @@ use crate::{
 /// ensuring no mutations occur during analysis.
 pub fn run_analysis_pipeline(
     graph: &CriboGraph,
-    _registry: &ModuleRegistry,
+    registry: &ModuleRegistry,
     _semantic_bundler: &SemanticBundler,
+    semantic_provider: &SemanticModelProvider,
     tree_shake_enabled: bool,
     entry_module_name: &str,
 ) -> Result<AnalysisResults> {
@@ -52,10 +54,25 @@ pub fn run_analysis_pipeline(
 
     // Stage 2: Semantic analysis for symbol conflicts
     debug!("Stage 2: Analyzing symbol conflicts");
-    // TODO: Extract symbol conflicts from semantic_bundler
-    // For now, semantic_bundler mutates internal state, but in the future
-    // it should produce a Vec<SymbolConflict> that we can store
-    results.symbol_conflicts = Vec::new();
+    let conflict_detector = SymbolConflictDetector::new(graph, registry, semantic_provider);
+    let symbol_conflicts = conflict_detector.detect_conflicts()?;
+
+    if !symbol_conflicts.is_empty() {
+        info!(
+            "Found {} symbol conflicts across modules",
+            symbol_conflicts.len()
+        );
+        for conflict in &symbol_conflicts {
+            debug!(
+                "Symbol '{}' conflicts across {} modules",
+                conflict.symbol_name,
+                conflict.conflicts.len()
+            );
+        }
+    } else {
+        debug!("No symbol conflicts detected");
+    }
+    results.symbol_conflicts = symbol_conflicts;
 
     // Stage 3: Tree-shaking analysis (if enabled)
     if tree_shake_enabled {

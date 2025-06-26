@@ -4,18 +4,23 @@
 //! into a single, declarative data structure that drives code generation.
 
 use indexmap::IndexMap;
+use ruff_text_size::{Ranged, TextRange};
 use rustc_hash::FxHashMap;
 
 use crate::{
     analysis::{AnalysisResults, ResolutionStrategy},
     cribo_graph::{CriboGraph, ItemId, ModuleId},
     orchestrator::ModuleRegistry,
+    semantic_model_provider::GlobalBindingId,
 };
 
 pub mod builder;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod symbol_origin_tests;
 
 /// The central plan that consolidates all bundling decisions
 #[derive(Debug, Clone, Default)]
@@ -27,7 +32,16 @@ pub struct BundlePlan {
     pub live_items: FxHashMap<ModuleId, Vec<ItemId>>,
 
     /// Symbol renaming decisions (populated in Phase 2)
-    pub symbol_renames: IndexMap<(ModuleId, String), String>,
+    pub symbol_renames: IndexMap<GlobalBindingId, String>,
+
+    /// AST node renaming map for code generator (populated from symbol_renames)
+    /// Maps (ModuleId, TextRange) to the new name for that AST node
+    pub ast_node_renames: FxHashMap<(ModuleId, TextRange), String>,
+
+    /// Maps the GlobalBindingId of an imported/re-exported symbol to the
+    /// GlobalBindingId of its original definition. This is the key to
+    /// tracking symbol identity across modules.
+    pub symbol_origins: FxHashMap<GlobalBindingId, GlobalBindingId>,
 
     /// Stdlib imports to hoist to top (populated in Phase 2)
     pub hoisted_imports: Vec<HoistedImport>,
@@ -37,6 +51,33 @@ pub struct BundlePlan {
 
     /// Import rewrites for circular dependencies (Phase 1 focus)
     pub import_rewrites: Vec<ImportRewrite>,
+
+    /// Declarative import structure for code generation
+    pub final_imports: IndexMap<ModuleId, ModuleFinalImports>,
+}
+
+/// Final import structure for a module after all transformations
+#[derive(Debug, Clone, Default)]
+pub struct ModuleFinalImports {
+    /// Direct imports (import module)
+    pub direct_imports: Vec<DirectImport>,
+    /// From imports (from module import ...)
+    pub from_imports: Vec<FromImport>,
+}
+
+/// A direct import after transformations
+#[derive(Debug, Clone)]
+pub struct DirectImport {
+    pub module: String,
+    pub alias: Option<String>,
+}
+
+/// A from import after transformations
+#[derive(Debug, Clone)]
+pub struct FromImport {
+    pub module: String,
+    pub symbols: IndexMap<String, Option<String>>, // symbol -> alias
+    pub level: u32,                                // relative import level
 }
 
 /// Metadata about how a module should be bundled
@@ -236,19 +277,20 @@ impl BundlePlan {
     /// Add symbol renames based on conflict analysis
     fn add_symbol_renames(&mut self, symbol_conflicts: &[crate::analysis::SymbolConflict]) {
         for conflict in symbol_conflicts {
-            // For now, use a simple numbering strategy
-            // In the future, this could be more sophisticated
-            for (idx, module_name) in conflict.defining_modules.iter().enumerate().skip(1) {
-                // Keep the first module's symbol name unchanged
-                // Rename subsequent ones with a suffix
-                let new_name = format!("{}_{}", conflict.symbol_name, idx);
+            // Skip the first instance - it keeps the original name
+            for (_idx, instance) in conflict.conflicts.iter().enumerate().skip(1) {
+                // Generate rename using module suffix
+                let module_suffix = instance.module_name.replace(['.', '-'], "_");
+                let new_name = format!("{}_{}", conflict.symbol_name, module_suffix);
 
-                // TODO: Convert module name to ModuleId
-                // For now, we'll need to enhance this when we have access to the mapping
+                // Add rename decision
+                self.symbol_renames
+                    .insert(instance.global_id, new_name.clone());
+
                 log::debug!(
-                    "Would rename symbol '{}' in module '{}' to '{}'",
+                    "Renaming symbol '{}' in module '{}' to '{}'",
                     conflict.symbol_name,
-                    module_name,
+                    instance.module_name,
                     new_name
                 );
             }
@@ -301,5 +343,51 @@ impl BundlePlan {
                 },
             );
         }
+    }
+
+    /// Populate the ast_node_renames map from symbol_renames using semantic models
+    /// This must be called after symbol_renames is populated
+    pub fn populate_ast_node_renames(
+        &mut self,
+        semantic_provider: &crate::semantic_model_provider::SemanticModelProvider,
+    ) {
+        // Clear any existing entries
+        self.ast_node_renames.clear();
+
+        // Iterate through all symbol rename decisions
+        for (global_binding_id, new_name) in &self.symbol_renames {
+            let module_id = global_binding_id.module_id;
+            let binding_id = global_binding_id.binding_id;
+
+            // Get the semantic model for this module
+            if let Some(Ok(semantic_model)) = semantic_provider.get_model(module_id) {
+                // Get the binding information
+                let binding = semantic_model.binding(binding_id);
+
+                // 1. Add the definition itself to the rename map
+                self.ast_node_renames
+                    .insert((module_id, binding.range), new_name.clone());
+
+                // 2. Add all references to the rename map
+                for reference_id in &binding.references {
+                    let reference = semantic_model.reference(*reference_id);
+                    self.ast_node_renames
+                        .insert((module_id, reference.range()), new_name.clone());
+                }
+
+                log::trace!(
+                    "Added {} AST node renames for symbol '{}' in module {:?}",
+                    binding.references.len() + 1,
+                    new_name,
+                    module_id
+                );
+            }
+        }
+
+        log::debug!(
+            "Populated {} AST node renames from {} symbol renames",
+            self.ast_node_renames.len(),
+            self.symbol_renames.len()
+        );
     }
 }

@@ -7,6 +7,7 @@
 pub mod circular_analyzer;
 pub mod circular_deps;
 pub mod pipeline;
+pub mod symbol_conflict_detector;
 
 pub use circular_analyzer::CircularDependencyAnalyzer;
 pub use circular_deps::{
@@ -14,6 +15,7 @@ pub use circular_deps::{
     ResolutionStrategy,
 };
 pub use pipeline::run_analysis_pipeline;
+pub use symbol_conflict_detector::SymbolConflictDetector;
 
 /// Results from the analysis pipeline
 #[derive(Debug, Clone, Default)]
@@ -28,17 +30,42 @@ pub struct AnalysisResults {
     pub tree_shake_results: Option<TreeShakeResults>,
 }
 
+use crate::semantic_model_provider::GlobalBindingId;
+
 /// Represents a symbol conflict between modules
 #[derive(Debug, Clone)]
 pub struct SymbolConflict {
     /// The conflicting symbol name
     pub symbol_name: String,
 
-    /// Modules that define this symbol
-    pub defining_modules: Vec<String>,
+    /// Conflicting instances with their global IDs
+    pub conflicts: Vec<ConflictInstance>,
+}
 
-    /// Suggested resolution (e.g., rename pattern)
-    pub suggested_resolution: String,
+/// A specific instance of a conflicting symbol
+#[derive(Debug, Clone)]
+pub struct ConflictInstance {
+    /// Global identifier for this binding
+    pub global_id: GlobalBindingId,
+
+    /// Module name for display purposes
+    pub module_name: String,
+
+    /// The type of symbol (function, class, variable, etc.)
+    pub symbol_type: SymbolType,
+
+    /// Source location of the definition
+    pub definition_range: ruff_text_size::TextRange,
+}
+
+/// Type of symbol that's conflicting
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SymbolType {
+    Function,
+    Class,
+    Variable,
+    Import,
+    Other,
 }
 
 /// Results from tree-shaking analysis

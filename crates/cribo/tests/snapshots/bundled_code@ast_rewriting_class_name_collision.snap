@@ -30,6 +30,9 @@ class Product_1:
         return f"Entity Product(sku='{self.sku}', name='{self.name}')"
 Product_1.__module__ = 'entities'
 Product_1.__name__ = 'Product'
+def create_product(sku: str, name: str) -> Product_1:
+    """Factory function for creating products."""
+    return Product_1(sku, name)
 """\nEntities module with User and Product classes.\nThese will conflict with models.py when bundled.\n"""
 class User_2:
     """User model for data persistence."""
@@ -55,6 +58,9 @@ class Product_2:
         return f"Model Product(name='{self.name}', price={self.price})"
 Product_2.__module__ = 'models'
 Product_2.__name__ = 'Product'
+def create_user(name: str, email: str) -> User_2:
+    """Factory function for creating users."""
+    return User_2(name, email)
 """\nModels module with User and Product classes.\nThese will conflict with entities.py when bundled.\n"""
 """\nClass name collision test.\nBoth modules define classes with the same names.\n"""
 ModelUser = User_2

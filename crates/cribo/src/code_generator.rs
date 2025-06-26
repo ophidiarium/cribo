@@ -86,6 +86,7 @@ struct ModuleTransformContext<'a> {
     module_path: &'a Path,
     global_info: Option<ModuleGlobalInfo>,
     semantic_bundler: Option<&'a SemanticBundler>,
+    bundle_plan: Option<&'a BundlePlan>,
 }
 
 /// Context for inlining operations
@@ -105,6 +106,7 @@ struct SemanticContext<'a> {
     graph: &'a DependencyGraph,
     symbol_registry: &'a SymbolRegistry,
     semantic_bundler: &'a SemanticBundler,
+    bundle_plan: Option<&'a BundlePlan>,
 }
 
 /// Parameters for namespace import operations
@@ -4480,6 +4482,7 @@ impl<'a> HybridStaticBundler<'a> {
             graph: params.graph,
             symbol_registry,
             semantic_bundler: params.semantic_bundler,
+            bundle_plan: params.bundle_plan,
         };
 
         // Convert ModuleId-based renames to module name-based renames
@@ -4936,6 +4939,7 @@ impl<'a> HybridStaticBundler<'a> {
                         module_path,
                         global_info,
                         semantic_bundler: Some(semantic_ctx.semantic_bundler),
+                        bundle_plan: semantic_ctx.bundle_plan,
                     };
                     // Generate init function with empty symbol_renames for now
                     let empty_renames = FxIndexMap::default();
@@ -5202,6 +5206,7 @@ impl<'a> HybridStaticBundler<'a> {
                     module_path,
                     global_info,
                     semantic_bundler: Some(semantic_ctx.semantic_bundler),
+                    bundle_plan: semantic_ctx.bundle_plan,
                 };
                 // Always use cached init functions to ensure modules are only initialized once
                 let init_function = self.transform_module_to_cache_init_function(
@@ -6206,6 +6211,18 @@ impl<'a> HybridStaticBundler<'a> {
         result
     }
 
+    /// Apply AST node renames from BundlePlan to a module
+    fn apply_ast_node_renames(
+        &self,
+        _ast: &mut ModModule,
+        module_name: &str,
+        _bundle_plan: &BundlePlan,
+    ) {
+        // TODO: We need access to the module ID to look up renames in bundle_plan.ast_node_renames
+        // For now, we'll have to skip this optimization
+        log::debug!("AST node renaming not yet implemented for module '{module_name}'");
+    }
+
     /// Transform a module into an initialization function
     fn transform_module_to_init_function(
         &self,
@@ -6215,6 +6232,11 @@ impl<'a> HybridStaticBundler<'a> {
     ) -> Result<Stmt> {
         let init_func_name = &self.init_functions[ctx.synthetic_name];
         let mut body = Vec::new();
+
+        // Apply AST node renames if we have a bundle plan
+        if let Some(bundle_plan) = ctx.bundle_plan {
+            self.apply_ast_node_renames(&mut ast, ctx.module_name, bundle_plan);
+        }
 
         // Create module object (returns multiple statements)
         body.extend(self.create_module_object_stmt(ctx.module_name, ctx.module_path));
@@ -6301,16 +6323,28 @@ impl<'a> HybridStaticBundler<'a> {
         // Store deferred imports to add after module body
         let deferred_imports_to_add = wrapper_deferred_imports.clone();
 
-        // IMPORTANT: Add import alias assignments FIRST, before processing the module body
-        // This ensures that aliases like 'helper_validate = validate' are available when
-        // the module body code tries to use them (e.g., helper_validate.__name__)
+        // DON'T add import alias assignments that reference renamed symbols from inlined modules
+        // These would cause NameError since the renamed symbols don't exist yet
+        // Instead, we'll handle these imports differently
         for stmt in &deferred_imports_to_add {
             if let Stmt::Assign(assign) = stmt {
                 // Check if this is a simple name-to-name assignment (import alias)
-                if let [Expr::Name(_target)] = assign.targets.as_slice()
-                    && let Expr::Name(_value) = &*assign.value
+                if let [Expr::Name(target)] = assign.targets.as_slice()
+                    && let Expr::Name(value) = &*assign.value
                 {
-                    // This is an import alias assignment, add it immediately
+                    let target_name = target.id.as_str();
+                    let value_name = value.id.as_str();
+
+                    // Skip assignments that reference renamed symbols from inlined modules
+                    if imports_from_inlined.contains(&target_name.to_string()) {
+                        log::debug!(
+                            "Skipping import assignment '{target_name}' = '{value_name}' in \
+                             wrapper - will use module attribute access instead"
+                        );
+                        continue;
+                    }
+
+                    // This is a regular import alias assignment, add it immediately
                     body.push(stmt.clone());
                 }
             }
@@ -9653,9 +9687,28 @@ impl<'a> HybridStaticBundler<'a> {
 
             // Process all exported symbols from the module
             for symbol in &module_info.exported_symbols {
-                if let Some(new_name) = semantic_ctx.symbol_registry.get_rename(&module_id, symbol)
-                {
-                    module_renames.insert(symbol.to_string(), new_name.to_string());
+                // Check if BundlePlan has a rename for this symbol
+                let renamed = if let Some(bundle_plan) = semantic_ctx.bundle_plan {
+                    // Look for renames in the bundle plan
+                    // Since we don't have access to binding IDs here, we'll use a heuristic:
+                    // Look for a rename where the new name contains the original symbol name
+                    let mut found_rename = None;
+                    for (global_id, new_name) in &bundle_plan.symbol_renames {
+                        if global_id.module_id == module_id
+                            && new_name.starts_with(&format!("{symbol}_"))
+                        {
+                            // This is likely the rename for our symbol
+                            found_rename = Some(new_name.clone());
+                            break;
+                        }
+                    }
+                    found_rename
+                } else {
+                    None
+                };
+
+                if let Some(new_name) = renamed {
+                    module_renames.insert(symbol.to_string(), new_name.clone());
                     log::debug!(
                         "Module '{module_name}': symbol '{symbol}' renamed to '{new_name}'"
                     );
@@ -13061,6 +13114,16 @@ impl<'a> HybridStaticBundler<'a> {
     ) -> Vec<Stmt> {
         let mut assignments = Vec::new();
 
+        log::debug!(
+            "create_assignments_for_inlined_imports: module_name='{}', imports={:?}",
+            module_name,
+            import_from
+                .names
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+        );
+
         for alias in &import_from.names {
             let imported_name = alias.name.as_str();
             let local_name = alias.asname.as_ref().unwrap_or(&alias.name);
@@ -13124,12 +13187,26 @@ impl<'a> HybridStaticBundler<'a> {
             } else {
                 // Regular symbol import
                 // Check if this symbol was renamed during inlining
+                log::debug!(
+                    "Looking for renames for module '{module_name}', \
+                     imported_name='{imported_name}'"
+                );
+                log::debug!(
+                    "Available keys in symbol_renames: {:?}",
+                    symbol_renames.keys().collect::<Vec<_>>()
+                );
                 let actual_name = if let Some(module_renames) = symbol_renames.get(module_name) {
+                    log::debug!(
+                        "Found renames for module '{}': {:?}",
+                        module_name,
+                        module_renames.keys().collect::<Vec<_>>()
+                    );
                     module_renames
                         .get(imported_name)
                         .map(|s| s.as_str())
                         .unwrap_or(imported_name)
                 } else {
+                    log::debug!("No renames found for module '{module_name}'");
                     imported_name
                 };
 
@@ -13767,6 +13844,20 @@ impl<'a> HybridStaticBundler<'a> {
     ) -> Vec<Stmt> {
         let mut result_stmts = Vec::new();
 
+        log::debug!(
+            "handle_imports_from_inlined_module_with_context: module_name='{}', imports={:?}",
+            module_name,
+            import_from
+                .names
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+        );
+        log::debug!(
+            "Available keys in symbol_renames: {:?}",
+            symbol_renames.keys().collect::<Vec<_>>()
+        );
+
         for alias in &import_from.names {
             let imported_name = alias.name.as_str();
             let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
@@ -13774,29 +13865,60 @@ impl<'a> HybridStaticBundler<'a> {
             // Check if this is likely a re-export from a package __init__.py
             let is_package_reexport = self.is_package_init_reexport(module_name, imported_name);
 
-            let renamed_symbol = if is_package_reexport {
-                // For package re-exports, use the original symbol name
-                // This handles cases like greetings/__init__.py re-exporting from greetings.english
-                log::debug!(
-                    "Using original name '{imported_name}' for symbol imported from package \
-                     '{module_name}'"
-                );
-                imported_name.to_string()
-            } else {
-                // Not a re-export, check normal renames
-                if let Some(module_renames) = symbol_renames.get(module_name) {
-                    module_renames
-                        .get(imported_name)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            // If no rename found, use the default pattern
-                            let module_suffix = module_name.cow_replace('.', "_").into_owned();
-                            format!("{imported_name}_{module_suffix}")
-                        })
+            // First check if we have a rename for this symbol
+            let renamed_symbol = if let Some(module_renames) = symbol_renames.get(module_name) {
+                if let Some(renamed) = module_renames.get(imported_name) {
+                    log::debug!(
+                        "Found rename for '{imported_name}' in module '{module_name}': '{renamed}'"
+                    );
+                    renamed.clone()
+                } else if is_package_reexport {
+                    // For package re-exports where we don't have a rename, use the original name
+                    log::debug!(
+                        "No rename found, using original name '{imported_name}' for symbol \
+                         imported from package '{module_name}'"
+                    );
+                    imported_name.to_string()
                 } else {
-                    // If no rename map, use the default pattern
+                    // Check if this might be a re-export - try to find the symbol in submodules
+                    let mut found_rename = None;
+                    for (other_module, other_renames) in symbol_renames {
+                        // Check if this is a submodule of the current module
+                        if other_module.starts_with(&format!("{module_name}."))
+                            && let Some(renamed) = other_renames.get(imported_name)
+                        {
+                            log::debug!(
+                                "Found rename for re-exported '{imported_name}' from \
+                                 '{module_name}' in submodule '{other_module}': '{renamed}'"
+                            );
+                            found_rename = Some(renamed.clone());
+                            break;
+                        }
+                    }
+
+                    if let Some(renamed) = found_rename {
+                        renamed
+                    } else {
+                        // Use default pattern
+                        let module_suffix = module_name.cow_replace('.', "_").into_owned();
+                        let default_name = format!("{imported_name}_{module_suffix}");
+                        log::debug!("No rename found, using default pattern: '{default_name}'");
+                        default_name
+                    }
+                }
+            } else {
+                // No rename map for this module
+                if is_package_reexport {
+                    log::debug!(
+                        "No rename map, using original name '{imported_name}' for symbol imported \
+                         from package '{module_name}'"
+                    );
+                    imported_name.to_string()
+                } else {
                     let module_suffix = module_name.cow_replace('.', "_").into_owned();
-                    format!("{imported_name}_{module_suffix}")
+                    let default_name = format!("{imported_name}_{module_suffix}");
+                    log::debug!("No rename map, using default pattern: '{default_name}'");
+                    default_name
                 }
             };
 

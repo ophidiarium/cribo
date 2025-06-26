@@ -2,7 +2,7 @@ use std::{
     fs,
     hash::BuildHasherDefault,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -43,7 +43,7 @@ pub struct ModuleInfo {
     /// The resolved filesystem path
     pub resolved_path: PathBuf,
     /// The original source code
-    pub original_source: String,
+    pub original_source: Arc<String>,
     /// The original parsed AST
     pub original_ast: ModModule,
     /// Whether this is a wrapper module (has side effects)
@@ -117,6 +117,11 @@ impl ModuleRegistry {
     /// Get module ID by resolved path
     pub fn get_id_by_path(&self, path: &Path) -> Option<ModuleId> {
         self.path_to_id.get(path).copied()
+    }
+
+    /// Get module info by ID
+    pub fn get_module_by_id(&self, id: ModuleId) -> Option<&ModuleInfo> {
+        self.modules.get(&id)
     }
 
     /// Get mutable module info by ID
@@ -207,6 +212,8 @@ pub struct BundleOrchestrator {
     module_registry: ModuleRegistry,
     /// Cache of processed modules to ensure we only parse and transform once
     module_cache: std::sync::Mutex<FxIndexMap<PathBuf, ProcessedModule>>,
+    /// Registry of pre-built semantic models
+    semantic_model_registry: crate::semantic_model_provider::SemanticModelRegistry,
 }
 
 impl BundleOrchestrator {
@@ -216,6 +223,7 @@ impl BundleOrchestrator {
             semantic_bundler: SemanticBundler::new(),
             module_registry: ModuleRegistry::new(),
             module_cache: std::sync::Mutex::new(FxIndexMap::default()),
+            semantic_model_registry: crate::semantic_model_provider::SemanticModelRegistry::new(),
         }
     }
 
@@ -258,6 +266,9 @@ impl BundleOrchestrator {
                     let module_id =
                         graph.add_module(module_name.to_string(), module_path.to_path_buf());
 
+                    // Create Arc<String> for shared ownership
+                    let source_arc = Arc::new(cached.source.clone());
+
                     // Perform semantic analysis
                     self.semantic_bundler.analyze_module(
                         module_id,
@@ -266,12 +277,20 @@ impl BundleOrchestrator {
                         module_path,
                     )?;
 
+                    // Add to semantic model registry
+                    self.semantic_model_registry.add_model(
+                        module_id,
+                        source_arc.clone(),
+                        cached.ast.clone(),
+                        canonical_path.clone(),
+                    );
+
                     // Add to module registry
                     let module_info = ModuleInfo {
                         id: module_id,
                         canonical_name: module_name.to_string(),
                         resolved_path: canonical_path.clone(),
-                        original_source: cached.source.clone(),
+                        original_source: source_arc,
                         original_ast: cached.ast.clone(),
                         is_wrapper: false, // Will be determined later during bundling
                         item_to_node: FxIndexMap::default(), /* Will be populated during graph
@@ -313,16 +332,27 @@ impl BundleOrchestrator {
         let module_id = if let Some(graph) = graph {
             let module_id = graph.add_module(module_name.to_string(), module_path.to_path_buf());
 
+            // Create Arc<String> for shared ownership
+            let source_arc = Arc::new(source.clone());
+
             // Semantic analysis on raw AST
             self.semantic_bundler
                 .analyze_module(module_id, &ast, &source, module_path)?;
+
+            // Add to semantic model registry
+            self.semantic_model_registry.add_model(
+                module_id,
+                source_arc.clone(),
+                ast.clone(),
+                canonical_path.clone(),
+            );
 
             // Add to module registry
             let module_info = ModuleInfo {
                 id: module_id,
                 canonical_name: module_name.to_string(),
                 resolved_path: canonical_path.clone(),
-                original_source: source.clone(),
+                original_source: source_arc,
                 original_ast: ast.clone(),
                 is_wrapper: false, // Will be determined later during bundling
                 item_to_node: FxIndexMap::default(), // Will be populated during graph building
@@ -519,10 +549,14 @@ impl BundleOrchestrator {
 
         // Run the sequential analysis pipeline
         info!("Running analysis pipeline...");
+        let semantic_provider = crate::semantic_model_provider::SemanticModelProvider::new(
+            &self.semantic_model_registry,
+        );
         let analysis_results = run_analysis_pipeline(
             graph,
             &self.module_registry,
             &self.semantic_bundler,
+            &semantic_provider,
             self.config.tree_shake,
             &entry_module_name,
         )?;
@@ -596,8 +630,9 @@ impl BundleOrchestrator {
             );
             for conflict in &analysis_results.symbol_conflicts {
                 debug!(
-                    "Symbol '{}' conflicts across modules: {:?}",
-                    conflict.symbol_name, conflict.defining_modules
+                    "Symbol '{}' conflicts across {} modules",
+                    conflict.symbol_name,
+                    conflict.conflicts.len()
                 );
             }
         }
@@ -1617,28 +1652,21 @@ impl BundleOrchestrator {
 
     /// Emit bundle using static bundler (no exec calls)
     fn emit_static_bundle(&mut self, params: StaticBundleParams<'_>) -> Result<String> {
-        // First, detect and resolve conflicts after all modules have been analyzed
-        // TODO: This should be part of the analysis pipeline in the future
-        let conflicts = self.semantic_bundler.detect_and_resolve_conflicts();
-        if !conflicts.is_empty() {
-            info!(
-                "Detected {} symbol conflicts across modules, applying renaming strategy",
-                conflicts.len()
-            );
-            for conflict in &conflicts {
-                debug!(
-                    "Symbol '{}' conflicts across modules: {:?}",
-                    conflict.symbol, conflict.modules
-                );
-            }
-        }
+        // TODO: Symbol conflict detection and resolution has been moved to the analysis pipeline
+        // The semantic bundler is being refactored to a pure provider pattern
 
         // Build BundlePlan from analysis results
-        let bundle_plan = BundlePlan::from_analysis_results(
+        let mut bundle_plan = BundlePlan::from_analysis_results(
             params.graph,
             params.analysis_results,
             &self.module_registry,
         );
+
+        // Populate AST node renames using semantic models
+        let semantic_provider = crate::semantic_model_provider::SemanticModelProvider::new(
+            &self.semantic_model_registry,
+        );
+        bundle_plan.populate_ast_node_renames(&semantic_provider);
 
         let mut static_bundler = HybridStaticBundler::new(Some(&self.module_registry));
 

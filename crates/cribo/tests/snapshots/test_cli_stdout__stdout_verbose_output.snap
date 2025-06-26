@@ -7,6 +7,8 @@ expression: stdout
 # https://github.com/ophidiarium/cribo
 
 import dataclasses
+import os
+import sys
 import types
 import typing
 models = types.SimpleNamespace()
@@ -14,9 +16,10 @@ models.__name__ = 'models'
 utils = types.SimpleNamespace()
 utils.__name__ = 'utils'
 """Models package initialization."""
+Optional = typing.Optional
 dataclass = dataclasses.dataclass
 @dataclass
-class User:
+class User_models_user:
     """A simple user model."""
     name: str
     age: int
@@ -31,16 +34,25 @@ class User:
         if self.email:
             return f"{self.name} <{self.email}>"
         return self.name
-User.__module__ = 'models.user'
+User_models_user.__module__ = 'models.user'
+User_models_user.__name__ = 'User'
 """User model for the test project."""
 """Utils package initialization."""
-def greet(name: str) -> str:
+Union = typing.Union
+def greet_utils_helpers(name: str) -> str:
     """Greet a person by name."""
     return f"Hello, {name}!"
-def calculate(a: typing.Union[int, float], b: typing.Union[int, float]) -> typing.Union[int, float]:
+def calculate_utils_helpers(a: typing.Union[int, float], b: typing.Union[int, float]) -> typing.Union[int, float]:
     """Calculate the sum of two numbers."""
     return a + b
+def get_system_info_utils_helpers() -> dict:
+    """Get basic system information."""
+    return {"platform": sys.platform, "python_version": sys.version, "cwd": os.getcwd()}
 """Utility functions for the test project."""
+User = User_models_user
+greet = greet_utils_helpers
+calculate = calculate_utils_helpers
+get_system_info = get_system_info_utils_helpers
 """Simple test project entry point."""
 def main():
     """Main function."""
