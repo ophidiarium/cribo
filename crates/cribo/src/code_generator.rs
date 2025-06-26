@@ -185,6 +185,8 @@ struct SymbolDependencyGraph {
     symbol_definitions: FxIndexMap<(String, String), SymbolDefinition>,
     /// Module-level dependencies (used at definition time, not inside function bodies)
     module_level_dependencies: FxIndexMap<(String, String), Vec<(String, String)>>,
+    /// Topologically sorted symbols for circular modules (computed after analysis)
+    sorted_symbols: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -205,11 +207,8 @@ struct SymbolDefinition {
 
 impl SymbolDependencyGraph {
     /// Perform topological sort on symbols within circular modules
-    /// Returns symbols in reverse topological order (dependencies first)
-    fn topological_sort_symbols(
-        &self,
-        circular_modules: &FxIndexSet<String>,
-    ) -> Result<Vec<(String, String)>> {
+    /// Stores symbols in reverse topological order (dependencies first)
+    fn topological_sort_symbols(&mut self, circular_modules: &FxIndexSet<String>) -> Result<()> {
         use petgraph::{
             algo::toposort,
             graph::{DiGraph, NodeIndex},
@@ -225,6 +224,7 @@ impl SymbolDependencyGraph {
             if circular_modules.contains(&module_symbol.0) {
                 let node = graph.add_node(module_symbol.clone());
                 node_map.insert(module_symbol.clone(), node);
+                log::debug!("Added node: {}.{}", module_symbol.0, module_symbol.1);
             }
         }
 
@@ -233,8 +233,14 @@ impl SymbolDependencyGraph {
             if let Some(&from_node) = node_map.get(module_symbol) {
                 for dep in deps {
                     if let Some(&to_node) = node_map.get(dep) {
-                        // Edge from symbol to its dependency
-                        graph.add_edge(from_node, to_node, ());
+                        // Edge from dependency to dependent (correct direction for topological
+                        // sort)
+                        log::debug!(
+                            "Adding edge: {} -> {} (dependency -> dependent)",
+                            format!("{}.{}", dep.0, dep.1),
+                            format!("{}.{}", module_symbol.0, module_symbol.1)
+                        );
+                        graph.add_edge(to_node, from_node, ());
                     }
                 }
             }
@@ -243,23 +249,23 @@ impl SymbolDependencyGraph {
         // Perform topological sort
         match toposort(&graph, None) {
             Ok(sorted_nodes) => {
-                // Return in reverse order (dependencies first)
-                let mut result = Vec::new();
-                for node_idx in sorted_nodes.into_iter().rev() {
-                    result.push(graph[node_idx].clone());
+                // Store in topological order (dependencies first)
+                self.sorted_symbols.clear();
+                for node_idx in sorted_nodes.into_iter() {
+                    self.sorted_symbols.push(graph[node_idx].clone());
                 }
-                Ok(result)
+                Ok(())
             }
             Err(_) => {
                 // If topological sort fails, there's a cycle within symbols
                 // Fall back to module order
-                let mut result = Vec::new();
+                self.sorted_symbols.clear();
                 for (module_symbol, _) in &self.symbol_definitions {
                     if circular_modules.contains(&module_symbol.0) {
-                        result.push(module_symbol.clone());
+                        self.sorted_symbols.push(module_symbol.clone());
                     }
                 }
-                Ok(result)
+                Ok(())
             }
         }
     }
@@ -268,15 +274,22 @@ impl SymbolDependencyGraph {
     fn get_module_symbols_ordered(&self, module_name: &str) -> Vec<String> {
         let mut module_symbols = Vec::new();
 
-        // Collect all symbols from this module
-        for ((module, symbol), _) in &self.symbol_definitions {
-            if module == module_name {
-                module_symbols.push(symbol.clone());
+        // If we have topologically sorted symbols, use that order
+        if !self.sorted_symbols.is_empty() {
+            for (module, symbol) in &self.sorted_symbols {
+                if module == module_name {
+                    module_symbols.push(symbol.clone());
+                }
+            }
+        } else {
+            // Fall back to definition order
+            for ((module, symbol), _) in &self.symbol_definitions {
+                if module == module_name {
+                    module_symbols.push(symbol.clone());
+                }
             }
         }
 
-        // Sort by dependency order within the module
-        // For now, return in definition order
         module_symbols
     }
 }
@@ -3063,14 +3076,16 @@ impl HybridStaticBundler {
 
         // Track what this function reads at module level (e.g., decorators, default args)
         for var in &item_data.read_vars {
-            // Check if this variable is from another circular module
+            // Check if this variable is from a circular module
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && self.circular_modules.contains(&dep_module)
-                && dep_module != module_name
             {
-                let dep = (dep_module, var.clone());
+                let dep = (dep_module.clone(), var.clone());
                 all_dependencies.push(dep.clone());
-                module_level_deps.push(dep); // Module-level reads need pre-declaration
+                // Module-level reads need pre-declaration only if from different module
+                if dep_module != module_name {
+                    module_level_deps.push(dep);
+                }
             }
         }
 
@@ -3119,11 +3134,11 @@ impl HybridStaticBundler {
         for var in &item_data.read_vars {
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && self.circular_modules.contains(&dep_module)
-                && dep_module != module_name
             {
                 let dep = (dep_module, var.clone());
                 all_dependencies.push(dep.clone());
-                module_level_deps.push(dep); // Base classes need to exist at definition time
+                // Base classes need to exist at definition time, even within same module
+                module_level_deps.push(dep);
             }
         }
 
@@ -3160,7 +3175,6 @@ impl HybridStaticBundler {
         for var in &item_data.read_vars {
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && self.circular_modules.contains(&dep_module)
-                && dep_module != module_name
             {
                 dependencies.push((dep_module, var.clone()));
             }
@@ -4382,8 +4396,27 @@ impl HybridStaticBundler {
                 .symbol_dep_graph
                 .topological_sort_symbols(&self.circular_modules)
             {
-                Ok(ordered_symbols) => {
-                    log::debug!("Symbol ordering for circular modules: {ordered_symbols:?}");
+                Ok(()) => {
+                    log::debug!(
+                        "Symbol ordering for circular modules: {:?}",
+                        self.symbol_dep_graph.sorted_symbols
+                    );
+                    // Log dependencies for auth classes
+                    for (module, symbol) in &self.symbol_dep_graph.sorted_symbols {
+                        if module == "requests.auth"
+                            && (symbol == "HTTPBasicAuth" || symbol == "AuthBase")
+                        {
+                            if let Some(deps) = self
+                                .symbol_dep_graph
+                                .module_level_dependencies
+                                .get(&(module.clone(), symbol.clone()))
+                            {
+                                log::debug!("  {symbol} depends on: {deps:?}");
+                            } else {
+                                log::debug!("  {symbol} has no dependencies");
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
                     log::warn!("Failed to order symbols in circular modules: {e}");
@@ -4766,9 +4799,7 @@ impl HybridStaticBundler {
                         };
 
                         final_body.push(Stmt::ImportFrom(import_from));
-                        log::debug!(
-                            "Hoisted imports from {source_module} for hard dependencies"
-                        );
+                        log::debug!("Hoisted imports from {source_module} for hard dependencies");
                     }
                 }
             }
@@ -11581,6 +11612,118 @@ impl HybridStaticBundler {
         reordered
     }
 
+    /// Order classes by inheritance dependencies to ensure base classes are defined first
+    fn order_classes_by_inheritance(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
+        log::debug!(
+            "order_classes_by_inheritance: Processing {} statements",
+            statements.len()
+        );
+        use petgraph::{algo::toposort, graph::DiGraph};
+        use rustc_hash::FxHashMap;
+
+        // Separate functions and classes
+        let mut functions = Vec::new();
+        let mut classes = Vec::new();
+        let mut class_map = FxHashMap::default();
+
+        for stmt in statements {
+            match &stmt {
+                Stmt::FunctionDef(_) => functions.push(stmt),
+                Stmt::ClassDef(class_def) => {
+                    let class_name = class_def.name.as_str();
+                    log::debug!("  Found class: {class_name}");
+                    class_map.insert(class_name.to_string(), classes.len());
+                    classes.push(stmt);
+                }
+                _ => {} // Should not happen based on caller
+            }
+        }
+
+        // If no classes or only one class, no need to reorder
+        if classes.len() <= 1 {
+            let mut result = functions;
+            result.extend(classes);
+            return result;
+        }
+
+        // Build dependency graph for classes
+        let mut graph = DiGraph::new();
+        let mut node_indices = Vec::new();
+
+        // Add nodes
+        for _ in 0..classes.len() {
+            node_indices.push(graph.add_node(()));
+        }
+
+        // Add edges for inheritance
+        for (idx, stmt) in classes.iter().enumerate() {
+            if let Stmt::ClassDef(class_def) = stmt
+                && let Some(arguments) = &class_def.arguments {
+                    for base in &arguments.args {
+                        // Extract base class name
+                        let base_name = match base {
+                            Expr::Name(name) => Some(name.id.as_str()),
+                            Expr::Attribute(attr) => {
+                                // For now, only handle simple names, not module.Class
+                                if let Expr::Name(_name) = &*attr.value {
+                                    // Check if this is a local reference like compat.MutableMapping
+                                    // In that case, MutableMapping is not a local class
+                                    None
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        };
+
+                        if let Some(base_name) = base_name {
+                            // Check if the base class is defined in this module
+                            if let Some(&base_idx) = class_map.get(base_name) {
+                                // Add edge: derived class depends on base class
+                                // So base class should come before derived class
+                                log::debug!(
+                                    "    Class {} inherits from local class {}",
+                                    class_def.name.as_str(),
+                                    base_name
+                                );
+                                graph.add_edge(node_indices[base_idx], node_indices[idx], ());
+                            } else {
+                                log::debug!(
+                                    "    Class {} inherits from external class {}",
+                                    class_def.name.as_str(),
+                                    base_name
+                                );
+                            }
+                        }
+                    }
+                }
+        }
+
+        // Perform topological sort
+        let ordered_indices = match toposort(&graph, None) {
+            Ok(sorted) => sorted,
+            Err(_) => {
+                // Cycle detected, keep original order
+                log::warn!("Circular inheritance detected, preserving original order");
+                (0..classes.len()).map(|i| node_indices[i]).collect()
+            }
+        };
+
+        // Build result with ordered classes
+        let mut result = functions;
+        for node_idx in ordered_indices {
+            // Find which class this node represents
+            for (idx, &ni) in node_indices.iter().enumerate() {
+                if ni == node_idx {
+                    result.push(classes[idx].clone());
+                    break;
+                }
+            }
+        }
+
+        result
+    }
+
     /// Reorder statements to ensure module-level variables are declared before use
     fn reorder_statements_for_proper_declaration_order(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
         let mut imports = Vec::new();
@@ -11631,16 +11774,24 @@ impl HybridStaticBundler {
             }
         }
 
+        // Order classes by inheritance dependencies
+        log::debug!(
+            "Ordering {} functions and classes by inheritance",
+            functions_and_classes.len()
+        );
+        let ordered_functions_and_classes =
+            self.order_classes_by_inheritance(functions_and_classes);
+
         // Build the reordered list:
         // 1. Imports first
         // 2. Module-level assignments (variables) - but not self-assignments
-        // 3. Functions and classes
+        // 3. Functions and classes (ordered by inheritance)
         // 4. Self-assignments (after functions are defined)
         // 5. Other statements
         let mut reordered = Vec::new();
         reordered.extend(imports);
         reordered.extend(assignments);
-        reordered.extend(functions_and_classes);
+        reordered.extend(ordered_functions_and_classes);
         reordered.extend(self_assignments);
         reordered.extend(other_stmts);
 
@@ -15885,7 +16036,8 @@ impl HybridStaticBundler {
                         for arg in &mut arguments.args {
                             let base_str = self.expr_to_dotted_name(arg);
                             log::debug!(
-                                "Checking base class '{base_str}' for class {class_name} in module {module_name}"
+                                "Checking base class '{base_str}' for class {class_name} in \
+                                 module {module_name}"
                             );
 
                             // Check if this base class is a hard dependency
