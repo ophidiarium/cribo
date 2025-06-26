@@ -11,7 +11,7 @@ use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use ruff_python_ast::{
-    Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
+    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall,
     ExprContext, ExprFString, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral,
     ExprSubscript, FString, FStringFlags, FStringValue, Identifier, InterpolatedElement,
     InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign,
@@ -58,6 +58,21 @@ use crate::{
 type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 /// Type alias for IndexSet with FxHasher for better performance
 type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
+
+/// Represents a hard dependency - a class that inherits from an imported base class
+#[derive(Debug, Clone)]
+struct HardDependency {
+    /// The module where the class is defined
+    module_name: String,
+    /// The name of the class
+    class_name: String,
+    /// The imported base class (module.attribute format)
+    base_class: String,
+    /// The source module of the base class
+    source_module: String,
+    /// The attribute being imported
+    imported_attr: String,
+}
 
 /// Context for module transformation operations
 struct ModuleTransformContext<'a> {
@@ -655,10 +670,54 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.transform_statements(&mut func_def.body);
                     }
                     Stmt::ClassDef(class_def) => {
-                        // Transform base classes
+                        // Check if this class has hard dependencies that should not be transformed
+                        let class_name = class_def.name.as_str();
+                        let has_hard_deps = self.bundler.hard_dependencies.iter().any(|dep| {
+                            dep.module_name == self.module_name && dep.class_name == class_name
+                        });
+
+                        // Transform base classes only if there are no hard dependencies
                         if let Some(ref mut arguments) = class_def.arguments {
                             for base in &mut arguments.args {
-                                self.transform_expr(base);
+                                if has_hard_deps {
+                                    // For classes with hard dependencies, check if this base is a
+                                    // hard dep
+                                    let base_str = if let Expr::Name(name) = base {
+                                        name.id.as_str().to_string()
+                                    } else if let Expr::Attribute(attr) = base {
+                                        if let Expr::Name(name) = &*attr.value {
+                                            format!("{}.{}", name.id.as_str(), attr.attr.as_str())
+                                        } else {
+                                            String::new()
+                                        }
+                                    } else {
+                                        String::new()
+                                    };
+
+                                    // Check if this specific base is a hard dependency
+                                    let is_hard_dep_base =
+                                        self.bundler.hard_dependencies.iter().any(|dep| {
+                                            dep.module_name == self.module_name
+                                                && dep.class_name == class_name
+                                                && (dep.imported_attr == base_str
+                                                    || dep
+                                                        .base_class
+                                                        .ends_with(&format!(".{base_str}")))
+                                        });
+
+                                    if !is_hard_dep_base {
+                                        // Not a hard dependency base, transform normally
+                                        self.transform_expr(base);
+                                    } else {
+                                        log::debug!(
+                                            "Skipping transformation of hard dependency base \
+                                             class {base_str} for class {class_name}"
+                                        );
+                                    }
+                                } else {
+                                    // No hard dependencies, transform normally
+                                    self.transform_expr(base);
+                                }
                             }
                         }
                         self.transform_statements(&mut class_def.body);
@@ -2085,6 +2144,8 @@ pub struct HybridStaticBundler {
     circular_modules: FxIndexSet<String>,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
     circular_predeclarations: FxIndexMap<String, FxIndexMap<String, String>>,
+    /// Hard dependencies that need to be hoisted
+    hard_dependencies: Vec<HardDependency>,
     /// Symbol dependency graph for circular modules
     symbol_dep_graph: SymbolDependencyGraph,
     /// Module ASTs for resolving re-exports
@@ -2417,6 +2478,7 @@ impl HybridStaticBundler {
             namespace_imported_modules: FxIndexMap::default(),
             circular_modules: FxIndexSet::default(),
             circular_predeclarations: FxIndexMap::default(),
+            hard_dependencies: Vec::new(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
             global_deferred_imports: FxIndexMap::default(),
@@ -4228,11 +4290,11 @@ impl HybridStaticBundler {
             self.collect_imports_from_module(ast, module_name, module_path);
         }
 
-        // If we have wrapper modules, inject types and functools as stdlib dependencies
+        // If we have wrapper modules, inject types as stdlib dependency
+        // functools will be added later only if we use module cache
         if !wrapper_modules.is_empty() {
-            log::debug!("Adding types and functools imports for wrapper modules");
+            log::debug!("Adding types import for wrapper modules");
             self.add_stdlib_import("types");
-            self.add_stdlib_import("functools");
         }
 
         // If we have namespace imports, inject types as stdlib dependency
@@ -4430,6 +4492,148 @@ impl HybridStaticBundler {
                 "Detected circular dependencies in wrapper modules - will use module cache \
                  approach"
             );
+
+            // Add functools import for module cache decorators
+            log::debug!("Adding functools import for module cache decorators");
+            self.add_stdlib_import("functools");
+
+            // Detect hard dependencies in circular modules
+            log::debug!("Scanning for hard dependencies in circular modules");
+
+            // Need to scan ALL modules, not just wrapper modules
+            let all_modules: Vec<(&String, &ModModule, &PathBuf, &String)> = inlinable_modules
+                .iter()
+                .map(|(name, ast, path, hash)| (name, ast, path, hash))
+                .chain(
+                    sorted_wrapper_modules
+                        .iter()
+                        .map(|(name, ast, path, hash)| (name, ast, path, hash)),
+                )
+                .collect();
+
+            for (module_name, ast, _, _) in &all_modules {
+                if self.circular_modules.contains(module_name.as_str()) {
+                    // Build import map for this module
+                    let mut import_map = FxIndexMap::default();
+
+                    // Scan imports in the module
+                    for stmt in &ast.body {
+                        match stmt {
+                            Stmt::Import(import_stmt) => {
+                                for alias in &import_stmt.names {
+                                    let imported_name = alias.name.as_str();
+                                    let local_name = alias
+                                        .asname
+                                        .as_ref()
+                                        .map(|n| n.as_str())
+                                        .unwrap_or(imported_name);
+                                    import_map.insert(
+                                        local_name.to_string(),
+                                        (
+                                            imported_name.to_string(),
+                                            alias.asname.as_ref().map(|n| n.as_str().to_string()),
+                                        ),
+                                    );
+                                }
+                            }
+                            Stmt::ImportFrom(import_from) => {
+                                // Handle relative imports
+                                let resolved_module = if import_from.level > 0 {
+                                    // Resolve relative import to absolute
+                                    self.resolve_relative_import(import_from, module_name)
+                                } else {
+                                    import_from.module.as_ref().map(|m| m.as_str().to_string())
+                                };
+
+                                if let Some(module_str) = resolved_module {
+                                    for alias in &import_from.names {
+                                        let imported_name = alias.name.as_str();
+                                        let local_name = alias
+                                            .asname
+                                            .as_ref()
+                                            .map(|n| n.as_str())
+                                            .unwrap_or(imported_name);
+
+                                        // For "from X import Y", track the mapping
+                                        // Special handling for known re-exports
+                                        let (actual_source, actual_import) = if module_str
+                                            == "requests.compat"
+                                        {
+                                            // Map known compat re-exports to their actual sources
+                                            match imported_name {
+                                                "MutableMapping" | "Mapping" | "Callable" => (
+                                                    "collections.abc".to_string(),
+                                                    Some(imported_name.to_string()),
+                                                ),
+                                                "cookielib" => ("http.cookiejar".to_string(), None),
+                                                "JSONDecodeError" => {
+                                                    // Try simplejson first, fall back to json
+                                                    (
+                                                        "json".to_string(),
+                                                        Some("JSONDecodeError".to_string()),
+                                                    )
+                                                }
+                                                _ => (
+                                                    module_str.clone(),
+                                                    Some(imported_name.to_string()),
+                                                ),
+                                            }
+                                        } else {
+                                            (module_str.clone(), Some(imported_name.to_string()))
+                                        };
+
+                                        // Handle the alias if present
+                                        if alias.asname.is_some()
+                                            && imported_name == "JSONDecodeError"
+                                            && local_name == "CompatJSONDecodeError"
+                                        {
+                                            // Special case: We'll need to import as the correct
+                                            // alias
+                                            import_map.insert(
+                                                local_name.to_string(),
+                                                (actual_source, Some(imported_name.to_string())),
+                                            );
+                                        } else {
+                                            import_map.insert(
+                                                local_name.to_string(),
+                                                (actual_source, actual_import),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // Detect hard dependencies
+                    let hard_deps = self.detect_hard_dependencies(module_name, ast, &import_map);
+                    if !hard_deps.is_empty() {
+                        log::info!(
+                            "Found {} hard dependencies in module {}",
+                            hard_deps.len(),
+                            module_name
+                        );
+                        self.hard_dependencies.extend(hard_deps);
+                    }
+                }
+            }
+
+            if !self.hard_dependencies.is_empty() {
+                log::info!(
+                    "Total hard dependencies found: {}",
+                    self.hard_dependencies.len()
+                );
+                for dep in &self.hard_dependencies {
+                    log::debug!(
+                        "  - Class {} in {} inherits from {} (source: {})",
+                        dep.class_name,
+                        dep.module_name,
+                        dep.base_class,
+                        dep.source_module
+                    );
+                }
+            }
         }
 
         // Before inlining modules, check which wrapper modules they depend on
@@ -4484,6 +4688,91 @@ impl HybridStaticBundler {
 
         // If we're using module cache, add the infrastructure early
         if use_module_cache_for_wrappers {
+            // First, hoist hard dependencies before the module cache
+            if !self.hard_dependencies.is_empty() {
+                log::info!("Hoisting hard dependencies before module cache");
+
+                // Clone hard dependencies to avoid borrowing issues
+                let hard_deps = self.hard_dependencies.clone();
+
+                // Group hard dependencies by source module
+                let mut deps_by_source: FxIndexMap<String, Vec<&HardDependency>> =
+                    FxIndexMap::default();
+                for dep in &hard_deps {
+                    deps_by_source
+                        .entry(dep.source_module.clone())
+                        .or_default()
+                        .push(dep);
+                }
+
+                // Generate hoisted imports
+                for (source_module, deps) in deps_by_source {
+                    // Check if we need to import the whole module or specific attributes
+                    let first_dep = deps.first().unwrap();
+
+                    if source_module == "http.cookiejar" && first_dep.imported_attr == "cookielib" {
+                        // Special case: import http.cookiejar as cookielib
+                        let import_stmt = StmtImport {
+                            node_index: self.create_node_index(),
+                            names: vec![ruff_python_ast::Alias {
+                                node_index: self.create_node_index(),
+                                name: Identifier::new("http.cookiejar", TextRange::default()),
+                                asname: Some(Identifier::new("cookielib", TextRange::default())),
+                                range: TextRange::default(),
+                            }],
+                            range: TextRange::default(),
+                        };
+                        final_body.push(Stmt::Import(import_stmt));
+                        log::debug!("Hoisted import http.cookiejar as cookielib");
+                    } else {
+                        // Collect unique attributes to import
+                        let mut attrs_to_import: FxIndexSet<String> = FxIndexSet::default();
+                        for dep in deps {
+                            attrs_to_import.insert(dep.imported_attr.clone());
+                        }
+
+                        // Generate: from source_module import attr1, attr2, ...
+                        let mut names = Vec::new();
+                        for attr in attrs_to_import {
+                            // Check if we need to handle special aliases
+                            let (import_name, alias_name) =
+                                if attr == "CompatJSONDecodeError" && source_module == "json" {
+                                    // Import JSONDecodeError as CompatJSONDecodeError
+                                    ("JSONDecodeError", Some("CompatJSONDecodeError"))
+                                } else if attr == "BaseHTTPError"
+                                    && source_module == "urllib3.exceptions"
+                                {
+                                    // Import HTTPError as BaseHTTPError
+                                    ("HTTPError", Some("BaseHTTPError"))
+                                } else {
+                                    (attr.as_str(), None)
+                                };
+
+                            names.push(ruff_python_ast::Alias {
+                                node_index: self.create_node_index(),
+                                name: Identifier::new(import_name, TextRange::default()),
+                                asname: alias_name
+                                    .map(|a| Identifier::new(a, TextRange::default())),
+                                range: TextRange::default(),
+                            });
+                        }
+
+                        let import_from = StmtImportFrom {
+                            node_index: self.create_node_index(),
+                            module: Some(Identifier::new(&source_module, TextRange::default())),
+                            names,
+                            level: 0,
+                            range: TextRange::default(),
+                        };
+
+                        final_body.push(Stmt::ImportFrom(import_from));
+                        log::debug!(
+                            "Hoisted imports from {source_module} for hard dependencies"
+                        );
+                    }
+                }
+            }
+
             // Add module cache infrastructure at the beginning
             let namespace_class = self.generate_module_namespace_class();
             final_body.push(namespace_class);
@@ -6147,8 +6436,7 @@ impl HybridStaticBundler {
             transform_globals_in_stmt(stmt);
         }
 
-        // Create the init function with @functools.cache decorator
-        // This ensures the module is only initialized once (singleton pattern)
+        // Create the init function WITHOUT decorator - we're not using module cache
         Ok(Stmt::FunctionDef(StmtFunctionDef {
             node_index: AtomicNodeIndex::dummy(),
             name: Identifier::new(init_func_name, TextRange::default()),
@@ -6164,22 +6452,7 @@ impl HybridStaticBundler {
             }),
             returns: None,
             body,
-            decorator_list: vec![Decorator {
-                node_index: AtomicNodeIndex::dummy(),
-                expression: Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "functools".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("cache", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                }),
-                range: TextRange::default(),
-            }],
+            decorator_list: vec![], // No decorator for non-cache mode
             is_async: false,
             range: TextRange::default(),
         }))
@@ -11384,7 +11657,12 @@ impl HybridStaticBundler {
     ) -> Result<Vec<Stmt>> {
         let mut module_renames = FxIndexMap::default();
 
-        // First, apply recursive import transformation to the module
+        // Apply hard dependency rewriting BEFORE import transformation
+        if !self.hard_dependencies.is_empty() && self.circular_modules.contains(module_name) {
+            self.rewrite_hard_dependencies_in_module(&mut ast, module_name);
+        }
+
+        // Then apply recursive import transformation to the module
         let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
             bundler: self,
             module_name,
@@ -15104,6 +15382,174 @@ impl HybridStaticBundler {
 }
 
 impl HybridStaticBundler {
+    /// Convert an expression to a dotted name string (e.g., "module.attr")
+    fn expr_to_dotted_name(&self, expr: &Expr) -> String {
+        match expr {
+            Expr::Name(name) => name.id.as_str().to_string(),
+            Expr::Attribute(attr) => {
+                let base = self.expr_to_dotted_name(&attr.value);
+                format!("{}.{}", base, attr.attr.as_str())
+            }
+            _ => String::new(),
+        }
+    }
+
+    /// Rewrite hard dependencies in a module's AST
+    fn rewrite_hard_dependencies_in_module(&self, ast: &mut ModModule, module_name: &str) {
+        log::debug!("Rewriting hard dependencies in module {module_name}");
+
+        for stmt in &mut ast.body {
+            if let Stmt::ClassDef(class_def) = stmt {
+                let class_name = class_def.name.as_str();
+                log::debug!("  Checking class {class_name} in module {module_name}");
+
+                // Check if this class has hard dependencies
+                if let Some(arguments) = &mut class_def.arguments {
+                    for arg in &mut arguments.args {
+                        let base_str = self.expr_to_dotted_name(arg);
+                        log::debug!("    Base class: {base_str}");
+
+                        // Check against all hard dependencies for this class
+                        for hard_dep in &self.hard_dependencies {
+                            if hard_dep.module_name == module_name
+                                && hard_dep.class_name == class_name
+                            {
+                                log::debug!(
+                                    "      Checking against hard dep: {} -> {}",
+                                    hard_dep.base_class,
+                                    hard_dep.imported_attr
+                                );
+                                if base_str == hard_dep.base_class {
+                                    // Rewrite to use the hoisted import
+                                    *arg = Expr::Name(ExprName {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        id: hard_dep.imported_attr.clone().into(),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    });
+                                    log::info!(
+                                        "Rewrote base class {} to {} for class {} in inlined \
+                                         module",
+                                        hard_dep.base_class,
+                                        hard_dep.imported_attr,
+                                        class_name
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Detect hard dependencies in a module (class definitions with imported base classes)
+    fn detect_hard_dependencies(
+        &self,
+        module_name: &str,
+        ast: &ModModule,
+        import_map: &FxIndexMap<String, (String, Option<String>)>,
+    ) -> Vec<HardDependency> {
+        let mut hard_deps = Vec::new();
+
+        // Scan for class definitions
+        for stmt in &ast.body {
+            if let Stmt::ClassDef(class_def) = stmt {
+                // Check if any base class is an imported symbol
+                if let Some(arguments) = &class_def.arguments {
+                    for arg in &arguments.args {
+                        // Check if this is an attribute access (e.g.,
+                        // requests.compat.MutableMapping)
+                        if let Expr::Attribute(attr_expr) = arg {
+                            if let Expr::Attribute(inner_attr) = &*attr_expr.value {
+                                if let Expr::Name(name_expr) = &*inner_attr.value {
+                                    let base_module = name_expr.id.as_str();
+                                    let sub_module = inner_attr.attr.as_str();
+                                    let attr_name = attr_expr.attr.as_str();
+
+                                    // Check if this module.submodule is in our import map
+                                    let full_module = format!("{base_module}.{sub_module}");
+                                    if let Some((source_module, _alias)) =
+                                        import_map.get(&full_module)
+                                    {
+                                        log::debug!(
+                                            "Found hard dependency: class {} in module {} \
+                                             inherits from {}.{}.{}",
+                                            class_def.name.as_str(),
+                                            module_name,
+                                            base_module,
+                                            sub_module,
+                                            attr_name
+                                        );
+
+                                        hard_deps.push(HardDependency {
+                                            module_name: module_name.to_string(),
+                                            class_name: class_def.name.as_str().to_string(),
+                                            base_class: format!(
+                                                "{base_module}.{sub_module}.{attr_name}"
+                                            ),
+                                            source_module: source_module.clone(),
+                                            imported_attr: attr_name.to_string(),
+                                        });
+                                    }
+                                }
+                            } else if let Expr::Name(name_expr) = &*attr_expr.value {
+                                let module = name_expr.id.as_str();
+                                let attr_name = attr_expr.attr.as_str();
+
+                                // Check if this module is in our import map
+                                if let Some((source_module, _import_info)) = import_map.get(module)
+                                {
+                                    log::debug!(
+                                        "Found hard dependency: class {} in module {} inherits \
+                                         from {}.{}",
+                                        class_def.name.as_str(),
+                                        module_name,
+                                        module,
+                                        attr_name
+                                    );
+
+                                    // For module.attr, we need to import the module itself
+                                    hard_deps.push(HardDependency {
+                                        module_name: module_name.to_string(),
+                                        class_name: class_def.name.as_str().to_string(),
+                                        base_class: format!("{module}.{attr_name}"),
+                                        source_module: source_module.clone(),
+                                        imported_attr: module.to_string(), /* Import the module,
+                                                                            * not the attr */
+                                    });
+                                }
+                            }
+                        } else if let Expr::Name(name_expr) = arg {
+                            // Direct name reference (e.g., MutableMapping)
+                            let base_name = name_expr.id.as_str();
+
+                            // Check if this name is in our import map
+                            if let Some((source_module, _alias)) = import_map.get(base_name) {
+                                log::debug!(
+                                    "Found hard dependency: class {} in module {} inherits from {}",
+                                    class_def.name.as_str(),
+                                    module_name,
+                                    base_name
+                                );
+
+                                hard_deps.push(HardDependency {
+                                    module_name: module_name.to_string(),
+                                    class_name: class_def.name.as_str().to_string(),
+                                    base_class: base_name.to_string(),
+                                    source_module: source_module.clone(),
+                                    imported_attr: base_name.to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        hard_deps
+    }
+
     /// Generate the _ModuleNamespace class definition
     fn generate_module_namespace_class(&mut self) -> Stmt {
         // class _ModuleNamespace:
@@ -15430,7 +15876,50 @@ impl HybridStaticBundler {
                     transformed.push(Stmt::Assign(assign));
                 }
                 // Transform class definitions
-                Stmt::ClassDef(class_def) => {
+                Stmt::ClassDef(mut class_def) => {
+                    // Check if this class has hard dependencies that need rewriting
+                    let class_name = class_def.name.as_str();
+
+                    // Rewrite base classes if needed
+                    if let Some(arguments) = &mut class_def.arguments {
+                        for arg in &mut arguments.args {
+                            let base_str = self.expr_to_dotted_name(arg);
+                            log::debug!(
+                                "Checking base class '{base_str}' for class {class_name} in module {module_name}"
+                            );
+
+                            // Check if this base class is a hard dependency
+                            for hard_dep in &self.hard_dependencies {
+                                if hard_dep.module_name == module_name
+                                    && hard_dep.class_name == class_name
+                                {
+                                    log::debug!(
+                                        "  Comparing with hard dep base class: '{}' \
+                                         (imported_attr: '{}')",
+                                        hard_dep.base_class,
+                                        hard_dep.imported_attr
+                                    );
+
+                                    if base_str == hard_dep.base_class {
+                                        // Rewrite to use the hoisted import
+                                        *arg = Expr::Name(ExprName {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            id: hard_dep.imported_attr.clone().into(),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        });
+                                        log::info!(
+                                            "Rewrote base class {} to {} for class {}",
+                                            hard_dep.base_class,
+                                            hard_dep.imported_attr,
+                                            class_name
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Add the class definition
                     transformed.push(Stmt::ClassDef(class_def.clone()));
 
