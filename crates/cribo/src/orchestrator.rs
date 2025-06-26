@@ -82,6 +82,18 @@ impl ModuleRegistry {
         let name = info.canonical_name.clone();
         let path = info.resolved_path.clone();
 
+        // Check if module already exists and validate consistency
+        if let Some(existing) = self.modules.get(&id) {
+            if existing.canonical_name != name || existing.resolved_path != path {
+                panic!(
+                    "Attempting to register module {:?} with conflicting data. Existing: {} at \
+                     {:?}, New: {} at {:?}",
+                    id, existing.canonical_name, existing.resolved_path, name, path
+                );
+            }
+            return; // Module already registered with same data
+        }
+
         self.name_to_id.insert(name, id);
         self.path_to_id.insert(path, id);
         self.modules.insert(id, info);
