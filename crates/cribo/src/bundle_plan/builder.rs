@@ -94,6 +94,7 @@ impl BundlePlanBuilder {
         self.set_module_metadata(
             module_id,
             ModuleMetadata {
+                instantiation: crate::bundle_plan::ModuleInstantiation::Inline,
                 bundle_type: ModuleBundleType::Inlinable,
                 has_side_effects,
                 synthetic_namespace: None,
@@ -106,6 +107,10 @@ impl BundlePlanBuilder {
         self.set_module_metadata(
             module_id,
             ModuleMetadata {
+                instantiation: crate::bundle_plan::ModuleInstantiation::Wrap {
+                    init_function_name: format!("__cribo_init_{module_id:?}"),
+                    exports: vec![], // Will be populated by analysis
+                },
                 bundle_type: ModuleBundleType::Wrapper,
                 has_side_effects,
                 synthetic_namespace: None,

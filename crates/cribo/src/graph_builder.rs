@@ -51,6 +51,8 @@ pub struct GraphBuilder<'a> {
     /// Track which modules were created by stdlib normalization
     /// This helps with tree-shaking normalized imports
     normalized_modules: FxHashSet<String>,
+    /// Current statement index in the module body
+    current_statement_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -67,6 +69,7 @@ impl<'a> GraphBuilder<'a> {
             current_scope: ScopeType::Module,
             import_aliases: FxHashMap::default(),
             normalized_modules: FxHashSet::default(),
+            current_statement_index: None,
         }
     }
 
@@ -79,7 +82,8 @@ impl<'a> GraphBuilder<'a> {
     pub fn build_from_ast(&mut self, ast: &ModModule) -> Result<()> {
         // Process all statements in the module
         log::trace!("Building graph from AST with {} statements", ast.body.len());
-        for stmt in &ast.body {
+        for (index, stmt) in ast.body.iter().enumerate() {
+            self.current_statement_index = Some(index);
             self.process_statement(stmt)?;
         }
         Ok(())
@@ -194,6 +198,7 @@ impl<'a> GraphBuilder<'a> {
                 symbol_dependencies: FxHashMap::default(),
                 attribute_accesses: FxHashMap::default(),
                 is_normalized_import: is_normalized,
+                statement_index: self.current_statement_index,
             };
 
             self.graph.add_item(item_data);
@@ -290,6 +295,7 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
         };
 
         self.graph.add_item(item_data);
@@ -380,6 +386,7 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies,
             attribute_accesses: eventual_attribute_accesses,
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
         };
 
         self.graph.add_item(item_data);
@@ -476,6 +483,7 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies,
             attribute_accesses: method_attribute_accesses,
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
         };
 
         self.graph.add_item(item_data);
@@ -552,6 +560,7 @@ impl<'a> GraphBuilder<'a> {
                     symbol_dependencies: FxHashMap::default(),
                     attribute_accesses: FxHashMap::default(),
                     is_normalized_import: false,
+                    statement_index: self.current_statement_index,
                 };
 
                 self.graph.add_item(item_data);
@@ -614,6 +623,7 @@ impl<'a> GraphBuilder<'a> {
                 symbol_dependencies: FxHashMap::default(),
                 attribute_accesses,
                 is_normalized_import: false,
+                statement_index: self.current_statement_index,
             };
 
             self.graph.add_item(item_data);
@@ -660,6 +670,7 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
         };
 
         self.graph.add_item(item_data);
@@ -705,6 +716,7 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses,
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
         };
 
         self.graph.add_item(item_data);
@@ -749,6 +761,7 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses,
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
         };
 
         self.graph.add_item(item_data);
@@ -778,6 +791,7 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
         };
 
         self.graph.add_item(item_data);
@@ -828,6 +842,7 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
         };
 
         self.graph.add_item(item_data);
@@ -865,6 +880,7 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
         };
 
         self.graph.add_item(item_data);
@@ -905,6 +921,7 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
         };
 
         self.graph.add_item(item_data);
@@ -934,6 +951,7 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
         };
 
         self.graph.add_item(item_data);
@@ -968,6 +986,7 @@ impl<'a> GraphBuilder<'a> {
                     symbol_dependencies: FxHashMap::default(),
                     attribute_accesses: FxHashMap::default(),
                     is_normalized_import: false,
+                    statement_index: self.current_statement_index,
                 };
                 self.graph.add_item(item_data);
             }
@@ -1617,6 +1636,7 @@ impl<'a> GraphBuilder<'a> {
                         symbol_dependencies: FxHashMap::default(),
                         attribute_accesses: FxHashMap::default(),
                         is_normalized_import: false,
+                        statement_index: Some(stmt_index),
                     };
 
                     let node_index = self.graph.add_item_with_index(item_data);
@@ -1641,6 +1661,7 @@ impl<'a> GraphBuilder<'a> {
                         symbol_dependencies: FxHashMap::default(),
                         attribute_accesses: FxHashMap::default(),
                         is_normalized_import: false,
+                        statement_index: Some(stmt_index),
                     };
 
                     let node_index = self.graph.add_item_with_index(item_data);
@@ -1668,6 +1689,7 @@ impl<'a> GraphBuilder<'a> {
                             symbol_dependencies: FxHashMap::default(),
                             attribute_accesses: FxHashMap::default(),
                             is_normalized_import: false,
+                            statement_index: Some(stmt_index),
                         };
 
                         let node_index = self.graph.add_item_with_index(item_data);

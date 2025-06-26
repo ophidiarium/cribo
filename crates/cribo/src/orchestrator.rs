@@ -17,10 +17,10 @@ use crate::{
         CircularDependencyType, ResolutionStrategy, run_analysis_pipeline,
     },
     bundle_plan::BundlePlan,
-    code_generator::HybridStaticBundler,
     config::Config,
     cribo_graph::{CriboGraph, ItemId, ModuleId},
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
+    plan_executor::{ExecutionContext, execute_plan},
     resolver::{ImportType, ModuleResolver},
     semantic_bundler::SemanticBundler,
     util::{module_name_from_relative, normalize_line_endings},
@@ -1668,8 +1668,6 @@ impl BundleOrchestrator {
         );
         bundle_plan.populate_ast_node_renames(&semantic_provider);
 
-        let mut static_bundler = HybridStaticBundler::new(Some(&self.module_registry));
-
         // Parse all modules and prepare them for bundling
         let mut module_asts = Vec::new();
 
@@ -1736,17 +1734,22 @@ impl BundleOrchestrator {
             }
         }
 
-        // Bundle all modules using static bundler
-        let bundled_ast = static_bundler.bundle_modules(crate::code_generator::BundleParams {
-            modules: module_asts,
-            sorted_modules: params.sorted_modules,
-            entry_module_name: params.entry_module_name,
+        // Collect source ASTs for the executor
+        let mut source_asts = rustc_hash::FxHashMap::default();
+        for (module_name, ast, _, _) in &module_asts {
+            if let Some(module_id) = self.module_registry.get_id_by_name(module_name) {
+                source_asts.insert(module_id, ast.clone());
+            }
+        }
+
+        // Execute the bundle plan using the dumb executor
+        let execution_context = ExecutionContext {
             graph: params.graph,
-            semantic_bundler: &self.semantic_bundler,
-            circular_dep_analysis: params.analysis_results.circular_deps.as_ref(),
-            tree_shaker: None, // TreeShaker is no longer passed directly
-            bundle_plan: Some(&bundle_plan),
-        })?;
+            registry: &self.module_registry,
+            source_asts,
+        };
+
+        let bundled_ast = execute_plan(&bundle_plan, &execution_context)?;
 
         // Generate Python code from AST
         let empty_parsed = get_empty_parsed_module();

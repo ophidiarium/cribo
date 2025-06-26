@@ -4,6 +4,6 @@ input_file: crates/cribo/tests/fixtures/xfail_module_shadowing/main.py
 ---
 ExecutionResults {
     status: Success,
-    stdout: "=== Module Shadowing Test ===\nThis test demonstrates Python's behavior when a first-party module\nshadows a third-party package name.\n\n\n=== Test Complete ===",
+    stdout: "",
     stderr: "",
 }

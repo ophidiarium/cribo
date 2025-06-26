@@ -23,7 +23,7 @@ use rustc_hash::FxHasher;
 
 use crate::{
     bundle_plan::BundlePlan,
-    cribo_graph::CriboGraph as DependencyGraph,
+    cribo_graph::{CriboGraph as DependencyGraph, ModuleId},
     semantic_bundler::{ModuleGlobalInfo, SemanticBundler, SymbolRegistry},
     transformation_context::TransformationContext,
 };
@@ -6214,13 +6214,115 @@ impl<'a> HybridStaticBundler<'a> {
     /// Apply AST node renames from BundlePlan to a module
     fn apply_ast_node_renames(
         &self,
-        _ast: &mut ModModule,
+        ast: &mut ModModule,
         module_name: &str,
-        _bundle_plan: &BundlePlan,
+        bundle_plan: &BundlePlan,
     ) {
-        // TODO: We need access to the module ID to look up renames in bundle_plan.ast_node_renames
-        // For now, we'll have to skip this optimization
-        log::debug!("AST node renaming not yet implemented for module '{module_name}'");
+        use ruff_python_ast::visitor::transformer::Transformer;
+        use ruff_text_size::Ranged;
+        use rustc_hash::FxHashMap;
+
+        // Get the module ID from the registry
+        let module_id = match self
+            .module_info_registry
+            .and_then(|registry| registry.get_id_by_name(module_name))
+        {
+            Some(id) => id,
+            None => {
+                log::warn!(
+                    "Cannot find module ID for '{}', skipping AST node renames",
+                    module_name
+                );
+                return;
+            }
+        };
+
+        // Create a renaming transformer
+        struct RenameTransformer<'a> {
+            module_id: ModuleId,
+            renames: &'a FxHashMap<(ModuleId, TextRange), String>,
+        }
+
+        impl Transformer for RenameTransformer<'_> {
+            fn visit_expr(&self, expr: &mut Expr) {
+                match expr {
+                    Expr::Name(name_expr) => {
+                        let key = (self.module_id, name_expr.range);
+                        if let Some(new_name) = self.renames.get(&key) {
+                            log::trace!(
+                                "Renaming identifier at {:?} from '{}' to '{}'",
+                                name_expr.range,
+                                name_expr.id,
+                                new_name
+                            );
+                            name_expr.id = new_name.clone().into();
+                        }
+                    }
+                    _ => {}
+                }
+
+                // Continue visiting child expressions
+                ruff_python_ast::visitor::transformer::walk_expr(self, expr);
+            }
+
+            fn visit_stmt(&self, stmt: &mut Stmt) {
+                // Also handle class and function definitions
+                match stmt {
+                    Stmt::ClassDef(class_def) => {
+                        // Use the identifier's range, not the full statement range
+                        let key = (self.module_id, class_def.name.range());
+                        log::trace!(
+                            "Checking class '{}' at {:?} in module {:?}",
+                            class_def.name,
+                            class_def.name.range(),
+                            self.module_id
+                        );
+                        if let Some(new_name) = self.renames.get(&key) {
+                            log::debug!(
+                                "Renaming class definition at {:?} from '{}' to '{}'",
+                                class_def.name.range(),
+                                class_def.name,
+                                new_name
+                            );
+                            class_def.name =
+                                Identifier::new(new_name.clone(), class_def.name.range());
+                        }
+                    }
+                    Stmt::FunctionDef(func_def) => {
+                        // Use the identifier's range, not the full statement range
+                        let key = (self.module_id, func_def.name.range());
+                        if let Some(new_name) = self.renames.get(&key) {
+                            log::trace!(
+                                "Renaming function definition at {:?} from '{}' to '{}'",
+                                func_def.name.range(),
+                                func_def.name,
+                                new_name
+                            );
+                            func_def.name =
+                                Identifier::new(new_name.clone(), func_def.name.range());
+                        }
+                    }
+                    _ => {}
+                }
+
+                // Continue visiting child statements
+                ruff_python_ast::visitor::transformer::walk_stmt(self, stmt);
+            }
+        }
+
+        let mut transformer = RenameTransformer {
+            module_id,
+            renames: &bundle_plan.ast_node_renames,
+        };
+
+        log::debug!(
+            "Applying {} AST node renames to module '{}'",
+            bundle_plan.ast_node_renames.len(),
+            module_name
+        );
+
+        // Apply the renames to the AST
+        transformer.visit_body(&mut ast.body);
     }
 
     /// Transform a module into an initialization function

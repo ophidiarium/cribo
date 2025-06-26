@@ -37,7 +37,10 @@ impl<'a> SymbolConflictDetector<'a> {
     }
 
     /// Detect all symbol conflicts across modules
-    pub fn detect_conflicts(&self) -> Result<Vec<SymbolConflict>> {
+    pub fn detect_conflicts(
+        &self,
+        symbol_origins: &FxHashMap<GlobalBindingId, GlobalBindingId>,
+    ) -> Result<Vec<SymbolConflict>> {
         debug!("Starting symbol conflict detection");
 
         // Map to collect all exported symbols by name
@@ -46,7 +49,12 @@ impl<'a> SymbolConflictDetector<'a> {
         // Analyze each module
         for module_id in self.graph.modules.keys() {
             if let Some(Ok(semantic_model)) = self.semantic_provider.get_model(*module_id) {
-                self.collect_module_symbols(*module_id, &semantic_model, &mut symbol_map)?;
+                self.collect_module_symbols(
+                    *module_id,
+                    &semantic_model,
+                    &mut symbol_map,
+                    symbol_origins,
+                )?;
             }
         }
 
@@ -54,15 +62,20 @@ impl<'a> SymbolConflictDetector<'a> {
         let mut conflicts = Vec::new();
         for (symbol_name, instances) in symbol_map {
             if instances.len() > 1 {
-                trace!(
-                    "Found conflict for symbol '{}' across {} modules",
-                    symbol_name,
-                    instances.len()
-                );
-                conflicts.push(SymbolConflict {
-                    symbol_name,
-                    conflicts: instances,
-                });
+                // Filter out re-exports of the same symbol
+                let unique_instances = self.filter_duplicate_origins(&instances, symbol_origins);
+
+                if unique_instances.len() > 1 {
+                    trace!(
+                        "Found conflict for symbol '{}' across {} modules",
+                        symbol_name,
+                        unique_instances.len()
+                    );
+                    conflicts.push(SymbolConflict {
+                        symbol_name,
+                        conflicts: unique_instances,
+                    });
+                }
             }
         }
 
@@ -76,6 +89,7 @@ impl<'a> SymbolConflictDetector<'a> {
         module_id: ModuleId,
         semantic_model: &SemanticModel,
         symbol_map: &mut FxHashMap<String, Vec<ConflictInstance>>,
+        _symbol_origins: &FxHashMap<GlobalBindingId, GlobalBindingId>,
     ) -> Result<()> {
         let module_info = self
             .registry
@@ -131,5 +145,17 @@ impl<'a> SymbolConflictDetector<'a> {
         }
 
         Ok(())
+    }
+
+    /// Filter out instances that are re-exports of the same original symbol
+    /// but keep them if they would still conflict within their own module
+    fn filter_duplicate_origins(
+        &self,
+        instances: &[ConflictInstance],
+        _symbol_origins: &FxHashMap<GlobalBindingId, GlobalBindingId>,
+    ) -> Vec<ConflictInstance> {
+        // For now, don't filter anything - we need to handle re-exports properly
+        // This is a temporary solution until we implement proper re-export handling
+        instances.to_vec()
     }
 }

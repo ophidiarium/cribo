@@ -7,7 +7,10 @@ use anyhow::Result;
 use log::{debug, info};
 
 use crate::{
-    analysis::{AnalysisResults, CircularDependencyAnalyzer, SymbolConflictDetector},
+    analysis::{
+        AnalysisResults, CircularDependencyAnalyzer, SymbolConflictDetector, SymbolOriginAnalyzer,
+        SymbolOriginResults,
+    },
     cribo_graph::CriboGraph,
     orchestrator::ModuleRegistry,
     semantic_bundler::SemanticBundler,
@@ -52,10 +55,23 @@ pub fn run_analysis_pipeline(
     }
     results.circular_deps = Some(circular_deps);
 
-    // Stage 2: Semantic analysis for symbol conflicts
-    debug!("Stage 2: Analyzing symbol conflicts");
+    // Stage 2: Symbol origin analysis for tracking re-exports
+    debug!("Stage 2: Analyzing symbol origins for re-exports and aliases");
+    let origin_analyzer = SymbolOriginAnalyzer::new(graph, registry, semantic_provider);
+    let symbol_origins = origin_analyzer.analyze_origins()?;
+
+    info!(
+        "Found {} symbol origin mappings (re-exports/aliases)",
+        symbol_origins.len()
+    );
+
+    // Stage 3: Semantic analysis for symbol conflicts
+    debug!("Stage 3: Analyzing symbol conflicts");
     let conflict_detector = SymbolConflictDetector::new(graph, registry, semantic_provider);
-    let symbol_conflicts = conflict_detector.detect_conflicts()?;
+    let symbol_conflicts = conflict_detector.detect_conflicts(&symbol_origins)?;
+
+    // Store symbol origins after using them
+    results.symbol_origins = SymbolOriginResults { symbol_origins };
 
     if !symbol_conflicts.is_empty() {
         info!(
@@ -74,9 +90,9 @@ pub fn run_analysis_pipeline(
     }
     results.symbol_conflicts = symbol_conflicts;
 
-    // Stage 3: Tree-shaking analysis (if enabled)
+    // Stage 4: Tree-shaking analysis (if enabled)
     if tree_shake_enabled {
-        debug!("Stage 3: Running tree-shaking analysis");
+        debug!("Stage 4: Running tree-shaking analysis");
 
         // Create tree shaker from graph
         let mut tree_shaker = TreeShaker::from_graph(graph);
@@ -92,7 +108,7 @@ pub fn run_analysis_pipeline(
         // TODO: Extract results from tree_shaker once it's refactored to return them
         results.tree_shake_results = None;
     } else {
-        debug!("Stage 3: Tree-shaking disabled, skipping");
+        debug!("Stage 4: Tree-shaking disabled, skipping");
     }
 
     info!("Analysis pipeline complete");

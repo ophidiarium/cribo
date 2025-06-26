@@ -25,6 +25,9 @@ mod symbol_origin_tests;
 /// The central plan that consolidates all bundling decisions
 #[derive(Debug, Clone, Default)]
 pub struct BundlePlan {
+    /// Primary driver for the executor - granular execution steps
+    pub execution_plan: Vec<ExecutionStep>,
+
     /// Statement ordering for final bundle (populated in Phase 2)
     pub final_statement_order: Vec<(ModuleId, ItemId)>,
 
@@ -80,9 +83,23 @@ pub struct FromImport {
     pub level: u32,                                // relative import level
 }
 
+/// How a module should be instantiated in the bundle
+#[derive(Debug, Clone, Default)]
+pub enum ModuleInstantiation {
+    /// Default: statements inserted directly into bundle
+    #[default]
+    Inline,
+    /// Module wrapped in init function with exports
+    Wrap {
+        init_function_name: String,
+        exports: Vec<String>, // Pre-computed by analysis
+    },
+}
+
 /// Metadata about how a module should be bundled
 #[derive(Debug, Clone)]
 pub struct ModuleMetadata {
+    pub instantiation: ModuleInstantiation,
     pub bundle_type: ModuleBundleType,
     pub has_side_effects: bool,
     pub synthetic_namespace: Option<Vec<String>>,
@@ -97,6 +114,31 @@ pub enum ModuleBundleType {
     Wrapper,
     /// Has conditional logic
     Conditional,
+}
+
+/// Granular execution steps for the dumb executor
+#[derive(Debug, Clone)]
+pub enum ExecutionStep {
+    /// Hoist a `from __future__ import ...` statement
+    HoistFutureImport { name: String },
+
+    /// Hoist a standard library import
+    HoistStdlibImport { name: String },
+
+    /// Define the init function for a wrapped module
+    DefineInitFunction { module_id: ModuleId },
+
+    /// Create the module object by calling its init function
+    CallInitFunction {
+        module_id: ModuleId,
+        target_variable: String,
+    },
+
+    /// Directly inline a statement from a source module
+    InlineStatement {
+        module_id: ModuleId,
+        item_id: ItemId,
+    },
 }
 
 /// A stdlib import to hoist
@@ -177,16 +219,29 @@ impl BundlePlan {
             plan.add_circular_dep_rewrites(graph, circular_deps);
         }
 
+        // Add symbol origin mappings from analysis
+        plan.symbol_origins = results.symbol_origins.symbol_origins.clone();
+
         // Convert symbol conflicts to rename decisions
         plan.add_symbol_renames(&results.symbol_conflicts);
 
         // Convert tree-shaking results to live items
         if let Some(tree_shake) = &results.tree_shake_results {
             plan.add_tree_shake_decisions(tree_shake);
+        } else {
+            // Fallback: If no tree-shaking results, include all items from all modules
+            log::debug!("No tree-shaking results, including all items");
+            for (module_id, module_graph) in &graph.modules {
+                let items: Vec<_> = module_graph.items.keys().cloned().collect();
+                plan.live_items.insert(*module_id, items);
+            }
         }
 
         // Classify modules and set metadata
         plan.classify_modules(graph);
+
+        // Build execution plan from all the decisions
+        plan.build_execution_plan();
 
         plan
     }
@@ -334,9 +389,22 @@ impl BundlePlan {
                 ModuleBundleType::Inlinable
             };
 
+            // Determine instantiation based on bundle type
+            let instantiation = match bundle_type {
+                ModuleBundleType::Wrapper | ModuleBundleType::Conditional => {
+                    // TODO: Generate proper init function name and exports list
+                    ModuleInstantiation::Wrap {
+                        init_function_name: format!("__cribo_init_{module_id:?}"),
+                        exports: vec![], // Will be populated by analysis
+                    }
+                }
+                ModuleBundleType::Inlinable => ModuleInstantiation::Inline,
+            };
+
             self.set_module_metadata(
                 *module_id,
                 ModuleMetadata {
+                    instantiation,
                     bundle_type,
                     has_side_effects,
                     synthetic_namespace: None, // Will be set during code generation if needed
@@ -388,6 +456,56 @@ impl BundlePlan {
             "Populated {} AST node renames from {} symbol renames",
             self.ast_node_renames.len(),
             self.symbol_renames.len()
+        );
+    }
+
+    /// Build the execution plan from all the collected decisions
+    fn build_execution_plan(&mut self) {
+        // Clear any existing plan
+        self.execution_plan.clear();
+
+        // TODO: Add hoisted future imports
+        // For now, we don't have a way to detect them yet
+
+        // TODO: Add hoisted stdlib imports
+        // For now, we don't have a way to detect them yet
+
+        // Add statements from live_items if final_statement_order is empty
+        if self.final_statement_order.is_empty() && !self.live_items.is_empty() {
+            // Build statement order from live_items
+            // Sort items by their statement index to preserve original order
+            let mut all_items = Vec::new();
+            for (module_id, items) in &self.live_items {
+                for item_id in items {
+                    all_items.push((*module_id, *item_id));
+                }
+            }
+
+            // Sort by statement index (for now, use ItemId as proxy for order)
+            // TODO: This should use actual statement indices once we have proper graph access
+            all_items.sort_by_key(|(_, item_id)| item_id.as_u32());
+
+            for (module_id, item_id) in all_items {
+                self.execution_plan
+                    .push(ExecutionStep::InlineStatement { module_id, item_id });
+            }
+        } else {
+            // Use final_statement_order if available
+            let statement_order: Vec<_> = self.final_statement_order.clone();
+            for (module_id, item_id) in statement_order {
+                self.execution_plan
+                    .push(ExecutionStep::InlineStatement { module_id, item_id });
+            }
+        }
+
+        // TODO: Add wrapped module support
+        // This will involve:
+        // 1. DefineInitFunction for each wrapped module
+        // 2. CallInitFunction in the correct order
+
+        log::debug!(
+            "Built execution plan with {} steps",
+            self.execution_plan.len()
         );
     }
 }

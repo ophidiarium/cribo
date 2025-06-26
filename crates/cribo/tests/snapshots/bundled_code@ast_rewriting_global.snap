@@ -8,26 +8,26 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_global/main.py
 
 import functools
 import types
-foo_3 = "module1_foo"
+foo_module_global_keyword = "module1_foo"
 def get_foo():
     """Get the module's global foo value."""
-    return foo_3
+    return foo_module_global_keyword
 def modify_foo():
     """Modify the module's global foo using global keyword."""
-    global foo_3
-    foo_3 = "module1_foo_modified"
+    global foo_module_global_keyword
+    foo_module_global_keyword = "module1_foo_modified"
 def set_foo_with_global(value):
     """Set foo using global keyword."""
-    global foo_3
-    foo_3 = value
+    global foo_module_global_keyword
+    foo_module_global_keyword = value
 def local_vs_global():
     """Demonstrate local vs global scope."""
-    foo_3 = "local_foo"
+    foo_module_global_keyword = "local_foo"
 
     def inner():
-        global foo_3
-        return foo_3
-    return foo_3, inner()
+        global foo_module_global_keyword
+        return foo_module_global_keyword
+    return foo_module_global_keyword, inner()
 """Module demonstrating global keyword usage."""
 _cribo_module_mixed_patterns_foo = None
 _cribo_module_mixed_patterns_counter = None
@@ -122,21 +122,19 @@ def __cribo_init___cribo_5101f4_module_globals_dict():
     set_dynamic_global("dynamic2", [1, 2, 3])
     return module
 """Test global namespace isolation between modules."""
-foo_1 = "main_foo"
-foo = foo_1
-bar_1 = "main_bar"
-bar = bar_1
+foo = "main_foo"
+bar = "main_bar"
 module_global_keyword = types.SimpleNamespace()
 module_global_keyword.__all__ = ['foo', 'get_foo', 'local_vs_global', 'modify_foo', 'set_foo_with_global']
-module_global_keyword.foo = foo_3
+module_global_keyword.foo = foo_module_global_keyword
 module_global_keyword.get_foo = get_foo
 module_global_keyword.local_vs_global = local_vs_global
 module_global_keyword.modify_foo = modify_foo
 module_global_keyword.set_foo_with_global = set_foo_with_global
 module_globals_dict = __cribo_init___cribo_5101f4_module_globals_dict()
 module_mixed_patterns = __cribo_init___cribo_c75306_module_mixed_patterns()
-assert foo_1 == "main_foo"
-assert bar_1 == "main_bar"
+assert foo == "main_foo"
+assert bar == "main_bar"
 print("Module with global keyword:", module_global_keyword.get_foo())
 print("Module with globals() dict:", module_globals_dict.get_bar())
 print("Module with mixed patterns:", module_mixed_patterns.get_values())
@@ -147,8 +145,8 @@ print("\nAfter modifications:")
 print("Module with global keyword:", module_global_keyword.get_foo())
 print("Module with globals() dict:", module_globals_dict.get_bar())
 print("Module with mixed patterns:", module_mixed_patterns.get_values())
-assert foo_1 == "main_foo"
-assert bar_1 == "main_bar"
+assert foo == "main_foo"
+assert bar == "main_bar"
 print("\nMain's globals remain unchanged:")
 print(f"foo = {foo}")
 print(f"bar = {bar}")

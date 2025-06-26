@@ -8,6 +8,7 @@ pub mod circular_analyzer;
 pub mod circular_deps;
 pub mod pipeline;
 pub mod symbol_conflict_detector;
+pub mod symbol_origin_analyzer;
 
 pub use circular_analyzer::CircularDependencyAnalyzer;
 pub use circular_deps::{
@@ -16,6 +17,7 @@ pub use circular_deps::{
 };
 pub use pipeline::run_analysis_pipeline;
 pub use symbol_conflict_detector::SymbolConflictDetector;
+pub use symbol_origin_analyzer::{SymbolOriginAnalyzer, SymbolOriginResults};
 
 /// Results from the analysis pipeline
 #[derive(Debug, Clone, Default)]
@@ -28,6 +30,9 @@ pub struct AnalysisResults {
 
     /// Results from tree-shaking analysis
     pub tree_shake_results: Option<TreeShakeResults>,
+
+    /// Symbol origin mappings for re-exports and aliases
+    pub symbol_origins: SymbolOriginResults,
 }
 
 use crate::semantic_model_provider::GlobalBindingId;

@@ -1,7 +1,6 @@
 pub mod analysis;
 pub mod ast_indexer;
 pub mod bundle_plan;
-pub mod code_generator;
 pub mod combine;
 pub mod config;
 pub mod cribo_graph;
@@ -10,6 +9,7 @@ pub mod graph_builder;
 pub mod import_alias_tracker;
 pub mod import_rewriter;
 pub mod orchestrator;
+pub mod plan_executor;
 pub mod resolver;
 pub mod semantic_analysis;
 pub mod semantic_bundler;
