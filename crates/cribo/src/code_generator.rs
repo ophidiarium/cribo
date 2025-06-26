@@ -22,6 +22,7 @@ use ruff_text_size::TextRange;
 use rustc_hash::FxHasher;
 
 use crate::{
+    bundle_plan::BundlePlan,
     cribo_graph::CriboGraph as DependencyGraph,
     semantic_bundler::{ModuleGlobalInfo, SemanticBundler, SymbolRegistry},
     transformation_context::TransformationContext,
@@ -171,6 +172,9 @@ pub struct BundleParams<'a> {
     pub semantic_bundler: &'a SemanticBundler, // Semantic analysis results
     pub circular_dep_analysis: Option<&'a crate::cribo_graph::CircularDependencyAnalysis>, /* Circular dependency analysis */
     pub tree_shaker: Option<&'a crate::tree_shaking::TreeShaker>, // Tree shaking analysis
+    pub bundle_plan: Option<&'a BundlePlan>,                      /* Consolidated bundling
+                                                                   * decisions (Phase 1: import
+                                                                   * rewrites) */
 }
 
 /// Transformer that lifts module-level globals to true global scope

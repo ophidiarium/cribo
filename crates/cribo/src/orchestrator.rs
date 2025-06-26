@@ -8,15 +8,16 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use indexmap::{IndexMap, IndexSet};
 use log::{debug, info, trace, warn};
-use ruff_python_ast::{ModModule, visitor::Visitor};
+use ruff_python_ast::{AtomicNodeIndex, ModModule, visitor::Visitor};
 use rustc_hash::FxHasher;
 
 use crate::{
+    bundle_plan::{BundlePlan, builder::BundlePlanBuilder},
     code_generator::HybridStaticBundler,
     config::Config,
     cribo_graph::{
         CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType, CriboGraph,
-        ModuleId, ResolutionStrategy,
+        ItemId, ModuleId, ResolutionStrategy,
     },
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
     resolver::{ImportType, ModuleResolver},
@@ -47,6 +48,10 @@ pub struct ModuleInfo {
     pub original_ast: ModModule,
     /// Whether this is a wrapper module (has side effects)
     pub is_wrapper: bool,
+    /// Mapping from ItemId to AST node index for precise transformations
+    pub item_to_node: FxIndexMap<ItemId, AtomicNodeIndex>,
+    /// Reverse mapping for quick lookups
+    pub node_to_item: FxIndexMap<AtomicNodeIndex, ItemId>,
 }
 
 /// Central registry for module information
@@ -265,6 +270,10 @@ impl BundleOrchestrator {
                         original_source: cached.source.clone(),
                         original_ast: cached.ast.clone(),
                         is_wrapper: false, // Will be determined later during bundling
+                        item_to_node: FxIndexMap::default(), /* Will be populated during graph
+                                            * building */
+                        node_to_item: FxIndexMap::default(), /* Will be populated during graph
+                                                              * building */
                     };
                     self.module_registry.add_module(module_info);
 
@@ -312,6 +321,8 @@ impl BundleOrchestrator {
                 original_source: source.clone(),
                 original_ast: ast.clone(),
                 is_wrapper: false, // Will be determined later during bundling
+                item_to_node: FxIndexMap::default(), // Will be populated during graph building
+                node_to_item: FxIndexMap::default(), // Will be populated during graph building
             };
             self.module_registry.add_module(module_info);
 
@@ -1678,6 +1689,9 @@ impl BundleOrchestrator {
             }
         }
 
+        // Build BundlePlan from analysis results (Phase 1: just circular dependencies)
+        let bundle_plan = self.build_bundle_plan(params.circular_dep_analysis)?;
+
         // Bundle all modules using static bundler
         let bundled_ast = static_bundler.bundle_modules(crate::code_generator::BundleParams {
             modules: module_asts,
@@ -1687,6 +1701,7 @@ impl BundleOrchestrator {
             semantic_bundler: &self.semantic_bundler,
             circular_dep_analysis: params.circular_dep_analysis,
             tree_shaker: params.tree_shaker,
+            bundle_plan: Some(&bundle_plan),
         })?;
 
         // Generate Python code from AST
@@ -1710,6 +1725,48 @@ impl BundleOrchestrator {
         final_output.extend(code_parts);
 
         Ok(final_output.join("\n"))
+    }
+
+    /// Build BundlePlan from analysis results
+    /// Phase 1: Only handles circular dependency import rewrites
+    /// Future phases will add symbol renames, tree-shaking, etc.
+    fn build_bundle_plan(
+        &self,
+        circular_dep_analysis: Option<&CircularDependencyAnalysis>,
+    ) -> Result<BundlePlan> {
+        let builder = BundlePlanBuilder::new();
+
+        // Phase 1: Handle circular dependency import rewrites
+        if let Some(analysis) = circular_dep_analysis {
+            // For now, we'll create placeholder import rewrites
+            // In a full implementation, this would analyze the resolvable cycles
+            // and determine specific imports to move to functions
+            for cycle in &analysis.resolvable_cycles {
+                match &cycle.suggested_resolution {
+                    ResolutionStrategy::FunctionScopedImport { .. } => {
+                        // TODO: Map module names to ModuleIds and identify specific imports
+                        // For Phase 1, we're establishing the pattern
+                        debug!(
+                            "Would create import rewrites for cycle: {:?}",
+                            cycle.modules
+                        );
+                    }
+                    ResolutionStrategy::LazyImport { .. } => {
+                        debug!("Would create lazy imports for cycle: {:?}", cycle.modules);
+                    }
+                    _ => {
+                        // Other strategies not yet implemented
+                    }
+                }
+            }
+        }
+
+        // Future phases will add:
+        // - Symbol conflict resolutions from semantic_bundler
+        // - Tree-shaking decisions
+        // - Module metadata (inlinable vs wrapper)
+
+        Ok(builder.build())
     }
 
     /// Generate requirements.txt content from third-party imports

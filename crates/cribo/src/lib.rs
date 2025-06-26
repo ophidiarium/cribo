@@ -1,4 +1,5 @@
 pub mod ast_indexer;
+pub mod bundle_plan;
 pub mod code_generator;
 pub mod combine;
 pub mod config;
