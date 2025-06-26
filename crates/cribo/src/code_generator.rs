@@ -214,7 +214,7 @@ impl SymbolDependencyGraph {
         }
 
         // Add edges for dependencies
-        for (module_symbol, deps) in &self.dependencies {
+        for (module_symbol, deps) in &self.module_level_dependencies {
             if let Some(&from_node) = node_map.get(module_symbol) {
                 for dep in deps {
                     if let Some(&to_node) = node_map.get(dep) {
@@ -2104,6 +2104,8 @@ pub struct HybridStaticBundler {
     transformation_context: TransformationContext,
     /// Module/symbol pairs that should be kept after tree shaking
     tree_shaking_keep_symbols: Option<indexmap::IndexSet<(String, String)>>,
+    /// Whether to use the module cache model for circular dependencies
+    use_module_cache: bool,
 }
 
 impl HybridStaticBundler {
@@ -2423,6 +2425,7 @@ impl HybridStaticBundler {
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
+            use_module_cache: true, // Enable module cache by default for circular dependencies
         }
     }
 
@@ -3174,6 +3177,149 @@ impl HybridStaticBundler {
         None
     }
 
+    /// Sort wrapper modules by their dependencies to ensure correct initialization order
+    fn sort_wrapper_modules_by_dependencies(
+        &self,
+        wrapper_modules: &[(String, ModModule, PathBuf, String)],
+        graph: &crate::cribo_graph::CriboGraph,
+    ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
+        use petgraph::{
+            algo::toposort,
+            graph::{DiGraph, NodeIndex},
+        };
+        use rustc_hash::{FxHashMap, FxHashSet};
+
+        // Build a directed graph of wrapper module dependencies
+        let mut module_graph = DiGraph::new();
+        let mut node_map: FxHashMap<String, NodeIndex> = FxHashMap::default();
+
+        // Create a set for quick lookup
+        let wrapper_module_names: FxHashSet<String> = wrapper_modules
+            .iter()
+            .map(|(name, _, _, _)| name.clone())
+            .collect();
+
+        // Add nodes for all wrapper modules
+        for (module_name, _, _, _) in wrapper_modules {
+            let node = module_graph.add_node(module_name.clone());
+            node_map.insert(module_name.clone(), node);
+        }
+
+        // Add edges based on module dependencies
+        for (module_name, _, _, _) in wrapper_modules {
+            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+                // Check all items in this module for dependencies
+                for item_data in module_dep_graph.items.values() {
+                    // Look at both immediate reads (module-level) and eventual reads
+                    let all_deps = item_data
+                        .read_vars
+                        .iter()
+                        .chain(item_data.eventual_read_vars.iter());
+
+                    for dep_var in all_deps {
+                        // Find which module this dependency comes from
+                        if let Some(dep_module) =
+                            self.find_symbol_module(dep_var, module_name, graph)
+                        {
+                            // Only add edge if the dependency is also a wrapper module
+                            if wrapper_module_names.contains(&dep_module)
+                                && dep_module != *module_name
+                                && let (Some(&from_node), Some(&to_node)) =
+                                    (node_map.get(module_name), node_map.get(&dep_module))
+                            {
+                                // Edge from current module to its dependency
+                                module_graph.add_edge(from_node, to_node, ());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Perform topological sort
+        match toposort(&module_graph, None) {
+            Ok(sorted_nodes) => {
+                // Create a map for quick lookup
+                let module_map: FxHashMap<String, (String, ModModule, PathBuf, String)> =
+                    wrapper_modules
+                        .iter()
+                        .map(|m| (m.0.clone(), m.clone()))
+                        .collect();
+
+                // Return modules in reverse topological order (dependencies first)
+                let sorted_module_names: Vec<String> = sorted_nodes
+                    .iter()
+                    .rev()
+                    .map(|&idx| module_graph[idx].clone())
+                    .collect();
+
+                log::debug!("Sorted wrapper modules by dependencies: {sorted_module_names:?}");
+
+                let sorted_modules = sorted_module_names
+                    .into_iter()
+                    .filter_map(|module_name| module_map.get(&module_name).cloned())
+                    .collect();
+
+                Ok(sorted_modules)
+            }
+            Err(cycle) => {
+                // If there's a true initialization cycle and we're using module cache,
+                // return modules in alphabetical order within the cycle
+                if self.use_module_cache {
+                    log::warn!(
+                        "Module-level initialization cycle detected involving module '{}'. Using \
+                         module cache approach with alphabetical ordering.",
+                        &module_graph[cycle.node_id()]
+                    );
+
+                    // Find all modules in the cycle using Tarjan's algorithm
+                    let sccs = petgraph::algo::tarjan_scc(&module_graph);
+                    let mut cyclic_modules = FxHashSet::default();
+
+                    for scc in sccs {
+                        if scc.len() > 1 {
+                            // This is a cycle
+                            for &node_idx in &scc {
+                                cyclic_modules.insert(module_graph[node_idx].clone());
+                            }
+                        }
+                    }
+
+                    log::warn!("Modules in cycle: {cyclic_modules:?}");
+
+                    // Sort all modules alphabetically
+                    let mut sorted_names: Vec<String> = wrapper_modules
+                        .iter()
+                        .map(|(name, _, _, _)| name.clone())
+                        .collect();
+                    sorted_names.sort();
+
+                    let module_map: FxHashMap<String, (String, ModModule, PathBuf, String)> =
+                        wrapper_modules
+                            .iter()
+                            .map(|m| (m.0.clone(), m.clone()))
+                            .collect();
+
+                    let sorted_modules = sorted_names
+                        .into_iter()
+                        .filter_map(|module_name| module_map.get(&module_name).cloned())
+                        .collect();
+
+                    Ok(sorted_modules)
+                } else {
+                    // Original error for non-module-cache approach
+                    let node_in_cycle = &module_graph[cycle.node_id()];
+                    anyhow::bail!(
+                        "Module-level initialization cycle detected involving module '{}'. This \
+                         occurs when modules have mutually dependent top-level code that cannot \
+                         be resolved. Consider refactoring to break the initialization cycle.",
+                        node_in_cycle
+                    )
+                }
+            }
+        }
+    }
+
     /// Sort wrapped modules by their dependencies to ensure correct initialization order
     fn sort_wrapped_modules_by_dependencies(
         &self,
@@ -3872,6 +4018,7 @@ impl HybridStaticBundler {
         self.find_namespace_imported_modules(&all_modules_for_namespace_check);
 
         // Identify all modules that are part of circular dependencies
+        let mut has_circular_dependencies = false;
         if let Some(analysis) = params.circular_dep_analysis {
             log::debug!("CircularDependencyAnalysis received:");
             log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
@@ -3886,6 +4033,7 @@ impl HybridStaticBundler {
                     self.circular_modules.insert(module.clone());
                 }
             }
+            has_circular_dependencies = !self.circular_modules.is_empty();
             log::debug!("Circular modules: {:?}", self.circular_modules);
         } else {
             log::debug!("No circular dependency analysis provided");
@@ -4149,6 +4297,10 @@ impl HybridStaticBundler {
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
 
+        // Sort wrapper modules by their dependencies
+        let sorted_wrapper_modules =
+            self.sort_wrapper_modules_by_dependencies(&wrapper_modules_saved, params.graph)?;
+
         // Build symbol-level dependency graph for circular modules if needed
         if !self.circular_modules.is_empty() {
             log::debug!("Building symbol dependency graph for circular modules");
@@ -4270,6 +4422,16 @@ impl HybridStaticBundler {
         // Add pre-declarations at the very beginning
         final_body.extend(circular_predeclarations);
 
+        // Decide early if we need module cache for circular dependencies
+        let use_module_cache_for_wrappers =
+            has_wrapper_modules && has_circular_dependencies && self.use_module_cache;
+        if use_module_cache_for_wrappers {
+            log::info!(
+                "Detected circular dependencies in wrapper modules - will use module cache \
+                 approach"
+            );
+        }
+
         // Before inlining modules, check which wrapper modules they depend on
         let mut wrapper_modules_needed_by_inlined = FxIndexSet::default();
         for (module_name, ast, module_path, _) in &inlinable_modules {
@@ -4320,6 +4482,24 @@ impl HybridStaticBundler {
             }
         }
 
+        // If we're using module cache, add the infrastructure early
+        if use_module_cache_for_wrappers {
+            // Add module cache infrastructure at the beginning
+            let namespace_class = self.generate_module_namespace_class();
+            final_body.push(namespace_class);
+
+            let cache_init = self.generate_module_cache_init();
+            final_body.push(cache_init);
+
+            // Populate cache with all wrapper modules
+            let cache_population = self.generate_module_cache_population(&sorted_wrapper_modules);
+            final_body.extend(cache_population);
+
+            // Add sys.modules sync
+            let sys_sync = self.generate_sys_modules_sync();
+            final_body.extend(sys_sync);
+        }
+
         // If there are wrapper modules needed by inlined modules, we need to define their
         // init functions BEFORE inlining the modules that use them
         if !wrapper_modules_needed_by_inlined.is_empty() && has_wrapper_modules {
@@ -4332,7 +4512,7 @@ impl HybridStaticBundler {
             let mut module_globals = FxIndexMap::default();
             let mut lifted_declarations = Vec::new();
 
-            for (module_name, ast, _, _) in &wrapper_modules_saved {
+            for (module_name, ast, _, _) in &sorted_wrapper_modules {
                 if wrapper_modules_needed_by_inlined.contains(module_name) {
                     let params = ProcessGlobalsParams {
                         module_name,
@@ -4358,7 +4538,7 @@ impl HybridStaticBundler {
             }
 
             // Define the init functions for wrapper modules needed by inlined modules
-            for (module_name, ast, module_path, _) in &wrapper_modules_saved {
+            for (module_name, ast, module_path, _) in &sorted_wrapper_modules {
                 if wrapper_modules_needed_by_inlined.contains(module_name) {
                     let synthetic_name = self.module_registry[module_name].clone();
                     let global_info = module_globals.get(module_name).cloned();
@@ -4370,15 +4550,26 @@ impl HybridStaticBundler {
                     };
                     // Generate init function with empty symbol_renames for now
                     let empty_renames = FxIndexMap::default();
-                    let init_function =
-                        self.transform_module_to_init_function(ctx, ast.clone(), &empty_renames)?;
+                    let init_function = if use_module_cache_for_wrappers {
+                        self.transform_module_to_cache_init_function(
+                            ctx,
+                            ast.clone(),
+                            &empty_renames,
+                        )?
+                    } else {
+                        self.transform_module_to_init_function(ctx, ast.clone(), &empty_renames)?
+                    };
                     final_body.push(init_function);
 
                     // Initialize the wrapper module immediately after defining it
-                    let mut temp_names = FxIndexSet::default();
-                    let init_stmts =
-                        self.generate_module_init_call(&synthetic_name, &mut temp_names);
-                    final_body.extend(init_stmts);
+                    // ONLY for non-module-cache mode
+                    if !use_module_cache_for_wrappers {
+                        let mut temp_names = FxIndexSet::default();
+                        let init_stmts =
+                            self.generate_module_init_call(&synthetic_name, &mut temp_names);
+                        final_body.extend(init_stmts);
+                    }
+                    // For module cache mode, initialization happens later in dependency order
                 }
             }
         }
@@ -4562,6 +4753,8 @@ impl HybridStaticBundler {
             }
         }
 
+        // Module cache infrastructure was already added earlier if needed
+
         // Now transform wrapper modules into init functions AFTER inlining
         // This way we have access to symbol_renames for proper import resolution
         if has_wrapper_modules {
@@ -4569,7 +4762,7 @@ impl HybridStaticBundler {
             let mut module_globals = FxIndexMap::default();
             let mut all_lifted_declarations = Vec::new();
 
-            for (module_name, ast, _, _) in &wrapper_modules_saved {
+            for (module_name, ast, _, _) in &sorted_wrapper_modules {
                 // Skip modules that were already processed early
                 if wrapper_modules_needed_by_inlined.contains(module_name) {
                     log::debug!(
@@ -4608,7 +4801,7 @@ impl HybridStaticBundler {
             }
 
             // Second pass: transform modules with global info
-            for (module_name, ast, module_path, _content_hash) in &wrapper_modules_saved {
+            for (module_name, ast, module_path, _content_hash) in &sorted_wrapper_modules {
                 // Skip modules that were already defined early for inlined module dependencies
                 if wrapper_modules_needed_by_inlined.contains(module_name) {
                     log::debug!("Skipping wrapper module '{module_name}' - already defined early");
@@ -4623,8 +4816,11 @@ impl HybridStaticBundler {
                     module_path,
                     global_info,
                 };
-                let init_function =
-                    self.transform_module_to_init_function(ctx, ast.clone(), &symbol_renames)?;
+                let init_function = if use_module_cache_for_wrappers {
+                    self.transform_module_to_cache_init_function(ctx, ast.clone(), &symbol_renames)?
+                } else {
+                    self.transform_module_to_init_function(ctx, ast.clone(), &symbol_renames)?
+                };
                 final_body.push(init_function);
             }
 
@@ -4661,9 +4857,45 @@ impl HybridStaticBundler {
             );
             debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
 
-            // DO NOT initialize modules here - they should be initialized when imported
-            // This preserves Python's lazy import semantics
-            debug!("Skipping eager module initialization - modules will initialize on import");
+            // When using module cache, we must initialize all modules immediately
+            // to populate their namespaces
+            if use_module_cache_for_wrappers {
+                log::info!("Using module cache - initializing all modules immediately");
+
+                // Call all init functions in sorted order
+                for module_name in &sorted_wrapped {
+                    if let Some(synthetic_name) = self.module_registry.get(module_name) {
+                        let init_func_name = &self.init_functions[synthetic_name];
+
+                        // Generate a call to the init function
+                        let init_call = Stmt::Expr(ruff_python_ast::StmtExpr {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(Expr::Call(ExprCall {
+                                node_index: AtomicNodeIndex::dummy(),
+                                func: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: init_func_name.clone().into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                arguments: Arguments {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    args: Box::from([]),
+                                    keywords: Box::from([]),
+                                    range: TextRange::default(),
+                                },
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        });
+                        final_body.push(init_call);
+                    }
+                }
+            } else {
+                // DO NOT initialize modules here - they should be initialized when imported
+                // This preserves Python's lazy import semantics
+                debug!("Skipping eager module initialization - modules will initialize on import");
+            }
 
             // After all modules are initialized, assign temporary variables to their namespace
             // locations For parent modules that are also wrapper modules, we need to
@@ -4731,7 +4963,7 @@ impl HybridStaticBundler {
             // Recreate all_modules for this check
             let all_modules = inlinable_modules
                 .iter()
-                .chain(wrapper_modules_saved.iter())
+                .chain(sorted_wrapper_modules.iter())
                 .cloned()
                 .collect::<Vec<_>>();
             let entry_imported_modules =
@@ -14868,5 +15100,553 @@ impl HybridStaticBundler {
             },
             range: TextRange::default(),
         })
+    }
+}
+
+impl HybridStaticBundler {
+    /// Generate the _ModuleNamespace class definition
+    fn generate_module_namespace_class(&mut self) -> Stmt {
+        // class _ModuleNamespace:
+        //     pass
+        let class_def = StmtClassDef {
+            node_index: self.create_node_index(),
+            decorator_list: vec![],
+            name: Identifier::new("_ModuleNamespace", TextRange::default()),
+            type_params: None,
+            arguments: None,
+            body: vec![Stmt::Pass(ruff_python_ast::StmtPass {
+                node_index: self.create_node_index(),
+                range: TextRange::default(),
+            })],
+            range: TextRange::default(),
+        };
+
+        Stmt::ClassDef(class_def)
+    }
+
+    /// Generate the __cribo_module_cache__ dictionary initialization
+    fn generate_module_cache_init(&mut self) -> Stmt {
+        // __cribo_module_cache__ = {}
+        let assign = StmtAssign {
+            node_index: self.create_node_index(),
+            targets: vec![Expr::Name(ExprName {
+                node_index: self.create_node_index(),
+                id: "__cribo_module_cache__".into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Dict(ruff_python_ast::ExprDict {
+                node_index: self.create_node_index(),
+                items: vec![],
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        };
+
+        Stmt::Assign(assign)
+    }
+
+    /// Generate statements to populate the module cache with empty namespaces
+    fn generate_module_cache_population(
+        &mut self,
+        modules: &[(String, ModModule, PathBuf, String)],
+    ) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+
+        // For each module, add: __cribo_module_cache__["module.name"] = _ModuleNamespace()
+        for (module_name, _, _, _) in modules {
+            let assign = StmtAssign {
+                node_index: self.create_node_index(),
+                targets: vec![Expr::Subscript(ExprSubscript {
+                    node_index: self.create_node_index(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: "__cribo_module_cache__".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                        node_index: self.create_node_index(),
+                        value: StringLiteralValue::single(StringLiteral {
+                            node_index: self.create_node_index(),
+                            value: module_name.clone().into_boxed_str(),
+                            flags: StringLiteralFlags::empty(),
+                            range: TextRange::default(),
+                        }),
+                        range: TextRange::default(),
+                    })),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::Call(ExprCall {
+                    node_index: self.create_node_index(),
+                    func: Box::new(Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: "_ModuleNamespace".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    arguments: Arguments {
+                        node_index: self.create_node_index(),
+                        args: Box::from([]),
+                        keywords: Box::from([]),
+                        range: TextRange::default(),
+                    },
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            };
+            stmts.push(Stmt::Assign(assign));
+        }
+
+        stmts
+    }
+
+    /// Generate sys.modules synchronization
+    fn generate_sys_modules_sync(&mut self) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+
+        // import sys
+        stmts.push(Stmt::Import(StmtImport {
+            node_index: self.create_node_index(),
+            names: vec![ruff_python_ast::Alias {
+                node_index: self.create_node_index(),
+                name: Identifier::new("sys", TextRange::default()),
+                asname: None,
+                range: TextRange::default(),
+            }],
+            range: TextRange::default(),
+        }));
+
+        // sys.modules.update(__cribo_module_cache__)
+        let update_call = Stmt::Expr(ruff_python_ast::StmtExpr {
+            node_index: self.create_node_index(),
+            value: Box::new(Expr::Call(ExprCall {
+                node_index: self.create_node_index(),
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: self.create_node_index(),
+                    value: Box::new(Expr::Attribute(ExprAttribute {
+                        node_index: self.create_node_index(),
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: self.create_node_index(),
+                            id: "sys".into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new("modules", TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("update", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: self.create_node_index(),
+                    args: Box::from([Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: "__cribo_module_cache__".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        });
+        stmts.push(update_call);
+
+        stmts
+    }
+
+    /// Transform a module into an initialization function using the module cache approach
+    fn transform_module_to_cache_init_function(
+        &self,
+        ctx: ModuleTransformContext,
+        mut ast: ModModule,
+        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Result<Stmt> {
+        let init_func_name = &self.init_functions[ctx.synthetic_name];
+        let mut body: Vec<Stmt> = Vec::new();
+
+        // Get reference to module's namespace from the cache
+        // _module_self = __cribo_module_cache__["module.name"]
+        let module_self_stmt = StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: "_module_self".into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Subscript(ExprSubscript {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: "__cribo_module_cache__".into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: StringLiteralValue::single(StringLiteral {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: ctx.module_name.to_string().into_boxed_str(),
+                        flags: StringLiteralFlags::empty(),
+                        range: TextRange::default(),
+                    }),
+                    range: TextRange::default(),
+                })),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        };
+        body.push(Stmt::Assign(module_self_stmt));
+
+        // Set module attributes
+        // _module_self.__name__ = "module.name"
+        let name_stmt = StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: "_module_self".into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("__name__", TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                node_index: AtomicNodeIndex::dummy(),
+                value: StringLiteralValue::single(StringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: ctx.module_name.to_string().into_boxed_str(),
+                    flags: StringLiteralFlags::empty(),
+                    range: TextRange::default(),
+                }),
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        };
+        body.push(Stmt::Assign(name_stmt));
+
+        // TODO: Add other module attributes like __file__, __package__, etc.
+
+        // Transform imports to use module cache lookups
+        let mut cache_transformer = ModuleCacheImportTransformer::new(self, ctx.module_name);
+        cache_transformer.transform_module(&mut ast);
+
+        // Transform the module body to assign to _module_self attributes
+        let transformed_body = self.transform_module_body_for_cache(ast.body, ctx.module_name)?;
+        body.extend(transformed_body);
+
+        // Create the init function
+        Ok(Stmt::FunctionDef(StmtFunctionDef {
+            node_index: AtomicNodeIndex::dummy(),
+            decorator_list: vec![],
+            name: Identifier::new(init_func_name, TextRange::default()),
+            type_params: None,
+            parameters: Box::new(ruff_python_ast::Parameters {
+                node_index: AtomicNodeIndex::dummy(),
+                posonlyargs: vec![],
+                args: vec![],
+                vararg: None,
+                kwonlyargs: vec![],
+                kwarg: None,
+                range: TextRange::default(),
+            }),
+            returns: None,
+            body,
+            is_async: false,
+            range: TextRange::default(),
+        }))
+    }
+
+    /// Transform module body statements to assign to _module_self
+    fn transform_module_body_for_cache(
+        &self,
+        body: Vec<Stmt>,
+        module_name: &str,
+    ) -> Result<Vec<Stmt>> {
+        let mut transformed = Vec::new();
+
+        for stmt in body {
+            match stmt {
+                // Transform assignments to module-level variables
+                Stmt::Assign(mut assign) => {
+                    // Change targets to _module_self.var_name
+                    for target in &mut assign.targets {
+                        if let Expr::Name(name) = target {
+                            *target = Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: "_module_self".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(name.id.as_str(), TextRange::default()),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            });
+                        }
+                    }
+                    transformed.push(Stmt::Assign(assign));
+                }
+                // Transform function definitions
+                Stmt::FunctionDef(func_def) => {
+                    // Add the function definition
+                    transformed.push(Stmt::FunctionDef(func_def.clone()));
+
+                    // Then assign it to _module_self
+                    let assign = StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
+                        targets: vec![Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
+                                id: "_module_self".into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            attr: func_def.name.clone(),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: func_def.name.clone().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    };
+                    transformed.push(Stmt::Assign(assign));
+                }
+                // Transform class definitions
+                Stmt::ClassDef(class_def) => {
+                    // Add the class definition
+                    transformed.push(Stmt::ClassDef(class_def.clone()));
+
+                    // Then assign it to _module_self
+                    let assign = StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
+                        targets: vec![Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
+                                id: "_module_self".into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            attr: class_def.name.clone(),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: class_def.name.clone().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    };
+                    transformed.push(Stmt::Assign(assign));
+                }
+                // Keep other statements as-is for now
+                _ => transformed.push(stmt),
+            }
+        }
+
+        Ok(transformed)
+    }
+}
+
+/// Import transformer for module cache approach
+struct ModuleCacheImportTransformer<'a> {
+    bundler: &'a HybridStaticBundler,
+    module_name: &'a str,
+}
+
+impl<'a> ModuleCacheImportTransformer<'a> {
+    fn new(bundler: &'a HybridStaticBundler, module_name: &'a str) -> Self {
+        Self {
+            bundler,
+            module_name,
+        }
+    }
+
+    fn transform_module(&mut self, module: &mut ModModule) {
+        let mut new_body = Vec::new();
+
+        for stmt in module.body.drain(..) {
+            match &stmt {
+                Stmt::Import(import) => {
+                    // Transform bundled module imports to cache access
+                    // Keep non-bundled imports as regular imports
+                    let mut bundled_imports = Vec::new();
+                    let mut non_bundled_imports = Vec::new();
+
+                    for alias in &import.names {
+                        let module_name = alias.name.as_str();
+                        if self.bundler.bundled_modules.contains(module_name) {
+                            bundled_imports.push(alias);
+                        } else {
+                            non_bundled_imports.push(alias.clone());
+                        }
+                    }
+
+                    // Keep non-bundled imports as import statements
+                    if !non_bundled_imports.is_empty() {
+                        new_body.push(Stmt::Import(StmtImport {
+                            node_index: import.node_index.clone(),
+                            names: non_bundled_imports,
+                            range: import.range,
+                        }));
+                    }
+
+                    // Transform bundled imports to cache access
+                    for alias in bundled_imports {
+                        let module_name = alias.name.as_str();
+                        let local_name = alias
+                            .asname
+                            .as_ref()
+                            .map(|n| n.as_str())
+                            .unwrap_or(module_name);
+
+                        let assign = StmtAssign {
+                            node_index: AtomicNodeIndex::dummy(),
+                            targets: vec![Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: "_module_self".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(local_name, TextRange::default()),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            })],
+                            value: Box::new(Expr::Subscript(ExprSubscript {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: "__cribo_module_cache__".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    value: StringLiteralValue::single(StringLiteral {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        value: module_name.to_string().into_boxed_str(),
+                                        flags: StringLiteralFlags::empty(),
+                                        range: TextRange::default(),
+                                    }),
+                                    range: TextRange::default(),
+                                })),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        };
+                        new_body.push(Stmt::Assign(assign));
+                    }
+                }
+                Stmt::ImportFrom(import_from) => {
+                    // Transform from X import Y to _module_self.Y = __cribo_module_cache__["X"].Y
+                    // Only for bundled modules
+                    if let Some(module) = &import_from.module {
+                        let resolved_module = if import_from.level > 0 {
+                            // Handle relative imports
+                            self.bundler
+                                .resolve_relative_import(import_from, self.module_name)
+                                .unwrap_or_else(|| module.as_str().to_string())
+                        } else {
+                            module.as_str().to_string()
+                        };
+
+                        // Check if this module is bundled
+                        if self.bundler.bundled_modules.contains(&resolved_module) {
+                            for alias in &import_from.names {
+                                let imported_name = alias.name.as_str();
+                                let local_name = alias
+                                    .asname
+                                    .as_ref()
+                                    .map(|n| n.as_str())
+                                    .unwrap_or(imported_name);
+
+                                let assign = StmtAssign {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    targets: vec![Expr::Attribute(ExprAttribute {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        value: Box::new(Expr::Name(ExprName {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            id: "_module_self".into(),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        })),
+                                        attr: Identifier::new(local_name, TextRange::default()),
+                                        ctx: ExprContext::Store,
+                                        range: TextRange::default(),
+                                    })],
+                                    value: Box::new(Expr::Attribute(ExprAttribute {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        value: Box::new(Expr::Subscript(ExprSubscript {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            value: Box::new(Expr::Name(ExprName {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                id: "__cribo_module_cache__".into(),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            slice: Box::new(Expr::StringLiteral(
+                                                ExprStringLiteral {
+                                                    node_index: AtomicNodeIndex::dummy(),
+                                                    value: StringLiteralValue::single(
+                                                        StringLiteral {
+                                                            node_index: AtomicNodeIndex::dummy(),
+                                                            value: resolved_module
+                                                                .clone()
+                                                                .into_boxed_str(),
+                                                            flags: StringLiteralFlags::empty(),
+                                                            range: TextRange::default(),
+                                                        },
+                                                    ),
+                                                    range: TextRange::default(),
+                                                },
+                                            )),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        })),
+                                        attr: Identifier::new(imported_name, TextRange::default()),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    })),
+                                    range: TextRange::default(),
+                                };
+                                new_body.push(Stmt::Assign(assign));
+                            }
+                        } else {
+                            // Non-bundled module, keep the import as-is
+                            new_body.push(stmt);
+                        }
+                    } else {
+                        // No module specified (shouldn't happen in ImportFrom)
+                        new_body.push(stmt);
+                    }
+                }
+                _ => new_body.push(stmt),
+            }
+        }
+
+        module.body = new_body;
     }
 }
