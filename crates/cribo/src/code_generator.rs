@@ -6135,24 +6135,21 @@ impl<'a> HybridStaticBundler<'a> {
                         .handlers
                         .iter()
                         .map(|handler| {
-                            if let ExceptHandler::ExceptHandler(handler) = handler {
-                                let processed_handler_body = self.process_body_recursive(
-                                    handler.body.clone(),
-                                    module_name,
-                                    module_scope_symbols,
-                                );
-                                ExceptHandler::ExceptHandler(
-                                    ruff_python_ast::ExceptHandlerExceptHandler {
-                                        node_index: handler.node_index.clone(),
-                                        type_: handler.type_.clone(),
-                                        name: handler.name.clone(),
-                                        body: processed_handler_body,
-                                        range: handler.range,
-                                    },
-                                )
-                            } else {
-                                handler.clone()
-                            }
+                            let ExceptHandler::ExceptHandler(handler) = handler;
+                            let processed_handler_body = self.process_body_recursive(
+                                handler.body.clone(),
+                                module_name,
+                                module_scope_symbols,
+                            );
+                            ExceptHandler::ExceptHandler(
+                                ruff_python_ast::ExceptHandlerExceptHandler {
+                                    node_index: handler.node_index.clone(),
+                                    type_: handler.type_.clone(),
+                                    name: handler.name.clone(),
+                                    body: processed_handler_body,
+                                    range: handler.range,
+                                },
+                            )
                         })
                         .collect();
 
@@ -15882,7 +15879,14 @@ impl<'a> HybridStaticBundler<'a> {
                                     let name_to_use = if hard_dep.alias_is_mandatory
                                         && hard_dep.alias.is_some()
                                     {
-                                        hard_dep.alias.as_ref().unwrap().clone()
+                                        hard_dep
+                                            .alias
+                                            .as_ref()
+                                            .expect(
+                                                "alias should exist when alias_is_mandatory is \
+                                                 true and alias.is_some() is true",
+                                            )
+                                            .clone()
                                     } else {
                                         hard_dep.imported_attr.clone()
                                     };
