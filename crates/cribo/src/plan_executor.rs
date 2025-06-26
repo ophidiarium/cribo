@@ -206,9 +206,7 @@ fn should_filter_import(
     item_id: ItemId,
     namespace_modules: &FxHashMap<String, Vec<String>>,
 ) -> Result<bool> {
-    debug!(
-        "Checking if should filter import for module {module_id:?} item {item_id:?}"
-    );
+    debug!("Checking if should filter import for module {module_id:?} item {item_id:?}");
     debug!("Statement type: {:?}", std::mem::discriminant(stmt));
     match stmt {
         Stmt::Import(import) => {
@@ -286,9 +284,7 @@ fn should_filter_import(
                         let imported_name = alias.name.as_str();
                         let full_module_path = format!("{module_name}.{imported_name}");
 
-                        debug!(
-                            "Checking if '{imported_name}' will be replaced by namespace"
-                        );
+                        debug!("Checking if '{imported_name}' will be replaced by namespace");
                         debug!(
                             "  - In namespace_modules map: {}",
                             namespace_modules.contains_key(imported_name)
@@ -335,9 +331,87 @@ fn should_filter_import(
 }
 
 /// Apply AST node renames to a statement
-fn apply_ast_renames(stmt: Stmt, _plan: &BundlePlan, _module_id: ModuleId) -> Stmt {
-    // TODO: Implement AST transformation using the ast_node_renames map
-    // For now, return the statement unchanged
+fn apply_ast_renames(mut stmt: Stmt, plan: &BundlePlan, module_id: ModuleId) -> Stmt {
+    use ruff_python_ast::visitor::transformer::{Transformer, walk_expr, walk_stmt};
+
+    struct RenameTransformer<'a> {
+        renames: &'a FxHashMap<(ModuleId, TextRange), String>,
+        module_id: ModuleId,
+    }
+
+    impl<'a> Transformer for RenameTransformer<'a> {
+        fn visit_expr(&self, expr: &mut Expr) {
+            match expr {
+                Expr::Name(name_expr) => {
+                    let key = (self.module_id, name_expr.range);
+                    if let Some(new_name) = self.renames.get(&key) {
+                        trace!(
+                            "Renaming identifier at {:?} from '{}' to '{}'",
+                            name_expr.range, name_expr.id, new_name
+                        );
+                        name_expr.id = Name::new(new_name);
+                    }
+                }
+                Expr::Attribute(attr_expr) => {
+                    // For attribute access like config.DEFAULT_NAME, check if we need to rename
+                    // the base object (e.g., config -> something else)
+                    if let Expr::Name(base_name) = &mut *attr_expr.value {
+                        let key = (self.module_id, base_name.range);
+                        if let Some(new_name) = self.renames.get(&key) {
+                            trace!(
+                                "Renaming attribute base at {:?} from '{}' to '{}'",
+                                base_name.range, base_name.id, new_name
+                            );
+                            base_name.id = Name::new(new_name);
+                        }
+                    }
+                    // Continue visiting the value expression
+                    self.visit_expr(&mut attr_expr.value);
+                }
+                _ => {}
+            }
+
+            // Continue visiting child expressions
+            walk_expr(self, expr);
+        }
+
+        fn visit_stmt(&self, stmt: &mut Stmt) {
+            // Handle class and function definitions
+            match stmt {
+                Stmt::ClassDef(class_def) => {
+                    let key = (self.module_id, class_def.name.range);
+                    if let Some(new_name) = self.renames.get(&key) {
+                        trace!(
+                            "Renaming class '{}' at {:?} to '{}'",
+                            class_def.name, class_def.name.range, new_name
+                        );
+                        class_def.name = Identifier::new(new_name, class_def.name.range);
+                    }
+                }
+                Stmt::FunctionDef(func_def) => {
+                    let key = (self.module_id, func_def.name.range);
+                    if let Some(new_name) = self.renames.get(&key) {
+                        trace!(
+                            "Renaming function '{}' at {:?} to '{}'",
+                            func_def.name, func_def.name.range, new_name
+                        );
+                        func_def.name = Identifier::new(new_name, func_def.name.range);
+                    }
+                }
+                _ => {}
+            }
+
+            // Continue visiting child statements
+            walk_stmt(self, stmt);
+        }
+    }
+
+    let transformer = RenameTransformer {
+        renames: &plan.ast_node_renames,
+        module_id,
+    };
+
+    transformer.visit_stmt(&mut stmt);
     stmt
 }
 
