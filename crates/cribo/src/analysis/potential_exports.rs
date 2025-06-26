@@ -43,9 +43,12 @@ impl PotentialExportsMap {
             // Analyze each item in the module
             for item_data in module_graph.items.values() {
                 match &item_data.item_type {
-                    // Functions and classes are always potential exports
+                    // Functions and classes are potential exports (unless private)
                     ItemType::FunctionDef { name } | ItemType::ClassDef { name } => {
-                        exports.insert(name.clone());
+                        // Skip private names (starting with _) unless they're dunder methods
+                        if !name.starts_with('_') || name.starts_with("__") {
+                            exports.insert(name.clone());
+                        }
                     }
 
                     // Variable assignments are potential exports

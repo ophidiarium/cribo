@@ -1660,6 +1660,7 @@ impl BundleOrchestrator {
             params.graph,
             params.analysis_results,
             &self.module_registry,
+            params.entry_module_name,
         );
 
         // Populate AST node renames using semantic models

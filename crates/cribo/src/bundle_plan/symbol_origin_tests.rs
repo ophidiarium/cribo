@@ -66,7 +66,8 @@ mod tests {
         let registry = ModuleRegistry::new();
 
         // Create BundlePlan from analysis results
-        let plan = BundlePlan::from_analysis_results(&graph, &analysis_results, &registry);
+        let plan =
+            BundlePlan::from_analysis_results(&graph, &analysis_results, &registry, "test_module");
 
         // This assertion will fail because we haven't implemented
         // the analysis that populates symbol_origins
