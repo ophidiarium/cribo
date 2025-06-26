@@ -59,12 +59,32 @@ type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 /// Type alias for IndexSet with FxHasher for better performance
 type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 
+/// Represents a hard dependency - a class that inherits from an imported base class
+#[derive(Debug, Clone)]
+struct HardDependency {
+    /// The module where the class is defined
+    module_name: String,
+    /// The name of the class
+    class_name: String,
+    /// The imported base class (module.attribute format)
+    base_class: String,
+    /// The source module of the base class
+    source_module: String,
+    /// The attribute being imported
+    imported_attr: String,
+    /// The alias used for the import (if any)
+    alias: Option<String>,
+    /// Whether the alias is mandatory to avoid name conflicts
+    alias_is_mandatory: bool,
+}
+
 /// Context for module transformation operations
 struct ModuleTransformContext<'a> {
     module_name: &'a str,
     synthetic_name: &'a str,
     module_path: &'a Path,
     global_info: Option<ModuleGlobalInfo>,
+    semantic_bundler: Option<&'a SemanticBundler>,
 }
 
 /// Context for inlining operations
@@ -170,6 +190,8 @@ struct SymbolDependencyGraph {
     symbol_definitions: FxIndexMap<(String, String), SymbolDefinition>,
     /// Module-level dependencies (used at definition time, not inside function bodies)
     module_level_dependencies: FxIndexMap<(String, String), Vec<(String, String)>>,
+    /// Topologically sorted symbols for circular modules (computed after analysis)
+    sorted_symbols: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -190,14 +212,12 @@ struct SymbolDefinition {
 
 impl SymbolDependencyGraph {
     /// Perform topological sort on symbols within circular modules
-    /// Returns symbols in reverse topological order (dependencies first)
-    fn topological_sort_symbols(
-        &self,
-        circular_modules: &FxIndexSet<String>,
-    ) -> Result<Vec<(String, String)>> {
+    /// Stores symbols in reverse topological order (dependencies first)
+    fn topological_sort_symbols(&mut self, circular_modules: &FxIndexSet<String>) -> Result<()> {
         use petgraph::{
             algo::toposort,
             graph::{DiGraph, NodeIndex},
+            visit::EdgeRef,
         };
         use rustc_hash::FxHashMap;
 
@@ -210,16 +230,25 @@ impl SymbolDependencyGraph {
             if circular_modules.contains(&module_symbol.0) {
                 let node = graph.add_node(module_symbol.clone());
                 node_map.insert(module_symbol.clone(), node);
+                log::debug!("Added node: {}.{}", module_symbol.0, module_symbol.1);
             }
         }
 
         // Add edges for dependencies
-        for (module_symbol, deps) in &self.dependencies {
+        for (module_symbol, deps) in &self.module_level_dependencies {
             if let Some(&from_node) = node_map.get(module_symbol) {
                 for dep in deps {
                     if let Some(&to_node) = node_map.get(dep) {
-                        // Edge from symbol to its dependency
-                        graph.add_edge(from_node, to_node, ());
+                        // Edge from dependency to dependent (correct direction for topological
+                        // sort)
+                        log::debug!(
+                            "Adding edge: {}.{} -> {}.{} (dependency -> dependent)",
+                            dep.0,
+                            dep.1,
+                            module_symbol.0,
+                            module_symbol.1
+                        );
+                        graph.add_edge(to_node, from_node, ());
                     }
                 }
             }
@@ -228,41 +257,128 @@ impl SymbolDependencyGraph {
         // Perform topological sort
         match toposort(&graph, None) {
             Ok(sorted_nodes) => {
-                // Return in reverse order (dependencies first)
-                let mut result = Vec::new();
-                for node_idx in sorted_nodes.into_iter().rev() {
-                    result.push(graph[node_idx].clone());
+                // Store in topological order (dependencies first)
+                self.sorted_symbols.clear();
+                for node_idx in sorted_nodes.into_iter() {
+                    self.sorted_symbols.push(graph[node_idx].clone());
                 }
-                Ok(result)
+                Ok(())
             }
-            Err(_) => {
-                // If topological sort fails, there's a cycle within symbols
-                // Fall back to module order
-                let mut result = Vec::new();
-                for (module_symbol, _) in &self.symbol_definitions {
-                    if circular_modules.contains(&module_symbol.0) {
-                        result.push(module_symbol.clone());
+            Err(cycle) => {
+                // If topological sort fails, there's a symbol-level circular dependency
+                // This is a fatal error - we cannot generate correct code
+                let cycle_info = cycle.node_id();
+                let module_symbol = &graph[cycle_info];
+                log::error!(
+                    "Fatal: Circular dependency detected involving symbol '{}.{}'",
+                    module_symbol.0,
+                    module_symbol.1
+                );
+
+                // Find all symbols involved in the cycle
+                let mut cycle_symbols = vec![module_symbol.clone()];
+                let current = cycle_info;
+
+                // Walk through edges to find the cycle
+                for edge in graph.edges(current) {
+                    let target = edge.target();
+                    if target != cycle_info {
+                        cycle_symbols.push(graph[target].clone());
+                    } else {
+                        break;
                     }
                 }
-                Ok(result)
+
+                panic!(
+                    "Cannot bundle due to circular symbol dependency: {:?}",
+                    cycle_symbols
+                        .iter()
+                        .map(|(m, s)| format!("{m}.{s}"))
+                        .collect::<Vec<_>>()
+                );
             }
         }
     }
 
     /// Get symbols for a specific module in dependency order
     fn get_module_symbols_ordered(&self, module_name: &str) -> Vec<String> {
-        let mut module_symbols = Vec::new();
+        use petgraph::{
+            algo::toposort,
+            graph::{DiGraph, NodeIndex},
+            visit::EdgeRef,
+        };
+        use rustc_hash::FxHashMap;
 
-        // Collect all symbols from this module
+        // Build a directed graph of symbol dependencies ONLY for this module
+        let mut graph = DiGraph::new();
+        let mut node_map: FxHashMap<String, NodeIndex> = FxHashMap::default();
+        let mut symbols_in_module = Vec::new();
+
+        // Add nodes for all symbols in this specific module
         for ((module, symbol), _) in &self.symbol_definitions {
             if module == module_name {
-                module_symbols.push(symbol.clone());
+                let node = graph.add_node(symbol.clone());
+                node_map.insert(symbol.clone(), node);
+                symbols_in_module.push(symbol.clone());
             }
         }
 
-        // Sort by dependency order within the module
-        // For now, return in definition order
-        module_symbols
+        // Add edges for dependencies within this module
+        for ((module, symbol), deps) in &self.module_level_dependencies {
+            if module == module_name
+                && let Some(&from_node) = node_map.get(symbol)
+            {
+                for (dep_module, dep_symbol) in deps {
+                    // Only add edges for dependencies within the same module
+                    if dep_module == module_name
+                        && let Some(&to_node) = node_map.get(dep_symbol)
+                    {
+                        // Edge from dependency to dependent
+                        graph.add_edge(to_node, from_node, ());
+                    }
+                }
+            }
+        }
+
+        // Perform topological sort
+        match toposort(&graph, None) {
+            Ok(sorted_nodes) => {
+                // Return symbols in topological order (dependencies first)
+                sorted_nodes
+                    .into_iter()
+                    .map(|node_idx| graph[node_idx].clone())
+                    .collect()
+            }
+            Err(cycle) => {
+                // If topological sort fails, there's a symbol-level circular dependency
+                // This is a fatal error - we cannot generate correct code
+                let cycle_info = cycle.node_id();
+                let symbol = &graph[cycle_info];
+                log::error!(
+                    "Fatal: Circular dependency detected in module '{module_name}' involving \
+                     symbol '{symbol}'"
+                );
+
+                // Find all symbols involved in the cycle
+                let mut cycle_symbols = vec![symbol.clone()];
+                let current = cycle_info;
+
+                // Walk through edges to find the cycle
+                for edge in graph.edges(current) {
+                    let target = edge.target();
+                    if target != cycle_info {
+                        cycle_symbols.push(graph[target].clone());
+                    } else {
+                        break;
+                    }
+                }
+
+                panic!(
+                    "Cannot bundle due to circular symbol dependency in module '{module_name}': \
+                     {cycle_symbols:?}"
+                );
+            }
+        }
     }
 }
 
@@ -436,7 +552,7 @@ impl GlobalsLifter {
 
 /// Parameters for creating a RecursiveImportTransformer
 struct RecursiveImportTransformerParams<'a> {
-    bundler: &'a HybridStaticBundler,
+    bundler: &'a HybridStaticBundler<'a>,
     module_name: &'a str,
     module_path: Option<&'a Path>,
     symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
@@ -448,7 +564,7 @@ struct RecursiveImportTransformerParams<'a> {
 
 /// Transformer that recursively transforms all imports in the AST
 struct RecursiveImportTransformer<'a> {
-    bundler: &'a HybridStaticBundler,
+    bundler: &'a HybridStaticBundler<'a>,
     module_name: &'a str,
     module_path: Option<&'a Path>,
     symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
@@ -655,10 +771,54 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.transform_statements(&mut func_def.body);
                     }
                     Stmt::ClassDef(class_def) => {
-                        // Transform base classes
+                        // Check if this class has hard dependencies that should not be transformed
+                        let class_name = class_def.name.as_str();
+                        let has_hard_deps = self.bundler.hard_dependencies.iter().any(|dep| {
+                            dep.module_name == self.module_name && dep.class_name == class_name
+                        });
+
+                        // Transform base classes only if there are no hard dependencies
                         if let Some(ref mut arguments) = class_def.arguments {
                             for base in &mut arguments.args {
-                                self.transform_expr(base);
+                                if has_hard_deps {
+                                    // For classes with hard dependencies, check if this base is a
+                                    // hard dep
+                                    let base_str = if let Expr::Name(name) = base {
+                                        name.id.as_str().to_string()
+                                    } else if let Expr::Attribute(attr) = base {
+                                        if let Expr::Name(name) = &*attr.value {
+                                            format!("{}.{}", name.id.as_str(), attr.attr.as_str())
+                                        } else {
+                                            String::new()
+                                        }
+                                    } else {
+                                        String::new()
+                                    };
+
+                                    // Check if this specific base is a hard dependency
+                                    let is_hard_dep_base =
+                                        self.bundler.hard_dependencies.iter().any(|dep| {
+                                            dep.module_name == self.module_name
+                                                && dep.class_name == class_name
+                                                && (dep.imported_attr == base_str
+                                                    || dep
+                                                        .base_class
+                                                        .ends_with(&format!(".{base_str}")))
+                                        });
+
+                                    if !is_hard_dep_base {
+                                        // Not a hard dependency base, transform normally
+                                        self.transform_expr(base);
+                                    } else {
+                                        log::debug!(
+                                            "Skipping transformation of hard dependency base \
+                                             class {base_str} for class {class_name}"
+                                        );
+                                    }
+                                } else {
+                                    // No hard dependencies, transform normally
+                                    self.transform_expr(base);
+                                }
                             }
                         }
                         self.transform_statements(&mut class_def.body);
@@ -2050,7 +2210,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
 /// Hybrid static bundler that uses sys.modules and hash-based naming
 /// This approach avoids forward reference issues while maintaining Python module semantics
-pub struct HybridStaticBundler {
+pub struct HybridStaticBundler<'a> {
     /// Track if importlib was fully transformed and should be removed
     importlib_fully_transformed: bool,
     /// Map from original module name to synthetic module name
@@ -2081,10 +2241,14 @@ pub struct HybridStaticBundler {
     /// Modules that are imported as namespaces (e.g., from package import module)
     /// Maps module name to set of importing modules
     namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>>,
+    /// Reference to the central module registry
+    module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
     /// Modules that are part of circular dependencies
     circular_modules: FxIndexSet<String>,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
     circular_predeclarations: FxIndexMap<String, FxIndexMap<String, String>>,
+    /// Hard dependencies that need to be hoisted
+    hard_dependencies: Vec<HardDependency>,
     /// Symbol dependency graph for circular modules
     symbol_dep_graph: SymbolDependencyGraph,
     /// Module ASTs for resolving re-exports
@@ -2104,9 +2268,11 @@ pub struct HybridStaticBundler {
     transformation_context: TransformationContext,
     /// Module/symbol pairs that should be kept after tree shaking
     tree_shaking_keep_symbols: Option<indexmap::IndexSet<(String, String)>>,
+    /// Whether to use the module cache model for circular dependencies
+    use_module_cache: bool,
 }
 
-impl HybridStaticBundler {
+impl<'a> HybridStaticBundler<'a> {
     /// Check if a string is a valid Python identifier
     fn is_valid_python_identifier(name: &str) -> bool {
         // Use ruff's identifier validation which handles Unicode and keywords
@@ -2389,15 +2555,15 @@ impl HybridStaticBundler {
     }
 }
 
-impl Default for HybridStaticBundler {
+impl<'a> Default for HybridStaticBundler<'a> {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
 #[allow(dead_code)]
-impl HybridStaticBundler {
-    pub fn new() -> Self {
+impl<'a> HybridStaticBundler<'a> {
+    pub fn new(module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>) -> Self {
         Self {
             importlib_fully_transformed: false,
             module_registry: FxIndexMap::default(),
@@ -2413,8 +2579,10 @@ impl HybridStaticBundler {
             module_exports: FxIndexMap::default(),
             lifted_global_declarations: Vec::new(),
             namespace_imported_modules: FxIndexMap::default(),
+            module_info_registry,
             circular_modules: FxIndexSet::default(),
             circular_predeclarations: FxIndexMap::default(),
+            hard_dependencies: Vec::new(),
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
             global_deferred_imports: FxIndexMap::default(),
@@ -2423,6 +2591,7 @@ impl HybridStaticBundler {
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
+            use_module_cache: true, // Enable module cache by default for circular dependencies
         }
     }
 
@@ -2440,11 +2609,11 @@ impl HybridStaticBundler {
     fn assign_node_indices_to_ast(&mut self, module: &mut ModModule) {
         use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
 
-        struct NodeIndexAssigner<'a> {
-            bundler: &'a mut HybridStaticBundler,
+        struct NodeIndexAssigner<'b, 'a> {
+            bundler: &'b mut HybridStaticBundler<'a>,
         }
 
-        impl<'a> SourceOrderVisitor<'_> for NodeIndexAssigner<'a> {
+        impl<'b, 'a> SourceOrderVisitor<'_> for NodeIndexAssigner<'b, 'a> {
             fn visit_stmt(&mut self, stmt: &Stmt) {
                 // Check if this node has a dummy index (value 0)
                 let node_index = match stmt {
@@ -2659,12 +2828,12 @@ impl HybridStaticBundler {
 
     /// Filter module exports based on tree-shaking results with debug logging
     /// Returns references to the symbols that survived tree-shaking
-    fn filter_exports_by_tree_shaking_with_logging<'a>(
+    fn filter_exports_by_tree_shaking_with_logging<'b>(
         &self,
-        exports: &'a [String],
+        exports: &'b [String],
         module_name: &str,
         kept_symbols: Option<&indexmap::IndexSet<(String, String)>>,
-    ) -> Vec<&'a String> {
+    ) -> Vec<&'b String> {
         if let Some(kept_symbols) = kept_symbols {
             let result: Vec<&String> = exports
                 .iter()
@@ -2998,14 +3167,16 @@ impl HybridStaticBundler {
 
         // Track what this function reads at module level (e.g., decorators, default args)
         for var in &item_data.read_vars {
-            // Check if this variable is from another circular module
+            // Check if this variable is from a circular module
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && self.circular_modules.contains(&dep_module)
-                && dep_module != module_name
             {
-                let dep = (dep_module, var.clone());
+                let dep = (dep_module.clone(), var.clone());
                 all_dependencies.push(dep.clone());
-                module_level_deps.push(dep); // Module-level reads need pre-declaration
+                // Module-level reads need pre-declaration only if from different module
+                if dep_module != module_name {
+                    module_level_deps.push(dep);
+                }
             }
         }
 
@@ -3054,11 +3225,11 @@ impl HybridStaticBundler {
         for var in &item_data.read_vars {
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && self.circular_modules.contains(&dep_module)
-                && dep_module != module_name
             {
                 let dep = (dep_module, var.clone());
                 all_dependencies.push(dep.clone());
-                module_level_deps.push(dep); // Base classes need to exist at definition time
+                // Base classes need to exist at definition time, even within same module
+                module_level_deps.push(dep);
             }
         }
 
@@ -3093,9 +3264,16 @@ impl HybridStaticBundler {
 
         // Assignments are evaluated immediately - all dependencies are module-level
         for var in &item_data.read_vars {
+            // Skip self-references (e.g., initialize = initialize)
+            if var == var_name
+                && self.find_symbol_module(var, module_name, graph) == Some(module_name.to_string())
+            {
+                log::debug!("Skipping self-reference in assignment: {var_name} = {var}");
+                continue;
+            }
+
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && self.circular_modules.contains(&dep_module)
-                && dep_module != module_name
             {
                 dependencies.push((dep_module, var.clone()));
             }
@@ -3119,6 +3297,37 @@ impl HybridStaticBundler {
     }
 
     /// Find which module defines a symbol
+    /// Get module ID by name from dependency graph
+    fn get_module_id_by_name(
+        &self,
+        module_name: &str,
+        graph: &DependencyGraph,
+    ) -> Option<crate::cribo_graph::ModuleId> {
+        // Get module from dependency graph
+        graph.get_module_by_name(module_name).map(|m| m.module_id)
+    }
+
+    /// Find module ID in semantic bundler by iterating through all modules
+    fn find_module_id_in_semantic_bundler(
+        &self,
+        module_name: &str,
+        _semantic_bundler: &SemanticBundler,
+    ) -> Option<crate::cribo_graph::ModuleId> {
+        // Use the central module registry for fast, reliable lookup
+        if let Some(registry) = self.module_info_registry {
+            let module_id = registry.get_id_by_name(module_name);
+            if module_id.is_some() {
+                log::debug!("Found module ID for '{module_name}' using module registry");
+            } else {
+                log::debug!("Module '{module_name}' not found in module registry");
+            }
+            module_id
+        } else {
+            log::warn!("No module registry available for module ID lookup");
+            None
+        }
+    }
+
     fn find_symbol_module(
         &self,
         symbol: &str,
@@ -3172,6 +3381,149 @@ impl HybridStaticBundler {
         }
 
         None
+    }
+
+    /// Sort wrapper modules by their dependencies to ensure correct initialization order
+    fn sort_wrapper_modules_by_dependencies(
+        &self,
+        wrapper_modules: &[(String, ModModule, PathBuf, String)],
+        graph: &crate::cribo_graph::CriboGraph,
+    ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
+        use petgraph::{
+            algo::toposort,
+            graph::{DiGraph, NodeIndex},
+        };
+        use rustc_hash::{FxHashMap, FxHashSet};
+
+        // Build a directed graph of wrapper module dependencies
+        let mut module_graph = DiGraph::new();
+        let mut node_map: FxHashMap<String, NodeIndex> = FxHashMap::default();
+
+        // Create a set for quick lookup
+        let wrapper_module_names: FxHashSet<String> = wrapper_modules
+            .iter()
+            .map(|(name, _, _, _)| name.clone())
+            .collect();
+
+        // Add nodes for all wrapper modules
+        for (module_name, _, _, _) in wrapper_modules {
+            let node = module_graph.add_node(module_name.clone());
+            node_map.insert(module_name.clone(), node);
+        }
+
+        // Add edges based on module dependencies
+        for (module_name, _, _, _) in wrapper_modules {
+            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+                // Check all items in this module for dependencies
+                for item_data in module_dep_graph.items.values() {
+                    // Look at both immediate reads (module-level) and eventual reads
+                    let all_deps = item_data
+                        .read_vars
+                        .iter()
+                        .chain(item_data.eventual_read_vars.iter());
+
+                    for dep_var in all_deps {
+                        // Find which module this dependency comes from
+                        if let Some(dep_module) =
+                            self.find_symbol_module(dep_var, module_name, graph)
+                        {
+                            // Only add edge if the dependency is also a wrapper module
+                            if wrapper_module_names.contains(&dep_module)
+                                && dep_module != *module_name
+                                && let (Some(&from_node), Some(&to_node)) =
+                                    (node_map.get(module_name), node_map.get(&dep_module))
+                            {
+                                // Edge from current module to its dependency
+                                module_graph.add_edge(from_node, to_node, ());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Perform topological sort
+        match toposort(&module_graph, None) {
+            Ok(sorted_nodes) => {
+                // Create a map for quick lookup
+                let module_map: FxHashMap<String, (String, ModModule, PathBuf, String)> =
+                    wrapper_modules
+                        .iter()
+                        .map(|m| (m.0.clone(), m.clone()))
+                        .collect();
+
+                // Return modules in reverse topological order (dependencies first)
+                let sorted_module_names: Vec<String> = sorted_nodes
+                    .iter()
+                    .rev()
+                    .map(|&idx| module_graph[idx].clone())
+                    .collect();
+
+                log::debug!("Sorted wrapper modules by dependencies: {sorted_module_names:?}");
+
+                let sorted_modules = sorted_module_names
+                    .into_iter()
+                    .filter_map(|module_name| module_map.get(&module_name).cloned())
+                    .collect();
+
+                Ok(sorted_modules)
+            }
+            Err(cycle) => {
+                // If there's a true initialization cycle and we're using module cache,
+                // return modules in alphabetical order within the cycle
+                if self.use_module_cache {
+                    log::warn!(
+                        "Module-level initialization cycle detected involving module '{}'. Using \
+                         module cache approach with alphabetical ordering.",
+                        &module_graph[cycle.node_id()]
+                    );
+
+                    // Find all modules in the cycle using Tarjan's algorithm
+                    let sccs = petgraph::algo::tarjan_scc(&module_graph);
+                    let mut cyclic_modules = FxHashSet::default();
+
+                    for scc in sccs {
+                        if scc.len() > 1 {
+                            // This is a cycle
+                            for &node_idx in &scc {
+                                cyclic_modules.insert(module_graph[node_idx].clone());
+                            }
+                        }
+                    }
+
+                    log::warn!("Modules in cycle: {cyclic_modules:?}");
+
+                    // Sort all modules alphabetically
+                    let mut sorted_names: Vec<String> = wrapper_modules
+                        .iter()
+                        .map(|(name, _, _, _)| name.clone())
+                        .collect();
+                    sorted_names.sort();
+
+                    let module_map: FxHashMap<String, (String, ModModule, PathBuf, String)> =
+                        wrapper_modules
+                            .iter()
+                            .map(|m| (m.0.clone(), m.clone()))
+                            .collect();
+
+                    let sorted_modules = sorted_names
+                        .into_iter()
+                        .filter_map(|module_name| module_map.get(&module_name).cloned())
+                        .collect();
+
+                    Ok(sorted_modules)
+                } else {
+                    // Original error for non-module-cache approach
+                    let node_in_cycle = &module_graph[cycle.node_id()];
+                    anyhow::bail!(
+                        "Module-level initialization cycle detected involving module '{}'. This \
+                         occurs when modules have mutually dependent top-level code that cannot \
+                         be resolved. Consider refactoring to break the initialization cycle.",
+                        node_in_cycle
+                    )
+                }
+            }
+        }
     }
 
     /// Sort wrapped modules by their dependencies to ensure correct initialization order
@@ -3872,6 +4224,7 @@ impl HybridStaticBundler {
         self.find_namespace_imported_modules(&all_modules_for_namespace_check);
 
         // Identify all modules that are part of circular dependencies
+        let mut has_circular_dependencies = false;
         if let Some(analysis) = params.circular_dep_analysis {
             log::debug!("CircularDependencyAnalysis received:");
             log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
@@ -3886,6 +4239,7 @@ impl HybridStaticBundler {
                     self.circular_modules.insert(module.clone());
                 }
             }
+            has_circular_dependencies = !self.circular_modules.is_empty();
             log::debug!("Circular modules: {:?}", self.circular_modules);
         } else {
             log::debug!("No circular dependency analysis provided");
@@ -4080,11 +4434,11 @@ impl HybridStaticBundler {
             self.collect_imports_from_module(ast, module_name, module_path);
         }
 
-        // If we have wrapper modules, inject types and functools as stdlib dependencies
+        // If we have wrapper modules, inject types as stdlib dependency
+        // functools will be added later only if we use module cache
         if !wrapper_modules.is_empty() {
-            log::debug!("Adding types and functools imports for wrapper modules");
+            log::debug!("Adding types import for wrapper modules");
             self.add_stdlib_import("types");
-            self.add_stdlib_import("functools");
         }
 
         // If we have namespace imports, inject types as stdlib dependency
@@ -4149,6 +4503,10 @@ impl HybridStaticBundler {
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
 
+        // Sort wrapper modules by their dependencies
+        let sorted_wrapper_modules =
+            self.sort_wrapper_modules_by_dependencies(&wrapper_modules_saved, params.graph)?;
+
         // Build symbol-level dependency graph for circular modules if needed
         if !self.circular_modules.is_empty() {
             log::debug!("Building symbol dependency graph for circular modules");
@@ -4168,8 +4526,11 @@ impl HybridStaticBundler {
                 .symbol_dep_graph
                 .topological_sort_symbols(&self.circular_modules)
             {
-                Ok(ordered_symbols) => {
-                    log::debug!("Symbol ordering for circular modules: {ordered_symbols:?}");
+                Ok(()) => {
+                    log::debug!(
+                        "Symbol ordering for circular modules: {:?}",
+                        self.symbol_dep_graph.sorted_symbols
+                    );
                 }
                 Err(e) => {
                     log::warn!("Failed to order symbols in circular modules: {e}");
@@ -4270,6 +4631,127 @@ impl HybridStaticBundler {
         // Add pre-declarations at the very beginning
         final_body.extend(circular_predeclarations);
 
+        // Decide early if we need module cache for circular dependencies
+        let use_module_cache_for_wrappers =
+            has_wrapper_modules && has_circular_dependencies && self.use_module_cache;
+        if use_module_cache_for_wrappers {
+            log::info!(
+                "Detected circular dependencies in wrapper modules - will use module cache \
+                 approach"
+            );
+        }
+
+        // Add functools import for module cache decorators when we have wrapper modules to
+        // transform
+        if has_wrapper_modules {
+            log::debug!("Adding functools import for module cache decorators");
+            self.add_stdlib_import("functools");
+        }
+
+        if use_module_cache_for_wrappers {
+            // Detect hard dependencies in circular modules
+            log::debug!("Scanning for hard dependencies in circular modules");
+
+            // Need to scan ALL modules, not just wrapper modules
+            let all_modules: Vec<(&String, &ModModule, &PathBuf, &String)> = inlinable_modules
+                .iter()
+                .map(|(name, ast, path, hash)| (name, ast, path, hash))
+                .chain(
+                    sorted_wrapper_modules
+                        .iter()
+                        .map(|(name, ast, path, hash)| (name, ast, path, hash)),
+                )
+                .collect();
+
+            for (module_name, ast, _, _) in &all_modules {
+                if self.circular_modules.contains(module_name.as_str()) {
+                    // Build import map for this module
+                    let mut import_map = FxIndexMap::default();
+
+                    // Scan imports in the module
+                    for stmt in &ast.body {
+                        match stmt {
+                            Stmt::Import(import_stmt) => {
+                                for alias in &import_stmt.names {
+                                    let imported_name = alias.name.as_str();
+                                    let local_name = alias
+                                        .asname
+                                        .as_ref()
+                                        .map(|n| n.as_str())
+                                        .unwrap_or(imported_name);
+                                    import_map.insert(
+                                        local_name.to_string(),
+                                        (
+                                            imported_name.to_string(),
+                                            alias.asname.as_ref().map(|n| n.as_str().to_string()),
+                                        ),
+                                    );
+                                }
+                            }
+                            Stmt::ImportFrom(import_from) => {
+                                // Handle relative imports
+                                let resolved_module = if import_from.level > 0 {
+                                    // Resolve relative import to absolute
+                                    self.resolve_relative_import(import_from, module_name)
+                                } else {
+                                    import_from.module.as_ref().map(|m| m.as_str().to_string())
+                                };
+
+                                if let Some(module_str) = resolved_module {
+                                    for alias in &import_from.names {
+                                        let imported_name = alias.name.as_str();
+                                        let local_name = alias
+                                            .asname
+                                            .as_ref()
+                                            .map(|n| n.as_str())
+                                            .unwrap_or(imported_name);
+
+                                        // For "from X import Y", track the mapping
+                                        let (actual_source, actual_import) =
+                                            (module_str.clone(), Some(imported_name.to_string()));
+
+                                        // Handle the alias if present
+                                        import_map.insert(
+                                            local_name.to_string(),
+                                            (actual_source, actual_import),
+                                        );
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // Detect hard dependencies
+                    let hard_deps = self.detect_hard_dependencies(module_name, ast, &import_map);
+                    if !hard_deps.is_empty() {
+                        log::info!(
+                            "Found {} hard dependencies in module {}",
+                            hard_deps.len(),
+                            module_name
+                        );
+                        self.hard_dependencies.extend(hard_deps);
+                    }
+                }
+            }
+
+            if !self.hard_dependencies.is_empty() {
+                log::info!(
+                    "Total hard dependencies found: {}",
+                    self.hard_dependencies.len()
+                );
+                for dep in &self.hard_dependencies {
+                    log::debug!(
+                        "  - Class {} in {} inherits from {} (source: {})",
+                        dep.class_name,
+                        dep.module_name,
+                        dep.base_class,
+                        dep.source_module
+                    );
+                }
+            }
+        }
+
         // Before inlining modules, check which wrapper modules they depend on
         let mut wrapper_modules_needed_by_inlined = FxIndexSet::default();
         for (module_name, ast, module_path, _) in &inlinable_modules {
@@ -4320,6 +4802,102 @@ impl HybridStaticBundler {
             }
         }
 
+        // If we're using module cache, add the infrastructure early
+        if use_module_cache_for_wrappers {
+            // First, hoist hard dependencies before the module cache
+            if !self.hard_dependencies.is_empty() {
+                log::info!("Hoisting hard dependencies before module cache");
+
+                // Clone hard dependencies to avoid borrowing issues
+                let hard_deps = self.hard_dependencies.clone();
+
+                // Group hard dependencies by source module
+                let mut deps_by_source: FxIndexMap<String, Vec<&HardDependency>> =
+                    FxIndexMap::default();
+                for dep in &hard_deps {
+                    deps_by_source
+                        .entry(dep.source_module.clone())
+                        .or_default()
+                        .push(dep);
+                }
+
+                // Generate hoisted imports
+                for (source_module, deps) in deps_by_source {
+                    // Check if we need to import the whole module or specific attributes
+                    let first_dep = deps.first().expect("hard_deps should not be empty");
+
+                    if source_module == "http.cookiejar" && first_dep.imported_attr == "cookielib" {
+                        // Special case: import http.cookiejar as cookielib
+                        let import_stmt = StmtImport {
+                            node_index: self.create_node_index(),
+                            names: vec![ruff_python_ast::Alias {
+                                node_index: self.create_node_index(),
+                                name: Identifier::new("http.cookiejar", TextRange::default()),
+                                asname: Some(Identifier::new("cookielib", TextRange::default())),
+                                range: TextRange::default(),
+                            }],
+                            range: TextRange::default(),
+                        };
+                        final_body.push(Stmt::Import(import_stmt));
+                        log::debug!("Hoisted import http.cookiejar as cookielib");
+                    } else {
+                        // Collect unique imports with their aliases
+                        let mut imports_to_make: FxIndexMap<String, Option<String>> =
+                            FxIndexMap::default();
+                        for dep in deps {
+                            // If this dependency has a mandatory alias, use it
+                            if dep.alias_is_mandatory && dep.alias.is_some() {
+                                imports_to_make
+                                    .insert(dep.imported_attr.clone(), dep.alias.clone());
+                            } else {
+                                // Only insert if we haven't already added this import
+                                imports_to_make
+                                    .entry(dep.imported_attr.clone())
+                                    .or_insert(None);
+                            }
+                        }
+
+                        // Generate: from source_module import attr1, attr2 as alias2, ...
+                        let mut names = Vec::new();
+                        for (import_name, alias) in imports_to_make {
+                            names.push(ruff_python_ast::Alias {
+                                node_index: self.create_node_index(),
+                                name: Identifier::new(&import_name, TextRange::default()),
+                                asname: alias.map(|a| Identifier::new(&a, TextRange::default())),
+                                range: TextRange::default(),
+                            });
+                        }
+
+                        let import_from = StmtImportFrom {
+                            node_index: self.create_node_index(),
+                            module: Some(Identifier::new(&source_module, TextRange::default())),
+                            names,
+                            level: 0,
+                            range: TextRange::default(),
+                        };
+
+                        final_body.push(Stmt::ImportFrom(import_from));
+                        log::debug!("Hoisted imports from {source_module} for hard dependencies");
+                    }
+                }
+            }
+
+            // Add module cache infrastructure at the beginning
+            let namespace_class = self.generate_module_namespace_class();
+            final_body.push(namespace_class);
+
+            let cache_init = self.generate_module_cache_init();
+            final_body.push(cache_init);
+
+            // Populate cache with all wrapper modules
+            let cache_population = self.generate_module_cache_population(&sorted_wrapper_modules);
+            final_body.extend(cache_population);
+
+            // Add sys.modules sync
+            let sys_sync = self.generate_sys_modules_sync();
+            final_body.extend(sys_sync);
+        }
+
         // If there are wrapper modules needed by inlined modules, we need to define their
         // init functions BEFORE inlining the modules that use them
         if !wrapper_modules_needed_by_inlined.is_empty() && has_wrapper_modules {
@@ -4332,7 +4910,7 @@ impl HybridStaticBundler {
             let mut module_globals = FxIndexMap::default();
             let mut lifted_declarations = Vec::new();
 
-            for (module_name, ast, _, _) in &wrapper_modules_saved {
+            for (module_name, ast, _, _) in &sorted_wrapper_modules {
                 if wrapper_modules_needed_by_inlined.contains(module_name) {
                     let params = ProcessGlobalsParams {
                         module_name,
@@ -4358,7 +4936,7 @@ impl HybridStaticBundler {
             }
 
             // Define the init functions for wrapper modules needed by inlined modules
-            for (module_name, ast, module_path, _) in &wrapper_modules_saved {
+            for (module_name, ast, module_path, _) in &sorted_wrapper_modules {
                 if wrapper_modules_needed_by_inlined.contains(module_name) {
                     let synthetic_name = self.module_registry[module_name].clone();
                     let global_info = module_globals.get(module_name).cloned();
@@ -4367,18 +4945,27 @@ impl HybridStaticBundler {
                         synthetic_name: &synthetic_name,
                         module_path,
                         global_info,
+                        semantic_bundler: Some(semantic_ctx.semantic_bundler),
                     };
                     // Generate init function with empty symbol_renames for now
                     let empty_renames = FxIndexMap::default();
-                    let init_function =
-                        self.transform_module_to_init_function(ctx, ast.clone(), &empty_renames)?;
+                    // Always use cached init functions to ensure modules are only initialized once
+                    let init_function = self.transform_module_to_cache_init_function(
+                        ctx,
+                        ast.clone(),
+                        &empty_renames,
+                    )?;
                     final_body.push(init_function);
 
                     // Initialize the wrapper module immediately after defining it
-                    let mut temp_names = FxIndexSet::default();
-                    let init_stmts =
-                        self.generate_module_init_call(&synthetic_name, &mut temp_names);
-                    final_body.extend(init_stmts);
+                    // ONLY for non-module-cache mode
+                    if !use_module_cache_for_wrappers {
+                        let mut temp_names = FxIndexSet::default();
+                        let init_stmts =
+                            self.generate_module_init_call(&synthetic_name, &mut temp_names);
+                        final_body.extend(init_stmts);
+                    }
+                    // For module cache mode, initialization happens later in dependency order
                 }
             }
         }
@@ -4562,6 +5149,8 @@ impl HybridStaticBundler {
             }
         }
 
+        // Module cache infrastructure was already added earlier if needed
+
         // Now transform wrapper modules into init functions AFTER inlining
         // This way we have access to symbol_renames for proper import resolution
         if has_wrapper_modules {
@@ -4569,7 +5158,7 @@ impl HybridStaticBundler {
             let mut module_globals = FxIndexMap::default();
             let mut all_lifted_declarations = Vec::new();
 
-            for (module_name, ast, _, _) in &wrapper_modules_saved {
+            for (module_name, ast, _, _) in &sorted_wrapper_modules {
                 // Skip modules that were already processed early
                 if wrapper_modules_needed_by_inlined.contains(module_name) {
                     log::debug!(
@@ -4608,7 +5197,7 @@ impl HybridStaticBundler {
             }
 
             // Second pass: transform modules with global info
-            for (module_name, ast, module_path, _content_hash) in &wrapper_modules_saved {
+            for (module_name, ast, module_path, _content_hash) in &sorted_wrapper_modules {
                 // Skip modules that were already defined early for inlined module dependencies
                 if wrapper_modules_needed_by_inlined.contains(module_name) {
                     log::debug!("Skipping wrapper module '{module_name}' - already defined early");
@@ -4622,9 +5211,14 @@ impl HybridStaticBundler {
                     synthetic_name: &synthetic_name,
                     module_path,
                     global_info,
+                    semantic_bundler: Some(semantic_ctx.semantic_bundler),
                 };
-                let init_function =
-                    self.transform_module_to_init_function(ctx, ast.clone(), &symbol_renames)?;
+                // Always use cached init functions to ensure modules are only initialized once
+                let init_function = self.transform_module_to_cache_init_function(
+                    ctx,
+                    ast.clone(),
+                    &symbol_renames,
+                )?;
                 final_body.push(init_function);
             }
 
@@ -4661,9 +5255,45 @@ impl HybridStaticBundler {
             );
             debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
 
-            // DO NOT initialize modules here - they should be initialized when imported
-            // This preserves Python's lazy import semantics
-            debug!("Skipping eager module initialization - modules will initialize on import");
+            // When using module cache, we must initialize all modules immediately
+            // to populate their namespaces
+            if use_module_cache_for_wrappers {
+                log::info!("Using module cache - initializing all modules immediately");
+
+                // Call all init functions in sorted order
+                for module_name in &sorted_wrapped {
+                    if let Some(synthetic_name) = self.module_registry.get(module_name) {
+                        let init_func_name = &self.init_functions[synthetic_name];
+
+                        // Generate a call to the init function
+                        let init_call = Stmt::Expr(ruff_python_ast::StmtExpr {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(Expr::Call(ExprCall {
+                                node_index: AtomicNodeIndex::dummy(),
+                                func: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: init_func_name.clone().into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                arguments: Arguments {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    args: Box::from([]),
+                                    keywords: Box::from([]),
+                                    range: TextRange::default(),
+                                },
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        });
+                        final_body.push(init_call);
+                    }
+                }
+            } else {
+                // DO NOT initialize modules here - they should be initialized when imported
+                // This preserves Python's lazy import semantics
+                debug!("Skipping eager module initialization - modules will initialize on import");
+            }
 
             // After all modules are initialized, assign temporary variables to their namespace
             // locations For parent modules that are also wrapper modules, we need to
@@ -4731,7 +5361,7 @@ impl HybridStaticBundler {
             // Recreate all_modules for this check
             let all_modules = inlinable_modules
                 .iter()
-                .chain(wrapper_modules_saved.iter())
+                .chain(sorted_wrapper_modules.iter())
                 .cloned()
                 .collect::<Vec<_>>();
             let entry_imported_modules =
@@ -5443,6 +6073,149 @@ impl HybridStaticBundler {
         None
     }
 
+    /// Process body recursively and add symbol exports in-place
+    fn process_body_recursive(
+        &self,
+        body: Vec<Stmt>,
+        module_name: &str,
+        module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+    ) -> Vec<Stmt> {
+        let mut result = Vec::new();
+
+        for stmt in body {
+            match &stmt {
+                Stmt::If(if_stmt) => {
+                    // Process if body recursively
+                    let processed_body = self.process_body_recursive(
+                        if_stmt.body.clone(),
+                        module_name,
+                        module_scope_symbols,
+                    );
+
+                    // Process elif/else clauses
+                    let processed_elif_else = if_stmt
+                        .elif_else_clauses
+                        .iter()
+                        .map(|clause| {
+                            let processed_clause_body = self.process_body_recursive(
+                                clause.body.clone(),
+                                module_name,
+                                module_scope_symbols,
+                            );
+                            ruff_python_ast::ElifElseClause {
+                                node_index: clause.node_index.clone(),
+                                test: clause.test.clone(),
+                                body: processed_clause_body,
+                                range: clause.range,
+                            }
+                        })
+                        .collect();
+
+                    // Create new if statement with processed bodies
+                    let new_if = ruff_python_ast::StmtIf {
+                        node_index: if_stmt.node_index.clone(),
+                        test: if_stmt.test.clone(),
+                        body: processed_body,
+                        elif_else_clauses: processed_elif_else,
+                        range: if_stmt.range,
+                    };
+
+                    result.push(Stmt::If(new_if));
+                }
+                Stmt::Try(try_stmt) => {
+                    // Process try body recursively
+                    let processed_body = self.process_body_recursive(
+                        try_stmt.body.clone(),
+                        module_name,
+                        module_scope_symbols,
+                    );
+
+                    // Process handlers
+                    let processed_handlers = try_stmt
+                        .handlers
+                        .iter()
+                        .map(|handler| {
+                            let ExceptHandler::ExceptHandler(handler) = handler;
+                            let processed_handler_body = self.process_body_recursive(
+                                handler.body.clone(),
+                                module_name,
+                                module_scope_symbols,
+                            );
+                            ExceptHandler::ExceptHandler(
+                                ruff_python_ast::ExceptHandlerExceptHandler {
+                                    node_index: handler.node_index.clone(),
+                                    type_: handler.type_.clone(),
+                                    name: handler.name.clone(),
+                                    body: processed_handler_body,
+                                    range: handler.range,
+                                },
+                            )
+                        })
+                        .collect();
+
+                    // Process orelse
+                    let processed_orelse = self.process_body_recursive(
+                        try_stmt.orelse.clone(),
+                        module_name,
+                        module_scope_symbols,
+                    );
+
+                    // Process finalbody
+                    let processed_finalbody = self.process_body_recursive(
+                        try_stmt.finalbody.clone(),
+                        module_name,
+                        module_scope_symbols,
+                    );
+
+                    // Create new try statement
+                    let new_try = ruff_python_ast::StmtTry {
+                        node_index: try_stmt.node_index.clone(),
+                        body: processed_body,
+                        handlers: processed_handlers,
+                        orelse: processed_orelse,
+                        finalbody: processed_finalbody,
+                        is_star: try_stmt.is_star,
+                        range: try_stmt.range,
+                    };
+
+                    result.push(Stmt::Try(new_try));
+                }
+                Stmt::ImportFrom(import_from) => {
+                    // Skip __future__ imports
+                    if import_from.module.as_ref().map(|m| m.as_str()) != Some("__future__") {
+                        result.push(stmt.clone());
+
+                        // Add module attribute assignments for imported symbols
+                        if let Some(symbols) = module_scope_symbols {
+                            for alias in &import_from.names {
+                                let local_name =
+                                    alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                                if symbols.contains(local_name)
+                                    && self.should_export_symbol(local_name, module_name)
+                                {
+                                    log::debug!(
+                                        "Adding module.{local_name} = {local_name} after \
+                                         conditional import"
+                                    );
+                                    result.push(
+                                        self.create_module_attr_assignment("module", local_name),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    // For other statements, just add them as-is
+                    result.push(stmt.clone());
+                }
+            }
+        }
+
+        result
+    }
+
     /// Transform a module into an initialization function
     fn transform_module_to_init_function(
         &self,
@@ -5567,7 +6340,50 @@ impl HybridStaticBundler {
         }
 
         // Now process the transformed module
-        for stmt in ast.body {
+        // We'll do the in-place symbol export as we process each statement
+        let module_scope_symbols = if let Some(semantic_bundler) = ctx.semantic_bundler {
+            log::debug!(
+                "Looking up module ID for '{}' in semantic bundler",
+                ctx.module_name
+            );
+            if let Some(module_id) =
+                self.find_module_id_in_semantic_bundler(ctx.module_name, semantic_bundler)
+            {
+                if let Some(module_info) = semantic_bundler.get_module_info(&module_id) {
+                    log::debug!(
+                        "Found module-scope symbols for '{}': {:?}",
+                        ctx.module_name,
+                        module_info.module_scope_symbols
+                    );
+                    Some(&module_info.module_scope_symbols)
+                } else {
+                    log::warn!(
+                        "No semantic info found for module '{}' (module_id: {:?})",
+                        ctx.module_name,
+                        module_id
+                    );
+                    None
+                }
+            } else {
+                log::warn!(
+                    "Could not find module ID for '{}' in semantic bundler",
+                    ctx.module_name
+                );
+                None
+            }
+        } else {
+            log::debug!(
+                "No semantic bundler provided for module '{}'",
+                ctx.module_name
+            );
+            None
+        };
+
+        // Process the body with a new recursive approach
+        let processed_body =
+            self.process_body_recursive(ast.body, ctx.module_name, module_scope_symbols);
+
+        for stmt in processed_body {
             match &stmt {
                 Stmt::Import(_import_stmt) => {
                     // Skip imports that are already hoisted
@@ -5898,6 +6714,8 @@ impl HybridStaticBundler {
             }
         }
 
+        // Phase 2 is now handled inline during statement processing above
+
         // Return the module object
         body.push(Stmt::Return(ruff_python_ast::StmtReturn {
             node_index: AtomicNodeIndex::dummy(),
@@ -5915,8 +6733,7 @@ impl HybridStaticBundler {
             transform_globals_in_stmt(stmt);
         }
 
-        // Create the init function with @functools.cache decorator
-        // This ensures the module is only initialized once (singleton pattern)
+        // Create the init function WITHOUT decorator - we're not using module cache
         Ok(Stmt::FunctionDef(StmtFunctionDef {
             node_index: AtomicNodeIndex::dummy(),
             name: Identifier::new(init_func_name, TextRange::default()),
@@ -5932,22 +6749,7 @@ impl HybridStaticBundler {
             }),
             returns: None,
             body,
-            decorator_list: vec![Decorator {
-                node_index: AtomicNodeIndex::dummy(),
-                expression: Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "functools".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("cache", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                }),
-                range: TextRange::default(),
-            }],
+            decorator_list: vec![], // No decorator for non-cache mode
             is_async: false,
             range: TextRange::default(),
         }))
@@ -8493,7 +9295,7 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
     }
 }
 
-impl HybridStaticBundler {
+impl<'a> HybridStaticBundler<'a> {
     /// Transform AST to use lifted global variables
     fn transform_ast_with_lifted_globals(
         &self,
@@ -8826,7 +9628,7 @@ impl HybridStaticBundler {
     }
 }
 
-impl HybridStaticBundler {
+impl<'a> HybridStaticBundler<'a> {
     /// Collect module renames from semantic analysis
     fn collect_module_renames(
         &self,
@@ -8958,7 +9760,7 @@ impl HybridStaticBundler {
 }
 
 #[allow(dead_code)]
-impl HybridStaticBundler {
+impl<'a> HybridStaticBundler<'a> {
     /// Collect Import statements
     fn collect_import(&mut self, import_stmt: &StmtImport, stmt: &Stmt) {
         for alias in &import_stmt.names {
@@ -11076,6 +11878,158 @@ impl HybridStaticBundler {
         reordered
     }
 
+    /// Order classes by inheritance dependencies to ensure base classes are defined first
+    /// Only reorders classes within the same module to preserve module boundaries
+    fn order_classes_by_inheritance(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
+        use petgraph::visit::EdgeRef;
+        log::debug!(
+            "order_classes_by_inheritance: Processing {} statements",
+            statements.len()
+        );
+        use petgraph::{algo::toposort, graph::DiGraph};
+        use rustc_hash::FxHashMap;
+
+        // Separate functions and classes
+        let mut functions = Vec::new();
+        let mut classes = Vec::new();
+        let mut class_map = FxHashMap::default();
+
+        for stmt in statements {
+            match &stmt {
+                Stmt::FunctionDef(_) => functions.push(stmt),
+                Stmt::ClassDef(class_def) => {
+                    let class_name = class_def.name.as_str();
+                    log::debug!("  Found class: {class_name}");
+                    class_map.insert(class_name.to_string(), classes.len());
+                    classes.push(stmt);
+                }
+                _ => {} // Should not happen based on caller
+            }
+        }
+
+        // If no classes or only one class, no need to reorder
+        if classes.len() <= 1 {
+            let mut result = functions;
+            result.extend(classes);
+            return result;
+        }
+
+        // Build dependency graph for classes
+        let mut graph = DiGraph::new();
+        let mut node_indices = Vec::new();
+
+        // Add nodes
+        for _ in 0..classes.len() {
+            node_indices.push(graph.add_node(()));
+        }
+
+        // Add edges for inheritance
+        for (idx, stmt) in classes.iter().enumerate() {
+            if let Stmt::ClassDef(class_def) = stmt
+                && let Some(arguments) = &class_def.arguments
+            {
+                for base in &arguments.args {
+                    // Extract base class name
+                    let base_name = match base {
+                        Expr::Name(name) => Some(name.id.as_str()),
+                        Expr::Attribute(attr) => {
+                            // For now, only handle simple names, not module.Class
+                            if let Expr::Name(_name) = &*attr.value {
+                                // Check if this is a local reference like compat.MutableMapping
+                                // In that case, MutableMapping is not a local class
+                                None
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(base_name) = base_name {
+                        // Check if the base class is defined in this module
+                        if let Some(&base_idx) = class_map.get(base_name) {
+                            // Add edge: derived class depends on base class
+                            // So base class should come before derived class
+                            log::debug!(
+                                "    Class {} inherits from local class {}",
+                                class_def.name.as_str(),
+                                base_name
+                            );
+                            graph.add_edge(node_indices[base_idx], node_indices[idx], ());
+                        } else {
+                            log::debug!(
+                                "    Class {} inherits from external class {}",
+                                class_def.name.as_str(),
+                                base_name
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Perform topological sort
+        let ordered_indices = match toposort(&graph, None) {
+            Ok(sorted) => sorted,
+            Err(_) => {
+                // Cycle detected, keep original order
+                log::warn!("Circular inheritance detected, preserving original order");
+                (0..classes.len()).map(|i| node_indices[i]).collect()
+            }
+        };
+
+        // Check if we actually need to reorder
+        // Only reorder if the topological order differs from the original order
+        let mut needs_reordering = false;
+        let mut original_order_valid = true;
+        let mut seen_indices = FxIndexSet::default();
+
+        for (original_idx, _class_stmt) in classes.iter().enumerate() {
+            let node_idx = node_indices[original_idx];
+
+            // Check if this class depends on any class that hasn't been seen yet
+            for edge in graph.edges(node_idx) {
+                let target = edge.target();
+                // Find which class index this target represents
+                for (target_idx, &ni) in node_indices.iter().enumerate() {
+                    if ni == target && !seen_indices.contains(&target_idx) {
+                        // This class depends on a class that comes later
+                        original_order_valid = false;
+                        needs_reordering = true;
+                        break;
+                    }
+                }
+                if !original_order_valid {
+                    break;
+                }
+            }
+            seen_indices.insert(original_idx);
+        }
+
+        // Build result
+        let mut result = functions;
+
+        if needs_reordering {
+            log::debug!("Reordering classes due to inheritance dependencies");
+            // Use the topologically sorted order
+            for node_idx in ordered_indices {
+                // Find which class this node represents
+                for (idx, &ni) in node_indices.iter().enumerate() {
+                    if ni == node_idx {
+                        result.push(classes[idx].clone());
+                        break;
+                    }
+                }
+            }
+        } else {
+            log::debug!("Preserving original class order (no reordering needed)");
+            // Keep original order
+            result.extend(classes);
+        }
+
+        result
+    }
+
     /// Reorder statements to ensure module-level variables are declared before use
     fn reorder_statements_for_proper_declaration_order(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
         let mut imports = Vec::new();
@@ -11126,16 +12080,20 @@ impl HybridStaticBundler {
             }
         }
 
+        // Don't reorder classes - Python supports forward references in type annotations
+        // and reordering can break other dependencies we're not tracking
+        let ordered_functions_and_classes = functions_and_classes;
+
         // Build the reordered list:
         // 1. Imports first
         // 2. Module-level assignments (variables) - but not self-assignments
-        // 3. Functions and classes
+        // 3. Functions and classes (ordered by inheritance)
         // 4. Self-assignments (after functions are defined)
         // 5. Other statements
         let mut reordered = Vec::new();
         reordered.extend(imports);
         reordered.extend(assignments);
-        reordered.extend(functions_and_classes);
+        reordered.extend(ordered_functions_and_classes);
         reordered.extend(self_assignments);
         reordered.extend(other_stmts);
 
@@ -11152,7 +12110,12 @@ impl HybridStaticBundler {
     ) -> Result<Vec<Stmt>> {
         let mut module_renames = FxIndexMap::default();
 
-        // First, apply recursive import transformation to the module
+        // Apply hard dependency rewriting BEFORE import transformation
+        if !self.hard_dependencies.is_empty() && self.circular_modules.contains(module_name) {
+            self.rewrite_hard_dependencies_in_module(&mut ast, module_name);
+        }
+
+        // Then apply recursive import transformation to the module
         let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
             bundler: self,
             module_name,
@@ -14868,5 +15831,775 @@ impl HybridStaticBundler {
             },
             range: TextRange::default(),
         })
+    }
+}
+
+/// Convert an expression to a dotted name string (e.g., "module.attr")
+fn expr_to_dotted_name(expr: &Expr) -> String {
+    match expr {
+        Expr::Name(name) => name.id.as_str().to_string(),
+        Expr::Attribute(attr) => {
+            let base = expr_to_dotted_name(&attr.value);
+            format!("{}.{}", base, attr.attr.as_str())
+        }
+        _ => String::new(),
+    }
+}
+
+impl<'a> HybridStaticBundler<'a> {
+    /// Rewrite hard dependencies in a module's AST
+    fn rewrite_hard_dependencies_in_module(&self, ast: &mut ModModule, module_name: &str) {
+        log::debug!("Rewriting hard dependencies in module {module_name}");
+
+        for stmt in &mut ast.body {
+            if let Stmt::ClassDef(class_def) = stmt {
+                let class_name = class_def.name.as_str();
+                log::debug!("  Checking class {class_name} in module {module_name}");
+
+                // Check if this class has hard dependencies
+                if let Some(arguments) = &mut class_def.arguments {
+                    for arg in &mut arguments.args {
+                        let base_str = expr_to_dotted_name(arg);
+                        log::debug!("    Base class: {base_str}");
+
+                        // Check against all hard dependencies for this class
+                        for hard_dep in &self.hard_dependencies {
+                            if hard_dep.module_name == module_name
+                                && hard_dep.class_name == class_name
+                            {
+                                log::debug!(
+                                    "      Checking against hard dep: {} -> {}",
+                                    hard_dep.base_class,
+                                    hard_dep.imported_attr
+                                );
+                                if base_str == hard_dep.base_class {
+                                    // Rewrite to use the hoisted import
+                                    // Use the alias if it's mandatory, otherwise use the imported
+                                    // attr
+                                    let name_to_use = if hard_dep.alias_is_mandatory
+                                        && hard_dep.alias.is_some()
+                                    {
+                                        hard_dep
+                                            .alias
+                                            .as_ref()
+                                            .expect(
+                                                "alias should exist when alias_is_mandatory is \
+                                                 true and alias.is_some() is true",
+                                            )
+                                            .clone()
+                                    } else {
+                                        hard_dep.imported_attr.clone()
+                                    };
+
+                                    *arg = Expr::Name(ExprName {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        id: name_to_use.clone().into(),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    });
+                                    log::info!(
+                                        "Rewrote base class {} to {} for class {} in inlined \
+                                         module",
+                                        hard_dep.base_class,
+                                        name_to_use,
+                                        class_name
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Detect hard dependencies in a module (class definitions with imported base classes)
+    fn detect_hard_dependencies(
+        &self,
+        module_name: &str,
+        ast: &ModModule,
+        import_map: &FxIndexMap<String, (String, Option<String>)>,
+    ) -> Vec<HardDependency> {
+        let mut hard_deps = Vec::new();
+
+        // Scan for class definitions
+        for stmt in &ast.body {
+            if let Stmt::ClassDef(class_def) = stmt {
+                // Check if any base class is an imported symbol
+                if let Some(arguments) = &class_def.arguments {
+                    for arg in &arguments.args {
+                        // Check if this is an attribute access (e.g.,
+                        // requests.compat.MutableMapping)
+                        if let Expr::Attribute(attr_expr) = arg {
+                            if let Expr::Attribute(inner_attr) = &*attr_expr.value {
+                                if let Expr::Name(name_expr) = &*inner_attr.value {
+                                    let base_module = name_expr.id.as_str();
+                                    let sub_module = inner_attr.attr.as_str();
+                                    let attr_name = attr_expr.attr.as_str();
+
+                                    // Check if this module.submodule is in our import map
+                                    let full_module = format!("{base_module}.{sub_module}");
+                                    if let Some((source_module, _alias)) =
+                                        import_map.get(&full_module)
+                                    {
+                                        log::debug!(
+                                            "Found hard dependency: class {} in module {} \
+                                             inherits from {}.{}.{}",
+                                            class_def.name.as_str(),
+                                            module_name,
+                                            base_module,
+                                            sub_module,
+                                            attr_name
+                                        );
+
+                                        hard_deps.push(HardDependency {
+                                            module_name: module_name.to_string(),
+                                            class_name: class_def.name.as_str().to_string(),
+                                            base_class: format!(
+                                                "{base_module}.{sub_module}.{attr_name}"
+                                            ),
+                                            source_module: source_module.clone(),
+                                            imported_attr: attr_name.to_string(),
+                                            alias: None, // No alias for multi-level imports
+                                            alias_is_mandatory: false,
+                                        });
+                                    }
+                                }
+                            } else if let Expr::Name(name_expr) = &*attr_expr.value {
+                                let module = name_expr.id.as_str();
+                                let attr_name = attr_expr.attr.as_str();
+
+                                // Check if this module is in our import map
+                                if let Some((source_module, _import_info)) = import_map.get(module)
+                                {
+                                    log::debug!(
+                                        "Found hard dependency: class {} in module {} inherits \
+                                         from {}.{}",
+                                        class_def.name.as_str(),
+                                        module_name,
+                                        module,
+                                        attr_name
+                                    );
+
+                                    // For module.attr, we need to import the module itself
+                                    hard_deps.push(HardDependency {
+                                        module_name: module_name.to_string(),
+                                        class_name: class_def.name.as_str().to_string(),
+                                        base_class: format!("{module}.{attr_name}"),
+                                        source_module: source_module.clone(),
+                                        imported_attr: module.to_string(), /* Import the module,
+                                                                            * not the attr */
+                                        alias: None, // No alias for module.attr imports
+                                        alias_is_mandatory: false,
+                                    });
+                                }
+                            }
+                        } else if let Expr::Name(name_expr) = arg {
+                            // Direct name reference (e.g., MutableMapping)
+                            let base_name = name_expr.id.as_str();
+
+                            // Check if this name is in our import map
+                            if let Some((source_module, original_name)) = import_map.get(base_name)
+                            {
+                                log::debug!(
+                                    "Found hard dependency: class {} in module {} inherits from \
+                                     {} (original: {:?})",
+                                    class_def.name.as_str(),
+                                    module_name,
+                                    base_name,
+                                    original_name
+                                );
+
+                                // Use the original imported name if available (for aliased imports)
+                                let import_attr = original_name
+                                    .clone()
+                                    .unwrap_or_else(|| base_name.to_string());
+
+                                // Check if this base_name is used as an alias
+                                // If base_name != import_attr, then base_name is an alias
+                                let has_alias = base_name != import_attr;
+
+                                // Check if the alias is mandatory (i.e., the original name
+                                // conflicts with a local definition)
+                                let alias_is_mandatory = if has_alias {
+                                    // Check if there's a local class with the same name as
+                                    // import_attr
+                                    self.check_local_name_conflict(ast, &import_attr)
+                                } else {
+                                    false
+                                };
+
+                                hard_deps.push(HardDependency {
+                                    module_name: module_name.to_string(),
+                                    class_name: class_def.name.as_str().to_string(),
+                                    base_class: base_name.to_string(),
+                                    source_module: source_module.clone(),
+                                    imported_attr: import_attr,
+                                    alias: if has_alias {
+                                        Some(base_name.to_string())
+                                    } else {
+                                        None
+                                    },
+                                    alias_is_mandatory,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        hard_deps
+    }
+
+    /// Check if a name conflicts with a local definition in the module
+    fn check_local_name_conflict(&self, ast: &ModModule, name: &str) -> bool {
+        for stmt in &ast.body {
+            match stmt {
+                Stmt::ClassDef(class_def) => {
+                    if class_def.name.as_str() == name {
+                        return true;
+                    }
+                }
+                Stmt::FunctionDef(func_def) => {
+                    if func_def.name.as_str() == name {
+                        return true;
+                    }
+                }
+                Stmt::Assign(assign_stmt) => {
+                    for target in &assign_stmt.targets {
+                        if let Expr::Name(name_expr) = target
+                            && name_expr.id.as_str() == name
+                        {
+                            return true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Generate the _ModuleNamespace class definition
+    fn generate_module_namespace_class(&mut self) -> Stmt {
+        // class _ModuleNamespace:
+        //     pass
+        let class_def = StmtClassDef {
+            node_index: self.create_node_index(),
+            decorator_list: vec![],
+            name: Identifier::new("_ModuleNamespace", TextRange::default()),
+            type_params: None,
+            arguments: None,
+            body: vec![Stmt::Pass(ruff_python_ast::StmtPass {
+                node_index: self.create_node_index(),
+                range: TextRange::default(),
+            })],
+            range: TextRange::default(),
+        };
+
+        Stmt::ClassDef(class_def)
+    }
+
+    /// Generate the __cribo_module_cache__ dictionary initialization
+    fn generate_module_cache_init(&mut self) -> Stmt {
+        // __cribo_module_cache__ = {}
+        let assign = StmtAssign {
+            node_index: self.create_node_index(),
+            targets: vec![Expr::Name(ExprName {
+                node_index: self.create_node_index(),
+                id: "__cribo_module_cache__".into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Dict(ruff_python_ast::ExprDict {
+                node_index: self.create_node_index(),
+                items: vec![],
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        };
+
+        Stmt::Assign(assign)
+    }
+
+    /// Generate statements to populate the module cache with empty namespaces
+    fn generate_module_cache_population(
+        &mut self,
+        modules: &[(String, ModModule, PathBuf, String)],
+    ) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+
+        // For each module, add: __cribo_module_cache__["module.name"] = _ModuleNamespace()
+        for (module_name, _, _, _) in modules {
+            let assign = StmtAssign {
+                node_index: self.create_node_index(),
+                targets: vec![Expr::Subscript(ExprSubscript {
+                    node_index: self.create_node_index(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: "__cribo_module_cache__".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                        node_index: self.create_node_index(),
+                        value: StringLiteralValue::single(StringLiteral {
+                            node_index: self.create_node_index(),
+                            value: module_name.clone().into_boxed_str(),
+                            flags: StringLiteralFlags::empty(),
+                            range: TextRange::default(),
+                        }),
+                        range: TextRange::default(),
+                    })),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::Call(ExprCall {
+                    node_index: self.create_node_index(),
+                    func: Box::new(Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: "_ModuleNamespace".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    arguments: Arguments {
+                        node_index: self.create_node_index(),
+                        args: Box::from([]),
+                        keywords: Box::from([]),
+                        range: TextRange::default(),
+                    },
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            };
+            stmts.push(Stmt::Assign(assign));
+        }
+
+        stmts
+    }
+
+    /// Generate sys.modules synchronization
+    fn generate_sys_modules_sync(&mut self) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+
+        // import sys
+        stmts.push(Stmt::Import(StmtImport {
+            node_index: self.create_node_index(),
+            names: vec![ruff_python_ast::Alias {
+                node_index: self.create_node_index(),
+                name: Identifier::new("sys", TextRange::default()),
+                asname: None,
+                range: TextRange::default(),
+            }],
+            range: TextRange::default(),
+        }));
+
+        // sys.modules.update(__cribo_module_cache__)
+        let update_call = Stmt::Expr(ruff_python_ast::StmtExpr {
+            node_index: self.create_node_index(),
+            value: Box::new(Expr::Call(ExprCall {
+                node_index: self.create_node_index(),
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: self.create_node_index(),
+                    value: Box::new(Expr::Attribute(ExprAttribute {
+                        node_index: self.create_node_index(),
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: self.create_node_index(),
+                            id: "sys".into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new("modules", TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("update", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: self.create_node_index(),
+                    args: Box::from([Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: "__cribo_module_cache__".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        });
+        stmts.push(update_call);
+
+        stmts
+    }
+
+    /// Transform a module into an initialization function using the module cache approach
+    /// This is like transform_module_to_init_function but with a @functools.cache decorator
+    fn transform_module_to_cache_init_function(
+        &self,
+        ctx: ModuleTransformContext,
+        ast: ModModule,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Result<Stmt> {
+        // Call the regular transform_module_to_init_function to get the function
+        let stmt = self.transform_module_to_init_function(ctx, ast, symbol_renames)?;
+
+        // Add the @functools.cache decorator
+        if let Stmt::FunctionDef(mut func_def) = stmt {
+            func_def.decorator_list = vec![Decorator {
+                range: TextRange::default(),
+                node_index: AtomicNodeIndex::dummy(),
+                expression: Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "functools".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("cache", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                }),
+            }];
+            return Ok(Stmt::FunctionDef(func_def));
+        }
+
+        // Should not happen
+        unreachable!("transform_module_to_init_function should return a FunctionDef")
+    }
+
+    /// Transform module body statements to assign to module attributes (no longer used)
+    #[allow(dead_code)]
+    fn transform_module_body_for_cache(
+        &self,
+        body: Vec<Stmt>,
+        module_name: &str,
+    ) -> Result<Vec<Stmt>> {
+        let mut transformed = Vec::new();
+
+        for stmt in body {
+            match stmt {
+                // Transform assignments to module-level variables
+                Stmt::Assign(mut assign) => {
+                    // Change targets to _module_self.var_name
+                    for target in &mut assign.targets {
+                        if let Expr::Name(name) = target {
+                            *target = Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: "_module_self".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(name.id.as_str(), TextRange::default()),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            });
+                        }
+                    }
+                    transformed.push(Stmt::Assign(assign));
+                }
+                // Transform function definitions
+                Stmt::FunctionDef(func_def) => {
+                    // Add the function definition
+                    transformed.push(Stmt::FunctionDef(func_def.clone()));
+
+                    // Then assign it to _module_self
+                    let assign = StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
+                        targets: vec![Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
+                                id: "_module_self".into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            attr: func_def.name.clone(),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: func_def.name.clone().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    };
+                    transformed.push(Stmt::Assign(assign));
+                }
+                // Transform class definitions
+                Stmt::ClassDef(mut class_def) => {
+                    // Check if this class has hard dependencies that need rewriting
+                    let class_name = class_def.name.as_str();
+
+                    // Rewrite base classes if needed
+                    if let Some(arguments) = &mut class_def.arguments {
+                        for arg in &mut arguments.args {
+                            let base_str = expr_to_dotted_name(arg);
+                            log::debug!(
+                                "Checking base class '{base_str}' for class {class_name} in \
+                                 module {module_name}"
+                            );
+
+                            // Check if this base class is a hard dependency
+                            for hard_dep in &self.hard_dependencies {
+                                if hard_dep.module_name == module_name
+                                    && hard_dep.class_name == class_name
+                                {
+                                    log::debug!(
+                                        "  Comparing with hard dep base class: '{}' \
+                                         (imported_attr: '{}')",
+                                        hard_dep.base_class,
+                                        hard_dep.imported_attr
+                                    );
+
+                                    if base_str == hard_dep.base_class {
+                                        // Rewrite to use the hoisted import
+                                        *arg = Expr::Name(ExprName {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            id: hard_dep.imported_attr.clone().into(),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        });
+                                        log::info!(
+                                            "Rewrote base class {} to {} for class {}",
+                                            hard_dep.base_class,
+                                            hard_dep.imported_attr,
+                                            class_name
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Add the class definition
+                    transformed.push(Stmt::ClassDef(class_def.clone()));
+
+                    // Then assign it to _module_self
+                    let assign = StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
+                        targets: vec![Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
+                                id: "_module_self".into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            attr: class_def.name.clone(),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: class_def.name.clone().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    };
+                    transformed.push(Stmt::Assign(assign));
+                }
+                // Keep other statements as-is for now
+                _ => transformed.push(stmt),
+            }
+        }
+
+        Ok(transformed)
+    }
+}
+
+/// Import transformer for module cache approach (no longer used)
+#[allow(dead_code)]
+struct ModuleCacheImportTransformer<'a> {
+    bundler: &'a HybridStaticBundler<'a>,
+    module_name: &'a str,
+}
+
+#[allow(dead_code)]
+impl<'a> ModuleCacheImportTransformer<'a> {
+    fn new(bundler: &'a HybridStaticBundler<'a>, module_name: &'a str) -> Self {
+        Self {
+            bundler,
+            module_name,
+        }
+    }
+
+    fn transform_module(&mut self, module: &mut ModModule) {
+        let mut new_body = Vec::new();
+
+        for stmt in module.body.drain(..) {
+            match &stmt {
+                Stmt::Import(import) => {
+                    // Transform bundled module imports to cache access
+                    // Keep non-bundled imports as regular imports
+                    let mut bundled_imports = Vec::new();
+                    let mut non_bundled_imports = Vec::new();
+
+                    for alias in &import.names {
+                        let module_name = alias.name.as_str();
+                        if self.bundler.bundled_modules.contains(module_name) {
+                            bundled_imports.push(alias);
+                        } else {
+                            non_bundled_imports.push(alias.clone());
+                        }
+                    }
+
+                    // Keep non-bundled imports as import statements
+                    if !non_bundled_imports.is_empty() {
+                        new_body.push(Stmt::Import(StmtImport {
+                            node_index: import.node_index.clone(),
+                            names: non_bundled_imports,
+                            range: import.range,
+                        }));
+                    }
+
+                    // Transform bundled imports to cache access
+                    for alias in bundled_imports {
+                        let module_name = alias.name.as_str();
+                        let local_name = alias
+                            .asname
+                            .as_ref()
+                            .map(|n| n.as_str())
+                            .unwrap_or(module_name);
+
+                        let assign = StmtAssign {
+                            node_index: AtomicNodeIndex::dummy(),
+                            targets: vec![Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: "_module_self".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(local_name, TextRange::default()),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            })],
+                            value: Box::new(Expr::Subscript(ExprSubscript {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: "__cribo_module_cache__".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    value: StringLiteralValue::single(StringLiteral {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        value: module_name.to_string().into_boxed_str(),
+                                        flags: StringLiteralFlags::empty(),
+                                        range: TextRange::default(),
+                                    }),
+                                    range: TextRange::default(),
+                                })),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        };
+                        new_body.push(Stmt::Assign(assign));
+                    }
+                }
+                Stmt::ImportFrom(import_from) => {
+                    // Transform from X import Y to _module_self.Y = __cribo_module_cache__["X"].Y
+                    // Only for bundled modules
+                    if let Some(module) = &import_from.module {
+                        let resolved_module = if import_from.level > 0 {
+                            // Handle relative imports
+                            self.bundler
+                                .resolve_relative_import(import_from, self.module_name)
+                                .unwrap_or_else(|| module.as_str().to_string())
+                        } else {
+                            module.as_str().to_string()
+                        };
+
+                        // Check if this module is bundled
+                        if self.bundler.bundled_modules.contains(&resolved_module) {
+                            for alias in &import_from.names {
+                                let imported_name = alias.name.as_str();
+                                let local_name = alias
+                                    .asname
+                                    .as_ref()
+                                    .map(|n| n.as_str())
+                                    .unwrap_or(imported_name);
+
+                                let assign = StmtAssign {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    targets: vec![Expr::Attribute(ExprAttribute {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        value: Box::new(Expr::Name(ExprName {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            id: "_module_self".into(),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        })),
+                                        attr: Identifier::new(local_name, TextRange::default()),
+                                        ctx: ExprContext::Store,
+                                        range: TextRange::default(),
+                                    })],
+                                    value: Box::new(Expr::Attribute(ExprAttribute {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        value: Box::new(Expr::Subscript(ExprSubscript {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            value: Box::new(Expr::Name(ExprName {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                id: "__cribo_module_cache__".into(),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            slice: Box::new(Expr::StringLiteral(
+                                                ExprStringLiteral {
+                                                    node_index: AtomicNodeIndex::dummy(),
+                                                    value: StringLiteralValue::single(
+                                                        StringLiteral {
+                                                            node_index: AtomicNodeIndex::dummy(),
+                                                            value: resolved_module
+                                                                .clone()
+                                                                .into_boxed_str(),
+                                                            flags: StringLiteralFlags::empty(),
+                                                            range: TextRange::default(),
+                                                        },
+                                                    ),
+                                                    range: TextRange::default(),
+                                                },
+                                            )),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        })),
+                                        attr: Identifier::new(imported_name, TextRange::default()),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    })),
+                                    range: TextRange::default(),
+                                };
+                                new_body.push(Stmt::Assign(assign));
+                            }
+                        } else {
+                            // Non-bundled module, keep the import as-is
+                            new_body.push(stmt);
+                        }
+                    } else {
+                        // No module specified (shouldn't happen in ImportFrom)
+                        new_body.push(stmt);
+                    }
+                }
+                _ => new_body.push(stmt),
+            }
+        }
+
+        module.body = new_body;
     }
 }

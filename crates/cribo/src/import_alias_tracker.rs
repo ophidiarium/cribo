@@ -1,0 +1,90 @@
+//! Enhanced import alias tracking for proper bundling
+//!
+//! This module provides structures and utilities to track the relationship
+//! between imported names and their aliases, which is crucial for correctly
+//! rewriting imports in the bundled output.
+
+use rustc_hash::FxHashMap;
+
+use crate::cribo_graph::ModuleId;
+
+/// Enhanced information about a from-import that tracks both the original name and alias
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EnhancedFromImport {
+    /// The module being imported from (e.g., "requests.compat" in `from requests.compat import
+    /// ...`)
+    pub module: String,
+    /// The original name being imported (e.g., "JSONDecodeError")
+    pub original_name: String,
+    /// The local alias used, if any (e.g., "CompatJSONDecodeError" in `... as
+    /// CompatJSONDecodeError`)
+    pub local_alias: Option<String>,
+}
+
+impl EnhancedFromImport {
+    /// Get the name used locally in the code (alias if present, otherwise original)
+    pub fn local_name(&self) -> &str {
+        self.local_alias.as_deref().unwrap_or(&self.original_name)
+    }
+
+    /// Create a qualified name for the import (module.original_name)
+    pub fn qualified_name(&self) -> String {
+        format!("{}.{}", self.module, self.original_name)
+    }
+}
+
+/// Tracks import alias information across modules
+#[derive(Debug, Default)]
+pub struct ImportAliasTracker {
+    /// Maps (module_id, local_name) to the enhanced import information
+    imports: FxHashMap<(ModuleId, String), EnhancedFromImport>,
+}
+
+impl ImportAliasTracker {
+    /// Create a new import alias tracker
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a from-import with potential alias
+    pub fn register_from_import(
+        &mut self,
+        module_id: ModuleId,
+        module: String,
+        original_name: String,
+        local_alias: Option<String>,
+    ) {
+        let import_info = EnhancedFromImport {
+            module,
+            original_name: original_name.clone(),
+            local_alias: local_alias.clone(),
+        };
+
+        let local_name = local_alias.unwrap_or(original_name);
+        self.imports.insert((module_id, local_name), import_info);
+    }
+
+    /// Get the enhanced import information for a local name in a module
+    pub fn get_import_info(
+        &self,
+        module_id: ModuleId,
+        local_name: &str,
+    ) -> Option<&EnhancedFromImport> {
+        self.imports.get(&(module_id, local_name.to_string()))
+    }
+
+    /// Check if a local name is an import alias in the given module
+    pub fn is_import_alias(&self, module_id: ModuleId, local_name: &str) -> bool {
+        if let Some(info) = self.get_import_info(module_id, local_name) {
+            info.local_alias.is_some()
+        } else {
+            false
+        }
+    }
+
+    /// Get the original imported name for a local name (resolving aliases)
+    pub fn get_original_name(&self, module_id: ModuleId, local_name: &str) -> Option<&str> {
+        self.get_import_info(module_id, local_name)
+            .map(|info| info.original_name.as_str())
+    }
+}
