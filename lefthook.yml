@@ -84,3 +84,5 @@ post-merge:
     python-dependencies:
       glob: uv.lock
       run: uv sync
+    delete-merged-branches:
+      run: git branch --merged | grep -Ev '\*|master|main|dev|develop|development|stag|staging|prod|production' | xargs git branch -d; git fetch --prune;
