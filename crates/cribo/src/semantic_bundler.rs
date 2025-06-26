@@ -17,7 +17,10 @@ use ruff_python_stdlib::builtins::{MAGIC_GLOBALS, python_builtins};
 use ruff_text_size::{Ranged, TextRange};
 use rustc_hash::{FxHashMap as FxIndexMap, FxHashSet as FxIndexSet};
 
-use crate::cribo_graph::ModuleId;
+use crate::{
+    cribo_graph::ModuleId,
+    import_alias_tracker::{EnhancedFromImport, ImportAliasTracker},
+};
 
 /// Semantic bundler that analyzes symbol conflicts across modules using full semantic models
 pub struct SemanticBundler {
@@ -25,11 +28,15 @@ pub struct SemanticBundler {
     module_semantics: FxIndexMap<ModuleId, ModuleSemanticInfo>,
     /// Global symbol registry with full semantic information
     global_symbols: SymbolRegistry,
+    /// Import alias tracker for resolving import aliases
+    import_alias_tracker: ImportAliasTracker,
 }
 
 /// Semantic model builder that properly populates bindings using visitor pattern
 struct SemanticModelBuilder<'a> {
     semantic: SemanticModel<'a>,
+    /// Tracks enhanced from-import information found during traversal
+    from_imports: Vec<EnhancedFromImport>,
 }
 
 impl<'a> SemanticModelBuilder<'a> {
@@ -38,7 +45,7 @@ impl<'a> SemanticModelBuilder<'a> {
         source: &'a str,
         file_path: &'a Path,
         ast: &'a ModModule,
-    ) -> Result<SemanticModel<'a>> {
+    ) -> Result<(SemanticModel<'a>, Vec<EnhancedFromImport>)> {
         // Step 1: Parse source and create infrastructure
         let source_kind = SourceKind::Python(source.to_string());
         let source_type = PySourceType::from(file_path);
@@ -62,11 +69,14 @@ impl<'a> SemanticModelBuilder<'a> {
         let semantic = SemanticModel::new(&[], file_path, module);
 
         // Step 4: Create builder and populate semantic model
-        let mut builder = Self { semantic };
+        let mut builder = Self {
+            semantic,
+            from_imports: Vec::new(),
+        };
         builder.bind_builtins();
         builder.traverse_and_bind(&ast.body)?;
 
-        Ok(builder.semantic)
+        Ok((builder.semantic, builder.from_imports))
     }
 
     /// Bind builtin symbols to the semantic model
@@ -155,20 +165,39 @@ impl<'a> SemanticModelBuilder<'a> {
                 }
             }
             Stmt::ImportFrom(import_from) => {
+                // Get the module name
+                let module_name = import_from.module.as_ref().map(|m| m.to_string());
+
                 for alias in &import_from.names {
-                    let name = alias
+                    let original_name = alias.name.as_str();
+                    let local_name = alias
                         .asname
                         .as_ref()
                         .map(|n| n.as_str())
-                        .unwrap_or(alias.name.as_str());
-                    if name != "*" {
+                        .unwrap_or(original_name);
+
+                    if local_name != "*" {
+                        // Track the enhanced import information
+                        if let Some(ref module) = module_name {
+                            let has_alias = alias.asname.is_some();
+                            self.from_imports.push(EnhancedFromImport {
+                                module: module.clone(),
+                                original_name: original_name.to_string(),
+                                local_alias: if has_alias {
+                                    Some(local_name.to_string())
+                                } else {
+                                    None
+                                },
+                            });
+                        }
+
                         self.add_binding(
-                            name,
+                            local_name,
                             alias.range,
                             BindingKind::FromImport(ruff_python_semantic::FromImport {
                                 qualified_name: Box::new(
                                     ruff_python_ast::name::QualifiedName::user_defined(
-                                        alias.name.as_str(),
+                                        original_name,
                                     ),
                                 ),
                             }),
@@ -263,6 +292,44 @@ impl<'a> SemanticModelBuilder<'a> {
         log::trace!("Final extracted symbols: {symbols:?}");
         Ok(symbols)
     }
+
+    /// Extract ALL module-scope symbols that need to be exposed in the module namespace
+    /// This includes symbols defined in conditional blocks (if/else, try/except) and imports
+    fn extract_all_module_scope_symbols(semantic: &SemanticModel) -> Result<FxIndexSet<String>> {
+        let mut symbols = FxIndexSet::default();
+
+        // Get the global scope (module scope)
+        let global_scope = semantic.global_scope();
+
+        log::trace!(
+            "Extracting ALL module-scope symbols from global scope with {} bindings",
+            global_scope.bindings().count()
+        );
+
+        // Iterate through all bindings in global scope
+        for (name, binding_id) in global_scope.bindings() {
+            let binding = &semantic.bindings[binding_id];
+
+            // Include ALL symbols except builtins
+            match &binding.kind {
+                BindingKind::Builtin => {
+                    log::trace!("Skipping builtin binding: {name}");
+                }
+                _ => {
+                    // Include all non-builtin symbols: classes, functions, assignments, imports
+                    log::trace!(
+                        "Adding module-scope symbol '{}' of kind {:?}",
+                        name,
+                        binding.kind
+                    );
+                    symbols.insert(name.to_string());
+                }
+            }
+        }
+
+        log::trace!("All module-scope symbols: {symbols:?}");
+        Ok(symbols)
+    }
 }
 
 /// Module semantic analyzer that provides static methods for symbol extraction
@@ -274,9 +341,11 @@ impl ModuleSemanticAnalyzer {
         source: &str,
         path: &Path,
         ast: &ModModule,
-    ) -> Result<FxIndexSet<String>> {
-        let semantic = SemanticModelBuilder::build_semantic_model(source, path, ast)?;
-        SemanticModelBuilder::extract_symbols_from_semantic_model(&semantic)
+    ) -> Result<(FxIndexSet<String>, Vec<EnhancedFromImport>)> {
+        let (semantic, from_imports) =
+            SemanticModelBuilder::build_semantic_model(source, path, ast)?;
+        let symbols = SemanticModelBuilder::extract_symbols_from_semantic_model(&semantic)?;
+        Ok((symbols, from_imports))
     }
 }
 
@@ -290,6 +359,9 @@ pub struct ModuleSemanticInfo {
     pub source: String,
     /// File path for this module
     pub file_path: std::path::PathBuf,
+    /// All module-scope symbols that need to be exposed in the module namespace
+    /// This includes symbols defined in conditional blocks (if/else, try/except)
+    pub module_scope_symbols: FxIndexSet<String>,
 }
 
 /// Global symbol registry across all modules with semantic information
@@ -451,6 +523,7 @@ impl SemanticBundler {
         Self {
             module_semantics: FxIndexMap::default(),
             global_symbols: SymbolRegistry::new(),
+            import_alias_tracker: ImportAliasTracker::new(),
         }
     }
 
@@ -467,14 +540,37 @@ impl SemanticBundler {
             module_id.as_u32()
         );
 
-        // Extract module-level symbols using semantic analysis
+        // Build semantic model and extract information
+        let (semantic_model, from_imports) =
+            SemanticModelBuilder::build_semantic_model(source, path, ast)?;
+
+        // Extract exported symbols (public API)
         let exported_symbols =
-            ModuleSemanticAnalyzer::extract_symbols_from_module(source, path, ast)?;
+            SemanticModelBuilder::extract_symbols_from_semantic_model(&semantic_model)?;
         log::debug!(
-            "Module {} has symbols: {:?}",
+            "Module {} has exported symbols: {:?}",
             module_id.as_u32(),
             exported_symbols
         );
+
+        // Extract ALL module-scope symbols (including conditional imports)
+        let module_scope_symbols =
+            SemanticModelBuilder::extract_all_module_scope_symbols(&semantic_model)?;
+        log::debug!(
+            "Module {} has all module-scope symbols: {:?}",
+            module_id.as_u32(),
+            module_scope_symbols
+        );
+
+        // Register from imports in the alias tracker
+        for import in from_imports {
+            self.import_alias_tracker.register_from_import(
+                module_id,
+                import.module,
+                import.original_name,
+                import.local_alias,
+            );
+        }
 
         // Register symbols in global registry (simplified for now)
         for symbol in &exported_symbols {
@@ -490,6 +586,7 @@ impl SemanticBundler {
                 conflicts: Vec::new(), // Will be populated later
                 source: source.to_string(),
                 file_path: path.to_path_buf(),
+                module_scope_symbols,
             },
         );
 
@@ -533,6 +630,11 @@ impl SemanticBundler {
     /// Get semantic information for a module (for scope analysis during code generation)
     pub fn get_module_semantic_info(&self, module_id: &ModuleId) -> Option<&ModuleSemanticInfo> {
         self.module_semantics.get(module_id)
+    }
+
+    /// Get the import alias tracker
+    pub fn import_alias_tracker(&self) -> &ImportAliasTracker {
+        &self.import_alias_tracker
     }
 
     /// Analyze global variable usage in a module

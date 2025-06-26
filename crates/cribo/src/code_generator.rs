@@ -84,6 +84,7 @@ struct ModuleTransformContext<'a> {
     synthetic_name: &'a str,
     module_path: &'a Path,
     global_info: Option<ModuleGlobalInfo>,
+    semantic_bundler: Option<&'a SemanticBundler>,
 }
 
 /// Context for inlining operations
@@ -551,7 +552,7 @@ impl GlobalsLifter {
 
 /// Parameters for creating a RecursiveImportTransformer
 struct RecursiveImportTransformerParams<'a> {
-    bundler: &'a HybridStaticBundler,
+    bundler: &'a HybridStaticBundler<'a>,
     module_name: &'a str,
     module_path: Option<&'a Path>,
     symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
@@ -563,7 +564,7 @@ struct RecursiveImportTransformerParams<'a> {
 
 /// Transformer that recursively transforms all imports in the AST
 struct RecursiveImportTransformer<'a> {
-    bundler: &'a HybridStaticBundler,
+    bundler: &'a HybridStaticBundler<'a>,
     module_name: &'a str,
     module_path: Option<&'a Path>,
     symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
@@ -2209,7 +2210,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
 /// Hybrid static bundler that uses sys.modules and hash-based naming
 /// This approach avoids forward reference issues while maintaining Python module semantics
-pub struct HybridStaticBundler {
+pub struct HybridStaticBundler<'a> {
     /// Track if importlib was fully transformed and should be removed
     importlib_fully_transformed: bool,
     /// Map from original module name to synthetic module name
@@ -2240,6 +2241,8 @@ pub struct HybridStaticBundler {
     /// Modules that are imported as namespaces (e.g., from package import module)
     /// Maps module name to set of importing modules
     namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>>,
+    /// Reference to the central module registry
+    module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
     /// Modules that are part of circular dependencies
     circular_modules: FxIndexSet<String>,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
@@ -2269,7 +2272,7 @@ pub struct HybridStaticBundler {
     use_module_cache: bool,
 }
 
-impl HybridStaticBundler {
+impl<'a> HybridStaticBundler<'a> {
     /// Check if a string is a valid Python identifier
     fn is_valid_python_identifier(name: &str) -> bool {
         // Use ruff's identifier validation which handles Unicode and keywords
@@ -2552,15 +2555,15 @@ impl HybridStaticBundler {
     }
 }
 
-impl Default for HybridStaticBundler {
+impl<'a> Default for HybridStaticBundler<'a> {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
 #[allow(dead_code)]
-impl HybridStaticBundler {
-    pub fn new() -> Self {
+impl<'a> HybridStaticBundler<'a> {
+    pub fn new(module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>) -> Self {
         Self {
             importlib_fully_transformed: false,
             module_registry: FxIndexMap::default(),
@@ -2576,6 +2579,7 @@ impl HybridStaticBundler {
             module_exports: FxIndexMap::default(),
             lifted_global_declarations: Vec::new(),
             namespace_imported_modules: FxIndexMap::default(),
+            module_info_registry,
             circular_modules: FxIndexSet::default(),
             circular_predeclarations: FxIndexMap::default(),
             hard_dependencies: Vec::new(),
@@ -2605,11 +2609,11 @@ impl HybridStaticBundler {
     fn assign_node_indices_to_ast(&mut self, module: &mut ModModule) {
         use ruff_python_ast::visitor::source_order::SourceOrderVisitor;
 
-        struct NodeIndexAssigner<'a> {
-            bundler: &'a mut HybridStaticBundler,
+        struct NodeIndexAssigner<'b, 'a> {
+            bundler: &'b mut HybridStaticBundler<'a>,
         }
 
-        impl<'a> SourceOrderVisitor<'_> for NodeIndexAssigner<'a> {
+        impl<'b, 'a> SourceOrderVisitor<'_> for NodeIndexAssigner<'b, 'a> {
             fn visit_stmt(&mut self, stmt: &Stmt) {
                 // Check if this node has a dummy index (value 0)
                 let node_index = match stmt {
@@ -2824,12 +2828,12 @@ impl HybridStaticBundler {
 
     /// Filter module exports based on tree-shaking results with debug logging
     /// Returns references to the symbols that survived tree-shaking
-    fn filter_exports_by_tree_shaking_with_logging<'a>(
+    fn filter_exports_by_tree_shaking_with_logging<'b>(
         &self,
-        exports: &'a [String],
+        exports: &'b [String],
         module_name: &str,
         kept_symbols: Option<&indexmap::IndexSet<(String, String)>>,
-    ) -> Vec<&'a String> {
+    ) -> Vec<&'b String> {
         if let Some(kept_symbols) = kept_symbols {
             let result: Vec<&String> = exports
                 .iter()
@@ -3293,6 +3297,39 @@ impl HybridStaticBundler {
     }
 
     /// Find which module defines a symbol
+    /// Get module ID by name from dependency graph
+    fn get_module_id_by_name(
+        &self,
+        module_name: &str,
+        graph: &DependencyGraph,
+    ) -> Option<crate::cribo_graph::ModuleId> {
+        // Get module from dependency graph
+        graph.get_module_by_name(module_name).map(|m| m.module_id)
+    }
+
+    /// Find module ID in semantic bundler by iterating through all modules
+    fn find_module_id_in_semantic_bundler(
+        &self,
+        module_name: &str,
+        _semantic_bundler: &SemanticBundler,
+    ) -> Option<crate::cribo_graph::ModuleId> {
+        // Use the central module registry for fast, reliable lookup
+        if let Some(registry) = self.module_info_registry {
+            let module_id = registry.get_id_by_name(module_name);
+            if module_id.is_some() {
+                log::debug!(
+                    "Found module ID for '{module_name}' using module registry"
+                );
+            } else {
+                log::debug!("Module '{module_name}' not found in module registry");
+            }
+            module_id
+        } else {
+            log::warn!("No module registry available for module ID lookup");
+            None
+        }
+    }
+
     fn find_symbol_module(
         &self,
         symbol: &str,
@@ -4910,6 +4947,7 @@ impl HybridStaticBundler {
                         synthetic_name: &synthetic_name,
                         module_path,
                         global_info,
+                        semantic_bundler: Some(semantic_ctx.semantic_bundler),
                     };
                     // Generate init function with empty symbol_renames for now
                     let empty_renames = FxIndexMap::default();
@@ -5175,6 +5213,7 @@ impl HybridStaticBundler {
                     synthetic_name: &synthetic_name,
                     module_path,
                     global_info,
+                    semantic_bundler: Some(semantic_ctx.semantic_bundler),
                 };
                 // Always use cached init functions to ensure modules are only initialized once
                 let init_function = self.transform_module_to_cache_init_function(
@@ -6036,6 +6075,151 @@ impl HybridStaticBundler {
         None
     }
 
+    /// Process body recursively and add symbol exports in-place
+    fn process_body_recursive(
+        &self,
+        body: Vec<Stmt>,
+        module_name: &str,
+        module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+    ) -> Vec<Stmt> {
+        let mut result = Vec::new();
+
+        for stmt in body {
+            match &stmt {
+                Stmt::If(if_stmt) => {
+                    // Process if body recursively
+                    let processed_body = self.process_body_recursive(
+                        if_stmt.body.clone(),
+                        module_name,
+                        module_scope_symbols,
+                    );
+
+                    // Process elif/else clauses
+                    let processed_elif_else = if_stmt
+                        .elif_else_clauses
+                        .iter()
+                        .map(|clause| {
+                            let processed_clause_body = self.process_body_recursive(
+                                clause.body.clone(),
+                                module_name,
+                                module_scope_symbols,
+                            );
+                            ruff_python_ast::ElifElseClause {
+                                node_index: clause.node_index.clone(),
+                                test: clause.test.clone(),
+                                body: processed_clause_body,
+                                range: clause.range,
+                            }
+                        })
+                        .collect();
+
+                    // Create new if statement with processed bodies
+                    let new_if = ruff_python_ast::StmtIf {
+                        node_index: if_stmt.node_index.clone(),
+                        test: if_stmt.test.clone(),
+                        body: processed_body,
+                        elif_else_clauses: processed_elif_else,
+                        range: if_stmt.range,
+                    };
+
+                    result.push(Stmt::If(new_if));
+                }
+                Stmt::Try(try_stmt) => {
+                    // Process try body recursively
+                    let processed_body = self.process_body_recursive(
+                        try_stmt.body.clone(),
+                        module_name,
+                        module_scope_symbols,
+                    );
+
+                    // Process handlers
+                    let processed_handlers = try_stmt
+                        .handlers
+                        .iter()
+                        .map(|handler| {
+                            if let ExceptHandler::ExceptHandler(handler) = handler {
+                                let processed_handler_body = self.process_body_recursive(
+                                    handler.body.clone(),
+                                    module_name,
+                                    module_scope_symbols,
+                                );
+                                ExceptHandler::ExceptHandler(
+                                    ruff_python_ast::ExceptHandlerExceptHandler {
+                                        node_index: handler.node_index.clone(),
+                                        type_: handler.type_.clone(),
+                                        name: handler.name.clone(),
+                                        body: processed_handler_body,
+                                        range: handler.range,
+                                    },
+                                )
+                            } else {
+                                handler.clone()
+                            }
+                        })
+                        .collect();
+
+                    // Process orelse
+                    let processed_orelse = self.process_body_recursive(
+                        try_stmt.orelse.clone(),
+                        module_name,
+                        module_scope_symbols,
+                    );
+
+                    // Process finalbody
+                    let processed_finalbody = self.process_body_recursive(
+                        try_stmt.finalbody.clone(),
+                        module_name,
+                        module_scope_symbols,
+                    );
+
+                    // Create new try statement
+                    let new_try = ruff_python_ast::StmtTry {
+                        node_index: try_stmt.node_index.clone(),
+                        body: processed_body,
+                        handlers: processed_handlers,
+                        orelse: processed_orelse,
+                        finalbody: processed_finalbody,
+                        is_star: try_stmt.is_star,
+                        range: try_stmt.range,
+                    };
+
+                    result.push(Stmt::Try(new_try));
+                }
+                Stmt::ImportFrom(import_from) => {
+                    // Skip __future__ imports
+                    if import_from.module.as_ref().map(|m| m.as_str()) != Some("__future__") {
+                        result.push(stmt.clone());
+
+                        // Add module attribute assignments for imported symbols
+                        if let Some(symbols) = module_scope_symbols {
+                            for alias in &import_from.names {
+                                let local_name =
+                                    alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                                if symbols.contains(local_name)
+                                    && self.should_export_symbol(local_name, module_name)
+                                {
+                                    log::debug!(
+                                        "Adding module.{local_name} = {local_name} after conditional import"
+                                    );
+                                    result.push(
+                                        self.create_module_attr_assignment("module", local_name),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    // For other statements, just add them as-is
+                    result.push(stmt.clone());
+                }
+            }
+        }
+
+        result
+    }
+
     /// Transform a module into an initialization function
     fn transform_module_to_init_function(
         &self,
@@ -6160,7 +6344,50 @@ impl HybridStaticBundler {
         }
 
         // Now process the transformed module
-        for stmt in ast.body {
+        // We'll do the in-place symbol export as we process each statement
+        let module_scope_symbols = if let Some(semantic_bundler) = ctx.semantic_bundler {
+            log::debug!(
+                "Looking up module ID for '{}' in semantic bundler",
+                ctx.module_name
+            );
+            if let Some(module_id) =
+                self.find_module_id_in_semantic_bundler(ctx.module_name, semantic_bundler)
+            {
+                if let Some(module_info) = semantic_bundler.get_module_info(&module_id) {
+                    log::debug!(
+                        "Found module-scope symbols for '{}': {:?}",
+                        ctx.module_name,
+                        module_info.module_scope_symbols
+                    );
+                    Some(&module_info.module_scope_symbols)
+                } else {
+                    log::warn!(
+                        "No semantic info found for module '{}' (module_id: {:?})",
+                        ctx.module_name,
+                        module_id
+                    );
+                    None
+                }
+            } else {
+                log::warn!(
+                    "Could not find module ID for '{}' in semantic bundler",
+                    ctx.module_name
+                );
+                None
+            }
+        } else {
+            log::debug!(
+                "No semantic bundler provided for module '{}'",
+                ctx.module_name
+            );
+            None
+        };
+
+        // Process the body with a new recursive approach
+        let processed_body =
+            self.process_body_recursive(ast.body, ctx.module_name, module_scope_symbols);
+
+        for stmt in processed_body {
             match &stmt {
                 Stmt::Import(_import_stmt) => {
                     // Skip imports that are already hoisted
@@ -6490,6 +6717,8 @@ impl HybridStaticBundler {
                 }
             }
         }
+
+        // Phase 2 is now handled inline during statement processing above
 
         // Return the module object
         body.push(Stmt::Return(ruff_python_ast::StmtReturn {
@@ -9070,7 +9299,7 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
     }
 }
 
-impl HybridStaticBundler {
+impl<'a> HybridStaticBundler<'a> {
     /// Transform AST to use lifted global variables
     fn transform_ast_with_lifted_globals(
         &self,
@@ -9403,7 +9632,7 @@ impl HybridStaticBundler {
     }
 }
 
-impl HybridStaticBundler {
+impl<'a> HybridStaticBundler<'a> {
     /// Collect module renames from semantic analysis
     fn collect_module_renames(
         &self,
@@ -9535,7 +9764,7 @@ impl HybridStaticBundler {
 }
 
 #[allow(dead_code)]
-impl HybridStaticBundler {
+impl<'a> HybridStaticBundler<'a> {
     /// Collect Import statements
     fn collect_import(&mut self, import_stmt: &StmtImport, stmt: &Stmt) {
         for alias in &import_stmt.names {
@@ -15621,7 +15850,7 @@ fn expr_to_dotted_name(expr: &Expr) -> String {
     }
 }
 
-impl HybridStaticBundler {
+impl<'a> HybridStaticBundler<'a> {
     /// Rewrite hard dependencies in a module's AST
     fn rewrite_hard_dependencies_in_module(&self, ast: &mut ModModule, module_name: &str) {
         log::debug!("Rewriting hard dependencies in module {module_name}");
@@ -15779,7 +16008,8 @@ impl HybridStaticBundler {
                                 );
 
                                 // Use the original imported name if available (for aliased imports)
-                                let import_attr = original_name.clone()
+                                let import_attr = original_name
+                                    .clone()
                                     .unwrap_or_else(|| base_name.to_string());
 
                                 // Check if this base_name is used as an alias
@@ -15836,9 +16066,10 @@ impl HybridStaticBundler {
                 Stmt::Assign(assign_stmt) => {
                     for target in &assign_stmt.targets {
                         if let Expr::Name(name_expr) = target
-                            && name_expr.id.as_str() == name {
-                                return true;
-                            }
+                            && name_expr.id.as_str() == name
+                        {
+                            return true;
+                        }
                     }
                 }
                 _ => {}
@@ -16188,13 +16419,13 @@ impl HybridStaticBundler {
 /// Import transformer for module cache approach (no longer used)
 #[allow(dead_code)]
 struct ModuleCacheImportTransformer<'a> {
-    bundler: &'a HybridStaticBundler,
+    bundler: &'a HybridStaticBundler<'a>,
     module_name: &'a str,
 }
 
 #[allow(dead_code)]
 impl<'a> ModuleCacheImportTransformer<'a> {
-    fn new(bundler: &'a HybridStaticBundler, module_name: &'a str) -> Self {
+    fn new(bundler: &'a HybridStaticBundler<'a>, module_name: &'a str) -> Self {
         Self {
             bundler,
             module_name,
