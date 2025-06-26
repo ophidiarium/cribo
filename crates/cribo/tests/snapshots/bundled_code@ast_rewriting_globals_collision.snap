@@ -19,6 +19,18 @@ services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
 models.base = types.SimpleNamespace()
 models.user = types.SimpleNamespace()
+class _ModuleNamespace:
+    pass
+__cribo_module_cache__ = {}
+__cribo_module_cache__['models.base'] = _ModuleNamespace()
+__cribo_module_cache__['models'] = _ModuleNamespace()
+__cribo_module_cache__['models.user'] = _ModuleNamespace()
+__cribo_module_cache__['services.auth'] = _ModuleNamespace()
+__cribo_module_cache__['services'] = _ModuleNamespace()
+__cribo_module_cache__['services.auth.manager'] = _ModuleNamespace()
+__cribo_module_cache__['core.database.connection'] = _ModuleNamespace()
+import sys
+sys.modules.update(__cribo_module_cache__)
 process_count = 0
 validate_cache = {}
 Logger_6 = str
@@ -324,6 +336,13 @@ def __cribo_init___cribo_df9c8d_core_database_connection():
         return conn
     module.create_connection = create_connection
     return module
+__cribo_init___cribo_b2dda7_services()
+__cribo_init___cribo_0a162a_models_base()
+__cribo_init___cribo_df9c8d_core_database_connection()
+__cribo_init___cribo_0ecebd_services_auth_manager()
+__cribo_init___cribo_1f9e6c_models_user()
+__cribo_init___cribo_84bf42_services_auth()
+__cribo_init___cribo_293a98_models()
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\nWITHOUT circular dependencies\n"""
 core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
 db_process = core.database.connection.process

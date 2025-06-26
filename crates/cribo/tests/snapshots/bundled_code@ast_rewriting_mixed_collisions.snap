@@ -18,32 +18,12 @@ models.__name__ = 'models'
 services = types.SimpleNamespace()
 services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
-result_2 = "base_result"
-class Logger_1:
-    """Base Logger class - yet another Logger conflict"""
-
-    def __init__(self, source: str):
-        self.source = source
-        self.logs = []
-
-    def log(self, message: str) -> None:
-        self.logs.append(f"[BASE {self.source}] {message}")
-
-    def process(self, log_data: typing.Any) -> str:
-        """Logger process method - conflicts with global process"""
-        self.log(f"Processing: {log_data}")
-        return f"base_logger_process: {log_data}"
-Logger_1.__module__ = 'models.base'
-Logger_1.__name__ = 'Logger'
-def initialize() -> str:
-    """Module initialization function"""
-    global result_2
-    base = BaseModel("default")
-    init_result = base.initialize()
-    logger = UserLogger("base_init")
-    logger._log_process("Base module initialized")
-    result_2 = f"module_init: {init_result}"
-    return result_2
+class _ModuleNamespace:
+    pass
+__cribo_module_cache__ = {}
+__cribo_module_cache__['services.auth.manager'] = _ModuleNamespace()
+import sys
+sys.modules.update(__cribo_module_cache__)
 class BaseModel:
     """Base model class with method name conflicts"""
 
@@ -68,11 +48,37 @@ class BaseModel:
 
     def initialize(self) -> str:
         """Initialize with name conflicts"""
-        global result_2
+        global result_1
         self.initialized = True
-        result_2 = f"base_initialized_{self.model_type}"
-        return result_2
+        result_1 = f"base_initialized_{self.model_type}"
+        return result_1
 BaseModel.__module__ = 'models.base'
+def initialize() -> str:
+    """Module initialization function"""
+    global result_2
+    base = BaseModel("default")
+    init_result = base.initialize()
+    logger = UserLogger("base_init")
+    logger._log_process("Base module initialized")
+    result_2 = f"module_init: {init_result}"
+    return result_2
+class Logger_1:
+    """Base Logger class - yet another Logger conflict"""
+
+    def __init__(self, source: str):
+        self.source = source
+        self.logs = []
+
+    def log(self, message: str) -> None:
+        self.logs.append(f"[BASE {self.source}] {message}")
+
+    def process(self, log_data: typing.Any) -> str:
+        """Logger process method - conflicts with global process"""
+        self.log(f"Processing: {log_data}")
+        return f"base_logger_process: {log_data}"
+Logger_1.__module__ = 'models.base'
+Logger_1.__name__ = 'Logger'
+result_2 = "base_result"
 """\nBase model functionality with relative import conflicts\n"""
 result_3 = {"model": "user"}
 connection_3 = None
@@ -247,7 +253,7 @@ def process_7(data):
     result_8.append(processed)
     return f"db_processed: {data}"
 """\nDatabase connection module with naming conflicts\n"""
-models_base = types.SimpleNamespace(result=result_2, Logger=Logger_1, initialize=initialize, BaseModel=BaseModel)
+models_base = types.SimpleNamespace(BaseModel=BaseModel, initialize=initialize, Logger=Logger_1, result=result_2)
 _cribo_services_auth_manager_result = None
 @functools.cache
 def __cribo_init___cribo_ee1d45_services_auth_manager():
@@ -384,6 +390,7 @@ def __cribo_init___cribo_ee1d45_services_auth_manager():
     global _cribo_services_auth_manager_result
     _cribo_services_auth_manager_result = result
     return module
+__cribo_init___cribo_ee1d45_services_auth_manager()
 core_validate = validate_6
 UserLogger = Logger_2
 util_process = process_6

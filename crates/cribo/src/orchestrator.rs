@@ -16,7 +16,7 @@ use crate::{
     config::Config,
     cribo_graph::{
         CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType, CriboGraph,
-        ResolutionStrategy,
+        ModuleId, ResolutionStrategy,
     },
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
     resolver::{ImportType, ModuleResolver},
@@ -31,6 +31,94 @@ type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 
 /// Static empty parsed module for creating Stylist instances
 static EMPTY_PARSED_MODULE: OnceLock<ruff_python_parser::Parsed<ModModule>> = OnceLock::new();
+
+/// Immutable module information stored in the registry
+#[derive(Debug, Clone)]
+pub struct ModuleInfo {
+    /// The unique module ID assigned by the dependency graph
+    pub id: ModuleId,
+    /// The canonical module name (e.g., "requests.compat")
+    pub canonical_name: String,
+    /// The resolved filesystem path
+    pub resolved_path: PathBuf,
+    /// The original source code
+    pub original_source: String,
+    /// The original parsed AST
+    pub original_ast: ModModule,
+    /// Whether this is a wrapper module (has side effects)
+    pub is_wrapper: bool,
+}
+
+/// Central registry for module information
+/// This is the single source of truth for module identity throughout the bundling process
+pub struct ModuleRegistry {
+    /// Map from ModuleId to complete module information
+    modules: FxIndexMap<ModuleId, ModuleInfo>,
+    /// Map from canonical name to ModuleId for fast lookups
+    name_to_id: FxIndexMap<String, ModuleId>,
+    /// Map from resolved path to ModuleId for fast lookups
+    path_to_id: FxIndexMap<PathBuf, ModuleId>,
+}
+
+impl Default for ModuleRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ModuleRegistry {
+    /// Create a new empty module registry
+    pub fn new() -> Self {
+        Self {
+            modules: FxIndexMap::default(),
+            name_to_id: FxIndexMap::default(),
+            path_to_id: FxIndexMap::default(),
+        }
+    }
+
+    /// Add a module to the registry
+    pub fn add_module(&mut self, info: ModuleInfo) {
+        let id = info.id;
+        let name = info.canonical_name.clone();
+        let path = info.resolved_path.clone();
+
+        // Check if module already exists and validate consistency
+        if let Some(existing) = self.modules.get(&id) {
+            if existing.canonical_name != name || existing.resolved_path != path {
+                panic!(
+                    "Attempting to register module {:?} with conflicting data. Existing: {} at \
+                     {:?}, New: {} at {:?}",
+                    id, existing.canonical_name, existing.resolved_path, name, path
+                );
+            }
+            return; // Module already registered with same data
+        }
+
+        self.name_to_id.insert(name, id);
+        self.path_to_id.insert(path, id);
+        self.modules.insert(id, info);
+    }
+
+    /// Get module info by ID
+    pub fn get_by_id(&self, id: &ModuleId) -> Option<&ModuleInfo> {
+        self.modules.get(id)
+    }
+
+    /// Get module ID by canonical name
+    pub fn get_id_by_name(&self, name: &str) -> Option<ModuleId> {
+        self.name_to_id.get(name).copied()
+    }
+
+    /// Get module ID by resolved path
+    pub fn get_id_by_path(&self, path: &Path) -> Option<ModuleId> {
+        self.path_to_id.get(path).copied()
+    }
+
+    /// Iterate over all modules
+    pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModuleInfo)> {
+        self.modules.iter()
+    }
+}
 
 /// Get or create the empty parsed module for Stylist creation
 fn get_empty_parsed_module() -> &'static ruff_python_parser::Parsed<ModModule> {
@@ -106,6 +194,8 @@ struct ProcessedModule {
 pub struct BundleOrchestrator {
     config: Config,
     semantic_bundler: SemanticBundler,
+    /// Central registry for module information
+    module_registry: ModuleRegistry,
     /// Cache of processed modules to ensure we only parse and transform once
     module_cache: std::sync::Mutex<FxIndexMap<PathBuf, ProcessedModule>>,
 }
@@ -115,6 +205,7 @@ impl BundleOrchestrator {
         Self {
             config,
             semantic_bundler: SemanticBundler::new(),
+            module_registry: ModuleRegistry::new(),
             module_cache: std::sync::Mutex::new(FxIndexMap::default()),
         }
     }
@@ -166,6 +257,17 @@ impl BundleOrchestrator {
                         module_path,
                     )?;
 
+                    // Add to module registry
+                    let module_info = ModuleInfo {
+                        id: module_id,
+                        canonical_name: module_name.to_string(),
+                        resolved_path: canonical_path.clone(),
+                        original_source: cached.source.clone(),
+                        original_ast: cached.ast.clone(),
+                        is_wrapper: false, // Will be determined later during bundling
+                    };
+                    self.module_registry.add_module(module_info);
+
                     Some(module_id)
                 } else {
                     cached.module_id
@@ -201,6 +303,17 @@ impl BundleOrchestrator {
             // Semantic analysis on raw AST
             self.semantic_bundler
                 .analyze_module(module_id, &ast, &source, module_path)?;
+
+            // Add to module registry
+            let module_info = ModuleInfo {
+                id: module_id,
+                canonical_name: module_name.to_string(),
+                resolved_path: canonical_path.clone(),
+                original_source: source.clone(),
+                original_ast: ast.clone(),
+                is_wrapper: false, // Will be determined later during bundling
+            };
+            self.module_registry.add_module(module_info);
 
             Some(module_id)
         } else {
@@ -1499,7 +1612,7 @@ impl BundleOrchestrator {
             }
         }
 
-        let mut static_bundler = HybridStaticBundler::new();
+        let mut static_bundler = HybridStaticBundler::new(Some(&self.module_registry));
 
         // Parse all modules and prepare them for bundling
         let mut module_asts = Vec::new();
