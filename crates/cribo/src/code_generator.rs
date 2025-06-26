@@ -72,6 +72,10 @@ struct HardDependency {
     source_module: String,
     /// The attribute being imported
     imported_attr: String,
+    /// The alias used for the import (if any)
+    alias: Option<String>,
+    /// Whether the alias is mandatory to avoid name conflicts
+    alias_is_mandatory: bool,
 }
 
 /// Context for module transformation operations
@@ -350,7 +354,8 @@ impl SymbolDependencyGraph {
                 let cycle_info = cycle.node_id();
                 let symbol = &graph[cycle_info];
                 log::error!(
-                    "Fatal: Circular dependency detected in module '{module_name}' involving symbol '{symbol}'"
+                    "Fatal: Circular dependency detected in module '{module_name}' involving \
+                     symbol '{symbol}'"
                 );
 
                 // Find all symbols involved in the cycle
@@ -368,7 +373,8 @@ impl SymbolDependencyGraph {
                 }
 
                 panic!(
-                    "Cannot bundle due to circular symbol dependency in module '{module_name}': {cycle_symbols:?}"
+                    "Cannot bundle due to circular symbol dependency in module '{module_name}': \
+                     {cycle_symbols:?}"
                 );
             }
         }
@@ -3258,9 +3264,7 @@ impl HybridStaticBundler {
             if var == var_name
                 && self.find_symbol_module(var, module_name, graph) == Some(module_name.to_string())
             {
-                log::debug!(
-                    "Skipping self-reference in assignment: {var_name} = {var}"
-                );
+                log::debug!("Skipping self-reference in assignment: {var_name} = {var}");
                 continue;
             }
 
@@ -4802,24 +4806,29 @@ impl HybridStaticBundler {
                         final_body.push(Stmt::Import(import_stmt));
                         log::debug!("Hoisted import http.cookiejar as cookielib");
                     } else {
-                        // Collect unique attributes to import
-                        let mut attrs_to_import: FxIndexSet<String> = FxIndexSet::default();
+                        // Collect unique imports with their aliases
+                        let mut imports_to_make: FxIndexMap<String, Option<String>> =
+                            FxIndexMap::default();
                         for dep in deps {
-                            attrs_to_import.insert(dep.imported_attr.clone());
+                            // If this dependency has a mandatory alias, use it
+                            if dep.alias_is_mandatory && dep.alias.is_some() {
+                                imports_to_make
+                                    .insert(dep.imported_attr.clone(), dep.alias.clone());
+                            } else {
+                                // Only insert if we haven't already added this import
+                                imports_to_make
+                                    .entry(dep.imported_attr.clone())
+                                    .or_insert(None);
+                            }
                         }
 
-                        // Generate: from source_module import attr1, attr2, ...
+                        // Generate: from source_module import attr1, attr2 as alias2, ...
                         let mut names = Vec::new();
-                        for attr in attrs_to_import {
-                            // Use the attribute name as-is without special aliases
-                            let import_name = attr.as_str();
-                            let alias_name: Option<&str> = None;
-
+                        for (import_name, alias) in imports_to_make {
                             names.push(ruff_python_ast::Alias {
                                 node_index: self.create_node_index(),
-                                name: Identifier::new(import_name, TextRange::default()),
-                                asname: alias_name
-                                    .map(|a| Identifier::new(a, TextRange::default())),
+                                name: Identifier::new(&import_name, TextRange::default()),
+                                asname: alias.map(|a| Identifier::new(&a, TextRange::default())),
                                 range: TextRange::default(),
                             });
                         }
@@ -15640,9 +15649,19 @@ impl HybridStaticBundler {
                                 );
                                 if base_str == hard_dep.base_class {
                                     // Rewrite to use the hoisted import
+                                    // Use the alias if it's mandatory, otherwise use the imported
+                                    // attr
+                                    let name_to_use = if hard_dep.alias_is_mandatory
+                                        && hard_dep.alias.is_some()
+                                    {
+                                        hard_dep.alias.as_ref().unwrap().clone()
+                                    } else {
+                                        hard_dep.imported_attr.clone()
+                                    };
+
                                     *arg = Expr::Name(ExprName {
                                         node_index: AtomicNodeIndex::dummy(),
-                                        id: hard_dep.imported_attr.clone().into(),
+                                        id: name_to_use.clone().into(),
                                         ctx: ExprContext::Load,
                                         range: TextRange::default(),
                                     });
@@ -15650,7 +15669,7 @@ impl HybridStaticBundler {
                                         "Rewrote base class {} to {} for class {} in inlined \
                                          module",
                                         hard_dep.base_class,
-                                        hard_dep.imported_attr,
+                                        name_to_use,
                                         class_name
                                     );
                                 }
@@ -15709,6 +15728,8 @@ impl HybridStaticBundler {
                                             ),
                                             source_module: source_module.clone(),
                                             imported_attr: attr_name.to_string(),
+                                            alias: None, // No alias for multi-level imports
+                                            alias_is_mandatory: false,
                                         });
                                     }
                                 }
@@ -15736,6 +15757,8 @@ impl HybridStaticBundler {
                                         source_module: source_module.clone(),
                                         imported_attr: module.to_string(), /* Import the module,
                                                                             * not the attr */
+                                        alias: None, // No alias for module.attr imports
+                                        alias_is_mandatory: false,
                                     });
                                 }
                             }
@@ -15744,20 +15767,47 @@ impl HybridStaticBundler {
                             let base_name = name_expr.id.as_str();
 
                             // Check if this name is in our import map
-                            if let Some((source_module, _alias)) = import_map.get(base_name) {
+                            if let Some((source_module, original_name)) = import_map.get(base_name)
+                            {
                                 log::debug!(
-                                    "Found hard dependency: class {} in module {} inherits from {}",
+                                    "Found hard dependency: class {} in module {} inherits from \
+                                     {} (original: {:?})",
                                     class_def.name.as_str(),
                                     module_name,
-                                    base_name
+                                    base_name,
+                                    original_name
                                 );
+
+                                // Use the original imported name if available (for aliased imports)
+                                let import_attr = original_name.clone()
+                                    .unwrap_or_else(|| base_name.to_string());
+
+                                // Check if this base_name is used as an alias
+                                // If base_name != import_attr, then base_name is an alias
+                                let has_alias = base_name != import_attr;
+
+                                // Check if the alias is mandatory (i.e., the original name
+                                // conflicts with a local definition)
+                                let alias_is_mandatory = if has_alias {
+                                    // Check if there's a local class with the same name as
+                                    // import_attr
+                                    self.check_local_name_conflict(ast, &import_attr)
+                                } else {
+                                    false
+                                };
 
                                 hard_deps.push(HardDependency {
                                     module_name: module_name.to_string(),
                                     class_name: class_def.name.as_str().to_string(),
                                     base_class: base_name.to_string(),
                                     source_module: source_module.clone(),
-                                    imported_attr: base_name.to_string(),
+                                    imported_attr: import_attr,
+                                    alias: if has_alias {
+                                        Some(base_name.to_string())
+                                    } else {
+                                        None
+                                    },
+                                    alias_is_mandatory,
                                 });
                             }
                         }
@@ -15767,6 +15817,34 @@ impl HybridStaticBundler {
         }
 
         hard_deps
+    }
+
+    /// Check if a name conflicts with a local definition in the module
+    fn check_local_name_conflict(&self, ast: &ModModule, name: &str) -> bool {
+        for stmt in &ast.body {
+            match stmt {
+                Stmt::ClassDef(class_def) => {
+                    if class_def.name.as_str() == name {
+                        return true;
+                    }
+                }
+                Stmt::FunctionDef(func_def) => {
+                    if func_def.name.as_str() == name {
+                        return true;
+                    }
+                }
+                Stmt::Assign(assign_stmt) => {
+                    for target in &assign_stmt.targets {
+                        if let Expr::Name(name_expr) = target
+                            && name_expr.id.as_str() == name {
+                                return true;
+                            }
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
     }
 
     /// Generate the _ModuleNamespace class definition
