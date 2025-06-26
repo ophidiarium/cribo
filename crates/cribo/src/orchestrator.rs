@@ -12,13 +12,14 @@ use ruff_python_ast::{AtomicNodeIndex, ModModule, visitor::Visitor};
 use rustc_hash::FxHasher;
 
 use crate::{
+    analysis::{
+        CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType,
+        ResolutionStrategy,
+    },
     bundle_plan::{BundlePlan, builder::BundlePlanBuilder},
     code_generator::HybridStaticBundler,
     config::Config,
-    cribo_graph::{
-        CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType, CriboGraph,
-        ItemId, ModuleId, ResolutionStrategy,
-    },
+    cribo_graph::{CriboGraph, ItemId, ModuleId},
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
     resolver::{ImportType, ModuleResolver},
     semantic_bundler::SemanticBundler,
@@ -368,15 +369,35 @@ impl BundleOrchestrator {
         })
     }
 
+    /// Convert ModuleIds to names for display
+    fn module_ids_to_names(graph: &CriboGraph, module_ids: &[ModuleId]) -> Vec<String> {
+        module_ids
+            .iter()
+            .filter_map(|&id| {
+                graph
+                    .modules
+                    .get(&id)
+                    .map(|module| module.module_name.clone())
+            })
+            .collect()
+    }
+
     /// Format error message for unresolvable cycles
-    fn format_unresolvable_cycles_error(cycles: &[CircularDependencyGroup]) -> String {
+    fn format_unresolvable_cycles_error(
+        &self,
+        cycles: &[CircularDependencyGroup],
+        graph: &CriboGraph,
+    ) -> String {
         let mut error_msg = String::from("Unresolvable circular dependencies detected:\n\n");
 
         for (i, cycle) in cycles.iter().enumerate() {
-            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, cycle.modules.join(" → ")));
+            // Convert ModuleIds to names for display
+            let module_names = Self::module_ids_to_names(graph, &cycle.module_ids);
+
+            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, module_names.join(" → ")));
             error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
 
-            if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
+            if let ResolutionStrategy::Unresolvable { reason, .. } = &cycle.suggested_resolution {
                 error_msg.push_str(&format!("  Reason: {reason}\n"));
             }
             error_msg.push('\n');
@@ -506,7 +527,7 @@ impl BundleOrchestrator {
             // Check if we have unresolvable cycles - these we must fail on
             if !analysis.unresolvable_cycles.is_empty() {
                 let error_msg =
-                    Self::format_unresolvable_cycles_error(&analysis.unresolvable_cycles);
+                    self.format_unresolvable_cycles_error(&analysis.unresolvable_cycles, graph);
                 return Err(anyhow!(error_msg));
             }
 
@@ -519,10 +540,13 @@ impl BundleOrchestrator {
 
                 // Log details about each resolvable cycle
                 for (i, cycle) in analysis.resolvable_cycles.iter().enumerate() {
+                    // Convert ModuleIds to names for display
+                    let module_names = Self::module_ids_to_names(graph, &cycle.module_ids);
+
                     warn!(
                         "Cycle {}: {} (Type: {:?})",
                         i + 1,
-                        cycle.modules.join(" → "),
+                        module_names.join(" → "),
                         cycle.cycle_type
                     );
 
@@ -783,7 +807,7 @@ impl BundleOrchestrator {
     fn get_modules_with_cycle_resolution(
         &self,
         graph: &CriboGraph,
-        analysis: &crate::cribo_graph::CircularDependencyAnalysis,
+        analysis: &CircularDependencyAnalysis,
     ) -> Result<Vec<crate::cribo_graph::ModuleId>> {
         // For simple function-level cycles, we can use a modified topological sort
         // that breaks cycles by removing edges within strongly connected components
@@ -794,8 +818,10 @@ impl BundleOrchestrator {
         // Collect all modules that are part of circular dependencies
         let mut cycle_module_names = IndexSet::new();
         for cycle in &analysis.resolvable_cycles {
-            for module_name in &cycle.modules {
-                cycle_module_names.insert(module_name.as_str());
+            for &module_id in &cycle.module_ids {
+                if let Some(module) = graph.modules.get(&module_id) {
+                    cycle_module_names.insert(module.module_name.as_str());
+                }
             }
         }
 
@@ -1748,11 +1774,14 @@ impl BundleOrchestrator {
                         // For Phase 1, we're establishing the pattern
                         debug!(
                             "Would create import rewrites for cycle: {:?}",
-                            cycle.modules
+                            cycle.module_ids
                         );
                     }
                     ResolutionStrategy::LazyImport { .. } => {
-                        debug!("Would create lazy imports for cycle: {:?}", cycle.modules);
+                        debug!(
+                            "Would create lazy imports for cycle: {:?}",
+                            cycle.module_ids
+                        );
                     }
                     _ => {
                         // Other strategies not yet implemented
