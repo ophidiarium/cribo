@@ -35,9 +35,7 @@ pub fn execute_plan(plan: &BundlePlan, context: &ExecutionContext) -> Result<Mod
 
     // First, collect namespace requirements by scanning the plan
     let namespace_requirements = collect_namespace_requirements(plan, context)?;
-    debug!(
-        "Collected namespace requirements: {namespace_requirements:?}"
-    );
+    debug!("Collected namespace requirements: {namespace_requirements:?}");
 
     let mut final_body = Vec::new();
 
@@ -60,7 +58,7 @@ pub fn execute_plan(plan: &BundlePlan, context: &ExecutionContext) -> Result<Mod
     for (idx, step) in plan.execution_plan.iter().enumerate() {
         trace!("Executing step {idx}: {step:?}");
 
-        match execute_step(step, plan, context)? {
+        match execute_step(step, plan, context, &namespace_requirements)? {
             Some(stmt) => final_body.push(stmt),
             None => {
                 trace!("Step {idx} produced no statement");
@@ -70,9 +68,7 @@ pub fn execute_plan(plan: &BundlePlan, context: &ExecutionContext) -> Result<Mod
 
     // Populate namespace attributes after all code is inlined
     for (module_name, exports) in &namespace_requirements {
-        debug!(
-            "Populating namespace attributes for module '{module_name}'"
-        );
+        debug!("Populating namespace attributes for module '{module_name}'");
         for export in exports {
             final_body.push(generate_namespace_attribute_assignment(module_name, export));
         }
@@ -96,6 +92,7 @@ fn execute_step(
     step: &ExecutionStep,
     plan: &BundlePlan,
     context: &ExecutionContext,
+    namespace_modules: &FxHashMap<String, Vec<String>>,
 ) -> Result<Option<Stmt>> {
     match step {
         ExecutionStep::HoistFutureImport { name } => Ok(Some(generate_future_import(name))),
@@ -124,7 +121,7 @@ fn execute_step(
             let stmt = get_statement(&context.source_asts, *module_id, *item_id, context)?;
 
             // Check if this is an import that should be filtered
-            if should_filter_import(&stmt, context, *module_id, *item_id)? {
+            if should_filter_import(&stmt, context, *module_id, *item_id, namespace_modules)? {
                 return Ok(None);
             }
 
@@ -205,9 +202,14 @@ fn get_statement(
 fn should_filter_import(
     stmt: &Stmt,
     context: &ExecutionContext,
-    _module_id: ModuleId,
-    _item_id: ItemId,
+    module_id: ModuleId,
+    item_id: ItemId,
+    namespace_modules: &FxHashMap<String, Vec<String>>,
 ) -> Result<bool> {
+    debug!(
+        "Checking if should filter import for module {module_id:?} item {item_id:?}"
+    );
+    debug!("Statement type: {:?}", std::mem::discriminant(stmt));
     match stmt {
         Stmt::Import(import) => {
             // Check each imported name
@@ -225,6 +227,15 @@ fn should_filter_import(
         Stmt::ImportFrom(import_from) => {
             if let Some(module) = &import_from.module {
                 let module_name = module.as_str();
+                debug!(
+                    "ImportFrom: from {} import {:?}",
+                    module_name,
+                    import_from
+                        .names
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>()
+                );
 
                 // Handle relative imports
                 if import_from.level > 0 {
@@ -237,17 +248,64 @@ fn should_filter_import(
                 }
 
                 // Check if this is a first-party module
-                if context.registry.get_id_by_name(module_name).is_some() {
-                    // Check if any of the imported names are modules (not symbols)
-                    // If so, we need to keep this import for namespace creation
+                debug!(
+                    "Checking if '{}' is first-party: {}",
+                    module_name,
+                    context.registry.get_id_by_name(module_name).is_some()
+                );
+                debug!(
+                    "Also checking with __init__: {}",
+                    context
+                        .registry
+                        .get_id_by_name(&format!("{module_name}.__init__"))
+                        .is_some()
+                );
+
+                // For namespace packages, we need to check if any submodule exists
+                let mut is_first_party = context.registry.get_id_by_name(module_name).is_some()
+                    || context
+                        .registry
+                        .get_id_by_name(&format!("{module_name}.__init__"))
+                        .is_some();
+
+                // Check if any of the imported names form a valid module path
+                if !is_first_party {
+                    for alias in &import_from.names {
+                        let full_path = format!("{module_name}.{}", alias.name.as_str());
+                        if context.registry.get_id_by_name(&full_path).is_some() {
+                            debug!("Found first-party module via full path: {full_path}");
+                            is_first_party = true;
+                            break;
+                        }
+                    }
+                }
+
+                if is_first_party {
+                    // Check if any of the imported names will be replaced by namespace objects
                     for alias in &import_from.names {
                         let imported_name = alias.name.as_str();
                         let full_module_path = format!("{module_name}.{imported_name}");
+
+                        debug!(
+                            "Checking if '{imported_name}' will be replaced by namespace"
+                        );
+                        debug!(
+                            "  - In namespace_modules map: {}",
+                            namespace_modules.contains_key(imported_name)
+                        );
+                        debug!(
+                            "  - Full module path '{}' in registry: {}",
+                            full_module_path,
+                            context.registry.get_id_by_name(&full_module_path).is_some()
+                        );
+
+                        // Check if this import is importing a module (not a symbol)
                         if context.registry.get_id_by_name(&full_module_path).is_some() {
                             debug!(
-                                "Preserving module import for namespace: from {module_name} import {imported_name}"
+                                "Filtering module import that will be replaced by namespace: from \
+                                 {module_name} import {imported_name}"
                             );
-                            return Ok(false); // Don't filter - we need namespace
+                            return Ok(true); // Filter - we'll create namespace object
                         }
                     }
 
@@ -310,66 +368,67 @@ fn collect_namespace_requirements(
                 .ok_or_else(|| anyhow::anyhow!("Item {:?} not found", item_id))?;
 
             if let Some(stmt_index) = item_data.statement_index
-                && let Some(stmt) = module_ast.body.get(stmt_index) {
-                    // Check if this is a from import that might need namespace objects
-                    if let Stmt::ImportFrom(import_from) = stmt
-                        && let Some(module) = &import_from.module {
-                            let module_name = module.as_str();
+                && let Some(stmt) = module_ast.body.get(stmt_index)
+            {
+                // Check if this is a from import that might need namespace objects
+                if let Stmt::ImportFrom(import_from) = stmt
+                    && let Some(module) = &import_from.module
+                {
+                    let module_name = module.as_str();
 
-                            // Check if any imported names are first-party modules
-                            // This handles implicit namespace packages without __init__.py
-                            let mut is_first_party_import = false;
-                            for alias in &import_from.names {
-                                let imported_name = alias.name.as_str();
-                                let full_module_path = format!("{module_name}.{imported_name}");
-                                if context.registry.get_id_by_name(&full_module_path).is_some() {
-                                    is_first_party_import = true;
-                                    break;
-                                }
-                            }
+                    // Check if any imported names are first-party modules
+                    // This handles implicit namespace packages without __init__.py
+                    let mut is_first_party_import = false;
+                    for alias in &import_from.names {
+                        let imported_name = alias.name.as_str();
+                        let full_module_path = format!("{module_name}.{imported_name}");
+                        if context.registry.get_id_by_name(&full_module_path).is_some() {
+                            is_first_party_import = true;
+                            break;
+                        }
+                    }
 
-                            if context.registry.get_id_by_name(module_name).is_some()
-                                || context
-                                    .registry
-                                    .get_id_by_name(&format!("{module_name}.__init__"))
-                                    .is_some()
-                                || is_first_party_import
+                    if context.registry.get_id_by_name(module_name).is_some()
+                        || context
+                            .registry
+                            .get_id_by_name(&format!("{module_name}.__init__"))
+                            .is_some()
+                        || is_first_party_import
+                    {
+                        // This is a first-party import, check what's being imported
+                        debug!("Checking first-party import from {module_name}");
+                        for alias in &import_from.names {
+                            let imported_name = alias.name.as_str();
+                            let full_module_path = format!("{module_name}.{imported_name}");
+                            debug!(
+                                "Checking if '{imported_name}' is a module (full path: \
+                                 {full_module_path})"
+                            );
+
+                            // Check if this looks like a module import (not a symbol)
+                            if let Some(target_module_id) =
+                                context.registry.get_id_by_name(&full_module_path)
                             {
-                                // This is a first-party import, check what's being imported
-                                debug!("Checking first-party import from {module_name}");
-                                for alias in &import_from.names {
-                                    let imported_name = alias.name.as_str();
-                                    let full_module_path =
-                                        format!("{module_name}.{imported_name}");
-                                    debug!(
-                                        "Checking if '{imported_name}' is a module (full path: {full_module_path})"
-                                    );
-
-                                    // Check if this looks like a module import (not a symbol)
-                                    if let Some(target_module_id) =
-                                        context.registry.get_id_by_name(&full_module_path)
-                                    {
-                                        // This is importing a submodule - we need a namespace
-                                        // object
-                                        debug!(
-                                            "Found module import: from {module_name} import {imported_name} (module_id: \
-                                             {target_module_id:?})"
-                                        );
-                                        // Get the exports for this module
-                                        let exports =
-                                            collect_module_exports(context, target_module_id)?;
-                                        debug!("Module '{imported_name}' exports: {exports:?}");
-                                        namespace_map.insert(imported_name.to_string(), exports);
-                                    } else {
-                                        debug!(
-                                            "'{imported_name}' is not a module (full path '{full_module_path}' not found in \
-                                             registry)"
-                                        );
-                                    }
-                                }
+                                // This is importing a submodule - we need a namespace
+                                // object
+                                debug!(
+                                    "Found module import: from {module_name} import \
+                                     {imported_name} (module_id: {target_module_id:?})"
+                                );
+                                // Get the exports for this module
+                                let exports = collect_module_exports(context, target_module_id)?;
+                                debug!("Module '{imported_name}' exports: {exports:?}");
+                                namespace_map.insert(imported_name.to_string(), exports);
+                            } else {
+                                debug!(
+                                    "'{imported_name}' is not a module (full path \
+                                     '{full_module_path}' not found in registry)"
+                                );
                             }
                         }
+                    }
                 }
+            }
         }
     }
 
