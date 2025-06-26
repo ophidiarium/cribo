@@ -3317,9 +3317,7 @@ impl<'a> HybridStaticBundler<'a> {
         if let Some(registry) = self.module_info_registry {
             let module_id = registry.get_id_by_name(module_name);
             if module_id.is_some() {
-                log::debug!(
-                    "Found module ID for '{module_name}' using module registry"
-                );
+                log::debug!("Found module ID for '{module_name}' using module registry");
             } else {
                 log::debug!("Module '{module_name}' not found in module registry");
             }
@@ -6200,7 +6198,8 @@ impl<'a> HybridStaticBundler<'a> {
                                     && self.should_export_symbol(local_name, module_name)
                                 {
                                     log::debug!(
-                                        "Adding module.{local_name} = {local_name} after conditional import"
+                                        "Adding module.{local_name} = {local_name} after \
+                                         conditional import"
                                     );
                                     result.push(
                                         self.create_module_attr_assignment("module", local_name),
