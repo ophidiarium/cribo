@@ -11,7 +11,7 @@ use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use ruff_python_ast::{
-    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall,
+    Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
     ExprContext, ExprFString, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral,
     ExprSubscript, FString, FStringFlags, FStringValue, Identifier, InterpolatedElement,
     InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign,
@@ -236,9 +236,11 @@ impl SymbolDependencyGraph {
                         // Edge from dependency to dependent (correct direction for topological
                         // sort)
                         log::debug!(
-                            "Adding edge: {} -> {} (dependency -> dependent)",
-                            format!("{}.{}", dep.0, dep.1),
-                            format!("{}.{}", module_symbol.0, module_symbol.1)
+                            "Adding edge: {}.{} -> {}.{} (dependency -> dependent)",
+                            dep.0,
+                            dep.1,
+                            module_symbol.0,
+                            module_symbol.1
                         );
                         graph.add_edge(to_node, from_node, ());
                     }
@@ -4525,11 +4527,16 @@ impl HybridStaticBundler {
                 "Detected circular dependencies in wrapper modules - will use module cache \
                  approach"
             );
+        }
 
-            // Add functools import for module cache decorators
+        // Add functools import for module cache decorators when we have wrapper modules to
+        // transform
+        if has_wrapper_modules {
             log::debug!("Adding functools import for module cache decorators");
             self.add_stdlib_import("functools");
+        }
 
+        if use_module_cache_for_wrappers {
             // Detect hard dependencies in circular modules
             log::debug!("Scanning for hard dependencies in circular modules");
 
@@ -4741,7 +4748,7 @@ impl HybridStaticBundler {
                 // Generate hoisted imports
                 for (source_module, deps) in deps_by_source {
                     // Check if we need to import the whole module or specific attributes
-                    let first_dep = deps.first().unwrap();
+                    let first_dep = deps.first().expect("hard_deps should not be empty");
 
                     if source_module == "http.cookiejar" && first_dep.imported_attr == "cookielib" {
                         // Special case: import http.cookiejar as cookielib
@@ -4870,15 +4877,12 @@ impl HybridStaticBundler {
                     };
                     // Generate init function with empty symbol_renames for now
                     let empty_renames = FxIndexMap::default();
-                    let init_function = if use_module_cache_for_wrappers {
-                        self.transform_module_to_cache_init_function(
-                            ctx,
-                            ast.clone(),
-                            &empty_renames,
-                        )?
-                    } else {
-                        self.transform_module_to_init_function(ctx, ast.clone(), &empty_renames)?
-                    };
+                    // Always use cached init functions to ensure modules are only initialized once
+                    let init_function = self.transform_module_to_cache_init_function(
+                        ctx,
+                        ast.clone(),
+                        &empty_renames,
+                    )?;
                     final_body.push(init_function);
 
                     // Initialize the wrapper module immediately after defining it
@@ -5136,11 +5140,12 @@ impl HybridStaticBundler {
                     module_path,
                     global_info,
                 };
-                let init_function = if use_module_cache_for_wrappers {
-                    self.transform_module_to_cache_init_function(ctx, ast.clone(), &symbol_renames)?
-                } else {
-                    self.transform_module_to_init_function(ctx, ast.clone(), &symbol_renames)?
-                };
+                // Always use cached init functions to ensure modules are only initialized once
+                let init_function = self.transform_module_to_cache_init_function(
+                    ctx,
+                    ast.clone(),
+                    &symbol_renames,
+                )?;
                 final_body.push(init_function);
             }
 
@@ -11613,7 +11618,9 @@ impl HybridStaticBundler {
     }
 
     /// Order classes by inheritance dependencies to ensure base classes are defined first
+    /// Only reorders classes within the same module to preserve module boundaries
     fn order_classes_by_inheritance(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
+        use petgraph::visit::EdgeRef;
         log::debug!(
             "order_classes_by_inheritance: Processing {} statements",
             statements.len()
@@ -11658,45 +11665,46 @@ impl HybridStaticBundler {
         // Add edges for inheritance
         for (idx, stmt) in classes.iter().enumerate() {
             if let Stmt::ClassDef(class_def) = stmt
-                && let Some(arguments) = &class_def.arguments {
-                    for base in &arguments.args {
-                        // Extract base class name
-                        let base_name = match base {
-                            Expr::Name(name) => Some(name.id.as_str()),
-                            Expr::Attribute(attr) => {
-                                // For now, only handle simple names, not module.Class
-                                if let Expr::Name(_name) = &*attr.value {
-                                    // Check if this is a local reference like compat.MutableMapping
-                                    // In that case, MutableMapping is not a local class
-                                    None
-                                } else {
-                                    None
-                                }
-                            }
-                            _ => None,
-                        };
-
-                        if let Some(base_name) = base_name {
-                            // Check if the base class is defined in this module
-                            if let Some(&base_idx) = class_map.get(base_name) {
-                                // Add edge: derived class depends on base class
-                                // So base class should come before derived class
-                                log::debug!(
-                                    "    Class {} inherits from local class {}",
-                                    class_def.name.as_str(),
-                                    base_name
-                                );
-                                graph.add_edge(node_indices[base_idx], node_indices[idx], ());
+                && let Some(arguments) = &class_def.arguments
+            {
+                for base in &arguments.args {
+                    // Extract base class name
+                    let base_name = match base {
+                        Expr::Name(name) => Some(name.id.as_str()),
+                        Expr::Attribute(attr) => {
+                            // For now, only handle simple names, not module.Class
+                            if let Expr::Name(_name) = &*attr.value {
+                                // Check if this is a local reference like compat.MutableMapping
+                                // In that case, MutableMapping is not a local class
+                                None
                             } else {
-                                log::debug!(
-                                    "    Class {} inherits from external class {}",
-                                    class_def.name.as_str(),
-                                    base_name
-                                );
+                                None
                             }
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(base_name) = base_name {
+                        // Check if the base class is defined in this module
+                        if let Some(&base_idx) = class_map.get(base_name) {
+                            // Add edge: derived class depends on base class
+                            // So base class should come before derived class
+                            log::debug!(
+                                "    Class {} inherits from local class {}",
+                                class_def.name.as_str(),
+                                base_name
+                            );
+                            graph.add_edge(node_indices[base_idx], node_indices[idx], ());
+                        } else {
+                            log::debug!(
+                                "    Class {} inherits from external class {}",
+                                class_def.name.as_str(),
+                                base_name
+                            );
                         }
                     }
                 }
+            }
         }
 
         // Perform topological sort
@@ -11709,16 +11717,53 @@ impl HybridStaticBundler {
             }
         };
 
-        // Build result with ordered classes
-        let mut result = functions;
-        for node_idx in ordered_indices {
-            // Find which class this node represents
-            for (idx, &ni) in node_indices.iter().enumerate() {
-                if ni == node_idx {
-                    result.push(classes[idx].clone());
+        // Check if we actually need to reorder
+        // Only reorder if the topological order differs from the original order
+        let mut needs_reordering = false;
+        let mut original_order_valid = true;
+        let mut seen_indices = FxIndexSet::default();
+
+        for (original_idx, _class_stmt) in classes.iter().enumerate() {
+            let node_idx = node_indices[original_idx];
+
+            // Check if this class depends on any class that hasn't been seen yet
+            for edge in graph.edges(node_idx) {
+                let target = edge.target();
+                // Find which class index this target represents
+                for (target_idx, &ni) in node_indices.iter().enumerate() {
+                    if ni == target && !seen_indices.contains(&target_idx) {
+                        // This class depends on a class that comes later
+                        original_order_valid = false;
+                        needs_reordering = true;
+                        break;
+                    }
+                }
+                if !original_order_valid {
                     break;
                 }
             }
+            seen_indices.insert(original_idx);
+        }
+
+        // Build result
+        let mut result = functions;
+
+        if needs_reordering {
+            log::debug!("Reordering classes due to inheritance dependencies");
+            // Use the topologically sorted order
+            for node_idx in ordered_indices {
+                // Find which class this node represents
+                for (idx, &ni) in node_indices.iter().enumerate() {
+                    if ni == node_idx {
+                        result.push(classes[idx].clone());
+                        break;
+                    }
+                }
+            }
+        } else {
+            log::debug!("Preserving original class order (no reordering needed)");
+            // Keep original order
+            result.extend(classes);
         }
 
         result
@@ -11774,13 +11819,9 @@ impl HybridStaticBundler {
             }
         }
 
-        // Order classes by inheritance dependencies
-        log::debug!(
-            "Ordering {} functions and classes by inheritance",
-            functions_and_classes.len()
-        );
-        let ordered_functions_and_classes =
-            self.order_classes_by_inheritance(functions_and_classes);
+        // Don't reorder classes - Python supports forward references in type annotations
+        // and reordering can break other dependencies we're not tracking
+        let ordered_functions_and_classes = functions_and_classes;
 
         // Build the reordered list:
         // 1. Imports first
@@ -15532,19 +15573,19 @@ impl HybridStaticBundler {
     }
 }
 
-impl HybridStaticBundler {
-    /// Convert an expression to a dotted name string (e.g., "module.attr")
-    fn expr_to_dotted_name(&self, expr: &Expr) -> String {
-        match expr {
-            Expr::Name(name) => name.id.as_str().to_string(),
-            Expr::Attribute(attr) => {
-                let base = self.expr_to_dotted_name(&attr.value);
-                format!("{}.{}", base, attr.attr.as_str())
-            }
-            _ => String::new(),
+/// Convert an expression to a dotted name string (e.g., "module.attr")
+fn expr_to_dotted_name(expr: &Expr) -> String {
+    match expr {
+        Expr::Name(name) => name.id.as_str().to_string(),
+        Expr::Attribute(attr) => {
+            let base = expr_to_dotted_name(&attr.value);
+            format!("{}.{}", base, attr.attr.as_str())
         }
+        _ => String::new(),
     }
+}
 
+impl HybridStaticBundler {
     /// Rewrite hard dependencies in a module's AST
     fn rewrite_hard_dependencies_in_module(&self, ast: &mut ModModule, module_name: &str) {
         log::debug!("Rewriting hard dependencies in module {module_name}");
@@ -15557,7 +15598,7 @@ impl HybridStaticBundler {
                 // Check if this class has hard dependencies
                 if let Some(arguments) = &mut class_def.arguments {
                     for arg in &mut arguments.args {
-                        let base_str = self.expr_to_dotted_name(arg);
+                        let base_str = expr_to_dotted_name(arg);
                         log::debug!("    Base class: {base_str}");
 
                         // Check against all hard dependencies for this class
@@ -15859,113 +15900,43 @@ impl HybridStaticBundler {
     }
 
     /// Transform a module into an initialization function using the module cache approach
+    /// This is like transform_module_to_init_function but with a @functools.cache decorator
     fn transform_module_to_cache_init_function(
         &self,
         ctx: ModuleTransformContext,
-        mut ast: ModModule,
-        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        ast: ModModule,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Result<Stmt> {
-        let init_func_name = &self.init_functions[ctx.synthetic_name];
-        let mut body: Vec<Stmt> = Vec::new();
+        // Call the regular transform_module_to_init_function to get the function
+        let stmt = self.transform_module_to_init_function(ctx, ast, symbol_renames)?;
 
-        // Get reference to module's namespace from the cache
-        // _module_self = __cribo_module_cache__["module.name"]
-        let module_self_stmt = StmtAssign {
-            node_index: AtomicNodeIndex::dummy(),
-            targets: vec![Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: "_module_self".into(),
-                ctx: ExprContext::Store,
+        // Add the @functools.cache decorator
+        if let Stmt::FunctionDef(mut func_def) = stmt {
+            func_def.decorator_list = vec![Decorator {
                 range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Subscript(ExprSubscript {
                 node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
+                expression: Expr::Attribute(ExprAttribute {
                     node_index: AtomicNodeIndex::dummy(),
-                    id: "__cribo_module_cache__".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: StringLiteralValue::single(StringLiteral {
+                    value: Box::new(Expr::Name(ExprName {
                         node_index: AtomicNodeIndex::dummy(),
-                        value: ctx.module_name.to_string().into_boxed_str(),
-                        flags: StringLiteralFlags::empty(),
+                        id: "functools".into(),
+                        ctx: ExprContext::Load,
                         range: TextRange::default(),
-                    }),
-                    range: TextRange::default(),
-                })),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        };
-        body.push(Stmt::Assign(module_self_stmt));
-
-        // Set module attributes
-        // _module_self.__name__ = "module.name"
-        let name_stmt = StmtAssign {
-            node_index: AtomicNodeIndex::dummy(),
-            targets: vec![Expr::Attribute(ExprAttribute {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: "_module_self".into(),
+                    })),
+                    attr: Identifier::new("cache", TextRange::default()),
                     ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new("__name__", TextRange::default()),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::StringLiteral(ExprStringLiteral {
-                node_index: AtomicNodeIndex::dummy(),
-                value: StringLiteralValue::single(StringLiteral {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: ctx.module_name.to_string().into_boxed_str(),
-                    flags: StringLiteralFlags::empty(),
                     range: TextRange::default(),
                 }),
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        };
-        body.push(Stmt::Assign(name_stmt));
+            }];
+            return Ok(Stmt::FunctionDef(func_def));
+        }
 
-        // TODO: Add other module attributes like __file__, __package__, etc.
-
-        // Transform imports to use module cache lookups
-        let mut cache_transformer = ModuleCacheImportTransformer::new(self, ctx.module_name);
-        cache_transformer.transform_module(&mut ast);
-
-        // Transform the module body to assign to _module_self attributes
-        let transformed_body = self.transform_module_body_for_cache(ast.body, ctx.module_name)?;
-        body.extend(transformed_body);
-
-        // Create the init function
-        Ok(Stmt::FunctionDef(StmtFunctionDef {
-            node_index: AtomicNodeIndex::dummy(),
-            decorator_list: vec![],
-            name: Identifier::new(init_func_name, TextRange::default()),
-            type_params: None,
-            parameters: Box::new(ruff_python_ast::Parameters {
-                node_index: AtomicNodeIndex::dummy(),
-                posonlyargs: vec![],
-                args: vec![],
-                vararg: None,
-                kwonlyargs: vec![],
-                kwarg: None,
-                range: TextRange::default(),
-            }),
-            returns: None,
-            body,
-            is_async: false,
-            range: TextRange::default(),
-        }))
+        // Should not happen
+        unreachable!("transform_module_to_init_function should return a FunctionDef")
     }
 
-    /// Transform module body statements to assign to _module_self
+    /// Transform module body statements to assign to module attributes (no longer used)
+    #[allow(dead_code)]
     fn transform_module_body_for_cache(
         &self,
         body: Vec<Stmt>,
@@ -16034,7 +16005,7 @@ impl HybridStaticBundler {
                     // Rewrite base classes if needed
                     if let Some(arguments) = &mut class_def.arguments {
                         for arg in &mut arguments.args {
-                            let base_str = self.expr_to_dotted_name(arg);
+                            let base_str = expr_to_dotted_name(arg);
                             log::debug!(
                                 "Checking base class '{base_str}' for class {class_name} in \
                                  module {module_name}"
@@ -16109,12 +16080,14 @@ impl HybridStaticBundler {
     }
 }
 
-/// Import transformer for module cache approach
+/// Import transformer for module cache approach (no longer used)
+#[allow(dead_code)]
 struct ModuleCacheImportTransformer<'a> {
     bundler: &'a HybridStaticBundler,
     module_name: &'a str,
 }
 
+#[allow(dead_code)]
 impl<'a> ModuleCacheImportTransformer<'a> {
     fn new(bundler: &'a HybridStaticBundler, module_name: &'a str) -> Self {
         Self {

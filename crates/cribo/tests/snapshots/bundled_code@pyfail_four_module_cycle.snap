@@ -7,12 +7,12 @@ input_file: crates/cribo/tests/fixtures/pyfail_four_module_cycle/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-def final_step():
-    """Final step called by module_d to complete the cycle"""
-    return "A_final"
 def start_process():
     """Start the processing chain A -> B -> C -> D -> A"""
     return f"A({process_in_b()})"
+def final_step():
+    """Final step called by module_d to complete the cycle"""
+    return "A_final"
 def process_in_b():
     """Process in B, depends on C"""
     return f"B({process_in_c()})"

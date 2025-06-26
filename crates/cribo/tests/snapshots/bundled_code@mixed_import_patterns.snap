@@ -28,11 +28,7 @@ class Application:
         local_logger.log("Function-level import gives same logger instance", "DEBUG")
 Application.__module__ = 'app'
 """\nApplication module that uses both config and logger.\nNo circular dependencies here - just normal imports.\n"""
-def get_logger():
-    global _logger
-    if _logger is None:
-        _logger = Logger()
-    return _logger
+_logger = None
 class Logger:
 
     def __init__(self):
@@ -52,8 +48,23 @@ class Logger:
         levels = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3}
         return levels.get(level, 1) >= levels.get(self.log_level, 1)
 Logger.__module__ = 'logger'
-_logger = None
+def get_logger():
+    global _logger
+    if _logger is None:
+        _logger = Logger()
+    return _logger
 """\nLogger module that needs configuration to determine log level.\nThis creates a circular dependency: logger -> config -> logger\n"""
+_config = None
+def get_config():
+    global _config
+    if _config is None:
+        _config = Config()
+    return _config
+def get_log_level():
+    """Get log level from config - used by logger module"""
+    if _config is None:
+        return "INFO"
+    return "DEBUG" if _config.debug_mode else "INFO"
 class Config:
 
     def __init__(self):
@@ -75,17 +86,6 @@ class Config:
     def get_setting(self, key):
         return getattr(self, key, None)
 Config.__module__ = 'config'
-def get_log_level():
-    """Get log level from config - used by logger module"""
-    if _config is None:
-        return "INFO"
-    return "DEBUG" if _config.debug_mode else "INFO"
-def get_config():
-    global _config
-    if _config is None:
-        _config = Config()
-    return _config
-_config = None
 """\nConfiguration module that logs its initialization process.\nThis creates a circular dependency: config -> logger -> config\n"""
 def format_message(message):
     """Format a message with decorative borders"""

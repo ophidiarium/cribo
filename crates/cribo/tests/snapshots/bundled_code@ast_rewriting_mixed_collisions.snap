@@ -18,6 +18,12 @@ models.__name__ = 'models'
 services = types.SimpleNamespace()
 services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
+class _ModuleNamespace:
+    pass
+__cribo_module_cache__ = {}
+__cribo_module_cache__['services.auth.manager'] = _ModuleNamespace()
+import sys
+sys.modules.update(__cribo_module_cache__)
 result_2 = "base_result"
 class Logger_1:
     """Base Logger class - yet another Logger conflict"""
@@ -384,6 +390,7 @@ def __cribo_init___cribo_ee1d45_services_auth_manager():
     global _cribo_services_auth_manager_result
     _cribo_services_auth_manager_result = result
     return module
+__cribo_init___cribo_ee1d45_services_auth_manager()
 core_validate = validate_6
 UserLogger = Logger_2
 util_process = process_6
