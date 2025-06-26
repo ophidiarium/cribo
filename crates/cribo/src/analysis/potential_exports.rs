@@ -50,21 +50,19 @@ impl PotentialExportsMap {
 
                     // Variable assignments are potential exports
                     ItemType::Assignment { targets } => {
-                        for target in targets {
-                            // Skip private names (starting with _)
-                            if !target.starts_with('_') || target.starts_with("__") {
-                                exports.insert(target.clone());
+                        // Check for __all__ assignments
+                        if targets.contains(&"__all__".to_string()) {
+                            // TODO: Parse the actual __all__ value from AST
+                            // For now, we'll mark that this module has explicit exports
+                            explicit_exports = Some(Vec::new());
+                        } else {
+                            for target in targets {
+                                // Skip private names (starting with _)
+                                if !target.starts_with('_') || target.starts_with("__") {
+                                    exports.insert(target.clone());
+                                }
                             }
                         }
-                    }
-
-                    // Check for __all__ assignments
-                    ItemType::Assignment { targets }
-                        if targets.contains(&"__all__".to_string()) =>
-                    {
-                        // TODO: Parse the actual __all__ value from AST
-                        // For now, we'll mark that this module has explicit exports
-                        explicit_exports = Some(Vec::new());
                     }
 
                     // Imports can be re-exported
