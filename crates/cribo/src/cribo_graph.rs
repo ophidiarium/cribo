@@ -57,7 +57,7 @@ impl ItemId {
 }
 
 /// Type of Python item (statement/definition)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ItemType {
     /// Function definition
     FunctionDef { name: String },
@@ -84,6 +84,7 @@ pub enum ItemType {
     /// Try-except block
     Try,
     /// Other statement types
+    #[default]
     Other,
 }
 
@@ -154,7 +155,7 @@ struct ImportUsageContext<'a> {
 }
 
 /// Data about a Python item (statement/definition)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ItemData {
     /// Type of this item
     pub item_type: ItemType,

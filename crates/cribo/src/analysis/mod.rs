@@ -7,6 +7,7 @@
 pub mod circular_analyzer;
 pub mod circular_deps;
 pub mod pipeline;
+pub mod potential_exports;
 pub mod symbol_conflict_detector;
 pub mod symbol_origin_analyzer;
 
@@ -16,6 +17,7 @@ pub use circular_deps::{
     ResolutionStrategy,
 };
 pub use pipeline::run_analysis_pipeline;
+pub use potential_exports::PotentialExportsMap;
 pub use symbol_conflict_detector::SymbolConflictDetector;
 pub use symbol_origin_analyzer::{SymbolOriginAnalyzer, SymbolOriginResults};
 

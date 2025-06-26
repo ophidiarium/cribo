@@ -15,6 +15,12 @@ use crate::{
 };
 
 pub mod builder;
+pub mod final_layout;
+
+pub use final_layout::{
+    FinalBundleLayout, FinalLayoutBuilder, HoistedImportType, NamespaceCreation,
+    NamespacePopulationStep,
+};
 
 #[cfg(test)]
 mod tests;
@@ -26,6 +32,7 @@ mod symbol_origin_tests;
 #[derive(Debug, Clone, Default)]
 pub struct BundlePlan {
     /// Primary driver for the executor - granular execution steps
+    /// NOTE: This will be deprecated in favor of final_layout
     pub execution_plan: Vec<ExecutionStep>,
 
     /// Statement ordering for final bundle (populated in Phase 2)
@@ -57,6 +64,9 @@ pub struct BundlePlan {
 
     /// Declarative import structure for code generation
     pub final_imports: IndexMap<ModuleId, ModuleFinalImports>,
+
+    /// NEW: Declarative final bundle layout (replaces ExecutionStep approach)
+    pub final_layout: FinalBundleLayout,
 }
 
 /// Final import structure for a module after all transformations

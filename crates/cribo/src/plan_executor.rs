@@ -88,6 +88,12 @@ fn execute_step(
 
         ExecutionStep::InlineStatement { module_id, item_id } => {
             let stmt = get_statement(&context.source_asts, *module_id, *item_id, context)?;
+
+            // Check if this is an import that should be filtered
+            if should_filter_import(&stmt, context, *module_id, *item_id)? {
+                return Ok(None);
+            }
+
             let renamed_stmt = apply_ast_renames(stmt, plan, *module_id);
             Ok(Some(renamed_stmt))
         }
@@ -159,6 +165,70 @@ fn get_statement(
             module_ast.body.len()
         )
     })
+}
+
+/// Check if an import should be filtered (not included in the bundle)
+fn should_filter_import(
+    stmt: &Stmt,
+    context: &ExecutionContext,
+    module_id: ModuleId,
+    item_id: ItemId,
+) -> Result<bool> {
+    match stmt {
+        Stmt::Import(import) => {
+            // Check each imported name
+            for alias in &import.names {
+                let module_name = alias.name.as_str();
+
+                // Check if this is a first-party module
+                if context.registry.get_id_by_name(module_name).is_some() {
+                    debug!("Filtering first-party import: {module_name}");
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        Stmt::ImportFrom(import_from) => {
+            if let Some(module) = &import_from.module {
+                let module_name = module.as_str();
+
+                // Handle relative imports
+                if import_from.level > 0 {
+                    // Relative imports are always first-party
+                    debug!(
+                        "Filtering relative import: level={}, module={:?}",
+                        import_from.level, module_name
+                    );
+                    return Ok(true);
+                }
+
+                // Check if this is a first-party module
+                if context.registry.get_id_by_name(module_name).is_some() {
+                    debug!("Filtering first-party from import: {module_name}");
+                    return Ok(true);
+                }
+
+                // Also check if any parent package is first-party
+                let parts: Vec<&str> = module_name.split('.').collect();
+                for i in 1..=parts.len() {
+                    let parent = parts[..i].join(".");
+                    if context.registry.get_id_by_name(&parent).is_some() {
+                        debug!(
+                            "Filtering first-party from import (parent package): {module_name}"
+                        );
+                        return Ok(true);
+                    }
+                }
+            } else if import_from.level > 0 {
+                // Relative import without module (e.g., from . import foo)
+                debug!("Filtering relative import without module");
+                return Ok(true);
+            }
+
+            Ok(false)
+        }
+        _ => Ok(false),
+    }
 }
 
 /// Apply AST node renames to a statement
