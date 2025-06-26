@@ -212,6 +212,7 @@ impl SymbolDependencyGraph {
         use petgraph::{
             algo::toposort,
             graph::{DiGraph, NodeIndex},
+            visit::EdgeRef,
         };
         use rustc_hash::FxHashMap;
 
@@ -258,16 +259,38 @@ impl SymbolDependencyGraph {
                 }
                 Ok(())
             }
-            Err(_) => {
-                // If topological sort fails, there's a cycle within symbols
-                // Fall back to module order
-                self.sorted_symbols.clear();
-                for (module_symbol, _) in &self.symbol_definitions {
-                    if circular_modules.contains(&module_symbol.0) {
-                        self.sorted_symbols.push(module_symbol.clone());
+            Err(cycle) => {
+                // If topological sort fails, there's a symbol-level circular dependency
+                // This is a fatal error - we cannot generate correct code
+                let cycle_info = cycle.node_id();
+                let module_symbol = &graph[cycle_info];
+                log::error!(
+                    "Fatal: Circular dependency detected involving symbol '{}.{}'",
+                    module_symbol.0,
+                    module_symbol.1
+                );
+
+                // Find all symbols involved in the cycle
+                let mut cycle_symbols = vec![module_symbol.clone()];
+                let current = cycle_info;
+
+                // Walk through edges to find the cycle
+                for edge in graph.edges(current) {
+                    let target = edge.target();
+                    if target != cycle_info {
+                        cycle_symbols.push(graph[target].clone());
+                    } else {
+                        break;
                     }
                 }
-                Ok(())
+
+                panic!(
+                    "Cannot bundle due to circular symbol dependency: {:?}",
+                    cycle_symbols
+                        .iter()
+                        .map(|(m, s)| format!("{m}.{s}"))
+                        .collect::<Vec<_>>()
+                );
             }
         }
     }
@@ -277,6 +300,7 @@ impl SymbolDependencyGraph {
         use petgraph::{
             algo::toposort,
             graph::{DiGraph, NodeIndex},
+            visit::EdgeRef,
         };
         use rustc_hash::FxHashMap;
 
@@ -320,13 +344,32 @@ impl SymbolDependencyGraph {
                     .map(|node_idx| graph[node_idx].clone())
                     .collect()
             }
-            Err(_) => {
-                // If topological sort fails (cycle), return original order
-                log::warn!(
-                    "Cycle detected in module '{module_name}' symbol dependencies, using \
-                     definition order"
+            Err(cycle) => {
+                // If topological sort fails, there's a symbol-level circular dependency
+                // This is a fatal error - we cannot generate correct code
+                let cycle_info = cycle.node_id();
+                let symbol = &graph[cycle_info];
+                log::error!(
+                    "Fatal: Circular dependency detected in module '{module_name}' involving symbol '{symbol}'"
                 );
-                symbols_in_module
+
+                // Find all symbols involved in the cycle
+                let mut cycle_symbols = vec![symbol.clone()];
+                let current = cycle_info;
+
+                // Walk through edges to find the cycle
+                for edge in graph.edges(current) {
+                    let target = edge.target();
+                    if target != cycle_info {
+                        cycle_symbols.push(graph[target].clone());
+                    } else {
+                        break;
+                    }
+                }
+
+                panic!(
+                    "Cannot bundle due to circular symbol dependency in module '{module_name}': {cycle_symbols:?}"
+                );
             }
         }
     }
@@ -3211,6 +3254,16 @@ impl HybridStaticBundler {
 
         // Assignments are evaluated immediately - all dependencies are module-level
         for var in &item_data.read_vars {
+            // Skip self-references (e.g., initialize = initialize)
+            if var == var_name
+                && self.find_symbol_module(var, module_name, graph) == Some(module_name.to_string())
+            {
+                log::debug!(
+                    "Skipping self-reference in assignment: {var_name} = {var}"
+                );
+                continue;
+            }
+
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && self.circular_modules.contains(&dep_module)
             {
