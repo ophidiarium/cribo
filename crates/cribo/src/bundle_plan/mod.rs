@@ -344,17 +344,13 @@ impl BundlePlan {
         if let Some(entry_module_id) = registry.get_id_by_name(entry_module_name) {
             log::debug!("Found entry module ID: {entry_module_id:?}");
             // Build execution plan from all the decisions
-            if let Err(e) = plan.build_execution_plan_v2(graph, entry_module_id) {
-                log::error!("Failed to build execution plan v2: {e}");
-                // Fallback to old execution plan
-                plan.build_execution_plan();
+            if let Err(e) = plan.build_execution_plan(graph, entry_module_id) {
+                log::error!("Failed to build execution plan: {e}");
             } else {
-                log::info!("Successfully built execution plan v2");
+                log::info!("Successfully built execution plan");
             }
         } else {
             log::error!("Entry module '{entry_module_name}' not found in registry");
-            // Fallback: use the old execution plan if entry module not found
-            plan.build_execution_plan();
         }
 
         plan
@@ -659,62 +655,15 @@ impl BundlePlan {
         );
     }
 
-    /// Build the execution plan from all the collected decisions
-    fn build_execution_plan(&mut self) {
-        // Clear any existing plan
-        self.execution_plan.clear();
-
-        // TODO: This is a transitional implementation
-        // We need to properly classify imports and generate appropriate ExecutionSteps
-        // For now, we'll use the existing approach but add a warning
-
-        log::warn!(
-            "Using transitional build_execution_plan - import classification not yet integrated"
-        );
-
-        // Add statements from live_items if final_statement_order is empty
-        if self.final_statement_order.is_empty() && !self.live_items.is_empty() {
-            // Build statement order from live_items
-            // Sort items by their statement index to preserve original order
-            let mut all_items = Vec::new();
-            for (module_id, items) in &self.live_items {
-                for item_id in items {
-                    all_items.push((*module_id, *item_id));
-                }
-            }
-
-            // Sort by statement index (for now, use ItemId as proxy for order)
-            all_items.sort_by_key(|(_, item_id)| item_id.as_u32());
-
-            for (module_id, item_id) in all_items {
-                self.execution_plan
-                    .push(ExecutionStep::InlineStatement { module_id, item_id });
-            }
-        } else {
-            // Use final_statement_order if available
-            let statement_order: Vec<_> = self.final_statement_order.clone();
-            for (module_id, item_id) in statement_order {
-                self.execution_plan
-                    .push(ExecutionStep::InlineStatement { module_id, item_id });
-            }
-        }
-
-        log::debug!(
-            "Built execution plan with {} steps",
-            self.execution_plan.len()
-        );
-    }
-
-    /// Build a proper execution plan using classified imports
-    /// This will replace the transitional build_execution_plan above
-    pub fn build_execution_plan_v2(
+    /// Build the execution plan using classified imports
+    pub fn build_execution_plan(
         &mut self,
         graph: &CriboGraph,
         entry_module_id: ModuleId,
     ) -> anyhow::Result<()> {
         use anyhow::anyhow;
 
-        log::debug!("Building execution plan v2 with entry module {entry_module_id:?}");
+        log::debug!("Building execution plan with entry module {entry_module_id:?}");
 
         // Clear any existing plan
         self.execution_plan.clear();
@@ -829,7 +778,7 @@ impl BundlePlan {
         }
 
         log::debug!(
-            "Built execution plan v2 with {} steps",
+            "Built execution plan with {} steps",
             self.execution_plan.len()
         );
 
