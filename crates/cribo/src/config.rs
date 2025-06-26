@@ -38,6 +38,10 @@ pub struct Config {
 
     /// Whether to enable tree-shaking to remove unused code
     pub tree_shake: bool,
+
+    /// Whether to use the two-pass graph builder (Phase 2 feature)
+    #[serde(default)]
+    pub use_two_pass_graph_builder: bool,
 }
 
 impl Default for Config {
@@ -49,7 +53,8 @@ impl Default for Config {
             preserve_comments: true,
             preserve_type_hints: true,
             target_version: "py310".to_owned(),
-            tree_shake: true, // Tree-shaking enabled by default
+            tree_shake: true,                  // Tree-shaking enabled by default
+            use_two_pass_graph_builder: false, // Disabled by default until fully implemented
         }
     }
 }
@@ -79,6 +84,7 @@ impl Combine for Config {
             preserve_type_hints: self.preserve_type_hints,
             target_version: self.target_version,
             tree_shake: self.tree_shake,
+            use_two_pass_graph_builder: self.use_two_pass_graph_builder,
         }
     }
 }
@@ -93,6 +99,7 @@ pub struct EnvConfig {
     pub preserve_type_hints: Option<bool>,
     pub target_version: Option<String>,
     pub tree_shake: Option<bool>,
+    pub use_two_pass_graph_builder: Option<bool>,
 }
 
 impl EnvConfig {
@@ -159,6 +166,11 @@ impl EnvConfig {
             config.tree_shake = parse_bool(&tree_shake_str);
         }
 
+        // CRIBO_USE_TWO_PASS_GRAPH_BUILDER - boolean flag
+        if let Ok(two_pass_str) = env::var("CRIBO_USE_TWO_PASS_GRAPH_BUILDER") {
+            config.use_two_pass_graph_builder = parse_bool(&two_pass_str);
+        }
+
         config
     }
 
@@ -184,6 +196,9 @@ impl EnvConfig {
         }
         if let Some(tree_shake) = self.tree_shake {
             config.tree_shake = tree_shake;
+        }
+        if let Some(use_two_pass_graph_builder) = self.use_two_pass_graph_builder {
+            config.use_two_pass_graph_builder = use_two_pass_graph_builder;
         }
         config
     }

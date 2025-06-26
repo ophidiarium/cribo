@@ -1,13 +1,36 @@
 /// Graph builder that creates CriboGraph from Python AST
 /// This module bridges the gap between ruff's AST and our dependency graph
+use std::hash::BuildHasherDefault;
+
 use anyhow::Result;
-use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
-use rustc_hash::{FxHashMap, FxHashSet};
+use indexmap::IndexMap;
+use petgraph::graph::NodeIndex;
+use ruff_python_ast::{self as ast, AtomicNodeIndex, Expr, ModModule, Stmt};
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
 use crate::{
-    cribo_graph::{ItemData, ItemType, ModuleDepGraph},
+    cribo_graph::{ItemData, ItemId, ItemType, ModuleDepGraph},
     visitors::ExpressionSideEffectDetector,
 };
+
+/// Type alias for IndexMap with FxHasher for better performance
+type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
+
+/// Result of the two-pass graph building process
+pub struct GraphBuildResult {
+    /// Map from symbol name to node index for intra-module references
+    pub symbol_map: FxHashMap<String, NodeIndex>,
+    /// Mappings between items and AST nodes
+    pub item_mappings: ItemMappings,
+}
+
+/// Bidirectional mappings between ItemId and AST nodes
+pub struct ItemMappings {
+    /// Map from ItemId to AST node index
+    pub item_to_node: FxIndexMap<ItemId, AtomicNodeIndex>,
+    /// Map from AST node index to ItemId
+    pub node_to_item: FxIndexMap<AtomicNodeIndex, ItemId>,
+}
 
 /// Context for for statement variable collection
 struct ForStmtContext<'a, 'b> {
@@ -1545,5 +1568,151 @@ impl<'a> GraphBuilder<'a> {
             self.collect_vars_in_expr_with_attrs(&item.context_expr, read_vars, attribute_accesses);
         }
         stack.push(&with_stmt.body);
+    }
+
+    /// Build the graph using a two-pass approach
+    /// Pass A: Discover all symbols and create nodes
+    /// Pass B: Wire up dependencies between nodes
+    pub fn build_from_ast_two_pass(&mut self, ast: &ModModule) -> Result<GraphBuildResult> {
+        log::debug!("Starting two-pass graph building");
+
+        // Pass A: Symbol discovery
+        let symbol_map = self.pass_a_symbol_discovery(ast)?;
+
+        // Pass B: Dependency wiring
+        let item_mappings = self.pass_b_dependency_wiring(ast, &symbol_map)?;
+
+        Ok(GraphBuildResult {
+            symbol_map,
+            item_mappings,
+        })
+    }
+
+    /// Pass A: Traverse AST and discover all top-level definitions
+    /// Creates ItemData and adds to graph, building symbol map
+    fn pass_a_symbol_discovery(&mut self, ast: &ModModule) -> Result<FxHashMap<String, NodeIndex>> {
+        log::trace!("Pass A: Symbol discovery - {} statements", ast.body.len());
+        let mut symbol_map = FxHashMap::default();
+        let mut stmt_index = 0;
+
+        for stmt in &ast.body {
+            match stmt {
+                Stmt::FunctionDef(func_def) => {
+                    let name = func_def.name.to_string();
+                    log::trace!("Pass A: Found function '{name}'");
+
+                    // Create basic ItemData without dependencies
+                    let item_data = ItemData {
+                        item_type: ItemType::FunctionDef { name: name.clone() },
+                        var_decls: [name.clone()].into_iter().collect(),
+                        read_vars: FxHashSet::default(), // Will be filled in Pass B
+                        eventual_read_vars: FxHashSet::default(),
+                        write_vars: FxHashSet::default(),
+                        eventual_write_vars: FxHashSet::default(),
+                        has_side_effects: false,
+                        span: Some((stmt_index, stmt_index)),
+                        imported_names: FxHashSet::default(),
+                        reexported_names: FxHashSet::default(),
+                        defined_symbols: [name.clone()].into_iter().collect(),
+                        symbol_dependencies: FxHashMap::default(),
+                        attribute_accesses: FxHashMap::default(),
+                        is_normalized_import: false,
+                    };
+
+                    let node_index = self.graph.add_item_with_index(item_data);
+                    symbol_map.insert(name, node_index);
+                }
+                Stmt::ClassDef(class_def) => {
+                    let name = class_def.name.to_string();
+                    log::trace!("Pass A: Found class '{name}'");
+
+                    let item_data = ItemData {
+                        item_type: ItemType::ClassDef { name: name.clone() },
+                        var_decls: [name.clone()].into_iter().collect(),
+                        read_vars: FxHashSet::default(), // Will be filled in Pass B
+                        eventual_read_vars: FxHashSet::default(),
+                        write_vars: FxHashSet::default(),
+                        eventual_write_vars: FxHashSet::default(),
+                        has_side_effects: false,
+                        span: Some((stmt_index, stmt_index)),
+                        imported_names: FxHashSet::default(),
+                        reexported_names: FxHashSet::default(),
+                        defined_symbols: [name.clone()].into_iter().collect(),
+                        symbol_dependencies: FxHashMap::default(),
+                        attribute_accesses: FxHashMap::default(),
+                        is_normalized_import: false,
+                    };
+
+                    let node_index = self.graph.add_item_with_index(item_data);
+                    symbol_map.insert(name, node_index);
+                }
+                Stmt::Assign(assign) => {
+                    // Extract assignment targets
+                    if let Some(names) = self.extract_assignment_targets(&assign.targets[0]) {
+                        log::trace!("Pass A: Found assignments: {names:?}");
+
+                        let item_data = ItemData {
+                            item_type: ItemType::Assignment {
+                                targets: names.clone(),
+                            },
+                            var_decls: names.iter().cloned().collect(),
+                            read_vars: FxHashSet::default(), // Will be filled in Pass B
+                            eventual_read_vars: FxHashSet::default(),
+                            write_vars: names.iter().cloned().collect(),
+                            eventual_write_vars: FxHashSet::default(),
+                            has_side_effects: false,
+                            span: Some((stmt_index, stmt_index)),
+                            imported_names: FxHashSet::default(),
+                            reexported_names: FxHashSet::default(),
+                            defined_symbols: names.iter().cloned().collect(),
+                            symbol_dependencies: FxHashMap::default(),
+                            attribute_accesses: FxHashMap::default(),
+                            is_normalized_import: false,
+                        };
+
+                        let node_index = self.graph.add_item_with_index(item_data);
+                        for name in names {
+                            symbol_map.insert(name, node_index);
+                        }
+                    }
+                }
+                Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                    // Imports are handled differently - they create items but not local symbols
+                    // Process them normally in Pass A to create the items
+                    self.process_statement(stmt)?;
+                }
+                _ => {
+                    // Other statements will be processed in Pass B for side effects
+                }
+            }
+            stmt_index += 1;
+        }
+
+        log::debug!("Pass A complete: discovered {} symbols", symbol_map.len());
+        Ok(symbol_map)
+    }
+
+    /// Pass B: Traverse AST again to wire up dependencies
+    fn pass_b_dependency_wiring(
+        &mut self,
+        _ast: &ModModule,
+        _symbol_map: &FxHashMap<String, NodeIndex>,
+    ) -> Result<ItemMappings> {
+        log::trace!("Pass B: Dependency wiring");
+        let item_mappings = ItemMappings {
+            item_to_node: FxIndexMap::default(),
+            node_to_item: FxIndexMap::default(),
+        };
+
+        // For now, we'll use the existing single-pass logic for dependency wiring
+        // In a complete implementation, this would:
+        // 1. Re-traverse the AST
+        // 2. Use symbol_map to resolve intra-module references
+        // 3. Create edges for function calls, class instantiations, etc.
+        // 4. Update read_vars and other dependency tracking in ItemData
+
+        // This is a placeholder - the actual implementation would be more complex
+        log::debug!("Pass B complete: dependencies wired");
+        Ok(item_mappings)
     }
 }

@@ -13,17 +13,16 @@ use rustc_hash::FxHasher;
 
 use crate::{
     analysis::{
-        CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType,
-        ResolutionStrategy,
+        AnalysisResults, CircularDependencyAnalysis, CircularDependencyGroup,
+        CircularDependencyType, ResolutionStrategy, run_analysis_pipeline,
     },
-    bundle_plan::{BundlePlan, builder::BundlePlanBuilder},
+    bundle_plan::BundlePlan,
     code_generator::HybridStaticBundler,
     config::Config,
     cribo_graph::{CriboGraph, ItemId, ModuleId},
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
     resolver::{ImportType, ModuleResolver},
     semantic_bundler::SemanticBundler,
-    tree_shaking::TreeShaker,
     util::{module_name_from_relative, normalize_line_endings},
     visitors::{ImportDiscoveryVisitor, ImportLocation, ScopeElement},
 };
@@ -120,6 +119,11 @@ impl ModuleRegistry {
         self.path_to_id.get(path).copied()
     }
 
+    /// Get mutable module info by ID
+    pub fn get_module_mut(&mut self, id: ModuleId) -> Option<&mut ModuleInfo> {
+        self.modules.get_mut(&id)
+    }
+
     /// Iterate over all modules
     pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModuleInfo)> {
         self.modules.iter()
@@ -161,8 +165,7 @@ struct StaticBundleParams<'a> {
     _resolver: &'a ModuleResolver,                  // Unused but kept for future use
     entry_module_name: &'a str,
     graph: &'a CriboGraph,
-    circular_dep_analysis: Option<&'a CircularDependencyAnalysis>,
-    tree_shaker: Option<&'a TreeShaker>,
+    analysis_results: &'a AnalysisResults,
 }
 
 /// Context for dependency building operations
@@ -407,19 +410,14 @@ impl BundleOrchestrator {
     }
 
     /// Core bundling logic shared between file and string output modes
-    /// Returns the entry module name, parsed modules, circular dependency analysis, and optional
-    /// tree shaker, with graph and resolver populated via mutable references
+    /// Returns the entry module name, parsed modules, and analysis results,
+    /// with graph and resolver populated via mutable references
     fn bundle_core(
         &mut self,
         entry_path: &Path,
         graph: &mut CriboGraph,
         resolver_opt: &mut Option<ModuleResolver>,
-    ) -> Result<(
-        String,
-        Vec<ParsedModuleData>,
-        Option<CircularDependencyAnalysis>,
-        Option<TreeShaker>,
-    )> {
+    ) -> Result<(String, Vec<ParsedModuleData>, AnalysisResults)> {
         // Handle directory as entry point
         let entry_path = if entry_path.is_dir() {
             // Check for __main__.py first
@@ -519,27 +517,33 @@ impl BundleOrchestrator {
         // In CriboGraph, we track all modules but focus on reachable ones
         debug!("Graph has {} modules", graph.modules.len());
 
-        // Enhanced circular dependency detection and analysis
-        let mut circular_dep_analysis = None;
-        if graph.has_cycles() {
-            let analysis = graph.analyze_circular_dependencies();
+        // Run the sequential analysis pipeline
+        info!("Running analysis pipeline...");
+        let analysis_results = run_analysis_pipeline(
+            graph,
+            &self.module_registry,
+            &self.semantic_bundler,
+            self.config.tree_shake,
+            &entry_module_name,
+        )?;
 
-            // Check if we have unresolvable cycles - these we must fail on
-            if !analysis.unresolvable_cycles.is_empty() {
-                let error_msg =
-                    self.format_unresolvable_cycles_error(&analysis.unresolvable_cycles, graph);
+        // Check if we have unresolvable cycles - these we must fail on
+        if let Some(circular_deps) = &analysis_results.circular_deps {
+            if !circular_deps.unresolvable_cycles.is_empty() {
+                let error_msg = self
+                    .format_unresolvable_cycles_error(&circular_deps.unresolvable_cycles, graph);
                 return Err(anyhow!(error_msg));
             }
 
             // For resolvable cycles, warn but proceed
-            if !analysis.resolvable_cycles.is_empty() {
+            if !circular_deps.resolvable_cycles.is_empty() {
                 warn!(
                     "Detected {} potentially resolvable circular dependencies",
-                    analysis.resolvable_cycles.len()
+                    circular_deps.resolvable_cycles.len()
                 );
 
                 // Log details about each resolvable cycle
-                for (i, cycle) in analysis.resolvable_cycles.iter().enumerate() {
+                for (i, cycle) in circular_deps.resolvable_cycles.iter().enumerate() {
                     // Convert ModuleIds to names for display
                     let module_names = Self::module_ids_to_names(graph, &cycle.module_ids);
 
@@ -581,68 +585,36 @@ impl BundleOrchestrator {
                     "Proceeding with bundling despite circular dependencies - output may require \
                      manual verification"
                 );
-                circular_dep_analysis = Some(analysis);
             }
         }
 
-        // Run tree-shaking if enabled
-        let tree_shaker = if self.config.tree_shake {
-            info!("Running tree-shaking analysis...");
-            let mut shaker = TreeShaker::from_graph(graph);
-
-            // Check which modules can be tree-shaken (no side effects)
-            let mut modules_with_side_effects = Vec::new();
-            let mut modules_for_tree_shaking = Vec::new();
-
-            for module in graph.modules.values() {
-                if shaker.module_has_side_effects(&module.module_name) {
-                    modules_with_side_effects.push(&module.module_name);
-                } else {
-                    modules_for_tree_shaking.push(&module.module_name);
-                }
-            }
-
-            if !modules_with_side_effects.is_empty() {
+        // Log symbol conflicts if any
+        if !analysis_results.symbol_conflicts.is_empty() {
+            info!(
+                "Detected {} symbol conflicts across modules",
+                analysis_results.symbol_conflicts.len()
+            );
+            for conflict in &analysis_results.symbol_conflicts {
                 debug!(
-                    "Modules with side effects (excluded from tree-shaking): \
-                     {modules_with_side_effects:?}"
+                    "Symbol '{}' conflicts across modules: {:?}",
+                    conflict.symbol_name, conflict.defining_modules
                 );
             }
+        }
 
-            if !modules_for_tree_shaking.is_empty() {
-                debug!("Modules eligible for tree-shaking: {modules_for_tree_shaking:?}");
-            }
-
-            // Analyze from entry module
-            shaker.analyze(&entry_module_name)?;
-
-            // Log tree-shaking results
-            for module_name in modules_for_tree_shaking {
-                let unused = shaker.get_unused_symbols_for_module(module_name);
-                if !unused.is_empty() {
-                    info!(
-                        "Tree-shaking will remove {} unused symbols from module '{}': {:?}",
-                        unused.len(),
-                        module_name,
-                        unused
-                    );
-                }
-            }
-
-            Some(shaker)
-        } else {
-            None
-        };
+        // Log tree-shaking results if available
+        if let Some(tree_shake_results) = &analysis_results.tree_shake_results {
+            info!(
+                "Tree-shaking analysis complete: {} items included, {} items removed",
+                tree_shake_results.included_items.len(),
+                tree_shake_results.removed_items.len()
+            );
+        }
 
         // Set the resolver for the caller to use
         *resolver_opt = Some(resolver);
 
-        Ok((
-            entry_module_name,
-            parsed_modules,
-            circular_dep_analysis,
-            tree_shaker,
-        ))
+        Ok((entry_module_name, parsed_modules, analysis_results))
     }
 
     /// Helper to get sorted modules from graph
@@ -718,14 +690,14 @@ impl BundleOrchestrator {
         let mut resolver_opt = None;
 
         // Perform core bundling logic
-        let (entry_module_name, parsed_modules, circular_dep_analysis, tree_shaker) =
+        let (entry_module_name, parsed_modules, analysis_results) =
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
         let mut resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
         let sorted_modules =
-            self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
+            self.get_sorted_modules_from_graph(&graph, analysis_results.circular_deps.as_ref())?;
 
         // Extract module data from sorted_modules
         let module_data = sorted_modules
@@ -741,8 +713,7 @@ impl BundleOrchestrator {
             _resolver: &resolver,
             entry_module_name: &entry_module_name,
             graph: &graph,
-            circular_dep_analysis: circular_dep_analysis.as_ref(),
-            tree_shaker: tree_shaker.as_ref(),
+            analysis_results: &analysis_results,
         })?;
 
         // Generate requirements.txt if requested
@@ -768,14 +739,14 @@ impl BundleOrchestrator {
         let mut resolver_opt = None;
 
         // Perform core bundling logic
-        let (entry_module_name, parsed_modules, circular_dep_analysis, tree_shaker) =
+        let (entry_module_name, parsed_modules, analysis_results) =
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
         let mut resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
         let sorted_modules =
-            self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
+            self.get_sorted_modules_from_graph(&graph, analysis_results.circular_deps.as_ref())?;
 
         // Generate bundled code
         info!("Using hybrid static bundler");
@@ -785,8 +756,7 @@ impl BundleOrchestrator {
             _resolver: &resolver,
             entry_module_name: &entry_module_name,
             graph: &graph,
-            circular_dep_analysis: circular_dep_analysis.as_ref(),
-            tree_shaker: tree_shaker.as_ref(),
+            analysis_results: &analysis_results,
         })?;
 
         // Generate requirements.txt if requested
@@ -1044,7 +1014,20 @@ impl BundleOrchestrator {
                 let mut builder = crate::graph_builder::GraphBuilder::new(module);
                 builder
                     .set_normalized_modules(processed.normalized_modules.iter().cloned().collect());
-                builder.build_from_ast(&processed.ast)?;
+
+                // Use two-pass approach if enabled (for Phase 2)
+                if self.config.use_two_pass_graph_builder {
+                    let result = builder.build_from_ast_two_pass(&processed.ast)?;
+
+                    // Store item mappings in module registry
+                    if let Some(module_info) = self.module_registry.get_module_mut(module_id) {
+                        module_info.item_to_node = result.item_mappings.item_to_node;
+                        module_info.node_to_item = result.item_mappings.node_to_item;
+                    }
+                } else {
+                    // Use existing single-pass approach
+                    builder.build_from_ast(&processed.ast)?;
+                }
             }
 
             // Store parsed module data for later use
@@ -1635,6 +1618,7 @@ impl BundleOrchestrator {
     /// Emit bundle using static bundler (no exec calls)
     fn emit_static_bundle(&mut self, params: StaticBundleParams<'_>) -> Result<String> {
         // First, detect and resolve conflicts after all modules have been analyzed
+        // TODO: This should be part of the analysis pipeline in the future
         let conflicts = self.semantic_bundler.detect_and_resolve_conflicts();
         if !conflicts.is_empty() {
             info!(
@@ -1648,6 +1632,13 @@ impl BundleOrchestrator {
                 );
             }
         }
+
+        // Build BundlePlan from analysis results
+        let bundle_plan = BundlePlan::from_analysis_results(
+            params.graph,
+            params.analysis_results,
+            &self.module_registry,
+        );
 
         let mut static_bundler = HybridStaticBundler::new(Some(&self.module_registry));
 
@@ -1680,9 +1671,11 @@ impl BundleOrchestrator {
             ));
         }
 
-        // Apply import rewriting if we have resolvable circular dependencies
-        if let Some(analysis) = params.circular_dep_analysis
-            && !analysis.resolvable_cycles.is_empty()
+        // TODO: Apply import rewrites from BundlePlan once ImportRewriter is updated
+        // For now, we still use the old approach but will transition to using
+        // bundle_plan.import_rewrites in a future refactoring
+        if let Some(circular_deps) = &params.analysis_results.circular_deps
+            && !circular_deps.resolvable_cycles.is_empty()
         {
             info!("Applying function-scoped import rewriting to resolve circular dependencies");
 
@@ -1699,7 +1692,7 @@ impl BundleOrchestrator {
             // Analyze movable imports using semantic analysis
             let movable_imports = import_rewriter.analyze_movable_imports_semantic(
                 params.graph,
-                &analysis.resolvable_cycles,
+                &circular_deps.resolvable_cycles,
                 &self.semantic_bundler,
                 &module_ast_pairs,
             )?;
@@ -1715,9 +1708,6 @@ impl BundleOrchestrator {
             }
         }
 
-        // Build BundlePlan from analysis results (Phase 1: just circular dependencies)
-        let bundle_plan = self.build_bundle_plan(params.circular_dep_analysis)?;
-
         // Bundle all modules using static bundler
         let bundled_ast = static_bundler.bundle_modules(crate::code_generator::BundleParams {
             modules: module_asts,
@@ -1725,8 +1715,8 @@ impl BundleOrchestrator {
             entry_module_name: params.entry_module_name,
             graph: params.graph,
             semantic_bundler: &self.semantic_bundler,
-            circular_dep_analysis: params.circular_dep_analysis,
-            tree_shaker: params.tree_shaker,
+            circular_dep_analysis: params.analysis_results.circular_deps.as_ref(),
+            tree_shaker: None, // TreeShaker is no longer passed directly
             bundle_plan: Some(&bundle_plan),
         })?;
 
@@ -1751,51 +1741,6 @@ impl BundleOrchestrator {
         final_output.extend(code_parts);
 
         Ok(final_output.join("\n"))
-    }
-
-    /// Build BundlePlan from analysis results
-    /// Phase 1: Only handles circular dependency import rewrites
-    /// Future phases will add symbol renames, tree-shaking, etc.
-    fn build_bundle_plan(
-        &self,
-        circular_dep_analysis: Option<&CircularDependencyAnalysis>,
-    ) -> Result<BundlePlan> {
-        let builder = BundlePlanBuilder::new();
-
-        // Phase 1: Handle circular dependency import rewrites
-        if let Some(analysis) = circular_dep_analysis {
-            // For now, we'll create placeholder import rewrites
-            // In a full implementation, this would analyze the resolvable cycles
-            // and determine specific imports to move to functions
-            for cycle in &analysis.resolvable_cycles {
-                match &cycle.suggested_resolution {
-                    ResolutionStrategy::FunctionScopedImport { .. } => {
-                        // TODO: Map module names to ModuleIds and identify specific imports
-                        // For Phase 1, we're establishing the pattern
-                        debug!(
-                            "Would create import rewrites for cycle: {:?}",
-                            cycle.module_ids
-                        );
-                    }
-                    ResolutionStrategy::LazyImport { .. } => {
-                        debug!(
-                            "Would create lazy imports for cycle: {:?}",
-                            cycle.module_ids
-                        );
-                    }
-                    _ => {
-                        // Other strategies not yet implemented
-                    }
-                }
-            }
-        }
-
-        // Future phases will add:
-        // - Symbol conflict resolutions from semantic_bundler
-        // - Tree-shaking decisions
-        // - Module metadata (inlinable vs wrapper)
-
-        Ok(builder.build())
     }
 
     /// Generate requirements.txt content from third-party imports

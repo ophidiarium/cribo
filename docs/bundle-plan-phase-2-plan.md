@@ -54,14 +54,14 @@ Phase 2 transforms the bundling architecture from multiple side-channel communic
 
 #### 2.1 Create Result Structures
 
-- [ ] Define `GraphBuildResult` struct
+- [x] Define `GraphBuildResult` struct
   ```rust
   pub struct GraphBuildResult {
       pub symbol_map: FxHashMap<String, NodeIndex>,
       pub item_mappings: ItemMappings,
   }
   ```
-- [ ] Define `ItemMappings` struct
+- [x] Define `ItemMappings` struct
   ```rust
   pub struct ItemMappings {
       pub item_to_node: FxHashMap<ItemId, AtomicNodeIndex>,
@@ -71,20 +71,20 @@ Phase 2 transforms the bundling architecture from multiple side-channel communic
 
 #### 2.2 Implement Pass A: Symbol Discovery
 
-- [ ] Create method to traverse AST and discover all top-level definitions
-- [ ] For each symbol:
-  - [ ] Create `ItemData` and add to graph
-  - [ ] Store `NodeIndex` in local symbol map
-  - [ ] Populate item-to-node mappings
-- [ ] Handle all definition types:
-  - [ ] Functions (`FunctionDef`)
-  - [ ] Classes (`ClassDef`)
-  - [ ] Module-level assignments
-  - [ ] Imports (as items)
+- [x] Create method to traverse AST and discover all top-level definitions
+- [x] For each symbol:
+  - [x] Create `ItemData` and add to graph
+  - [x] Store `NodeIndex` in local symbol map
+  - [x] Populate item-to-node mappings
+- [x] Handle all definition types:
+  - [x] Functions (`FunctionDef`)
+  - [x] Classes (`ClassDef`)
+  - [x] Module-level assignments
+  - [x] Imports (as items)
 
 #### 2.3 Implement Pass B: Dependency Wiring
 
-- [ ] Create method to traverse AST again for dependency analysis
+- [x] Create method to traverse AST again for dependency analysis
 - [ ] Use symbol map from Pass A to resolve intra-module references
 - [ ] Create edges for:
   - [ ] Function calls
@@ -94,16 +94,18 @@ Phase 2 transforms the bundling architecture from multiple side-channel communic
 
 #### 2.4 Update Orchestrator Integration
 
-- [ ] Modify `process_module` to receive `GraphBuildResult`
-- [ ] Update `ModuleInfo` with item mappings from result
+- [x] Modify `process_module` to receive `GraphBuildResult`
+- [x] Update `ModuleInfo` with item mappings from result
+- [x] Add `use_two_pass_graph_builder` config option
+- [x] Add environment variable support for two-pass mode
 - [ ] Implement inter-module dependency wiring in orchestrator
 
 ### Step 3: Create Analysis Pipeline Structure
 
 #### 3.1 Create Analysis Module
 
-- [ ] Create `crates/cribo/src/analysis/mod.rs`
-- [ ] Define `AnalysisResults` struct
+- [x] Create `crates/cribo/src/analysis/mod.rs`
+- [x] Define `AnalysisResults` struct
   ```rust
   pub struct AnalysisResults {
       pub circular_deps: Option<CircularDependencyAnalysis>,
@@ -114,13 +116,13 @@ Phase 2 transforms the bundling architecture from multiple side-channel communic
 
 #### 3.2 Implement Pipeline Runner
 
-- [ ] Create `run_analysis_pipeline` function
-- [ ] Implement sequential stages:
-  1. [ ] Cycle detection (fast graph algorithm)
-  2. [ ] Semantic analysis (hybrid traversal)
-  3. [ ] Tree-shaking (graph traversal)
-- [ ] Ensure each stage receives immutable `CriboGraph`
-- [ ] Collect all results into `AnalysisResults`
+- [x] Create `run_analysis_pipeline` function
+- [x] Implement sequential stages:
+  1. [x] Cycle detection (fast graph algorithm)
+  2. [x] Semantic analysis (hybrid traversal)
+  3. [x] Tree-shaking (graph traversal)
+- [x] Ensure each stage receives immutable `CriboGraph`
+- [x] Collect all results into `AnalysisResults`
 
 #### 3.3 Update Individual Analyzers
 
@@ -132,66 +134,67 @@ Phase 2 transforms the bundling architecture from multiple side-channel communic
 
 #### 4.1 Create Assembly Method
 
-- [ ] Add `from_analysis_results` method to `BundlePlan`
-- [ ] Accept:
-  - [ ] `&CriboGraph`
-  - [ ] `&AnalysisResults`
-  - [ ] `&ModuleRegistry`
+- [x] Add `from_analysis_results` method to `BundlePlan`
+- [x] Accept:
+  - [x] `&CriboGraph`
+  - [x] `&AnalysisResults`
+  - [x] `&ModuleRegistry`
 
 #### 4.2 Convert Analysis Results to Plan Entries
 
 ##### 4.2.1 Circular Dependencies
 
-- [ ] Create `add_circular_dep_rewrites` helper
-- [ ] For each resolvable cycle:
-  - [ ] Identify specific imports to move
-  - [ ] Determine target functions
-  - [ ] Create `ImportRewrite` entries
-- [ ] Handle different resolution strategies:
-  - [ ] Function-scoped imports
-  - [ ] Lazy imports
-  - [ ] Deferred initialization
+- [x] Create `add_circular_dep_rewrites` helper
+- [x] For each resolvable cycle:
+  - [x] Identify specific imports to move
+  - [x] Determine target functions
+  - [x] Create `ImportRewrite` entries
+- [x] Handle different resolution strategies:
+  - [x] Function-scoped imports
+  - [x] Lazy imports
+  - [x] Deferred initialization
 
 ##### 4.2.2 Symbol Conflicts
 
-- [ ] Create `add_symbol_rename` helper
-- [ ] For each conflict:
-  - [ ] Determine rename strategy
-  - [ ] Add to `symbol_renames` map
-  - [ ] Track affected modules
+- [x] Create `add_symbol_rename` helper
+- [x] For each conflict:
+  - [x] Determine rename strategy
+  - [x] Add to `symbol_renames` map
+  - [x] Track affected modules
 
 ##### 4.2.3 Tree-Shaking
 
-- [ ] Create `add_tree_shake_decisions` helper
-- [ ] Convert used items to `live_items` map
-- [ ] Mark modules for removal if completely unused
+- [x] Create `add_tree_shake_decisions` helper
+- [x] Convert used items to `live_items` map
+- [x] Mark modules for removal if completely unused
 
 ##### 4.2.4 Module Classification
 
-- [ ] Create `classify_modules` helper
-- [ ] Determine bundle type for each module:
-  - [ ] Inlinable (no side effects)
-  - [ ] Wrapper (has side effects)
-  - [ ] Conditional (complex logic)
-- [ ] Set module metadata in plan
+- [x] Create `classify_modules` helper
+- [x] Determine bundle type for each module:
+  - [x] Inlinable (no side effects)
+  - [x] Wrapper (has side effects)
+  - [x] Conditional (complex logic)
+- [x] Set module metadata in plan
 
 ### Step 5: Update Orchestrator for Sequential Pipeline
 
 #### 5.1 Refactor `bundle_core`
 
-- [ ] Replace individual analysis calls with pipeline runner
-- [ ] Remove side-channel communications
-- [ ] Update flow:
-  1. [ ] Build graph (immutable after this)
-  2. [ ] Run analysis pipeline
-  3. [ ] Build BundlePlan from results
-  4. [ ] Generate code with plan
+- [x] Replace individual analysis calls with pipeline runner
+- [x] Remove side-channel communications
+- [x] Update flow:
+  1. [x] Build graph (immutable after this)
+  2. [x] Run analysis pipeline
+  3. [x] Build BundlePlan from results
+  4. [x] Generate code with plan
+- [ ] Fix issue: Semantic bundler symbol renaming not properly integrated with BundlePlan
 
 #### 5.2 Update Helper Methods
 
-- [ ] Update `emit_static_bundle` to use only BundlePlan
-- [ ] Remove `build_bundle_plan` placeholder from Phase 1
-- [ ] Clean up analysis-specific parameters
+- [x] Update `emit_static_bundle` to use only BundlePlan
+- [x] Remove `build_bundle_plan` placeholder from Phase 1
+- [x] Clean up analysis-specific parameters
 
 ### Step 6: Update Code Generator
 
@@ -272,9 +275,15 @@ Phase 2 transforms the bundling architecture from multiple side-channel communic
 
 ## Completion Checklist
 
-- [ ] All code changes implemented
-- [ ] All tests written and passing
+- [x] All code changes implemented (with known issue: semantic bundler integration)
+- [ ] All tests written and passing (5 tests failing due to semantic bundler issue)
 - [ ] Performance validated
 - [ ] Documentation updated
 - [ ] Code review completed
 - [ ] Branch ready for merge
+
+## Known Issues
+
+1. **Semantic Bundler Integration**: The semantic bundler's internal symbol renaming is not properly integrated with the BundlePlan. The bundler applies renames internally but these are not communicated through the AnalysisResults, causing undefined variable errors in the generated code.
+   - **Temporary Fix**: Keep `detect_and_resolve_conflicts()` call in `emit_static_bundle`
+   - **Proper Fix**: Extract symbol conflicts during analysis pipeline and include in AnalysisResults

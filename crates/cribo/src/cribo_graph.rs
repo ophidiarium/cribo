@@ -284,6 +284,19 @@ impl ModuleDepGraph {
         id
     }
 
+    /// Add a new item to the graph and return its NodeIndex
+    /// This is used by the two-pass GraphBuilder to build symbol maps
+    pub fn add_item_with_index(&mut self, data: ItemData) -> NodeIndex {
+        // Add the item normally
+        let item_id = self.add_item(data);
+
+        // Create a NodeIndex for this item
+        // In the actual graph structure, items don't have their own nodes in petgraph
+        // This is a synthetic index for the symbol map
+        // We use the item_id's u32 value as the node index
+        NodeIndex::new(item_id.0 as usize)
+    }
+
     /// Add a dependency between items
     pub fn add_dependency(&mut self, from: ItemId, to: ItemId, dep_type: DepType) {
         self.deps.entry(from).or_default().push(Dep {
