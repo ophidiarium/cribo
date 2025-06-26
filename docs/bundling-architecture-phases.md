@@ -172,12 +172,12 @@ The code generator that:
 1. **Header Generation**
    - Add shebang and bundle metadata
    - Collect and hoist safe stdlib imports
-   - Generate future imports
+   - Generate `__future__` imports
 
 2. **Module Initialization**
    - Generate init functions for each module
    - Create module namespaces using `types.SimpleNamespace`
-   - Set up sys.modules cache
+   - Set up `sys.modules` cache (*this is redundant? - not a project goal*)
 
 3. **Module Ordering**
    - Use topological sort (or cycle-aware ordering)
@@ -203,7 +203,7 @@ The code generator that:
 
 1. **Requirements Generation** (optional)
    - Extract third-party dependencies
-   - Generate requirements.txt
+   - Generate `requirements.txt`
 
 2. **Validation**
    - Ensure all imports are resolved
@@ -311,17 +311,17 @@ pub struct BundlePlan {
 
 ### Implementation Roadmap
 
-1. **Phase 1: BundlePlan Prototype** (1-2 weeks)
+1. **Phase 1: BundlePlan Prototype**
    - Create BundlePlan struct
    - Refactor CircularDependencyAnalysis to output import_rewrite_map
    - Test with existing CodeGenerator
 
-2. **Phase 2: Unified Analysis** (2-3 weeks)
+2. **Phase 2: Unified Analysis**
    - Consolidate three analysis phases
    - Make CriboGraph immutable after construction
    - Update CodeGenerator to use only BundlePlan
 
-3. **Phase 3: Performance & Polish** (1 week)
+3. **Phase 3: Performance & Polish**
    - Profile and optimize unified analysis
    - Update documentation
    - Add comprehensive tests
