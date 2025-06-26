@@ -4439,22 +4439,6 @@ impl HybridStaticBundler {
                         "Symbol ordering for circular modules: {:?}",
                         self.symbol_dep_graph.sorted_symbols
                     );
-                    // Log dependencies for auth classes
-                    for (module, symbol) in &self.symbol_dep_graph.sorted_symbols {
-                        if module == "requests.auth"
-                            && (symbol == "HTTPBasicAuth" || symbol == "AuthBase")
-                        {
-                            if let Some(deps) = self
-                                .symbol_dep_graph
-                                .module_level_dependencies
-                                .get(&(module.clone(), symbol.clone()))
-                            {
-                                log::debug!("  {symbol} depends on: {deps:?}");
-                            } else {
-                                log::debug!("  {symbol} has no dependencies");
-                            }
-                        }
-                    }
                 }
                 Err(e) => {
                     log::warn!("Failed to order symbols in circular modules: {e}");
@@ -4631,50 +4615,14 @@ impl HybridStaticBundler {
                                             .unwrap_or(imported_name);
 
                                         // For "from X import Y", track the mapping
-                                        // Special handling for known re-exports
-                                        let (actual_source, actual_import) = if module_str
-                                            == "requests.compat"
-                                        {
-                                            // Map known compat re-exports to their actual sources
-                                            match imported_name {
-                                                "MutableMapping" | "Mapping" | "Callable" => (
-                                                    "collections.abc".to_string(),
-                                                    Some(imported_name.to_string()),
-                                                ),
-                                                "cookielib" => ("http.cookiejar".to_string(), None),
-                                                "JSONDecodeError" => {
-                                                    // Try simplejson first, fall back to json
-                                                    (
-                                                        "json".to_string(),
-                                                        Some("JSONDecodeError".to_string()),
-                                                    )
-                                                }
-                                                _ => (
-                                                    module_str.clone(),
-                                                    Some(imported_name.to_string()),
-                                                ),
-                                            }
-                                        } else {
-                                            (module_str.clone(), Some(imported_name.to_string()))
-                                        };
+                                        let (actual_source, actual_import) =
+                                            (module_str.clone(), Some(imported_name.to_string()));
 
                                         // Handle the alias if present
-                                        if alias.asname.is_some()
-                                            && imported_name == "JSONDecodeError"
-                                            && local_name == "CompatJSONDecodeError"
-                                        {
-                                            // Special case: We'll need to import as the correct
-                                            // alias
-                                            import_map.insert(
-                                                local_name.to_string(),
-                                                (actual_source, Some(imported_name.to_string())),
-                                            );
-                                        } else {
-                                            import_map.insert(
-                                                local_name.to_string(),
-                                                (actual_source, actual_import),
-                                            );
-                                        }
+                                        import_map.insert(
+                                            local_name.to_string(),
+                                            (actual_source, actual_import),
+                                        );
                                     }
                                 }
                             }
@@ -4810,19 +4758,9 @@ impl HybridStaticBundler {
                         // Generate: from source_module import attr1, attr2, ...
                         let mut names = Vec::new();
                         for attr in attrs_to_import {
-                            // Check if we need to handle special aliases
-                            let (import_name, alias_name) =
-                                if attr == "CompatJSONDecodeError" && source_module == "json" {
-                                    // Import JSONDecodeError as CompatJSONDecodeError
-                                    ("JSONDecodeError", Some("CompatJSONDecodeError"))
-                                } else if attr == "BaseHTTPError"
-                                    && source_module == "urllib3.exceptions"
-                                {
-                                    // Import HTTPError as BaseHTTPError
-                                    ("HTTPError", Some("BaseHTTPError"))
-                                } else {
-                                    (attr.as_str(), None)
-                                };
+                            // Use the attribute name as-is without special aliases
+                            let import_name = attr.as_str();
+                            let alias_name: Option<&str> = None;
 
                             names.push(ruff_python_ast::Alias {
                                 node_index: self.create_node_index(),
