@@ -96,26 +96,30 @@ impl<'a> CircularDependencyAnalyzer<'a> {
                     continue;
                 }
 
-                // Analyze imports to find the specific edge type and metadata
-                if let Some(edge) = self.analyze_import_edge(from_module_id, to_module_id) {
-                    import_chain.push(edge);
-                }
+                // Analyze imports to find all edge types and metadata
+                let edges = self.analyze_import_edges(from_module_id, to_module_id);
+                import_chain.extend(edges);
             }
         }
 
         import_chain
     }
 
-    /// Analyze a specific import edge between two modules
-    fn analyze_import_edge(&self, from_id: ModuleId, to_id: ModuleId) -> Option<ModuleEdge> {
-        let from_module = self.graph.modules.get(&from_id)?;
+    /// Analyze all import edges between two modules
+    /// Returns all import statements from from_id to to_id
+    fn analyze_import_edges(&self, from_id: ModuleId, to_id: ModuleId) -> Vec<ModuleEdge> {
+        let mut edges = Vec::new();
 
-        // Find the import statement(s) that create this edge
+        let Some(from_module) = self.graph.modules.get(&from_id) else {
+            return edges;
+        };
+
+        // Find all import statement(s) that create edges to the target module
         for (item_id, item_data) in &from_module.items {
             match &item_data.item_type {
                 ItemType::Import { module, alias } => {
                     if self.graph.module_names.get(module) == Some(&to_id) {
-                        return Some(ModuleEdge {
+                        edges.push(ModuleEdge {
                             from_module: from_id,
                             to_module: to_id,
                             edge_type: if let Some(alias) = alias {
@@ -144,7 +148,7 @@ impl<'a> CircularDependencyAnalyzer<'a> {
                         let symbols: Vec<String> =
                             names.iter().map(|(name, _alias)| name.clone()).collect();
 
-                        return Some(ModuleEdge {
+                        edges.push(ModuleEdge {
                             from_module: from_id,
                             to_module: to_id,
                             edge_type: if *level > 0 {
@@ -168,7 +172,7 @@ impl<'a> CircularDependencyAnalyzer<'a> {
             }
         }
 
-        None
+        edges
     }
 
     /// Analyze metadata about a cycle
