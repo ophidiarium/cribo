@@ -98,14 +98,15 @@ impl ImportRewriter {
             // For each module in the cycle, find imports that can be moved
             for &module_id in &cycle.module_ids {
                 if let Some(module_name) = registry.get_name_by_id(module_id)
-                    && let Some(module_graph) = graph.modules.get(&module_id) {
-                        let candidates = self.find_movable_imports_in_module(
-                            module_graph,
-                            module_name,
-                            &cycle_module_names,
-                        );
-                        movable_imports.extend(candidates);
-                    }
+                    && let Some(module_graph) = graph.modules.get(&module_id)
+                {
+                    let candidates = self.find_movable_imports_in_module(
+                        module_graph,
+                        module_name,
+                        &cycle_module_names,
+                    );
+                    movable_imports.extend(candidates);
+                }
             }
         }
 

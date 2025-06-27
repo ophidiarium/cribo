@@ -3,7 +3,9 @@ source: crates/cribo/tests/test_bundling_snapshots.rs
 input_file: crates/cribo/tests/fixtures/xfail_importlib_deduplication/main.py
 ---
 ExecutionResults {
-    status: Success,
-    stdout: "",
-    stderr: "",
+    status: Failed(
+        1,
+    ),
+    stdout: "mymodule.py is being executed!\npackage/submodule.py is being executed!\n=== Testing importlib.import_module deduplication ===\n\n   Are they the same object? True",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 22, in <module>",
 }
