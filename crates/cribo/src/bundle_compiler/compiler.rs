@@ -131,6 +131,9 @@ pub struct BundleCompiler<'a> {
 
     /// Semantic model provider for AST node resolution
     semantic_provider: Option<&'a crate::semantic_model_provider::SemanticModelProvider<'a>>,
+
+    /// Python version for stdlib detection (e.g., 10 for Python 3.10)
+    python_version: u8,
 }
 
 /// The final, clean output of compilation - the "bytecode" for the VM
@@ -178,6 +181,7 @@ impl<'a> BundleCompiler<'a> {
         graph: &'a CriboGraph,
         registry: &'a ModuleRegistry,
         entry_module_name: &str,
+        python_version: u8,
     ) -> Result<Self> {
         // Get entry module ID
         let entry_module_id = registry
@@ -195,6 +199,7 @@ impl<'a> BundleCompiler<'a> {
             module_metadata: FxHashMap::default(),
             module_aliases: FxHashMap::default(),
             semantic_provider: None,
+            python_version,
         };
 
         // Initialize compiler state from analysis results
@@ -375,13 +380,9 @@ impl<'a> BundleCompiler<'a> {
                                     // Module not in our graph, it's external (stdlib or
                                     // third-party) We need to
                                     // check if it's a safe stdlib module
-                                    // TODO: Get Python version from a more reliable source (pass to
-                                    // BundleCompiler)
-                                    // For now, default to Python 3.10
-                                    let python_version = 10;
                                     crate::stdlib_detection::is_stdlib_without_side_effects(
                                         module_name,
-                                        python_version,
+                                        self.python_version,
                                     )
                                 };
 
@@ -467,13 +468,9 @@ impl<'a> BundleCompiler<'a> {
                                     // Module not in our graph, it's external (stdlib or
                                     // third-party) We need to
                                     // check if it's a safe stdlib module
-                                    // TODO: Get Python version from a more reliable source (pass to
-                                    // BundleCompiler)
-                                    // For now, default to Python 3.10
-                                    let python_version = 10;
                                     crate::stdlib_detection::is_stdlib_without_side_effects(
                                         module_name,
-                                        python_version,
+                                        self.python_version,
                                     )
                                 };
 

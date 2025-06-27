@@ -1752,11 +1752,13 @@ impl BundleOrchestrator {
         );
 
         // Create the bundle compiler and compile to a program
+        let python_version = self.config.python_version()?;
         let compiler = BundleCompiler::new(
             params.analysis_results,
             params.graph,
             &self.module_registry,
             params.entry_module_name,
+            python_version,
         )?
         .with_semantic_provider(&semantic_provider);
 

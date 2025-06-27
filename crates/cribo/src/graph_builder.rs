@@ -1785,37 +1785,38 @@ impl<'a> GraphBuilder<'a> {
                     // Handle with statements that use 'as' clause
                     for item in &with_stmt.items {
                         if let Some(optional_vars) = &item.optional_vars
-                            && let Some(names) = self.extract_assignment_targets(optional_vars) {
-                                log::trace!("Pass A: Found with statement bindings: {names:?}");
+                            && let Some(names) = self.extract_assignment_targets(optional_vars)
+                        {
+                            log::trace!("Pass A: Found with statement bindings: {names:?}");
 
-                                let item_data = ItemData {
-                                    item_type: ItemType::Assignment {
-                                        targets: names.clone(),
-                                    },
-                                    var_decls: names.iter().cloned().collect(),
-                                    read_vars: FxHashSet::default(), // Will be filled in Pass B
-                                    eventual_read_vars: FxHashSet::default(),
-                                    write_vars: names.iter().cloned().collect(),
-                                    eventual_write_vars: FxHashSet::default(),
-                                    has_side_effects: false,
-                                    span: Some((stmt_index, stmt_index)),
-                                    imported_names: FxHashSet::default(),
-                                    reexported_names: FxHashSet::default(),
-                                    defined_symbols: names.iter().cloned().collect(),
-                                    symbol_dependencies: FxHashMap::default(),
-                                    attribute_accesses: FxHashMap::default(),
-                                    is_normalized_import: false,
-                                    statement_index: Some(stmt_index),
-                                    is_module_level: true, /* Pass A always processes
-                                                            * module-level items */
-                                    containing_function: None,
-                                };
+                            let item_data = ItemData {
+                                item_type: ItemType::Assignment {
+                                    targets: names.clone(),
+                                },
+                                var_decls: names.iter().cloned().collect(),
+                                read_vars: FxHashSet::default(), // Will be filled in Pass B
+                                eventual_read_vars: FxHashSet::default(),
+                                write_vars: names.iter().cloned().collect(),
+                                eventual_write_vars: FxHashSet::default(),
+                                has_side_effects: false,
+                                span: Some((stmt_index, stmt_index)),
+                                imported_names: FxHashSet::default(),
+                                reexported_names: FxHashSet::default(),
+                                defined_symbols: names.iter().cloned().collect(),
+                                symbol_dependencies: FxHashMap::default(),
+                                attribute_accesses: FxHashMap::default(),
+                                is_normalized_import: false,
+                                statement_index: Some(stmt_index),
+                                is_module_level: true, /* Pass A always processes
+                                                        * module-level items */
+                                containing_function: None,
+                            };
 
-                                let node_index = self.graph.add_item_with_index(item_data);
-                                for name in names {
-                                    symbol_map.insert(name, node_index);
-                                }
+                            let node_index = self.graph.add_item_with_index(item_data);
+                            for name in names {
+                                symbol_map.insert(name, node_index);
                             }
+                        }
                     }
                 }
                 Stmt::Import(_) | Stmt::ImportFrom(_) => {
