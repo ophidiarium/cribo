@@ -189,6 +189,10 @@ pub struct ItemData {
     pub is_normalized_import: bool,
     /// Index of the statement in the module's AST body
     pub statement_index: Option<usize>,
+    /// Scope information: true if at module level, false if inside function/class
+    pub is_module_level: bool,
+    /// Name of containing function if this item is inside a function
+    pub containing_function: Option<String>,
 }
 
 /// Fine-grained dependency graph for a single module
@@ -1554,38 +1558,18 @@ mod tests {
                 name: "test_func".into(),
             },
             var_decls: ["test_func".into()].into_iter().collect(),
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
-            has_side_effects: false,
-            span: Some((1, 3)),
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
             defined_symbols: ["test_func".into()].into_iter().collect(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
-            statement_index: None,
+            span: Some((1, 3)),
+            ..Default::default()
         });
 
         // Add a call to the function
         let call_item = module.add_item(ItemData {
             item_type: ItemType::Expression,
-            var_decls: FxHashSet::default(),
             read_vars: ["test_func".into()].into_iter().collect(),
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
             has_side_effects: true,
             span: Some((5, 5)),
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
-            statement_index: None,
+            ..Default::default()
         });
 
         // Add dependency
@@ -1672,19 +1656,9 @@ mod tests {
                 name: "helper".into(),
             },
             var_decls: ["helper".into()].into_iter().collect(),
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
-            has_side_effects: false,
             span: Some((1, 3)),
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
             defined_symbols: ["helper".into()].into_iter().collect(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
-            statement_index: None,
+            ..Default::default()
         });
 
         // Add the same file with a different import name
@@ -1729,19 +1703,9 @@ mod tests {
                     name: "new_helper".into(),
                 },
                 var_decls: ["new_helper".into()].into_iter().collect(),
-                read_vars: FxHashSet::default(),
-                eventual_read_vars: FxHashSet::default(),
-                write_vars: FxHashSet::default(),
-                eventual_write_vars: FxHashSet::default(),
-                has_side_effects: false,
                 span: Some((4, 6)),
-                imported_names: FxHashSet::default(),
-                reexported_names: FxHashSet::default(),
                 defined_symbols: ["new_helper".into()].into_iter().collect(),
-                symbol_dependencies: FxHashMap::default(),
-                attribute_accesses: FxHashMap::default(),
-                is_normalized_import: false,
-                statement_index: None,
+                ..Default::default()
             })
         };
 

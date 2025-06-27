@@ -1140,7 +1140,7 @@ impl TreeShaker {
 
 #[cfg(test)]
 mod tests {
-    use rustc_hash::FxHashMap;
+    
 
     use super::*;
 
@@ -1164,19 +1164,8 @@ mod tests {
                 name: "used_func".to_string(),
             },
             defined_symbols: ["used_func".into()].into_iter().collect(),
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
             var_decls: ["used_func".into()].into_iter().collect(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
-            has_side_effects: false,
-            span: None,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
-            statement_index: None,
+            ..Default::default()
         });
 
         // Add an unused function
@@ -1185,19 +1174,8 @@ mod tests {
                 name: "unused_func".to_string(),
             },
             defined_symbols: ["unused_func".into()].into_iter().collect(),
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
             var_decls: ["unused_func".into()].into_iter().collect(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
-            has_side_effects: false,
-            span: None,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
-            statement_index: None,
+            ..Default::default()
         });
 
         // Add entry module that uses only used_func
@@ -1210,20 +1188,9 @@ mod tests {
 
         entry.add_item(ItemData {
             item_type: ItemType::Expression,
-            defined_symbols: FxHashSet::default(),
             read_vars: ["used_func".into()].into_iter().collect(),
-            eventual_read_vars: FxHashSet::default(),
-            var_decls: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
             has_side_effects: true,
-            span: None,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
-            statement_index: None,
+            ..Default::default()
         });
 
         // Run tree shaking

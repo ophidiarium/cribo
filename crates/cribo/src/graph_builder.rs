@@ -50,6 +50,8 @@ pub struct GraphBuilder<'a> {
     import_aliases: FxHashMap<String, String>,
     /// Current statement index in the module body
     current_statement_index: Option<usize>,
+    /// Current function name if inside a function
+    current_function_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -66,7 +68,16 @@ impl<'a> GraphBuilder<'a> {
             current_scope: ScopeType::Module,
             import_aliases: FxHashMap::default(),
             current_statement_index: None,
+            current_function_name: None,
         }
+    }
+
+    /// Helper to get current scope information for ItemData
+    fn get_scope_info(&self) -> (bool, Option<String>) {
+        (
+            matches!(self.current_scope, ScopeType::Module),
+            self.current_function_name.clone(),
+        )
     }
 
     /// Build the graph from an AST
@@ -186,6 +197,8 @@ impl<'a> GraphBuilder<'a> {
                 attribute_accesses: FxHashMap::default(),
                 is_normalized_import: false,
                 statement_index: self.current_statement_index,
+                is_module_level: matches!(self.current_scope, ScopeType::Module),
+                containing_function: self.current_function_name.clone(),
             };
 
             self.graph.add_item(item_data);
@@ -285,6 +298,8 @@ impl<'a> GraphBuilder<'a> {
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
             statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -371,22 +386,29 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
-            defined_symbols: [func_name].into_iter().collect(),
+            defined_symbols: [func_name.clone()].into_iter().collect(),
             symbol_dependencies,
             attribute_accesses: eventual_attribute_accesses,
             is_normalized_import: false,
             statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
 
         // Process the function body in function scope
         let old_scope = self.current_scope;
+        let old_function_name = self.current_function_name.take();
         self.current_scope = ScopeType::Function;
+        self.current_function_name = Some(func_name.clone());
+
         for stmt in &func_def.body {
             self.process_statement(stmt)?;
         }
+
         self.current_scope = old_scope;
+        self.current_function_name = old_function_name;
 
         Ok(())
     }
@@ -473,6 +495,8 @@ impl<'a> GraphBuilder<'a> {
             attribute_accesses: method_attribute_accesses,
             is_normalized_import: false,
             statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -550,6 +574,8 @@ impl<'a> GraphBuilder<'a> {
                     attribute_accesses: FxHashMap::default(),
                     is_normalized_import: false,
                     statement_index: self.current_statement_index,
+                    is_module_level: matches!(self.current_scope, ScopeType::Module),
+                    containing_function: self.current_function_name.clone(),
                 };
 
                 self.graph.add_item(item_data);
@@ -602,6 +628,8 @@ impl<'a> GraphBuilder<'a> {
                 attribute_accesses,
                 is_normalized_import: false,
                 statement_index: self.current_statement_index,
+                is_module_level: matches!(self.current_scope, ScopeType::Module),
+                containing_function: self.current_function_name.clone(),
             };
 
             self.graph.add_item(item_data);
@@ -649,6 +677,8 @@ impl<'a> GraphBuilder<'a> {
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
             statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -695,6 +725,8 @@ impl<'a> GraphBuilder<'a> {
             attribute_accesses,
             is_normalized_import: false,
             statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -740,6 +772,8 @@ impl<'a> GraphBuilder<'a> {
             attribute_accesses,
             is_normalized_import: false,
             statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -770,6 +804,8 @@ impl<'a> GraphBuilder<'a> {
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
             statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -821,6 +857,8 @@ impl<'a> GraphBuilder<'a> {
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
             statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -859,6 +897,8 @@ impl<'a> GraphBuilder<'a> {
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
             statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -900,6 +940,8 @@ impl<'a> GraphBuilder<'a> {
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
             statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -930,6 +972,8 @@ impl<'a> GraphBuilder<'a> {
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
             statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -965,6 +1009,8 @@ impl<'a> GraphBuilder<'a> {
                     attribute_accesses: FxHashMap::default(),
                     is_normalized_import: false,
                     statement_index: self.current_statement_index,
+                    is_module_level: matches!(self.current_scope, ScopeType::Module),
+                    containing_function: self.current_function_name.clone(),
                 };
                 self.graph.add_item(item_data);
             }
@@ -1635,6 +1681,8 @@ impl<'a> GraphBuilder<'a> {
                         attribute_accesses: FxHashMap::default(),
                         is_normalized_import: false,
                         statement_index: Some(stmt_index),
+                        is_module_level: true, // Pass A always processes module-level items
+                        containing_function: None,
                     };
 
                     let node_index = self.graph.add_item_with_index(item_data);
@@ -1660,6 +1708,8 @@ impl<'a> GraphBuilder<'a> {
                         attribute_accesses: FxHashMap::default(),
                         is_normalized_import: false,
                         statement_index: Some(stmt_index),
+                        is_module_level: true, // Pass A always processes module-level items
+                        containing_function: None,
                     };
 
                     let node_index = self.graph.add_item_with_index(item_data);
@@ -1688,6 +1738,8 @@ impl<'a> GraphBuilder<'a> {
                             attribute_accesses: FxHashMap::default(),
                             is_normalized_import: false,
                             statement_index: Some(stmt_index),
+                            is_module_level: true, // Pass A always processes module-level items
+                            containing_function: None,
                         };
 
                         let node_index = self.graph.add_item_with_index(item_data);

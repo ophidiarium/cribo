@@ -132,8 +132,8 @@ impl<'a> CircularDependencyAnalyzer<'a> {
                             metadata: EdgeMetadata {
                                 line_number: item_data.span.map(|(start, _)| start),
                                 import_item_id: Some(*item_id),
-                                is_module_level: true, // TODO: check scoping
-                                containing_function: None, // TODO: check scoping
+                                is_module_level: item_data.is_module_level,
+                                containing_function: item_data.containing_function.clone(),
                             },
                         });
                     }
@@ -162,8 +162,8 @@ impl<'a> CircularDependencyAnalyzer<'a> {
                             metadata: EdgeMetadata {
                                 line_number: item_data.span.map(|(start, _)| start),
                                 import_item_id: Some(*item_id),
-                                is_module_level: true, // TODO: check scoping
-                                containing_function: None, // TODO: check scoping
+                                is_module_level: item_data.is_module_level,
+                                containing_function: item_data.containing_function.clone(),
                             },
                         });
                     }
