@@ -34,7 +34,7 @@ impl PotentialExportsMap {
 
         for (module_id, module_graph) in &graph.modules {
             let mut exports = FxHashSet::default();
-            let mut explicit_exports = None;
+            let mut all_values = Vec::new();
 
             // Check if this is a package __init__.py
             let is_init = module_graph.module_name.ends_with("__init__");
@@ -55,9 +55,9 @@ impl PotentialExportsMap {
                     ItemType::Assignment { targets } => {
                         // Check for __all__ assignments
                         if targets.contains(&"__all__".to_string()) {
-                            // TODO: Parse the actual __all__ value from AST
-                            // For now, we'll mark that this module has explicit exports
-                            explicit_exports = Some(Vec::new());
+                            // The actual __all__ values are stored in reexported_names
+                            // This is populated by the graph builder when it parses __all__
+                            all_values.extend(item_data.reexported_names.iter().cloned());
                         } else {
                             for target in targets {
                                 // Skip private names (starting with _)
@@ -100,8 +100,9 @@ impl PotentialExportsMap {
 
             map.exports.insert(*module_id, exports);
 
-            if let Some(explicit) = explicit_exports {
-                map.explicit_exports.insert(*module_id, explicit);
+            // If we found any __all__ values, use them as explicit exports
+            if !all_values.is_empty() {
+                map.explicit_exports.insert(*module_id, all_values);
             }
 
             debug!(
