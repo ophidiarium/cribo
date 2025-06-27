@@ -129,7 +129,6 @@ struct InlinedImportParams<'a> {
 }
 
 /// Parameters for adding symbols to namespace
-#[allow(dead_code)]
 struct AddSymbolsParams<'a> {
     local_name: &'a str,
     imported_name: &'a str,
