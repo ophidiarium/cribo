@@ -254,7 +254,7 @@ impl<'a> CircularDependencyAnalyzer<'a> {
     fn classify_cycle_type(
         &self,
         module_ids: &[ModuleId],
-        _import_chain: &[ModuleEdge],
+        import_chain: &[ModuleEdge],
         metadata: &CycleMetadata,
     ) -> CircularDependencyType {
         // Check if this is a parent-child package cycle
@@ -279,9 +279,24 @@ impl<'a> CircularDependencyAnalyzer<'a> {
             return CircularDependencyType::FunctionLevel;
         }
 
+        // Check if any imports in the chain involve __init__ modules
+        let involves_init_imports = import_chain.iter().any(|edge| {
+            self.graph
+                .modules
+                .get(&edge.from_module)
+                .map(|m| m.module_name.ends_with("__init__"))
+                .unwrap_or(false)
+                || self
+                    .graph
+                    .modules
+                    .get(&edge.to_module)
+                    .map(|m| m.module_name.ends_with("__init__"))
+                    .unwrap_or(false)
+        });
+
         if metadata.all_function_scoped {
             CircularDependencyType::FunctionLevel
-        } else if self.any_module_is_init(module_ids) {
+        } else if self.any_module_is_init(module_ids) || involves_init_imports {
             CircularDependencyType::ImportTime
         } else {
             CircularDependencyType::FunctionLevel
