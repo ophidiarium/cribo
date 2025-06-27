@@ -17,6 +17,7 @@ use crate::{
     cribo_graph::{CriboGraph, ItemId, ItemType, ModuleId},
     module_registry::ModuleRegistry,
     semantic_model_provider::GlobalBindingId,
+    stdlib_detection::is_stdlib_without_side_effects,
 };
 
 /// Minimal, orthogonal execution steps for the bundle VM
@@ -300,7 +301,7 @@ impl<'a> BundleCompiler<'a> {
                             if module_name == "__future__" {
                                 future_imports.push(stmt);
                                 debug!("Adding __future__ import: {module_name}");
-                            } else if is_stdlib_module(module_name) {
+                            } else if is_stdlib_without_side_effects(module_name) {
                                 stdlib_imports.push(stmt);
                                 debug!(
                                     "Adding stdlib import: {module_name} from module {module_id:?}"
@@ -363,7 +364,7 @@ impl<'a> BundleCompiler<'a> {
                             // Only hoist __future__ and stdlib imports
                             if module_name == "__future__" {
                                 future_imports.push(stmt);
-                            } else if is_stdlib_module(module_name) {
+                            } else if is_stdlib_without_side_effects(module_name) {
                                 stdlib_imports.push(stmt);
                             }
                             // Third-party imports are NOT hoisted - they stay in original location
@@ -1017,31 +1018,6 @@ impl<'a> BundleCompiler<'a> {
             self.module_metadata.insert(*module_id, metadata);
         }
     }
-}
-
-/// Check if a module is from the standard library
-fn is_stdlib_module(module_name: &str) -> bool {
-    matches!(
-        module_name,
-        "os" | "sys"
-            | "types"
-            | "json"
-            | "re"
-            | "math"
-            | "random"
-            | "datetime"
-            | "collections"
-            | "itertools"
-            | "functools"
-            | "pathlib"
-            | "typing"
-            | "io"
-            | "subprocess"
-            | "threading"
-            | "multiprocessing"
-            | "asyncio"
-            | "contextlib"
-    )
 }
 
 /// Sort import statements alphabetically for determinism

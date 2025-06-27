@@ -18,6 +18,7 @@ pub mod semantic_analysis;
 pub mod semantic_bundler;
 pub mod semantic_model_provider;
 pub mod side_effects;
+pub mod stdlib_detection;
 pub mod stdlib_normalization;
 pub mod transformation_context;
 pub mod tree_shaking;

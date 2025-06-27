@@ -6,25 +6,15 @@
 
 use ruff_python_ast::{ModModule, StmtImport, StmtImportFrom};
 
-use crate::visitors::SideEffectDetector;
+use crate::{stdlib_detection::is_stdlib_without_side_effects, visitors::SideEffectDetector};
 
 /// Check if a module name represents a safe stdlib module that can be hoisted
 /// without side effects
+///
+/// This is a compatibility wrapper that delegates to the centralized
+/// stdlib_detection module.
 pub fn is_safe_stdlib_module(module_name: &str) -> bool {
-    match module_name {
-        // Modules that modify global state - DO NOT HOIST
-        "antigravity" | "this" | "__hello__" | "__phello__" => false,
-        "site" | "sitecustomize" | "usercustomize" => false,
-        "readline" | "rlcompleter" => false,
-        "turtle" | "tkinter" => false,
-        "webbrowser" => false,
-        "platform" | "locale" => false,
-
-        _ => {
-            let root_module = module_name.split('.').next().unwrap_or(module_name);
-            ruff_python_stdlib::sys::is_known_standard_library(10, root_module)
-        }
-    }
+    is_stdlib_without_side_effects(module_name)
 }
 
 /// Check if an import statement would have side effects

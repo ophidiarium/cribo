@@ -7,24 +7,8 @@ use std::{
 use anyhow::{Result, anyhow};
 use indexmap::{IndexMap, IndexSet};
 use log::{debug, warn};
-use ruff_python_stdlib::sys;
 
-use crate::config::Config;
-
-/// Check if a module is part of the Python standard library using ruff_python_stdlib
-fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
-    // Check direct match using ruff_python_stdlib
-    if sys::is_known_standard_library(python_version, module_name) {
-        return true;
-    }
-
-    // Check if it's a submodule of a stdlib module
-    if let Some(top_level) = module_name.split('.').next() {
-        sys::is_known_standard_library(python_version, top_level)
-    } else {
-        false
-    }
-}
+use crate::{config::Config, stdlib_detection::is_stdlib_module};
 
 /// A scoped guard for safely setting and cleaning up the PYTHONPATH environment variable.
 ///
@@ -216,8 +200,6 @@ pub struct ModuleResolver {
     virtualenv_packages_cache: RefCell<Option<IndexSet<String>>>,
     /// Entry file's directory (first in search path)
     entry_dir: Option<PathBuf>,
-    /// Python version for stdlib classification
-    python_version: u8,
     /// PYTHONPATH override for testing
     pythonpath_override: Option<String>,
     /// VIRTUAL_ENV override for testing
@@ -263,7 +245,6 @@ impl ModuleResolver {
             classification_cache: IndexMap::new(),
             virtualenv_packages_cache: RefCell::new(None),
             entry_dir: None,
-            python_version: 38, // Default to Python 3.8
             pythonpath_override: pythonpath_override.map(|s| s.to_string()),
             virtualenv_override: virtualenv_override.map(|s| s.to_string()),
         })
@@ -682,7 +663,7 @@ impl ModuleResolver {
         }
 
         // Check if it's a standard library module
-        if is_stdlib_module(module_name, self.python_version) {
+        if is_stdlib_module(module_name) {
             let import_type = ImportType::StandardLibrary;
             self.classification_cache
                 .insert(module_name.to_string(), import_type.clone());
