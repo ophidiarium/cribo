@@ -873,6 +873,7 @@ impl TreeShaker {
 
     /// Get items that should be kept for a module
     pub fn get_items_to_keep(&self, module_name: &str) -> FxHashSet<usize> {
+        debug!("Getting items to keep for module '{module_name}'");
         let mut items_to_keep = FxHashSet::default();
 
         // Check if this is the entry module
@@ -941,23 +942,43 @@ impl TreeShaker {
                         // a) If any imported name is used by surviving symbols
                         // b) If the imported name itself is a surviving symbol (for imports of
                         // classes/functions)
-                        names.iter().any(|(imported_name, alias_opt)| {
+                        let result = names.iter().any(|(imported_name, alias_opt)| {
                             let local_name = alias_opt.as_ref().unwrap_or(imported_name);
 
                             // Check if this import is required by other surviving symbols
-                            if self.is_import_required(module_name, local_name, module) {
+                            let required = self.is_import_required(module_name, local_name, module);
+                            if required {
+                                debug!("Import {module}::{imported_name} is required");
                                 return true;
                             }
 
                             // Check if the imported symbol itself is marked as used
                             // This handles cases where we import a class/function that gets removed
                             if let Some(source_module) = self.find_defining_module(imported_name) {
-                                return self.is_symbol_used(&source_module, imported_name);
+                                let used = self.is_symbol_used(&source_module, imported_name);
+                                if used {
+                                    debug!(
+                                        "Import {module}::{imported_name} - symbol is used in \
+                                         source module {source_module}"
+                                    );
+                                }
+                                return used;
                             }
 
-                            // For third-party imports, check if the local name is in used symbols
-                            self.is_symbol_used(module_name, local_name)
-                        })
+                            // For third-party imports, we've already checked is_import_required
+                            // above If that returned false, the import
+                            // is not needed
+                            debug!("Import {module}::{imported_name} is NOT needed (third-party)");
+                            false
+                        });
+
+                        if result {
+                            debug!("FromImport {module} in module {module_name} will be kept");
+                        } else {
+                            debug!("FromImport {module} in module {module_name} will be removed");
+                        }
+
+                        result
                     }
                     _ => false,
                 };
@@ -1015,33 +1036,43 @@ impl TreeShaker {
                 if let Some(items) = self.module_items.get(module_name) {
                     // Find the index of this item in our module_items
                     // Use statement_index if available for accurate matching
-                    let idx = if let Some(stmt_idx) = item_data.statement_index {
-                        // For items with statement index, use that directly
-                        if stmt_idx < items.len() {
-                            Some(stmt_idx)
-                        } else {
-                            None
+                    // We need to find the index of this item in our module_items list
+                    // Match by item_type and defined_symbols since the order might differ
+                    let idx = items.iter().position(|module_item| {
+                        // First try exact match by statement_index
+                        if let (Some(stmt_idx1), Some(stmt_idx2)) =
+                            (item_data.statement_index, module_item.statement_index)
+                            && stmt_idx1 == stmt_idx2
+                            && module_item.item_type == item_data.item_type
+                        {
+                            return true;
                         }
-                    } else {
-                        // Fallback to matching by type and symbols for items without statement
-                        // index
-                        log::warn!(
-                            "Item {item_id:?} in module '{module_name}' has no statement_index, \
-                             falling back to unreliable matching"
-                        );
-                        items.iter().position(|item| {
-                            item.item_type == item_data.item_type
-                                && item.defined_symbols == item_data.defined_symbols
-                        })
-                    };
+                        // Otherwise match by type and symbols
+                        module_item.item_type == item_data.item_type
+                            && module_item.defined_symbols == item_data.defined_symbols
+                    });
+
+                    // idx is already computed above
 
                     if let Some(idx) = idx {
                         if items_to_keep.contains(&idx) {
+                            debug!(
+                                "Including item {item_id:?} at index {idx} in module \
+                                 '{module_name}'"
+                            );
                             included_items.push((*module_id, *item_id));
                             has_any_items = true;
                         } else {
+                            debug!(
+                                "Removing item {item_id:?} at index {idx} in module \
+                                 '{module_name}'"
+                            );
                             removed_items.push((*module_id, *item_id));
                         }
+                    } else {
+                        debug!(
+                            "Could not find index for item {item_id:?} in module '{module_name}'"
+                        );
                     }
                 }
             }

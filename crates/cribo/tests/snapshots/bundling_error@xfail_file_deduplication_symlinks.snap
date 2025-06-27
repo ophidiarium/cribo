@@ -1,0 +1,6 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+expression: error_msg
+input_file: crates/cribo/tests/fixtures/xfail_file_deduplication_symlinks/main.py
+---
+Bundling failed as expected: Module ModuleId(3) not found

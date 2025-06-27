@@ -7,79 +7,6 @@ input_file: crates/cribo/tests/fixtures/pyfail_class_level_cycles/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-class Admin_admin_class(User):
-    """Admin class that inherits from User."""
-
-    def __init__(self, name):
-        super().__init__(name)
-        self.is_admin = True
-
-    def demote_to_user(self):
-        """Demote admin to regular user."""
-        return User(self.name)
-class Admin_admin_class(User):
-    """Admin class that inherits from User."""
-
-    def __init__(self, name):
-        super().__init__(name)
-        self.is_admin = True
-
-    def demote_to_user(self):
-        """Demote admin to regular user."""
-        return User(self.name)
-class Admin_admin_class(User):
-    """Admin class that inherits from User."""
-
-    def __init__(self, name):
-        super().__init__(name)
-        self.is_admin = True
-
-    def demote_to_user(self):
-        """Demote admin to regular user."""
-        return User(self.name)
-class Admin_admin_class(User):
-    """Admin class that inherits from User."""
-
-    def __init__(self, name):
-        super().__init__(name)
-        self.is_admin = True
-
-    def demote_to_user(self):
-        """Demote admin to regular user."""
-        return User(self.name)
-admin_class = types.SimpleNamespace()
-admin_class.demote_to_user = demote_to_user
-admin_class.Admin = Admin
-class User_user_class:
-    """User class that references Admin class."""
-
-    def __init__(self, name):
-        self.name = name
-        self.admin_reference = Admin
-
-    def promote_to_admin(self):
-        """Promote user to admin."""
-        return self.admin_reference(self.name)
-class User_user_class:
-    """User class that references Admin class."""
-
-    def __init__(self, name):
-        self.name = name
-        self.admin_reference = Admin
-
-    def promote_to_admin(self):
-        """Promote user to admin."""
-        return self.admin_reference(self.name)
-class User_user_class:
-    """User class that references Admin class."""
-
-    def __init__(self, name):
-        self.name = name
-        self.admin_reference = Admin
-
-    def promote_to_admin(self):
-        """Promote user to admin."""
-        return self.admin_reference(self.name)
 class User_user_class:
     """User class that references Admin class."""
 
@@ -91,10 +18,21 @@ class User_user_class:
         """Promote user to admin."""
         return self.admin_reference(self.name)
 user_class = types.SimpleNamespace()
-user_class.promote_to_admin = promote_to_admin
-user_class.User = User
-User = user_class
-Admin = admin_class
+user_class.User = User_user_class
+class Admin_admin_class(User):
+    """Admin class that inherits from User."""
+
+    def __init__(self, name):
+        super().__init__(name)
+        self.is_admin = True
+
+    def demote_to_user(self):
+        """Demote admin to regular user."""
+        return User(self.name)
+admin_class = types.SimpleNamespace()
+admin_class.Admin = Admin_admin_class
+Admin = admin_class.Admin
+User = user_class.User
 """Test case with class-level circular dependencies."""
 def main():
     user = User("Alice")

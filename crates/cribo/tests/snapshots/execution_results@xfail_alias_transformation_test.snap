@@ -6,6 +6,6 @@ ExecutionResults {
     status: Failed(
         1,
     ),
-    stdout: "JSON data: {\"test\": \"data\"}\nCurrent directory: /test/deterministic/81608cbb\nCRIBO_TEST environment: default_value\nPython version: 3.12",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 61, in <module>",
+    stdout: "",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 34, in <module>",
 }

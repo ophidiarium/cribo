@@ -11,14 +11,14 @@ def get_value_c():
     return "value_from_C"
 module_c = types.SimpleNamespace()
 module_c.get_value_c = get_value_c
-def get_value_a_module_a():
-    return "value_from_A"
 def process_a():
     """Process A that depends on B"""
     return process_b() + "->A"
+def get_value_a_module_a():
+    return "value_from_A"
 module_a = types.SimpleNamespace()
-module_a.get_value_a = get_value_a
 module_a.process_a = process_a
+module_a.get_value_a = get_value_a_module_a
 def get_value_b():
     return "value_from_B"
 module_b = types.SimpleNamespace()

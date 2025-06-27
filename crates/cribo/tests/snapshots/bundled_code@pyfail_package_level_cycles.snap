@@ -12,15 +12,15 @@ def another_helper():
     return "pkg2_helper"
 pkg2 = types.SimpleNamespace()
 pkg2.another_helper = another_helper
-def utility_function_pkg1():
-    """Utility that pkg2 will import"""
-    return "pkg1_utility"
 def main_function():
     """Main function that uses helper from pkg2"""
     return f"pkg1.main({helper_function()})"
+def utility_function_pkg1():
+    """Utility that pkg2 will import"""
+    return "pkg1_utility"
 pkg1 = types.SimpleNamespace()
-pkg1.utility_function = utility_function
 pkg1.main_function = main_function
+pkg1.utility_function = utility_function_pkg1
 def main():
     result = pkg1.main_function()
     print(f"Package cycle result: {result}")

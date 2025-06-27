@@ -11,15 +11,15 @@ def step_c():
     return "C_step"
 module_c = types.SimpleNamespace()
 module_c.step_c = step_c
-def final_step():
-    """Final step called by module_d to complete the cycle"""
-    return "A_final"
 def start_process():
     """Start the processing chain A -> B -> C -> D -> A"""
     return f"A({process_in_b()})"
+def final_step():
+    """Final step called by module_d to complete the cycle"""
+    return "A_final"
 module_a = types.SimpleNamespace()
-module_a.final_step = final_step
 module_a.start_process = start_process
+module_a.final_step = final_step
 def step_d():
     return "D_step"
 module_d = types.SimpleNamespace()

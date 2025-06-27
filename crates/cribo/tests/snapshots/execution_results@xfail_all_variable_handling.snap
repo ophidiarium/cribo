@@ -6,6 +6,6 @@ ExecutionResults {
     status: Failed(
         1,
     ),
-    stdout: "Testing simple module exports:",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 45, in <module>",
+    stdout: "",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 30, in <module>",
 }
