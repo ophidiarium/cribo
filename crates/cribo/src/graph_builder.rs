@@ -1748,13 +1748,89 @@ impl<'a> GraphBuilder<'a> {
                         }
                     }
                 }
+                Stmt::AnnAssign(ann_assign) => {
+                    // Handle annotated assignments (e.g., x: int = 5)
+                    if let Some(names) = self.extract_assignment_targets(&ann_assign.target) {
+                        log::trace!("Pass A: Found annotated assignment: {names:?}");
+
+                        let item_data = ItemData {
+                            item_type: ItemType::Assignment {
+                                targets: names.clone(),
+                            },
+                            var_decls: names.iter().cloned().collect(),
+                            read_vars: FxHashSet::default(), // Will be filled in Pass B
+                            eventual_read_vars: FxHashSet::default(),
+                            write_vars: names.iter().cloned().collect(),
+                            eventual_write_vars: FxHashSet::default(),
+                            has_side_effects: false,
+                            span: Some((stmt_index, stmt_index)),
+                            imported_names: FxHashSet::default(),
+                            reexported_names: FxHashSet::default(),
+                            defined_symbols: names.iter().cloned().collect(),
+                            symbol_dependencies: FxHashMap::default(),
+                            attribute_accesses: FxHashMap::default(),
+                            is_normalized_import: false,
+                            statement_index: Some(stmt_index),
+                            is_module_level: true, // Pass A always processes module-level items
+                            containing_function: None,
+                        };
+
+                        let node_index = self.graph.add_item_with_index(item_data);
+                        for name in names {
+                            symbol_map.insert(name, node_index);
+                        }
+                    }
+                }
+                Stmt::With(with_stmt) => {
+                    // Handle with statements that use 'as' clause
+                    for item in &with_stmt.items {
+                        if let Some(optional_vars) = &item.optional_vars
+                            && let Some(names) = self.extract_assignment_targets(optional_vars) {
+                                log::trace!("Pass A: Found with statement bindings: {names:?}");
+
+                                let item_data = ItemData {
+                                    item_type: ItemType::Assignment {
+                                        targets: names.clone(),
+                                    },
+                                    var_decls: names.iter().cloned().collect(),
+                                    read_vars: FxHashSet::default(), // Will be filled in Pass B
+                                    eventual_read_vars: FxHashSet::default(),
+                                    write_vars: names.iter().cloned().collect(),
+                                    eventual_write_vars: FxHashSet::default(),
+                                    has_side_effects: false,
+                                    span: Some((stmt_index, stmt_index)),
+                                    imported_names: FxHashSet::default(),
+                                    reexported_names: FxHashSet::default(),
+                                    defined_symbols: names.iter().cloned().collect(),
+                                    symbol_dependencies: FxHashMap::default(),
+                                    attribute_accesses: FxHashMap::default(),
+                                    is_normalized_import: false,
+                                    statement_index: Some(stmt_index),
+                                    is_module_level: true, /* Pass A always processes
+                                                            * module-level items */
+                                    containing_function: None,
+                                };
+
+                                let node_index = self.graph.add_item_with_index(item_data);
+                                for name in names {
+                                    symbol_map.insert(name, node_index);
+                                }
+                            }
+                    }
+                }
                 Stmt::Import(_) | Stmt::ImportFrom(_) => {
                     // Imports are handled differently - they create items but not local symbols
-                    // Process them normally in Pass A to create the items
+                    // They introduce names into the namespace but are tracked separately
+                    // from regular symbol definitions for bundling purposes
                     self.process_statement(stmt)?;
                 }
                 _ => {
                     // Other statements will be processed in Pass B for side effects
+                    // This includes:
+                    // - AugAssign: usually modifies existing variables rather than creating new
+                    //   ones
+                    // - Try/Except: exception handlers are processed for their side effects
+                    // - Expression statements: processed for side effects
                 }
             }
             stmt_index += 1;
