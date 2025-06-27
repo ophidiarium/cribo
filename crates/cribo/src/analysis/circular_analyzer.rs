@@ -308,7 +308,9 @@ impl<'a> CircularDependencyAnalyzer<'a> {
 
         for (i, name1) in module_names.iter().enumerate() {
             for name2 in module_names.iter().skip(i + 1) {
-                if name1.starts_with(name2.as_str()) || name2.starts_with(name1.as_str()) {
+                if name1.starts_with(&format!("{name2}."))
+                    || name2.starts_with(&format!("{name1}."))
+                {
                     return true;
                 }
             }
