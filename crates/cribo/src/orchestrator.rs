@@ -97,10 +97,6 @@ struct ProcessedModule {
     ast: ModModule,
     /// The original source code (needed for semantic analysis and code generation)
     source: String,
-    /// Normalized imports map (alias -> canonical)
-    normalized_imports: FxIndexMap<String, String>,
-    /// Modules created by stdlib normalization (e.g., "abc", "collections")
-    normalized_modules: IndexSet<String, BuildHasherDefault<FxHasher>>,
     /// Module ID if already added to dependency graph
     module_id: Option<crate::cribo_graph::ModuleId>,
 }
@@ -258,8 +254,6 @@ impl BundleOrchestrator {
             return Ok(ProcessedModule {
                 ast,
                 source: cached.source.clone(),
-                normalized_imports: cached.normalized_imports.clone(),
-                normalized_modules: cached.normalized_modules.clone(),
                 module_id,
             });
         }
@@ -343,15 +337,10 @@ impl BundleOrchestrator {
             None
         };
 
-        // Step 3: Stdlib normalization - REMOVED (now handled by transformation plan)
-        // TODO: Remove normalized_imports and normalized_modules fields from ProcessedModule
-
-        // Step 4: Cache the result
+        // Step 3: Cache the result
         let processed = ProcessedModule {
             ast: ast.clone(),
             source: source.clone(),
-            normalized_imports: FxIndexMap::default(), // No longer normalizing here
-            normalized_modules: IndexSet::default(),   // No longer normalizing here
             module_id,
         };
 
@@ -366,8 +355,6 @@ impl BundleOrchestrator {
         Ok(ProcessedModule {
             ast,
             source,
-            normalized_imports: FxIndexMap::default(), // No longer normalizing here
-            normalized_modules: IndexSet::default(),   // No longer normalizing here
             module_id,
         })
     }
@@ -1110,8 +1097,6 @@ impl BundleOrchestrator {
             // Build dependency graph BEFORE no-ops removal
             if let Some(module) = params.graph.get_module_by_name_mut(&module_name) {
                 let mut builder = crate::graph_builder::GraphBuilder::new(module);
-                builder
-                    .set_normalized_modules(processed.normalized_modules.iter().cloned().collect());
 
                 // Use two-pass approach if enabled (for Phase 2)
                 if self.config.use_two_pass_graph_builder {

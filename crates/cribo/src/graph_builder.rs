@@ -48,9 +48,6 @@ pub struct GraphBuilder<'a> {
     /// Maps local name -> module path (e.g., "il" -> "importlib", "im" ->
     /// "importlib.import_module")
     import_aliases: FxHashMap<String, String>,
-    /// Track which modules were created by stdlib normalization
-    /// This helps with tree-shaking normalized imports
-    normalized_modules: FxHashSet<String>,
     /// Current statement index in the module body
     current_statement_index: Option<usize>,
 }
@@ -68,14 +65,8 @@ impl<'a> GraphBuilder<'a> {
             graph,
             current_scope: ScopeType::Module,
             import_aliases: FxHashMap::default(),
-            normalized_modules: FxHashSet::default(),
             current_statement_index: None,
         }
-    }
-
-    /// Set the modules that were created by stdlib normalization
-    pub fn set_normalized_modules(&mut self, modules: FxHashSet<String>) {
-        self.normalized_modules = modules;
     }
 
     /// Build the graph from an AST
@@ -174,12 +165,6 @@ impl<'a> GraphBuilder<'a> {
                 var_decls.insert(local_name.to_string());
             }
 
-            // Check if this import was created by stdlib normalization
-            let is_normalized = self.normalized_modules.contains(module_name);
-            if is_normalized {
-                log::debug!("Import '{module_name}' is a normalized stdlib import");
-            }
-
             let item_data = ItemData {
                 item_type: ItemType::Import {
                     module: module_name.to_string(),
@@ -199,7 +184,7 @@ impl<'a> GraphBuilder<'a> {
                 defined_symbols: FxHashSet::default(),
                 symbol_dependencies: FxHashMap::default(),
                 attribute_accesses: FxHashMap::default(),
-                is_normalized_import: is_normalized,
+                is_normalized_import: false,
                 statement_index: self.current_statement_index,
             };
 
