@@ -67,6 +67,13 @@ pub fn is_stdlib_without_side_effects(module_name: &str) -> bool {
         // Platform module can have initialization side effects
         "platform" => false,
 
+        // Logging configuration modules
+        "logging" => false,  // Can configure global logging state
+        "warnings" => false, // Can modify global warning filters
+
+        // Encoding modules that load codecs on import
+        "encodings" => false, // Loads encoding modules
+
         // Otherwise, if it's a stdlib module, it's safe to hoist
         _ => true,
     }
@@ -120,6 +127,9 @@ mod tests {
         assert!(!is_stdlib_without_side_effects("tkinter"));
         assert!(!is_stdlib_without_side_effects("site"));
         assert!(!is_stdlib_without_side_effects("webbrowser"));
+        assert!(!is_stdlib_without_side_effects("logging"));
+        assert!(!is_stdlib_without_side_effects("warnings"));
+        assert!(!is_stdlib_without_side_effects("encodings"));
 
         // Non-stdlib modules
         assert!(!is_stdlib_without_side_effects("numpy"));

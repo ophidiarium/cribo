@@ -132,13 +132,14 @@ fn apply_statement_renames(
     impl<'a> Transformer for RenameTransformer<'a> {
         fn visit_expr(&self, expr: &mut Expr) {
             if let Expr::Name(name_expr) = expr
-                && let Some(new_name) = self.renames.get(&name_expr.range) {
-                    trace!(
-                        "Renaming identifier at {:?} from '{}' to '{}'",
-                        name_expr.range, name_expr.id, new_name
-                    );
-                    name_expr.id = Name::new(new_name);
-                }
+                && let Some(new_name) = self.renames.get(&name_expr.range)
+            {
+                trace!(
+                    "Renaming identifier at {:?} from '{}' to '{}'",
+                    name_expr.range, name_expr.id, new_name
+                );
+                name_expr.id = Name::new(new_name);
+            }
 
             // Continue visiting child expressions
             walk_expr(self, expr);
