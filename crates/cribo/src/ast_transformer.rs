@@ -201,9 +201,14 @@ impl<'a> Transformer for RewriteTransformer<'a> {
                 if let TransformationMetadata::SymbolRewrite { rewrites } = transform {
                     // Apply rewrite if this node has one
                     if let Some(new_text) = rewrites.get(&node_index) {
-                        // Replace the expression with a new Name expression
-                        if let Expr::Name(_) = expr {
-                            *expr = self.create_name_expr(new_text);
+                        // Replace the expression based on its type
+                        match expr {
+                            Expr::Name(_) | Expr::Attribute(_) => {
+                                *expr = self.create_name_expr(new_text);
+                            }
+                            _ => {
+                                // Other expression types don't need rewriting
+                            }
                         }
                     }
                 }
@@ -216,21 +221,33 @@ impl<'a> Transformer for RewriteTransformer<'a> {
 }
 
 impl<'a> RewriteTransformer<'a> {
-    /// Create a new Name expression with the given text
+    /// Create a new Name or Attribute expression with the given text
     fn create_name_expr(&self, name: &str) -> Expr {
         // Check if it's a dotted name (e.g., "typing.Any")
-        if name.contains('.') {
-            // For dotted names, we need to create an Attribute expression
-            // For now, just create a simple Name expression
-            // TODO: Implement proper dotted name creation
-        }
+        if let Some(dot_pos) = name.rfind('.') {
+            // Split into base and attribute
+            let base = &name[..dot_pos];
+            let attr = &name[dot_pos + 1..];
 
-        // Create a simple name expression
-        Expr::Name(ExprName {
-            id: name.into(),
-            ctx: ruff_python_ast::ExprContext::Load,
-            range: Default::default(),
-            node_index: Default::default(),
-        })
+            // Recursively create the base expression (handles nested attributes)
+            let base_expr = self.create_name_expr(base);
+
+            // Create attribute expression
+            Expr::Attribute(ruff_python_ast::ExprAttribute {
+                value: Box::new(base_expr),
+                attr: ruff_python_ast::Identifier::new(attr, Default::default()),
+                ctx: ruff_python_ast::ExprContext::Load,
+                range: Default::default(),
+                node_index: Default::default(),
+            })
+        } else {
+            // Create a simple name expression
+            Expr::Name(ExprName {
+                id: name.into(),
+                ctx: ruff_python_ast::ExprContext::Load,
+                range: Default::default(),
+                node_index: Default::default(),
+            })
+        }
     }
 }
