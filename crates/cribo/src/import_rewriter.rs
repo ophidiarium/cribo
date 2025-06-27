@@ -12,6 +12,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::{
     analysis::{CircularDependencyGroup, CircularDependencyType},
     cribo_graph::{CriboGraph, ItemType, ModuleDepGraph, ModuleId},
+    module_registry::ModuleRegistry,
     semantic_bundler::SemanticBundler,
     visitors::{DiscoveredImport, ImportDiscoveryVisitor},
 };
@@ -69,10 +70,11 @@ impl ImportRewriter {
     /// Analyze a module graph to identify imports that can be moved to break cycles
     pub fn analyze_movable_imports(
         &mut self,
-        _graph: &CriboGraph,
+        graph: &CriboGraph,
+        registry: &ModuleRegistry,
         resolvable_cycles: &[CircularDependencyGroup],
     ) -> Vec<MovableImport> {
-        let movable_imports = Vec::new();
+        let mut movable_imports = Vec::new();
 
         for cycle in resolvable_cycles {
             debug!(
@@ -86,19 +88,24 @@ impl ImportRewriter {
                 continue;
             }
 
+            // Convert module IDs to names
+            let cycle_module_names: Vec<String> = cycle
+                .module_ids
+                .iter()
+                .filter_map(|&module_id| registry.get_name_by_id(module_id).map(|s| s.to_string()))
+                .collect();
+
             // For each module in the cycle, find imports that can be moved
-            // TODO: Convert module_ids to names
-            continue; // Temporarily disabled
-            #[allow(unreachable_code)]
-            for module_name in &[""] {
-                if let Some(module_graph) = _graph.get_module_by_name(module_name) {
-                    let candidates = self.find_movable_imports_in_module(
-                        module_graph,
-                        module_name,
-                        &[], // TODO: convert module_ids to names
-                    );
-                    movable_imports.extend(candidates);
-                }
+            for &module_id in &cycle.module_ids {
+                if let Some(module_name) = registry.get_name_by_id(module_id)
+                    && let Some(module_graph) = graph.modules.get(&module_id) {
+                        let candidates = self.find_movable_imports_in_module(
+                            module_graph,
+                            module_name,
+                            &cycle_module_names,
+                        );
+                        movable_imports.extend(candidates);
+                    }
             }
         }
 
@@ -110,14 +117,15 @@ impl ImportRewriter {
     pub fn analyze_movable_imports_semantic(
         &mut self,
         _graph: &CriboGraph,
+        registry: &ModuleRegistry,
         resolvable_cycles: &[CircularDependencyGroup],
-        _semantic_bundler: &SemanticBundler,
-        _module_asts: &[(String, &ModModule)],
+        semantic_bundler: &SemanticBundler,
+        module_asts: &[(String, &ModModule)],
     ) -> Result<Vec<MovableImport>> {
-        let movable_imports = Vec::new();
+        let mut movable_imports = Vec::new();
 
         // Cache to avoid re-analyzing modules that appear in multiple cycles
-        let mut _module_import_cache: FxHashMap<ModuleId, Vec<DiscoveredImport>> =
+        let mut module_import_cache: FxHashMap<ModuleId, Vec<DiscoveredImport>> =
             FxHashMap::default();
 
         for cycle in resolvable_cycles {
@@ -132,26 +140,30 @@ impl ImportRewriter {
                 continue;
             }
 
+            // Convert module IDs to names
+            let cycle_module_names: Vec<String> = cycle
+                .module_ids
+                .iter()
+                .filter_map(|&module_id| registry.get_name_by_id(module_id).map(|s| s.to_string()))
+                .collect();
+
             // For each module in the cycle, find imports that can be moved
-            // TODO: Convert module_ids to names
-            continue; // Temporarily disabled
-            #[allow(unreachable_code)]
-            for module_name in &[""] {
-                if let Some(module_id) = _graph.module_names.get(*module_name) {
+            for &module_id in &cycle.module_ids {
+                if let Some(module_name) = registry.get_name_by_id(module_id) {
                     // Check if we've already analyzed this module
                     let discovered_imports =
-                        if let Some(cached_imports) = _module_import_cache.get(module_id) {
+                        if let Some(cached_imports) = module_import_cache.get(&module_id) {
                             trace!("Using cached import analysis for module '{module_name}'");
                             cached_imports.clone()
                         } else {
                             // Find the AST for this module
                             if let Some((_, ast)) =
-                                _module_asts.iter().find(|(name, _)| name == module_name)
+                                module_asts.iter().find(|(name, _)| name == module_name)
                             {
                                 // Perform semantic analysis using enhanced ImportDiscoveryVisitor
                                 let mut visitor = ImportDiscoveryVisitor::with_semantic_bundler(
-                                    _semantic_bundler,
-                                    *module_id,
+                                    semantic_bundler,
+                                    module_id,
                                 );
                                 for stmt in &ast.body {
                                     visitor.visit_stmt(stmt);
@@ -159,7 +171,7 @@ impl ImportRewriter {
                                 let imports = visitor.into_imports();
 
                                 // Cache the results for future use
-                                _module_import_cache.insert(*module_id, imports.clone());
+                                module_import_cache.insert(module_id, imports.clone());
                                 imports
                             } else {
                                 continue;
@@ -170,7 +182,7 @@ impl ImportRewriter {
                     let candidates = self.find_movable_imports_from_discovered(
                         &discovered_imports,
                         module_name,
-                        &[], // TODO: convert module_ids to names
+                        &cycle_module_names,
                     );
                     movable_imports.extend(candidates);
                 }
