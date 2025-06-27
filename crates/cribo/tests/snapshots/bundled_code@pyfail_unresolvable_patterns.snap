@@ -8,9 +8,9 @@ input_file: crates/cribo/tests/fixtures/pyfail_unresolvable_patterns/main.py
 
 import types
 B_VALUE = A_VALUE * 2
+A_VALUE_constants_a = B_VALUE + 1
 constants_b = types.SimpleNamespace()
 constants_b.B_VALUE = B_VALUE
-A_VALUE_constants_a = B_VALUE + 1
 constants_a = types.SimpleNamespace()
 constants_a.A_VALUE = A_VALUE_constants_a
 def main():

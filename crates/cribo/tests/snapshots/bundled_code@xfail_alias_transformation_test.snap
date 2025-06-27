@@ -18,21 +18,21 @@ def debug_print(message):
 def helper_func_utils_helpers(input_str):
     """A helper function that processes a string."""
     return f"Processed: {input_str.upper()}"
-utils_helpers = types.SimpleNamespace()
-utils_helpers.debug_print = debug_print
-utils_helpers.helper_func = helper_func_utils_helpers
 def format_output(processed_data):
     """Format processed data as a comma-separated string."""
     return ", ".join(map(str, processed_data))
 def process_data(data_list):
     """Process a list of data by doubling each element."""
     return [x * 2 for x in data_list]
-utils_data_processor = types.SimpleNamespace()
-utils_data_processor.format_output = format_output
-utils_data_processor.process_data = process_data
 def load_config(config_file):
     """Load configuration from a file (simulated)."""
     return {"file": config_file, "loaded": True, "settings": {"debug": False}}
+utils_helpers = types.SimpleNamespace()
+utils_helpers.debug_print = debug_print
+utils_helpers.helper_func = helper_func_utils_helpers
+utils_data_processor = types.SimpleNamespace()
+utils_data_processor.format_output = format_output
+utils_data_processor.process_data = process_data
 utils_config_manager = types.SimpleNamespace()
 utils_config_manager.load_config = load_config
 config_a = utils_config_manager.load_config

@@ -17,8 +17,6 @@ class Admin_admin_class(User):
     def demote_to_user(self):
         """Demote admin to regular user."""
         return User(self.name)
-admin_class = types.SimpleNamespace()
-admin_class.Admin = Admin_admin_class
 class User_user_class:
     """User class that references Admin class."""
 
@@ -29,6 +27,8 @@ class User_user_class:
     def promote_to_admin(self):
         """Promote user to admin."""
         return self.admin_reference(self.name)
+admin_class = types.SimpleNamespace()
+admin_class.Admin = Admin_admin_class
 user_class = types.SimpleNamespace()
 user_class.User = User_user_class
 User = user_class.User

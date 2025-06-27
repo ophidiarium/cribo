@@ -16,9 +16,6 @@ def format_message_utils_helpers(greeting: str, name: str) -> str:
 def calculate_total_utils_helpers(values: List[int]) -> int:
     """Calculate the sum of a list of integers."""
     return sum(values)
-utils_helpers = types.SimpleNamespace()
-utils_helpers.format_message = format_message_utils_helpers
-utils_helpers.calculate_total = calculate_total_utils_helpers
 class UserRole_models_user(Enum):
     """User role enumeration."""
     ADMIN = "admin"
@@ -51,10 +48,6 @@ class User_models_user:
     def deactivate(self) -> None:
         """Deactivate the user."""
         self.active = False
-models_user = types.SimpleNamespace()
-models_user.ADMIN = ADMIN
-models_user.UserRole = UserRole_models_user
-models_user.User = User_models_user
 class DatabaseService_services_database:
     """Service for database operations."""
 
@@ -112,6 +105,13 @@ class DatabaseConnection:
     def disconnect(self) -> None:
         """Disconnect from the database."""
         self.is_connected = False
+utils_helpers = types.SimpleNamespace()
+utils_helpers.format_message = format_message_utils_helpers
+utils_helpers.calculate_total = calculate_total_utils_helpers
+models_user = types.SimpleNamespace()
+models_user.ADMIN = ADMIN
+models_user.UserRole = UserRole_models_user
+models_user.User = User_models_user
 services_database = types.SimpleNamespace()
 services_database.DatabaseService = DatabaseService_services_database
 services_database.DatabaseConnection = DatabaseConnection

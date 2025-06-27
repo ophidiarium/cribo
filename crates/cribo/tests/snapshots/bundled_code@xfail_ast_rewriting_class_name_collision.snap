@@ -27,9 +27,6 @@ class User:
 
     def __str__(self) -> str:
         return f"Model User(name='{self.name}', email='{self.email}')"
-models = types.SimpleNamespace()
-models.Product = Product
-models.User = User
 class Product_entities:
     """Product entity for business logic."""
 
@@ -50,6 +47,9 @@ class User_entities:
 
     def __str__(self) -> str:
         return f"Entity User(name='{self.name}', age={self.age})"
+models = types.SimpleNamespace()
+models.Product = Product
+models.User = User
 entities = types.SimpleNamespace()
 entities.Product = Product_entities
 entities.User = User_entities

@@ -8,26 +8,17 @@ input_file: crates/cribo/tests/fixtures/pyfail_mixed_cycles/main.py
 
 import types
 BASE_VALUE_constants_module = 42 * CONFIG_MULTIPLIER
-constants_module = types.SimpleNamespace()
-constants_module.BASE_VALUE = BASE_VALUE_constants_module
 def utility_function():
     """Another function that doesn't create a cycle."""
     return "utility"
-def process_data_function_module(value):
-    """Process data using helper from another module."""
-    from helper_module import transform
-    return transform(value) * 2
+CONFIG_MULTIPLIER_config_constants = 2
+constants_module = types.SimpleNamespace()
+constants_module.BASE_VALUE = BASE_VALUE_constants_module
 function_module = types.SimpleNamespace()
 function_module.utility_function = utility_function
 function_module.process_data = process_data_function_module
-CONFIG_MULTIPLIER_config_constants = 2
 config_constants = types.SimpleNamespace()
 config_constants.CONFIG_MULTIPLIER = CONFIG_MULTIPLIER_config_constants
-def transform(value):
-    """Transform a value using another function."""
-    from function_module import utility_function
-    prefix = utility_function()
-    return value + len(prefix)
 helper_module = types.SimpleNamespace()
 helper_module.transform = transform
 BASE_VALUE = constants_module.BASE_VALUE

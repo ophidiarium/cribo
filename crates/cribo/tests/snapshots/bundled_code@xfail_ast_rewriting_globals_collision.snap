@@ -43,11 +43,6 @@ def process_core_database_connection(data):
     clean_data = sanitize(data)
     return f"db_process: {clean_data}"
 process_core_database_connection = None
-core_database_connection = types.SimpleNamespace()
-core_database_connection.Connection = Connection_core_database_connection
-core_database_connection.validate = validate_core_database_connection
-core_database_connection.process = process_core_database_connection
-core_database_connection.process = process_core_database_connection
 User_models_user = None
 class Logger_models_user:
     """User module logger - different from utils and base Logger"""
@@ -72,11 +67,6 @@ class User_models_user:
 
     def process(self):
         return f"User.process: {self.name}"
-models_user = types.SimpleNamespace()
-models_user.User = User_models_user
-models_user.Logger = Logger_models_user
-models_user.Connection = Connection_models_user
-models_user.User = User_models_user
 def validate_models_base(data):
     """Validate function that uses imported validate"""
     base_check = f"base_validate: {data}"
@@ -102,15 +92,6 @@ class Logger_models_base:
     def get_message(self):
         return f"base_logger_{self.prefix}"
 Logger_models_base = None
-models_base = types.SimpleNamespace()
-models_base.validate = validate_models_base
-models_base.validate = validate_models_base
-models_base.process = process_models_base
-models_base.process = process_models_base
-models_base.Connection = Connection_models_base
-models_base.initialize = initialize_models_base
-models_base.Logger = Logger_models_base
-models_base.Logger = Logger_models_base
 def validate_services_auth_manager(data):
     """Validate function in auth module"""
     if not isinstance(data, str):
@@ -149,16 +130,6 @@ class Connection_services_auth_manager:
         return f"auth_wrapped_{db_result}"
 process_services_auth_manager = [1, 2, 3]
 Connection_services_auth_manager = {"auth": True}
-services_auth_manager = types.SimpleNamespace()
-services_auth_manager.Logger = Logger_services_auth_manager
-services_auth_manager.validate = validate_services_auth_manager
-services_auth_manager.User = User_services_auth_manager
-services_auth_manager.process = process_services_auth_manager
-services_auth_manager.validate = validate_services_auth_manager
-services_auth_manager.User = User_services_auth_manager
-services_auth_manager.Connection = Connection_services_auth_manager
-services_auth_manager.process = process_services_auth_manager
-services_auth_manager.Connection = Connection_services_auth_manager
 def validate_core_utils_helpers(data):
     """Validate function in utils module"""
     if data in validate_cache:
@@ -199,6 +170,35 @@ class Logger_core_utils_helpers:
 
     def get_message(self):
         return f"utils_logger_{self.name}"
+core_database_connection = types.SimpleNamespace()
+core_database_connection.Connection = Connection_core_database_connection
+core_database_connection.validate = validate_core_database_connection
+core_database_connection.process = process_core_database_connection
+core_database_connection.process = process_core_database_connection
+models_user = types.SimpleNamespace()
+models_user.User = User_models_user
+models_user.Logger = Logger_models_user
+models_user.Connection = Connection_models_user
+models_user.User = User_models_user
+models_base = types.SimpleNamespace()
+models_base.validate = validate_models_base
+models_base.validate = validate_models_base
+models_base.process = process_models_base
+models_base.process = process_models_base
+models_base.Connection = Connection_models_base
+models_base.initialize = initialize_models_base
+models_base.Logger = Logger_models_base
+models_base.Logger = Logger_models_base
+services_auth_manager = types.SimpleNamespace()
+services_auth_manager.Logger = Logger_services_auth_manager
+services_auth_manager.validate = validate_services_auth_manager
+services_auth_manager.User = User_services_auth_manager
+services_auth_manager.process = process_services_auth_manager
+services_auth_manager.validate = validate_services_auth_manager
+services_auth_manager.User = User_services_auth_manager
+services_auth_manager.Connection = Connection_services_auth_manager
+services_auth_manager.process = process_services_auth_manager
+services_auth_manager.Connection = Connection_services_auth_manager
 core_utils_helpers = types.SimpleNamespace()
 core_utils_helpers.Logger = Logger_core_utils_helpers
 core_utils_helpers.format_result = format_result_core_utils_helpers

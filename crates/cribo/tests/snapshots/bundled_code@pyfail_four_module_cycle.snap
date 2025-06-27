@@ -10,25 +10,25 @@ import types
 def process_in_c():
     """Process in C, depends on D"""
     return f"C({process_in_d()})"
-module_c = types.SimpleNamespace()
-module_c.process_in_c = process_in_c
 def start_process():
     """Start the processing chain A -> B -> C -> D -> A"""
     return f"A({process_in_b()})"
 def final_step():
     """Final step called by module_d to complete the cycle"""
     return "A_final"
-module_a = types.SimpleNamespace()
-module_a.start_process = start_process
-module_a.final_step = final_step
 def process_in_d_module_d():
     """Process in D, depends back on A - completes the 4-module cycle"""
     return f"D({final_step()})"
-module_d = types.SimpleNamespace()
-module_d.process_in_d = process_in_d_module_d
 def process_in_b_module_b():
     """Process in B, depends on C"""
     return f"B({process_in_c()})"
+module_c = types.SimpleNamespace()
+module_c.process_in_c = process_in_c
+module_a = types.SimpleNamespace()
+module_a.start_process = start_process
+module_a.final_step = final_step
+module_d = types.SimpleNamespace()
+module_d.process_in_d = process_in_d_module_d
 module_b = types.SimpleNamespace()
 module_b.process_in_b = process_in_b_module_b
 def main():

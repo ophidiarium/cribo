@@ -16,10 +16,6 @@ def get_bar():
 def set_dynamic_global(name, value):
     """Set a global variable dynamically using globals()."""
     globals()[name] = value
-module_globals_dict = types.SimpleNamespace()
-module_globals_dict.modify_bar = modify_bar
-module_globals_dict.get_bar = get_bar
-module_globals_dict.set_dynamic_global = set_dynamic_global
 def get_foo():
     """Get the module's global foo value."""
     return foo
@@ -28,10 +24,6 @@ def modify_foo():
     global foo
     foo = "module1_foo_modified"
 foo_module_global_keyword = "module1_foo"
-module_global_keyword = types.SimpleNamespace()
-module_global_keyword.get_foo = get_foo
-module_global_keyword.modify_foo = modify_foo
-module_global_keyword.foo = foo_module_global_keyword
 def complex_global_usage():
     """Demonstrate complex global usage patterns."""
     global counter
@@ -60,6 +52,14 @@ def get_values():
     dict_bar = globals()["bar"]
     counter_val = globals().get("counter", -1)
     return {"foo": direct_foo, "bar": dict_bar, "counter": counter_val}
+module_globals_dict = types.SimpleNamespace()
+module_globals_dict.modify_bar = modify_bar
+module_globals_dict.get_bar = get_bar
+module_globals_dict.set_dynamic_global = set_dynamic_global
+module_global_keyword = types.SimpleNamespace()
+module_global_keyword.get_foo = get_foo
+module_global_keyword.modify_foo = modify_foo
+module_global_keyword.foo = foo_module_global_keyword
 module_mixed_patterns = types.SimpleNamespace()
 module_mixed_patterns.counter = counter
 module_mixed_patterns.modify_all = modify_all

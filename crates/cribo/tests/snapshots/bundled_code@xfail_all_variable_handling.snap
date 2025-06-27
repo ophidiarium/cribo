@@ -12,22 +12,22 @@ CONSTANT_simple_module = 42
 def public_func_simple_module():
     """A public function that should be exported."""
     return "Hello from public_func"
-simple_module = types.SimpleNamespace()
-simple_module.CONSTANT = CONSTANT_simple_module
-simple_module.public_func = public_func_simple_module
 message_conflict_module = "from conflict_module"
-conflict_module = types.SimpleNamespace()
-conflict_module.message = message_conflict_module
 def exported_from_init_nested_package():
     """Function exported from package __init__.py"""
     return f"From init, using helper: {helper_func()}"
-nested_package = types.SimpleNamespace()
-nested_package.exported_from_init = exported_from_init_nested_package
 __all___nested_package_submodule = ["sub_function", "SUB_CONSTANT"]
 SUB_CONSTANT = "submodule_value"
 def sub_function_nested_package_submodule():
     """Function from submodule"""
     return "Hello from submodule"
+simple_module = types.SimpleNamespace()
+simple_module.CONSTANT = CONSTANT_simple_module
+simple_module.public_func = public_func_simple_module
+conflict_module = types.SimpleNamespace()
+conflict_module.message = message_conflict_module
+nested_package = types.SimpleNamespace()
+nested_package.exported_from_init = exported_from_init_nested_package
 nested_package_submodule = types.SimpleNamespace()
 nested_package_submodule.SUB_CONSTANT = SUB_CONSTANT
 nested_package_submodule.sub_function = sub_function_nested_package_submodule

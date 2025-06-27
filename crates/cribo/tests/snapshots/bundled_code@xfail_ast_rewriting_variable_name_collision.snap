@@ -10,13 +10,13 @@ import types
 VERSION_constants = "1.0.0"
 DEFAULT_TIMEOUT_constants = 30
 API_URL_constants = "https://api.constants.com"
+VERSION_config = "2.1.0"
+MAX_RETRIES_config = 3
+API_URL_config = "https://api.config.com"
 constants = types.SimpleNamespace()
 constants.VERSION = VERSION_constants
 constants.DEFAULT_TIMEOUT = DEFAULT_TIMEOUT_constants
 constants.API_URL = API_URL_constants
-VERSION_config = "2.1.0"
-MAX_RETRIES_config = 3
-API_URL_config = "https://api.config.com"
 config = types.SimpleNamespace()
 config.VERSION = VERSION_config
 config.MAX_RETRIES = MAX_RETRIES_config

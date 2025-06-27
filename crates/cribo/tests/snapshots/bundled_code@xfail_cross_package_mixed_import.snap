@@ -23,19 +23,11 @@ def _register_type(type_name):
     _registered_types.append(type_name)
     return type_name
 _registered_types = []
-core_database = types.SimpleNamespace()
 if HAS_ADVANCED:
     __all__.append("AdvancedModel")
 def get_model_version_models():
     """Get the models package version."""
     return _VERSION
-try:
-    from models.advanced import AdvancedModel
-    HAS_ADVANCED = True
-    DEFAULT_MODEL_CONFIG["features"].append("advanced_model")
-except ImportError:
-    HAS_ADVANCED = False
-    AdvancedModel = None
 def get_base_model():
     """Lazy import of BaseModel to avoid circular imports."""
     global _base_model
@@ -52,32 +44,7 @@ def get_base_model():
         _base_model = BaseModel
     return _base_model
 DEFAULT_MODEL_CONFIG_models = {"version": _VERSION, "features": ["user_processing", "lazy_loading"]}
-try:
-    from models.advanced import AdvancedModel
-    HAS_ADVANCED = True
-    DEFAULT_MODEL_CONFIG["features"].append("advanced_model")
-except ImportError:
-    HAS_ADVANCED = False
-    AdvancedModel = None
 _base_model = None
-if sys.version_info >= (3, 9):
-    from typing import TypeAlias
-    ModelID: TypeAlias = str
-else:
-    ModelID = str
-try:
-    from models.advanced import AdvancedModel
-    HAS_ADVANCED = True
-    DEFAULT_MODEL_CONFIG["features"].append("advanced_model")
-except ImportError:
-    HAS_ADVANCED = False
-    AdvancedModel = None
-models = types.SimpleNamespace()
-models.get_model_version = get_model_version_models
-models.get_base_model = get_base_model
-models.DEFAULT_MODEL_CONFIG = DEFAULT_MODEL_CONFIG_models
-models.HAS_ADVANCED = HAS_ADVANCED
-models.HAS_ADVANCED = HAS_ADVANCED
 def initialize_core_core(debug=False):
     """Initialize the core package with configuration."""
     global _initialized, _config
@@ -100,9 +67,6 @@ def initialize_core_core(debug=False):
     if debug:
         print(f"Core initialized with version: {CORE_MODEL_VERSION}")
     return _initialized
-core = types.SimpleNamespace()
-core.initialize_core = initialize_core_core
-core.is_initialized = is_initialized
 class Connection:
     """Connection class using mixed imports."""
 
@@ -169,14 +133,24 @@ def get_connection_info_core_database_connection() -> dict:
         from ..utils.config import get_config as get_full_config
         info["config"] = get_full_config()
     return info
+def process_user(name: str) -> str:
+    """Process a user-related string.\n\n    This function is imported by core.database.connection,\n    demonstrating a cross-package absolute import.\n    """
+    return f"user_{name}_processed"
+core_database = types.SimpleNamespace()
+models = types.SimpleNamespace()
+models.get_model_version = get_model_version_models
+models.get_base_model = get_base_model
+models.DEFAULT_MODEL_CONFIG = DEFAULT_MODEL_CONFIG_models
+models.HAS_ADVANCED = HAS_ADVANCED
+models.HAS_ADVANCED = HAS_ADVANCED
+core = types.SimpleNamespace()
+core.initialize_core = initialize_core_core
+core.is_initialized = is_initialized
 core_database_connection = types.SimpleNamespace()
 core_database_connection.Connection = Connection
 core_database_connection.get_connection_info = get_connection_info_core_database_connection
 core_database_connection.CONNECTION_METADATA = CONNECTION_METADATA_core_database_connection
 core_database_connection.connect = connect_core_database_connection
-def process_user(name: str) -> str:
-    """Process a user-related string.\n\n    This function is imported by core.database.connection,\n    demonstrating a cross-package absolute import.\n    """
-    return f"user_{name}_processed"
 models_user = types.SimpleNamespace()
 models_user.process_user = process_user
 connect = core_database_connection.connect

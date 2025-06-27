@@ -17,10 +17,6 @@ DEFAULT_CONFIG = {"debug": True, "timeout": 30}
 def get_config():
     """Get the default configuration."""
     return DEFAULT_CONFIG.copy()
-utils_config = types.SimpleNamespace()
-utils_config.DEFAULT_CONFIG = DEFAULT_CONFIG
-utils_config.get_config = get_config
-config_module = utils_config
 class UtilityClass:
     """A simple utility class."""
 
@@ -32,6 +28,10 @@ class UtilityClass:
 def helper_function():
     """A simple helper function."""
     return "helper_result"
+utils_config = types.SimpleNamespace()
+utils_config.DEFAULT_CONFIG = DEFAULT_CONFIG
+utils_config.get_config = get_config
+config_module = utils_config
 utils_helpers = types.SimpleNamespace()
 utils_helpers.UtilityClass = UtilityClass
 utils_helpers.helper_function = helper_function

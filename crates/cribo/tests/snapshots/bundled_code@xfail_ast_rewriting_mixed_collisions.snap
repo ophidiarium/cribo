@@ -51,12 +51,6 @@ def validate_core_database_connection(data):
     return f"db_valid: {data}"
 connection_core_database_connection = None
 process_core_database_connection = process
-core_database_connection = types.SimpleNamespace()
-core_database_connection.result = result_core_database_connection
-core_database_connection.process = process_core_database_connection
-core_database_connection.Connection = Connection_core_database_connection
-core_database_connection.connection = connection_core_database_connection
-core_database_connection.process = process_core_database_connection
 def process_models_user(data: Any) -> str:
     """Module process function - major conflict"""
     if isinstance(data, dict):
@@ -245,19 +239,6 @@ def process_user_models_user(data: Any) -> str:
         processed = "model_user_invalid_data"
     result["last_process"] = processed
     return processed
-models_user = types.SimpleNamespace()
-models_user.process = process_models_user
-models_user.User = User_models_user
-models_user.result = result_models_user
-models_user.validate = validate_models_user
-models_user.process = process_models_user
-models_user.User = User_models_user
-models_user.connection = connection_models_user
-models_user.validate = validate_models_user
-models_user.process = process_models_user
-models_user.Logger = Logger_models_user
-models_user.Logger = Logger_models_user
-models_user.process_user = process_user_models_user
 class BaseModel:
     """Base model class with method name conflicts"""
 
@@ -380,20 +361,6 @@ def process_models_base(data: Any) -> str:
     result = f"base_last_process: {processed}"
     return processed
 initialize_models_base = initialize
-models_base = types.SimpleNamespace()
-models_base.connect = connect_models_base
-models_base.validate = validate_models_base
-models_base.process = process_models_base
-models_base.BaseModel = BaseModel
-models_base.Logger = Logger_models_base
-models_base.shadow_test = shadow_test
-models_base.result = result_models_base
-models_base.Logger = Logger_models_base
-models_base.process = process_models_base
-models_base.initialize = initialize_models_base
-models_base.validate = validate_models_base
-models_base.process = process_models_base
-models_base.initialize = initialize_models_base
 validate_services_auth_manager = validate
 class User_services_auth_manager:
     """Auth User class - conflicts with other User classes/variables"""
@@ -532,16 +499,6 @@ def validate_services_auth_manager(data: Any) -> str:
     else:
         lambda_result = f"fallback_{data}"
     return f"auth_valid: {data}, lambda: {lambda_result}"
-services_auth_manager = types.SimpleNamespace()
-services_auth_manager.validate = validate_services_auth_manager
-services_auth_manager.User = User_services_auth_manager
-services_auth_manager.process = process_services_auth_manager
-services_auth_manager.User = User_services_auth_manager
-services_auth_manager.result = result_services_auth_manager
-services_auth_manager.process = process_services_auth_manager
-services_auth_manager.validate = validate_services_auth_manager
-services_auth_manager.process = process_services_auth_manager
-services_auth_manager.validate = validate_services_auth_manager
 def process_core_utils_helpers(data: Any) -> str:
     """Utility process function - major conflict with other process functions"""
     global result
@@ -622,6 +579,49 @@ def validate_core_utils_helpers(data: Any) -> bool:
     elif isinstance(data, (int, float)):
         return data >= 0
     return True
+core_database_connection = types.SimpleNamespace()
+core_database_connection.result = result_core_database_connection
+core_database_connection.process = process_core_database_connection
+core_database_connection.Connection = Connection_core_database_connection
+core_database_connection.connection = connection_core_database_connection
+core_database_connection.process = process_core_database_connection
+models_user = types.SimpleNamespace()
+models_user.process = process_models_user
+models_user.User = User_models_user
+models_user.result = result_models_user
+models_user.validate = validate_models_user
+models_user.process = process_models_user
+models_user.User = User_models_user
+models_user.connection = connection_models_user
+models_user.validate = validate_models_user
+models_user.process = process_models_user
+models_user.Logger = Logger_models_user
+models_user.Logger = Logger_models_user
+models_user.process_user = process_user_models_user
+models_base = types.SimpleNamespace()
+models_base.connect = connect_models_base
+models_base.validate = validate_models_base
+models_base.process = process_models_base
+models_base.BaseModel = BaseModel
+models_base.Logger = Logger_models_base
+models_base.shadow_test = shadow_test
+models_base.result = result_models_base
+models_base.Logger = Logger_models_base
+models_base.process = process_models_base
+models_base.initialize = initialize_models_base
+models_base.validate = validate_models_base
+models_base.process = process_models_base
+models_base.initialize = initialize_models_base
+services_auth_manager = types.SimpleNamespace()
+services_auth_manager.validate = validate_services_auth_manager
+services_auth_manager.User = User_services_auth_manager
+services_auth_manager.process = process_services_auth_manager
+services_auth_manager.User = User_services_auth_manager
+services_auth_manager.result = result_services_auth_manager
+services_auth_manager.process = process_services_auth_manager
+services_auth_manager.validate = validate_services_auth_manager
+services_auth_manager.process = process_services_auth_manager
+services_auth_manager.validate = validate_services_auth_manager
 core_utils_helpers = types.SimpleNamespace()
 core_utils_helpers.process = process_core_utils_helpers
 core_utils_helpers.validate = validate_core_utils_helpers
