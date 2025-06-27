@@ -72,13 +72,11 @@ impl SideEffectDetector {
     /// Helper to collect names from import statements
     fn collect_import_names(&mut self, import_stmt: &ruff_python_ast::StmtImport) {
         for alias in &import_stmt.names {
-            let module_name = alias.name.as_str();
+            let _module_name = alias.name.as_str();
             let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-            // Skip imports that don't have side effects
-            if !crate::side_effects::import_has_side_effects(module_name) {
-                continue;
-            }
+            // We now collect all imports regardless of side effects
+            // The orchestrator will determine which modules have side effects based on graph data
 
             // For imports like "import xml.etree.ElementTree",
             // we need to track both the full path and the root binding
@@ -93,10 +91,8 @@ impl SideEffectDetector {
 
     /// Helper to collect names from import-from statements
     fn collect_import_from_names(&mut self, import_from: &ruff_python_ast::StmtImportFrom) {
-        // Skip imports that don't have side effects
-        if !crate::side_effects::from_import_has_side_effects(import_from) {
-            return;
-        }
+        // We now collect all imports regardless of side effects
+        // The orchestrator will determine which modules have side effects based on graph data
 
         for alias in &import_from.names {
             let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
@@ -696,12 +692,14 @@ x = requests  # Using the root binding of a third-party module (always a side ef
 import os
 import json
 import typing
-x = os  # Safe stdlib module usage is not a side effect
+x = os  # Using imported modules is now considered a side effect
 y = json
 z = typing
 "#;
         let module = parse_python(source).expect("Failed to parse test Python code");
-        assert!(!SideEffectDetector::check_module(&module));
+        // Since we no longer determine side effects based on stdlib safety here,
+        // this test now expects side effects for any module usage
+        assert!(SideEffectDetector::check_module(&module));
     }
 
     #[test]

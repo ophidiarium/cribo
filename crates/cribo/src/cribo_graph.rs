@@ -24,6 +24,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 // Import circular dependency types for compatibility
 use crate::analysis::{CircularDependencyType, ResolutionStrategy};
+use crate::types::ModuleKind;
 
 /// Unique identifier for a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -191,7 +192,7 @@ pub struct ItemData {
 }
 
 /// Fine-grained dependency graph for a single module
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModuleDepGraph {
     /// Module identifier
     pub module_id: ModuleId,
@@ -207,6 +208,15 @@ pub struct ModuleDepGraph {
     pub var_states: FxHashMap<String, VarState>,
     /// Next item ID to allocate
     next_item_id: u32,
+    /// Classification of this module (stdlib/third-party/first-party)
+    pub kind: ModuleKind,
+    /// Whether this module has side effects when imported
+    /// This is determined after the module is added to the graph, based on:
+    /// - Hardcoded knowledge for stdlib modules
+    /// - AST analysis for first-party modules
+    /// - User configuration overrides
+    /// - Default to true for unknown third-party modules
+    pub has_side_effects: bool,
 }
 
 impl ModuleDepGraph {
@@ -220,6 +230,8 @@ impl ModuleDepGraph {
             side_effect_items: Vec::new(),
             var_states: FxHashMap::default(),
             next_item_id: 0,
+            kind: ModuleKind::FirstParty, // Default to first-party, will be updated by resolver
+            has_side_effects: true,       // Default to true for safety, will be updated by resolver
         }
     }
 
@@ -239,6 +251,8 @@ impl ModuleDepGraph {
             side_effect_items: source_graph.side_effect_items.clone(),
             var_states: source_graph.var_states.clone(),
             next_item_id: source_graph.next_item_id,
+            kind: source_graph.kind, // Copy classification from source
+            has_side_effects: source_graph.has_side_effects, // Copy side effects from source
         }
     }
 
@@ -646,13 +660,13 @@ struct CycleAnalysisResult {
 pub struct ImportEdge {
     pub from_module: String,
     pub to_module: String,
-    pub import_type: ImportType,
+    pub import_type: ImportSyntaxKind,
     pub line_number: Option<usize>,
 }
 
 /// Type of import statement (DEPRECATED - use EdgeType)
 #[derive(Debug, Clone)]
-pub enum ImportType {
+pub enum ImportSyntaxKind {
     Direct,         // import module
     FromImport,     // from module import item
     RelativeImport, // from .module import item
@@ -664,7 +678,7 @@ pub enum ImportType {
 /// - Turbopack's fine-grained tracking
 /// - Rspack's incremental updates
 /// - Mako's petgraph efficiency
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CriboGraph {
     /// All modules in the graph
     pub modules: FxHashMap<ModuleId, ModuleDepGraph>,
@@ -728,6 +742,20 @@ impl CriboGraph {
             module_canonical_paths: FxHashMap::default(),
             file_to_import_names: FxHashMap::default(),
             file_primary_module: FxHashMap::default(),
+        }
+    }
+
+    /// Update module classification and properties after resolution
+    /// This should be called after the module has been added and its type determined
+    pub fn update_module_properties(
+        &mut self,
+        module_id: ModuleId,
+        kind: ModuleKind,
+        has_side_effects: bool,
+    ) {
+        if let Some(module) = self.modules.get_mut(&module_id) {
+            module.kind = kind;
+            module.has_side_effects = has_side_effects;
         }
     }
 
@@ -813,17 +841,14 @@ impl CriboGraph {
         let node_idx = self.graph.add_node(id);
         self.node_indices.insert(id, node_idx);
 
-        // Check if module is from stdlib
-        let root_module = name.split('.').next().unwrap_or(&name);
-        let is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(10, root_module);
-
-        // Initialize metadata
+        // Initialize metadata with defaults
+        // Module classification and side effects will be determined later
         self.module_metadata.insert(
             id,
             ModuleMetadata {
-                has_side_effects: is_stdlib && Self::is_stdlib_with_side_effects(&name),
+                has_side_effects: true, // Default to true for safety
                 is_entry: false,
-                is_stdlib,
+                is_stdlib: false, // Will be updated after resolution
                 size: 0,
                 content_hash: None,
             },
@@ -1140,7 +1165,7 @@ impl CriboGraph {
     }
 
     /// Determine import type between two modules
-    fn determine_import_type(&self, from_id: ModuleId, to_id: ModuleId) -> ImportType {
+    fn determine_import_type(&self, from_id: ModuleId, to_id: ModuleId) -> ImportSyntaxKind {
         // Check the module's items for import statements
         if let Some(from_module) = self.modules.get(&from_id) {
             for item_data in from_module.items.values() {
@@ -1151,7 +1176,7 @@ impl CriboGraph {
                 }
             }
         }
-        ImportType::Direct // Default
+        ImportSyntaxKind::Direct // Default
     }
 
     /// Check if an item contains an import that matches the target module
@@ -1159,14 +1184,14 @@ impl CriboGraph {
         &self,
         item_type: &ItemType,
         to_id: ModuleId,
-    ) -> Option<ImportType> {
+    ) -> Option<ImportSyntaxKind> {
         match item_type {
             ItemType::Import { module, alias } => {
                 if self.module_names.get(module) == Some(&to_id) {
                     if alias.is_some() {
-                        Some(ImportType::AliasedImport)
+                        Some(ImportSyntaxKind::AliasedImport)
                     } else {
-                        Some(ImportType::Direct)
+                        Some(ImportSyntaxKind::Direct)
                     }
                 } else {
                     None
@@ -1175,9 +1200,9 @@ impl CriboGraph {
             ItemType::FromImport { module, level, .. } => {
                 if self.module_names.get(module) == Some(&to_id) {
                     Some(if *level > 0 {
-                        ImportType::RelativeImport
+                        ImportSyntaxKind::RelativeImport
                     } else {
-                        ImportType::FromImport
+                        ImportSyntaxKind::FromImport
                     })
                 } else {
                     None

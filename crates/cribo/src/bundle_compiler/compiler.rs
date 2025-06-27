@@ -17,7 +17,8 @@ use crate::{
     cribo_graph::{CriboGraph, ItemId, ItemType, ModuleId},
     module_registry::ModuleRegistry,
     semantic_model_provider::GlobalBindingId,
-    stdlib_detection::is_stdlib_without_side_effects,
+    transformations::TransformationMetadata,
+    types::ModuleKind,
 };
 
 /// Minimal, orthogonal execution steps for the bundle VM
@@ -282,6 +283,24 @@ impl<'a> BundleCompiler<'a> {
             }
 
             if let ImportClassification::Hoist { import_type } = classification {
+                // Check if this item has transformations that would remove it
+                if let Some(transformations) = self
+                    .analysis_results
+                    .transformations
+                    .get(&(*module_id, *item_id))
+                {
+                    let has_remove = transformations
+                        .iter()
+                        .any(|t| matches!(t, TransformationMetadata::RemoveImport { .. }));
+                    if has_remove {
+                        debug!(
+                            "Skipping hoisted import due to RemoveImport transformation: module \
+                             {module_id:?}, item {item_id:?}"
+                        );
+                        continue;
+                    }
+                }
+
                 match import_type {
                     HoistType::Direct { module_name, alias } => {
                         let import_key = if let Some(alias) = alias {
@@ -301,13 +320,46 @@ impl<'a> BundleCompiler<'a> {
                             if module_name == "__future__" {
                                 future_imports.push(stmt);
                                 debug!("Adding __future__ import: {module_name}");
-                            } else if is_stdlib_without_side_effects(module_name) {
-                                stdlib_imports.push(stmt);
-                                debug!(
-                                    "Adding stdlib import: {module_name} from module {module_id:?}"
-                                );
                             } else {
-                                debug!("Skipping third-party import: {module_name}");
+                                // Check if the module is a safe stdlib module
+                                let is_safe_stdlib = if let Some(imported_module_id) =
+                                    self.registry.get_id_by_name(module_name)
+                                {
+                                    // Module is in our graph (first-party), check its metadata
+                                    if let Some(module_graph) =
+                                        self.graph.modules.get(&imported_module_id)
+                                    {
+                                        module_graph.kind == ModuleKind::StandardLibrary
+                                            && !module_graph.has_side_effects
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    // Module not in our graph, it's external (stdlib or
+                                    // third-party) We need to
+                                    // check if it's a safe stdlib module
+                                    // TODO: Get Python version from a more reliable source (pass to
+                                    // BundleCompiler)
+                                    // For now, default to Python 3.10
+                                    let python_version = 10;
+                                    crate::stdlib_detection::is_stdlib_without_side_effects(
+                                        module_name,
+                                        python_version,
+                                    )
+                                };
+
+                                if is_safe_stdlib {
+                                    stdlib_imports.push(stmt);
+                                    debug!(
+                                        "Adding stdlib import: {module_name} from module \
+                                         {module_id:?}"
+                                    );
+                                } else {
+                                    debug!(
+                                        "Skipping import: {module_name} (third-party or stdlib \
+                                         with side effects)"
+                                    );
+                                }
                             }
                             // Third-party imports are NOT hoisted - they stay in original location
                         }
@@ -364,8 +416,37 @@ impl<'a> BundleCompiler<'a> {
                             // Only hoist __future__ and stdlib imports
                             if module_name == "__future__" {
                                 future_imports.push(stmt);
-                            } else if is_stdlib_without_side_effects(module_name) {
-                                stdlib_imports.push(stmt);
+                            } else {
+                                // Check if the module is in our graph to get its metadata
+                                let is_safe_stdlib = if let Some(imported_module_id) =
+                                    self.registry.get_id_by_name(module_name)
+                                {
+                                    // Module is in our graph, use its metadata
+                                    if let Some(module_graph) =
+                                        self.graph.modules.get(&imported_module_id)
+                                    {
+                                        module_graph.kind == ModuleKind::StandardLibrary
+                                            && !module_graph.has_side_effects
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    // Module not in our graph, it's external (stdlib or
+                                    // third-party) We need to
+                                    // check if it's a safe stdlib module
+                                    // TODO: Get Python version from a more reliable source (pass to
+                                    // BundleCompiler)
+                                    // For now, default to Python 3.10
+                                    let python_version = 10;
+                                    crate::stdlib_detection::is_stdlib_without_side_effects(
+                                        module_name,
+                                        python_version,
+                                    )
+                                };
+
+                                if is_safe_stdlib {
+                                    stdlib_imports.push(stmt);
+                                }
                             }
                             // Third-party imports are NOT hoisted - they stay in original location
                         }
@@ -394,19 +475,34 @@ impl<'a> BundleCompiler<'a> {
     fn compile_namespace_modules(&self) -> Result<Vec<ExecutionStep>> {
         let mut steps = Vec::new();
         let mut namespace_modules: FxHashMap<ModuleId, String> = FxHashMap::default();
+        let mut module_aliases: FxHashMap<ModuleId, Vec<String>> = FxHashMap::default();
 
-        // Collect modules that need namespace treatment
+        // Collect modules that need namespace treatment and their aliases
         for classification in self.classified_imports.values() {
             match classification {
                 ImportClassification::EmulateAsNamespace { module_id, alias } => {
-                    namespace_modules.insert(*module_id, alias.clone());
+                    // Store the primary namespace name if not already set
+                    namespace_modules.entry(*module_id).or_insert_with(|| {
+                        self.registry
+                            .get_name_by_id(*module_id)
+                            .map(ModuleRegistry::sanitize_module_name_for_identifier)
+                            .unwrap_or_else(|| alias.clone())
+                    });
+
+                    // Collect all aliases for this module
+                    module_aliases
+                        .entry(*module_id)
+                        .or_default()
+                        .push(alias.clone());
                 }
                 ImportClassification::Inline { module_id, .. } => {
                     // Inline imports also need namespace objects for their module
                     if let Some(module_name) = self.registry.get_name_by_id(*module_id) {
                         let namespace_name =
                             ModuleRegistry::sanitize_module_name_for_identifier(module_name);
-                        namespace_modules.insert(*module_id, namespace_name);
+                        namespace_modules
+                            .entry(*module_id)
+                            .or_insert(namespace_name);
                     }
                 }
                 _ => {}
@@ -466,6 +562,24 @@ impl<'a> BundleCompiler<'a> {
 
                         if has_class_with_same_index {
                             debug!("Skipping method {:?} (inside a class)", item_data.item_type);
+                            continue;
+                        }
+                    }
+
+                    // Check if this item has transformations
+                    if let Some(transformations) = self
+                        .analysis_results
+                        .transformations
+                        .get(&(*module_id, *item_id))
+                    {
+                        // Process transformations
+                        if self.process_item_transformations(
+                            &mut steps,
+                            *module_id,
+                            *item_id,
+                            transformations,
+                        )? {
+                            // Item was handled by transformations
                             continue;
                         }
                     }
@@ -565,6 +679,91 @@ impl<'a> BundleCompiler<'a> {
                     }
                 }
             }
+
+            // Create aliases for this namespace module
+            if let Some(aliases) = module_aliases.get(module_id) {
+                for alias in aliases {
+                    // Skip if the alias is the same as the namespace name
+                    if alias != namespace_name {
+                        if alias.contains('.') {
+                            // Handle dotted imports like "import app.utils"
+                            // We need to create parent namespace objects and connect them
+                            debug!(
+                                "Creating dotted namespace structure for alias '{alias}' -> '{namespace_name}'"
+                            );
+
+                            let parts: Vec<&str> = alias.split('.').collect();
+                            if parts.len() >= 2 {
+                                // Create parent namespace objects if needed
+                                for i in 0..parts.len() - 1 {
+                                    let parent_name = parts[..=i].join("_");
+                                    // Check if we need to create this parent namespace
+                                    if i == 0
+                                        || !namespace_modules.values().any(|n| n == &parent_name)
+                                    {
+                                        let create_parent = ast_builder::assign(
+                                            &parent_name,
+                                            ast_builder::call(ast_builder::attribute(
+                                                "types",
+                                                "SimpleNamespace",
+                                            )),
+                                        );
+                                        steps.push(ExecutionStep::InsertStatement {
+                                            stmt: create_parent,
+                                        });
+                                    }
+                                }
+
+                                // Connect the namespaces: e.g., app.utils = app_utils
+                                // Only need to create the connection once
+                                if parts.len() == 2 {
+                                    // Simple case: app.utils -> app_utils
+                                    let parent_name = parts[0];
+                                    let child_attr = parts[1];
+
+                                    let assign_stmt = ast_builder::assign_attribute(
+                                        parent_name,
+                                        child_attr,
+                                        ast_builder::name(namespace_name),
+                                    );
+                                    steps
+                                        .push(ExecutionStep::InsertStatement { stmt: assign_stmt });
+                                } else {
+                                    // More complex case with deeper nesting
+                                    for i in (1..parts.len()).rev() {
+                                        let parent_name = if i == 1 {
+                                            parts[0].to_string()
+                                        } else {
+                                            parts[..i].join("_")
+                                        };
+                                        let child_attr = parts[i];
+                                        let child_name = if i == parts.len() - 1 {
+                                            // Last part - use the actual namespace name
+                                            namespace_name.to_string()
+                                        } else {
+                                            parts[..=i].join("_")
+                                        };
+
+                                        let assign_stmt = ast_builder::assign_attribute(
+                                            &parent_name,
+                                            child_attr,
+                                            ast_builder::name(&child_name),
+                                        );
+                                        steps.push(ExecutionStep::InsertStatement {
+                                            stmt: assign_stmt,
+                                        });
+                                    }
+                                }
+                            }
+                        } else {
+                            // Simple alias
+                            let alias_stmt =
+                                ast_builder::assign(alias, ast_builder::name(namespace_name));
+                            steps.push(ExecutionStep::InsertStatement { stmt: alias_stmt });
+                        }
+                    }
+                }
+            }
         }
 
         // Handle symbol assignments for Inline imports from entry module
@@ -580,12 +779,30 @@ impl<'a> BundleCompiler<'a> {
                 && let Some(namespace_name) = namespace_modules.get(imported_module_id)
             {
                 for symbol in symbols {
-                    // Create assignment: imported_name = namespace.source_name
-                    let assign_stmt = ast_builder::assign(
-                        &symbol.target_name,
-                        ast_builder::attribute(namespace_name, &symbol.source_name),
-                    );
-                    steps.push(ExecutionStep::InsertStatement { stmt: assign_stmt });
+                    // For submodule imports (like `from app import utils`), the classification
+                    // already gives us the submodule's ID directly. We just need to assign it.
+                    // Check if the symbol name matches the last part of the module name
+                    let module_name = self
+                        .registry
+                        .get_name_by_id(*imported_module_id)
+                        .unwrap_or_default();
+
+                    if module_name.ends_with(&format!(".{}", symbol.source_name)) {
+                        // This is a submodule import - the imported_module_id is already the
+                        // submodule Just assign the namespace directly
+                        let assign_stmt = ast_builder::assign(
+                            &symbol.target_name,
+                            ast_builder::name(namespace_name),
+                        );
+                        steps.push(ExecutionStep::InsertStatement { stmt: assign_stmt });
+                    } else {
+                        // Regular symbol import - access as attribute
+                        let assign_stmt = ast_builder::assign(
+                            &symbol.target_name,
+                            ast_builder::attribute(namespace_name, &symbol.source_name),
+                        );
+                        steps.push(ExecutionStep::InsertStatement { stmt: assign_stmt });
+                    }
                 }
             }
         }
@@ -625,6 +842,25 @@ impl<'a> BundleCompiler<'a> {
                     continue;
                 }
 
+                // Check if this item has transformations
+                if let Some(transformations) = self
+                    .analysis_results
+                    .transformations
+                    .get(&(self.entry_module_id, item_id))
+                {
+                    // Process transformations
+                    if self.process_item_transformations(
+                        &mut steps,
+                        self.entry_module_id,
+                        item_id,
+                        transformations,
+                    )? {
+                        // Item was handled by transformations
+                        continue;
+                    }
+                }
+
+                // Default: copy the statement with renames
                 steps.push(ExecutionStep::CopyStatement {
                     source_module: self.entry_module_id,
                     item_id,
@@ -634,6 +870,92 @@ impl<'a> BundleCompiler<'a> {
         }
 
         Ok(steps)
+    }
+
+    /// Process transformations for an item
+    /// Returns true if the item was fully handled and should be skipped
+    fn process_item_transformations(
+        &self,
+        steps: &mut Vec<ExecutionStep>,
+        module_id: ModuleId,
+        item_id: ItemId,
+        transformations: &[crate::transformations::TransformationMetadata],
+    ) -> Result<bool> {
+        use crate::transformations::TransformationMetadata;
+
+        // Sort transformations by priority
+        let mut sorted_transformations = transformations.to_vec();
+        sorted_transformations.sort_by_key(|t| t.priority());
+
+        for transformation in &sorted_transformations {
+            match transformation {
+                TransformationMetadata::RemoveImport { reason: _ } => {
+                    // Item should be completely removed
+                    debug!("Removing import {item_id:?} from module {module_id:?}");
+                    return Ok(true);
+                }
+
+                TransformationMetadata::StdlibImportRewrite {
+                    canonical_module,
+                    symbols: _,
+                } => {
+                    // Generate a normalized stdlib import
+                    // For stdlib normalization, we always use direct import of the module
+                    // and let the VM handle symbol access through namespace objects
+                    let stmt = ast_builder::import(canonical_module);
+
+                    steps.push(ExecutionStep::InsertStatement { stmt });
+                    return Ok(true);
+                }
+
+                TransformationMetadata::PartialImportRemoval {
+                    remaining_symbols,
+                    removed_symbols: _,
+                } => {
+                    // Get the original import item to extract the module name
+                    let module_graph = self
+                        .graph
+                        .modules
+                        .get(&module_id)
+                        .ok_or_else(|| anyhow::anyhow!("Module not found: {:?}", module_id))?;
+
+                    let item_data = module_graph
+                        .items
+                        .get(&item_id)
+                        .ok_or_else(|| anyhow::anyhow!("Item not found: {:?}", item_id))?;
+
+                    // Extract module name from the original import
+                    if let ItemType::FromImport { module, .. } = &item_data.item_type {
+                        // Generate a new from-import with only the remaining symbols
+                        let stmt = ast_builder::from_import_specific(module, remaining_symbols);
+                        steps.push(ExecutionStep::InsertStatement { stmt });
+                        return Ok(true);
+                    } else {
+                        debug!("PartialImportRemoval applied to non-FromImport item");
+                    }
+                }
+
+                TransformationMetadata::SymbolRewrite { rewrites } => {
+                    // Symbol rewrites are handled through the renames mechanism
+                    // This transformation just documents what needs to be renamed
+                    debug!(
+                        "Symbol rewrites will be applied through renames: {} rewrites",
+                        rewrites.len()
+                    );
+                }
+
+                TransformationMetadata::CircularDepImportMove {
+                    target_scope: _,
+                    import_stmt: _,
+                } => {
+                    // TODO: Handle moving imports to different scopes
+                    debug!("Circular dependency import move not yet implemented");
+                }
+            }
+        }
+
+        // Item was not fully handled by transformations
+        Ok(false)
     }
 
     /// Get the renamed name for a symbol, or return the original if not renamed

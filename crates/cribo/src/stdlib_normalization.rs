@@ -243,7 +243,10 @@ impl StdlibNormalizer {
 
     /// Check if a module is safe to hoist
     fn is_safe_stdlib_module(&self, module_name: &str) -> bool {
-        crate::side_effects::is_safe_stdlib_module(module_name)
+        // For now, only consider __future__ as safe to hoist
+        // The proper way would be to check the module metadata from the graph
+        // but this module doesn't have access to the graph
+        module_name == "__future__"
     }
 
     /// Check if a path refers to a known stdlib submodule

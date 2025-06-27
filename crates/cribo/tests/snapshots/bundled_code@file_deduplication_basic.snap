@@ -7,21 +7,18 @@ input_file: crates/cribo/tests/fixtures/file_deduplication_basic/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-app = types.SimpleNamespace()
-app.__name__ = 'app'
 def get_name():
     return "app.utils"
 def helper():
     return "I am from app.utils"
-app_utils = types.SimpleNamespace(get_name=get_name, helper=helper)
-app.utils = types.SimpleNamespace()
-app.utils.__all__ = ['get_name', 'helper']
-app.utils.get_name = get_name
-app.utils.helper = helper
-app_utils = app_utils
-mod = types.SimpleNamespace(get_name=get_name, helper=helper)
+app_utils = types.SimpleNamespace()
+app_utils.get_name = get_name
+app_utils.helper = helper
+mod = app_utils
+app = types.SimpleNamespace()
+app.utils = app_utils
 print(f"Direct import: {app.utils.get_name()}")
 print(f"From import: {app_utils.get_name()}")
-print(f'Importlib: {get_name()}')
-assert app.utils.helper() == app_utils.helper() == helper()
+print(f"Importlib: {mod.get_name()}")
+assert app.utils.helper() == app_utils.helper() == mod.helper()
 print("SUCCESS: All imports reference the same module!")

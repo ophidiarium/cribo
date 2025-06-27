@@ -18,12 +18,29 @@ pub use circular_deps::{
 };
 pub use pipeline::run_analysis_pipeline;
 pub use potential_exports::PotentialExportsMap;
+use rustc_hash::FxHashMap;
 pub use symbol_conflict_detector::SymbolConflictDetector;
 pub use symbol_origin_analyzer::{SymbolOriginAnalyzer, SymbolOriginResults};
 
+use crate::{
+    cribo_graph::{CriboGraph, ItemId, ModuleId},
+    module_registry::ModuleRegistry,
+    semantic_model_provider::GlobalBindingId,
+    transformations::TransformationMetadata,
+};
+
 /// Results from the analysis pipeline
-#[derive(Debug, Clone, Default)]
+#[derive(Debug)]
 pub struct AnalysisResults {
+    /// The dependency graph (single source of truth for module metadata)
+    pub graph: CriboGraph,
+
+    /// Entry module ID for the bundle
+    pub entry_module: ModuleId,
+
+    /// Module registry
+    pub module_registry: ModuleRegistry,
+
     /// Results from circular dependency analysis
     pub circular_deps: Option<CircularDependencyAnalysis>,
 
@@ -35,9 +52,10 @@ pub struct AnalysisResults {
 
     /// Symbol origin mappings for re-exports and aliases
     pub symbol_origins: SymbolOriginResults,
-}
 
-use crate::semantic_model_provider::GlobalBindingId;
+    /// Transformation plan: (ModuleId, ItemId) -> required transformations
+    pub transformations: FxHashMap<(ModuleId, ItemId), Vec<TransformationMetadata>>,
+}
 
 /// Represents a symbol conflict between modules
 #[derive(Debug, Clone)]

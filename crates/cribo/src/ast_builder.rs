@@ -195,6 +195,30 @@ pub fn call_with_args(func: Expr, args: Vec<Expr>) -> Expr {
     })
 }
 
+/// Create a from import statement with specific symbols: `from module import symbol1, symbol2, ...`
+/// This is useful for partial import removal where we only keep certain symbols
+pub fn from_import_specific(module: &str, symbols: &[(String, Option<String>)]) -> Stmt {
+    let aliases = symbols
+        .iter()
+        .map(|(name, alias)| Alias {
+            name: Identifier::new(name.clone(), synthetic_range()),
+            asname: alias
+                .as_ref()
+                .map(|a| Identifier::new(a.clone(), synthetic_range())),
+            range: synthetic_range(),
+            node_index: AtomicNodeIndex::dummy(),
+        })
+        .collect();
+
+    Stmt::ImportFrom(StmtImportFrom {
+        module: Some(Identifier::new(module, synthetic_range())),
+        names: aliases,
+        level: 0,
+        range: synthetic_range(),
+        node_index: AtomicNodeIndex::dummy(),
+    })
+}
+
 /// Create an empty module
 pub fn empty_module() -> ModModule {
     ModModule {

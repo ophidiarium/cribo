@@ -6,6 +6,6 @@ ExecutionResults {
     status: Failed(
         1,
     ),
-    stdout: "",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 30, in <module>",
+    stdout: "Testing simple module exports:\npublic_func() = Hello from public_func\nCONSTANT = 42\n\nTesting nested package exports:",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 40, in <module>",
 }

@@ -7,12 +7,8 @@ input_file: crates/cribo/tests/fixtures/pyfail_mixed_cycles/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-def get_base_value():
-    """Function-level access is fine."""
-    return BASE_VALUE
 BASE_VALUE_constants_module = 42 * CONFIG_MULTIPLIER
 constants_module = types.SimpleNamespace()
-constants_module.get_base_value = get_base_value
 constants_module.BASE_VALUE = BASE_VALUE_constants_module
 def utility_function():
     """Another function that doesn't create a cycle."""
@@ -24,6 +20,9 @@ def process_data_function_module(value):
 function_module = types.SimpleNamespace()
 function_module.utility_function = utility_function
 function_module.process_data = process_data_function_module
+CONFIG_MULTIPLIER_config_constants = 2
+config_constants = types.SimpleNamespace()
+config_constants.CONFIG_MULTIPLIER = CONFIG_MULTIPLIER_config_constants
 def transform(value):
     """Transform a value using another function."""
     from function_module import utility_function

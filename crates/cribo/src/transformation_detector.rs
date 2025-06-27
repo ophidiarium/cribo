@@ -126,6 +126,15 @@ impl<'a> TransformationDetector<'a> {
         // Determine module classification
         let module_kind = self.get_module_kind(module_name);
 
+        // Special handling for importlib - check if it's only used for static calls
+        if module_name == "importlib" && self.is_importlib_only_used_for_static_calls(module_id) {
+            debug!("Removing importlib import that's only used for static calls");
+            transformations.push(TransformationMetadata::RemoveImport {
+                reason: RemovalReason::Unused,
+            });
+            return Ok(());
+        }
+
         // Check if import is unused (tree-shaking)
         if let Some(tree_shake) = self.tree_shake_results
             && !tree_shake.included_items.contains(&(module_id, item_id))
@@ -304,5 +313,36 @@ impl<'a> TransformationDetector<'a> {
 
         // Otherwise, it's a third-party module
         Some(crate::types::ModuleKind::ThirdParty)
+    }
+
+    /// Check if importlib is only used for static import_module calls
+    fn is_importlib_only_used_for_static_calls(&self, module_id: ModuleId) -> bool {
+        let module_graph = match self.graph.modules.get(&module_id) {
+            Some(graph) => graph,
+            None => return false,
+        };
+
+        // Find all places where 'importlib' is used
+        let mut importlib_used_for_other_purposes = false;
+
+        for item_data in module_graph.items.values() {
+            // Check if importlib is used in read_vars (but not for static calls)
+            if item_data.read_vars.contains("importlib") {
+                // If this is NOT an Import item created from a static call, then importlib is used
+                // for other purposes
+                if !matches!(item_data.item_type, ItemType::Import { .. }) {
+                    importlib_used_for_other_purposes = true;
+                    break;
+                }
+            }
+
+            // Check eventual reads (inside functions, etc.)
+            if item_data.eventual_read_vars.contains("importlib") {
+                importlib_used_for_other_purposes = true;
+                break;
+            }
+        }
+
+        !importlib_used_for_other_purposes
     }
 }

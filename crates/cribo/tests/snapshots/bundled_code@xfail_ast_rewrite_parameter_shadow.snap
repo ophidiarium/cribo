@@ -7,7 +7,33 @@ input_file: crates/cribo/tests/fixtures/xfail_ast_rewrite_parameter_shadow/main.
 # https://github.com/ophidiarium/cribo
 
 import types
+class Connection_models:
+    """Connection class that will be shadowed by function parameters."""
+
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+        self.connected = False
+
+    def connect(self):
+        """Simulate connection."""
+        self.connected = True
+        return f"Connected to {self.host}:{self.port}"
+
+    def __repr__(self):
+        return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
+class User_models:
+    """User class that will be shadowed by function parameters."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.id = hash(name) % 10000
+
+    def __repr__(self):
+        return f"User(name={self.name!r}, id={self.id})"
 models = types.SimpleNamespace()
+models.Connection = Connection_models
+models.User = User_models
 User = models.User
 Connection = models.Connection
 """Test fixture for parameter names shadowing global/class names.\n\nThis fixture demonstrates the pattern where function parameters shadow\nimportant module-level names (classes, functions, constants).\n"""

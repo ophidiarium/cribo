@@ -5,22 +5,29 @@
 
 use ruff_python_stdlib::sys;
 
-/// The target Python version for stdlib detection (3.8)
-const PYTHON_VERSION: u8 = 38;
-
 /// Check if a module name represents a Python standard library module
 ///
 /// This uses ruff's comprehensive stdlib database and handles both direct
 /// matches and submodules (e.g., both "os" and "os.path" are recognized).
-pub fn is_stdlib_module(module_name: &str) -> bool {
+///
+/// # Arguments
+/// * `module_name` - The module name to check
+/// * `python_version` - The Python version as a u8 (e.g., 38 for Python 3.8, 10 for Python 3.10)
+pub fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
+    // Special case for __future__ which is always a stdlib module
+    // but not included in ruff's is_known_standard_library
+    if module_name == "__future__" {
+        return true;
+    }
+
     // Check direct match using ruff_python_stdlib
-    if sys::is_known_standard_library(PYTHON_VERSION, module_name) {
+    if sys::is_known_standard_library(python_version, module_name) {
         return true;
     }
 
     // Check if it's a submodule of a stdlib module
     if let Some(top_level) = module_name.split('.').next() {
-        sys::is_known_standard_library(PYTHON_VERSION, top_level)
+        sys::is_known_standard_library(python_version, top_level)
     } else {
         false
     }
@@ -31,9 +38,13 @@ pub fn is_stdlib_module(module_name: &str) -> bool {
 /// Some stdlib modules have side effects when imported (e.g., antigravity opens
 /// a web browser). This function returns true only for stdlib modules that are
 /// safe to hoist to the top of the bundle.
-pub fn is_stdlib_without_side_effects(module_name: &str) -> bool {
+///
+/// # Arguments
+/// * `module_name` - The module name to check
+/// * `python_version` - The Python version as a u8 (e.g., 38 for Python 3.8, 10 for Python 3.10)
+pub fn is_stdlib_without_side_effects(module_name: &str, python_version: u8) -> bool {
     // First check if it's even a stdlib module
-    if !is_stdlib_module(module_name) {
+    if !is_stdlib_module(module_name, python_version) {
         return false;
     }
 
@@ -83,8 +94,12 @@ pub fn is_stdlib_without_side_effects(module_name: &str) -> bool {
 ///
 /// This determines whether an import should be moved to the top of the bundle.
 /// Only __future__ imports and safe stdlib imports should be hoisted.
-pub fn should_hoist_import(module_name: &str) -> bool {
-    module_name == "__future__" || is_stdlib_without_side_effects(module_name)
+///
+/// # Arguments
+/// * `module_name` - The module name to check
+/// * `python_version` - The Python version as a u8 (e.g., 38 for Python 3.8, 10 for Python 3.10)
+pub fn should_hoist_import(module_name: &str, python_version: u8) -> bool {
+    module_name == "__future__" || is_stdlib_without_side_effects(module_name, python_version)
 }
 
 #[cfg(test)]
@@ -93,64 +108,79 @@ mod tests {
 
     #[test]
     fn test_is_stdlib_module() {
+        // Use Python 3.10 as test version
+        let py_version = 10;
+
+        // Test __future__ specifically
+        assert!(
+            is_stdlib_module("__future__", py_version),
+            "__future__ should be recognized as stdlib"
+        );
+
         // Direct stdlib modules
-        assert!(is_stdlib_module("os"));
-        assert!(is_stdlib_module("sys"));
-        assert!(is_stdlib_module("json"));
-        assert!(is_stdlib_module("collections"));
+        assert!(is_stdlib_module("os", py_version));
+        assert!(is_stdlib_module("sys", py_version));
+        assert!(is_stdlib_module("json", py_version));
+        assert!(is_stdlib_module("collections", py_version));
 
         // Submodules
-        assert!(is_stdlib_module("os.path"));
-        assert!(is_stdlib_module("collections.abc"));
-        assert!(is_stdlib_module("urllib.parse"));
+        assert!(is_stdlib_module("os.path", py_version));
+        assert!(is_stdlib_module("collections.abc", py_version));
+        assert!(is_stdlib_module("urllib.parse", py_version));
 
         // Not stdlib
-        assert!(!is_stdlib_module("numpy"));
-        assert!(!is_stdlib_module("requests"));
-        assert!(!is_stdlib_module("my_module"));
+        assert!(!is_stdlib_module("numpy", py_version));
+        assert!(!is_stdlib_module("requests", py_version));
+        assert!(!is_stdlib_module("my_module", py_version));
     }
 
     #[test]
     fn test_is_stdlib_without_side_effects() {
+        // Use Python 3.10 as test version
+        let py_version = 10;
+
         // Safe stdlib modules
-        assert!(is_stdlib_without_side_effects("os"));
-        assert!(is_stdlib_without_side_effects("sys"));
-        assert!(is_stdlib_without_side_effects("json"));
-        assert!(is_stdlib_without_side_effects("math"));
-        assert!(is_stdlib_without_side_effects("collections"));
-        assert!(is_stdlib_without_side_effects("typing"));
+        assert!(is_stdlib_without_side_effects("os", py_version));
+        assert!(is_stdlib_without_side_effects("sys", py_version));
+        assert!(is_stdlib_without_side_effects("json", py_version));
+        assert!(is_stdlib_without_side_effects("math", py_version));
+        assert!(is_stdlib_without_side_effects("collections", py_version));
+        assert!(is_stdlib_without_side_effects("typing", py_version));
 
         // Stdlib modules with side effects
-        assert!(!is_stdlib_without_side_effects("antigravity"));
-        assert!(!is_stdlib_without_side_effects("this"));
-        assert!(!is_stdlib_without_side_effects("turtle"));
-        assert!(!is_stdlib_without_side_effects("tkinter"));
-        assert!(!is_stdlib_without_side_effects("site"));
-        assert!(!is_stdlib_without_side_effects("webbrowser"));
-        assert!(!is_stdlib_without_side_effects("logging"));
-        assert!(!is_stdlib_without_side_effects("warnings"));
-        assert!(!is_stdlib_without_side_effects("encodings"));
+        assert!(!is_stdlib_without_side_effects("antigravity", py_version));
+        assert!(!is_stdlib_without_side_effects("this", py_version));
+        assert!(!is_stdlib_without_side_effects("turtle", py_version));
+        assert!(!is_stdlib_without_side_effects("tkinter", py_version));
+        assert!(!is_stdlib_without_side_effects("site", py_version));
+        assert!(!is_stdlib_without_side_effects("webbrowser", py_version));
+        assert!(!is_stdlib_without_side_effects("logging", py_version));
+        assert!(!is_stdlib_without_side_effects("warnings", py_version));
+        assert!(!is_stdlib_without_side_effects("encodings", py_version));
 
         // Non-stdlib modules
-        assert!(!is_stdlib_without_side_effects("numpy"));
-        assert!(!is_stdlib_without_side_effects("requests"));
+        assert!(!is_stdlib_without_side_effects("numpy", py_version));
+        assert!(!is_stdlib_without_side_effects("requests", py_version));
     }
 
     #[test]
     fn test_should_hoist_import() {
+        // Use Python 3.10 as test version
+        let py_version = 10;
+
         // __future__ is always hoisted
-        assert!(should_hoist_import("__future__"));
+        assert!(should_hoist_import("__future__", py_version));
 
         // Safe stdlib modules are hoisted
-        assert!(should_hoist_import("os"));
-        assert!(should_hoist_import("sys"));
-        assert!(should_hoist_import("json"));
+        assert!(should_hoist_import("os", py_version));
+        assert!(should_hoist_import("sys", py_version));
+        assert!(should_hoist_import("json", py_version));
 
         // Unsafe stdlib modules are not hoisted
-        assert!(!should_hoist_import("antigravity"));
-        assert!(!should_hoist_import("site"));
+        assert!(!should_hoist_import("antigravity", py_version));
+        assert!(!should_hoist_import("site", py_version));
 
         // Third-party modules are not hoisted
-        assert!(!should_hoist_import("numpy"));
+        assert!(!should_hoist_import("numpy", py_version));
     }
 }

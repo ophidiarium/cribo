@@ -8,32 +8,34 @@ input_file: crates/cribo/tests/fixtures/xfail_all_variable_handling/main.py
 
 import types
 __all___simple_module = ["public_func", "CONSTANT"]
-def _private_func():
-    """A private function that should not be exported."""
-    return "This is private"
+CONSTANT_simple_module = 42
 def public_func_simple_module():
     """A public function that should be exported."""
     return "Hello from public_func"
 simple_module = types.SimpleNamespace()
+simple_module.CONSTANT = CONSTANT_simple_module
 simple_module.public_func = public_func_simple_module
-SHARED_NAME = "conflict_module_version"
+message_conflict_module = "from conflict_module"
 conflict_module = types.SimpleNamespace()
-conflict_module.SHARED_NAME = SHARED_NAME
-__all__ = ["exported_from_init", "sub_function"]
+conflict_module.message = message_conflict_module
+def exported_from_init_nested_package():
+    """Function exported from package __init__.py"""
+    return f"From init, using helper: {helper_func()}"
 nested_package = types.SimpleNamespace()
+nested_package.exported_from_init = exported_from_init_nested_package
 __all___nested_package_submodule = ["sub_function", "SUB_CONSTANT"]
-def _private_sub_func():
-    """Private function in submodule"""
-    return "private submodule function"
+SUB_CONSTANT = "submodule_value"
 def sub_function_nested_package_submodule():
     """Function from submodule"""
     return "Hello from submodule"
-sub = types.SimpleNamespace()
-sub.sub_function = sub_function_nested_package_submodule
+nested_package_submodule = types.SimpleNamespace()
+nested_package_submodule.SUB_CONSTANT = SUB_CONSTANT
+nested_package_submodule.sub_function = sub_function_nested_package_submodule
+sub = nested_package_submodule
 public_func = simple_module.public_func
 CONSTANT = simple_module.CONSTANT
 message = conflict_module.message
-sub_function = sub.sub_function
+sub_function = nested_package_submodule.sub_function
 exported_from_init = nested_package.exported_from_init
 print("Testing simple module exports:")
 print(f"public_func() = {public_func()}")

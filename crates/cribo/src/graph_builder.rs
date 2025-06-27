@@ -190,7 +190,9 @@ impl<'a> GraphBuilder<'a> {
                 eventual_read_vars: FxHashSet::default(),
                 write_vars: FxHashSet::default(),
                 eventual_write_vars: FxHashSet::default(),
-                has_side_effects: crate::side_effects::import_has_side_effects(module_name),
+                // Side effects will be determined later by the orchestrator based on module
+                // classification
+                has_side_effects: false,
                 span: None, // Could extract from AST if needed
                 imported_names,
                 reexported_names: FxHashSet::default(),
@@ -287,7 +289,9 @@ impl<'a> GraphBuilder<'a> {
             eventual_read_vars: FxHashSet::default(),
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
-            has_side_effects: crate::side_effects::from_import_has_side_effects(import_from),
+            // Side effects will be determined later by the orchestrator based on module
+            // classification
+            has_side_effects: false,
             span: None,
             imported_names,
             reexported_names,
@@ -585,20 +589,9 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
 
-            // Check if this assignment is from a safe stdlib module attribute access
-            // e.g., ABC = abc.ABC where 'abc' is a safe stdlib module
-            let mut is_safe_stdlib_attribute_access = false;
-            if let Expr::Attribute(attr_expr) = assign.value.as_ref()
-                && let Expr::Name(name_expr) = attr_expr.value.as_ref()
-            {
-                let module_name = name_expr.id.as_str();
-                if crate::side_effects::is_safe_stdlib_module(module_name) {
-                    is_safe_stdlib_attribute_access = true;
-                    log::debug!(
-                        "Assignment from safe stdlib module '{module_name}' attribute access"
-                    );
-                }
-            }
+            // Side effects for assignments will be determined later by orchestrator
+            // For now, we'll use the expression side effect detector
+            let is_safe_stdlib_attribute_access = false;
 
             let item_data = ItemData {
                 item_type: ItemType::Assignment {

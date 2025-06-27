@@ -7,35 +7,64 @@ input_file: crates/cribo/tests/fixtures/xfail_ast_rewriting_global/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-set_dynamic_global("dynamic2", [1, 2, 3])
+def modify_bar():
+    """Modify bar using globals() dict."""
+    globals()["bar"] = "module2_bar_modified"
+def get_bar():
+    """Get bar using globals() dict."""
+    return globals()["bar"]
 def set_dynamic_global(name, value):
     """Set a global variable dynamically using globals()."""
     globals()[name] = value
-def get_dynamic_global(name, default=None):
-    """Get a global variable dynamically."""
-    return globals().get(name, default)
-set_dynamic_global("dynamic1", "created_via_globals")
-baz = 42
 module_globals_dict = types.SimpleNamespace()
+module_globals_dict.modify_bar = modify_bar
+module_globals_dict.get_bar = get_bar
 module_globals_dict.set_dynamic_global = set_dynamic_global
-module_globals_dict.get_dynamic_global = get_dynamic_global
-module_globals_dict.baz = baz
 def get_foo():
     """Get the module's global foo value."""
     return foo
+def modify_foo():
+    """Modify the module's global foo using global keyword."""
+    global foo
+    foo = "module1_foo_modified"
 foo_module_global_keyword = "module1_foo"
 module_global_keyword = types.SimpleNamespace()
 module_global_keyword.get_foo = get_foo
+module_global_keyword.modify_foo = modify_foo
 module_global_keyword.foo = foo_module_global_keyword
-globals()["initialized_via_globals"] = True
+def complex_global_usage():
+    """Demonstrate complex global usage patterns."""
+    global counter
+    original = counter
+    for i in range(3):
+        counter += 1
+
+    def increment():
+        global counter
+        counter += 1
+        return counter
+    global_keys = [k for k in globals() if not k.startswith("_")]
+    return {"original": original, "after_loop": counter, "increment_func": increment, "global_count": len(global_keys)}
 counter = 0
+def modify_all():
+    """Modify globals using different patterns."""
+    global foo, counter
+    foo = "module3_foo_modified"
+    counter += 1
+    globals()["bar"] = "module3_bar_modified"
+    globals()["new_var"] = "dynamically_added"
 foo_module_mixed_patterns = "module3_foo"
-exec("exec_created_var = 'created_via_exec'", globals())
-bar_module_mixed_patterns = "module3_bar"
+def get_values():
+    """Get module globals using different methods."""
+    direct_foo = foo
+    dict_bar = globals()["bar"]
+    counter_val = globals().get("counter", -1)
+    return {"foo": direct_foo, "bar": dict_bar, "counter": counter_val}
 module_mixed_patterns = types.SimpleNamespace()
 module_mixed_patterns.counter = counter
+module_mixed_patterns.modify_all = modify_all
 module_mixed_patterns.foo = foo_module_mixed_patterns
-module_mixed_patterns.bar = bar_module_mixed_patterns
+module_mixed_patterns.get_values = get_values
 """Test global namespace isolation between modules."""
 foo = "main_foo"
 bar = "main_bar"

@@ -3,9 +3,7 @@ source: crates/cribo/tests/test_bundling_snapshots.rs
 input_file: crates/cribo/tests/fixtures/xfail_ast_rewriting_class_name_collision/main.py
 ---
 ExecutionResults {
-    status: Failed(
-        1,
-    ),
-    stdout: "",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 8, in <module>",
+    status: Success,
+    stdout: "Model User: Model User(name='Alice', email='alice@example.com')\nEntity User: Entity User(name='Bob', age=25)\nModel Product: Model Product(name='Widget', price=19.99)\nEntity Product: Entity Product(sku='P001', name='Gadget')\nResult: {'model_user': \"Model User(name='Alice', email='alice@example.com')\", 'entity_user': \"Entity User(name='Bob', age=25)\", 'model_product': \"Model Product(name='Widget', price=19.99)\", 'entity_product': \"Entity Product(sku='P001', name='Gadget')\"}\nModel User: Model User(name='Alice', email='alice@example.com')\nEntity User: Entity User(name='Bob', age=25)\nModel Product: Model Product(name='Widget', price=19.99)\nEntity Product: Entity Product(sku='P001', name='Gadget')\nResult: {'model_user': \"Model User(name='Alice', email='alice@example.com')\", 'entity_user': \"Entity User(name='Bob', age=25)\", 'model_product': \"Model Product(name='Widget', price=19.99)\", 'entity_product': \"Entity Product(sku='P001', name='Gadget')\"}\nModel User: Model User(name='Alice', email='alice@example.com')\nEntity User: Entity User(name='Bob', age=25)\nModel Product: Model Product(name='Widget', price=19.99)\nEntity Product: Entity Product(sku='P001', name='Gadget')\nResult: {'model_user': \"Model User(name='Alice', email='alice@example.com')\", 'entity_user': \"Entity User(name='Bob', age=25)\", 'model_product': \"Model Product(name='Widget', price=19.99)\", 'entity_product': \"Entity Product(sku='P001', name='Gadget')\"}",
+    stderr: "",
 }

@@ -3,9 +3,7 @@ source: crates/cribo/tests/test_bundling_snapshots.rs
 input_file: crates/cribo/tests/fixtures/xfail_fstring_module_globals/main.py
 ---
 ExecutionResults {
-    status: Failed(
-        1,
-    ),
-    stdout: "Processing test: status=processing, count=1",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 45, in <module>",
+    status: Success,
+    stdout: "Processing test: status=processing, count=1\nWorker Worker1: status='processing', processed=1, pending=0\nWorker Worker1: status='working', processed=2, pending=1\nProcessing test: status=processing, count=3\nWorker Worker1: status='processing', processed=3, pending=1\nWorker Worker1: status='working', processed=4, pending=2",
+    stderr: "",
 }

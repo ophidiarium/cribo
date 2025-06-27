@@ -22,15 +22,7 @@ class Connection_core_database_connection:
         if not self.connected:
             raise RuntimeError("Not connected")
         return format_result(f"Query: {query}")
-process_core_database_connection = None
-class Logger_core_database_connection:
-    """Database logger - different from utils Logger"""
-
-    def __init__(self, context):
-        self.context = context
-
-    def log(self, message):
-        return f"DB_LOG[{self.context}]: {message}"
+validate_core_database_connection = lambda x: f"db_validate: {x}"
 class Connection_core_database_connection:
     """Database connection class"""
 
@@ -46,19 +38,50 @@ class Connection_core_database_connection:
         if not self.connected:
             raise RuntimeError("Not connected")
         return format_result(f"Query: {query}")
+def process_core_database_connection(data):
+    """Process function in database module"""
+    clean_data = sanitize(data)
+    return f"db_process: {clean_data}"
+process_core_database_connection = None
 core_database_connection = types.SimpleNamespace()
 core_database_connection.Connection = Connection_core_database_connection
+core_database_connection.validate = validate_core_database_connection
 core_database_connection.process = process_core_database_connection
-core_database_connection.Logger = Logger_core_database_connection
-def validate_models_user(data):
-    """Validate function in user module"""
-    return f"user_validate: {data}"
-process_models_user = "process_string"
+core_database_connection.process = process_core_database_connection
 User_models_user = None
+class Logger_models_user:
+    """User module logger - different from utils and base Logger"""
+
+    def __init__(self, context):
+        self.context = context
+        self.base_logger = BaseLogger(context)
+        self.util_logger = UtilLogger(context)
+
+    def get_message(self):
+        return f"user_logger_{self.context}"
+
+    def log_all(self):
+        return [self.get_message(), self.base_logger.get_message(), self.util_logger.get_message()]
+Connection_models_user = type("Connection", (), {"source": "models.user"})
+class User_models_user:
+    """User model class"""
+
+    def __init__(self, name):
+        self.name = name
+        self.logger = Logger("user")
+
+    def process(self):
+        return f"User.process: {self.name}"
 models_user = types.SimpleNamespace()
-models_user.validate = validate_models_user
-models_user.process = process_models_user
 models_user.User = User_models_user
+models_user.Logger = Logger_models_user
+models_user.Connection = Connection_models_user
+models_user.User = User_models_user
+def validate_models_base(data):
+    """Validate function that uses imported validate"""
+    base_check = f"base_validate: {data}"
+    util_check = util_validate(data)
+    return f"{base_check} + {util_check}"
 validate_models_base = 123
 def process_models_base(data):
     """Process function in base module"""
@@ -78,12 +101,15 @@ class Logger_models_base:
 
     def get_message(self):
         return f"base_logger_{self.prefix}"
+Logger_models_base = None
 models_base = types.SimpleNamespace()
+models_base.validate = validate_models_base
 models_base.validate = validate_models_base
 models_base.process = process_models_base
 models_base.process = process_models_base
 models_base.Connection = Connection_models_base
 models_base.initialize = initialize_models_base
+models_base.Logger = Logger_models_base
 models_base.Logger = Logger_models_base
 def validate_services_auth_manager(data):
     """Validate function in auth module"""
@@ -96,11 +122,21 @@ def validate_services_auth_manager(data):
     if not isinstance(data, str):
         return f"auth_validate_failed: {data}"
     return f"auth_validate: {data}"
+User_services_auth_manager = "auth_user_string"
 def process_services_auth_manager(data):
     """Process function in auth module"""
     sanitized = sanitize(data)
     return f"auth_process: {sanitized}"
 validate_services_auth_manager = None
+class User_services_auth_manager:
+    """Auth user class"""
+
+    def __init__(self, username):
+        self.username = username
+        self.connection = Connection
+
+    def authenticate(self):
+        return f"auth_user_{self.username}"
 class Connection_services_auth_manager:
     """Auth connection - overrides the global dict"""
 
@@ -111,18 +147,46 @@ class Connection_services_auth_manager:
     def connect(self):
         db_result = self.db_conn.connect()
         return f"auth_wrapped_{db_result}"
+process_services_auth_manager = [1, 2, 3]
+Connection_services_auth_manager = {"auth": True}
 services_auth_manager = types.SimpleNamespace()
 services_auth_manager.Logger = Logger_services_auth_manager
 services_auth_manager.validate = validate_services_auth_manager
+services_auth_manager.User = User_services_auth_manager
 services_auth_manager.process = process_services_auth_manager
 services_auth_manager.validate = validate_services_auth_manager
+services_auth_manager.User = User_services_auth_manager
 services_auth_manager.Connection = Connection_services_auth_manager
+services_auth_manager.process = process_services_auth_manager
+services_auth_manager.Connection = Connection_services_auth_manager
+def validate_core_utils_helpers(data):
+    """Validate function in utils module"""
+    if data in validate_cache:
+        return validate_cache[data]
+    result = f"utils_validate: {data}"
+    validate_cache[data] = result
+    return result
+Logger_core_utils_helpers = str
+def format_result_core_utils_helpers(result):
+    """Another utility function"""
+    return f"formatted: {result}"
+def validate_core_utils_helpers(data):
+    """Validate function in utils module"""
+    if data in validate_cache:
+        return validate_cache[data]
+    result = f"utils_validate: {data}"
+    validate_cache[data] = result
+    return result
+def sanitize_core_utils_helpers(text):
+    """Utility function without conflicts"""
+    return text.strip().lower()
 validate_cache = {}
 def process_core_utils_helpers(data):
     """Process function in utils module"""
     global process_count
     process_count += 1
     return f"utils_process: {data} (#{process_count})"
+process_count = 0
 class Logger_core_utils_helpers:
     """Logger class in utils module"""
 
@@ -135,23 +199,26 @@ class Logger_core_utils_helpers:
 
     def get_message(self):
         return f"utils_logger_{self.name}"
-Connection_core_utils_helpers = "not_a_class"
 core_utils_helpers = types.SimpleNamespace()
+core_utils_helpers.Logger = Logger_core_utils_helpers
+core_utils_helpers.format_result = format_result_core_utils_helpers
+core_utils_helpers.validate = validate_core_utils_helpers
+core_utils_helpers.sanitize = sanitize_core_utils_helpers
 core_utils_helpers.validate_cache = validate_cache
 core_utils_helpers.process = process_core_utils_helpers
+core_utils_helpers.process_count = process_count
 core_utils_helpers.Logger = Logger_core_utils_helpers
-core_utils_helpers.Connection = Connection_core_utils_helpers
 auth_process = services_auth_manager.process
 User = services_auth_manager.User
 auth_validate = services_auth_manager.validate
-process = core_utils_helpers.process
-UtilLogger = core_utils_helpers.Logger
-validate = core_utils_helpers.validate
-base = models_base.base
 db_process = core_database_connection.process
 UserModel = models_user.User
 process_user = models_user.process_user
 Logger = models_user.Logger
+process = core_utils_helpers.process
+UtilLogger = core_utils_helpers.Logger
+validate = core_utils_helpers.validate
+base = models_base
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\nWITHOUT circular dependencies\n"""
 result = 42
 connection = None

@@ -7,6 +7,8 @@ input_file: crates/cribo/tests/fixtures/xfail_fstring_module_globals/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
+tasks = []
+status = "idle"
 class Worker_worker:
     """Worker class that uses global variables in f-strings"""
 
@@ -34,6 +36,8 @@ class Worker_worker:
         return f"Started task: {tasks[-1]} (total: {len(tasks)}, status: {status.upper()})"
 counter = 0
 worker = types.SimpleNamespace()
+worker.tasks = tasks
+worker.status = status
 worker.Worker = Worker_worker
 worker.counter = counter
 Worker = worker.Worker

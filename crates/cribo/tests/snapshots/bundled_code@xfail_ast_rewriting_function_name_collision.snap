@@ -7,16 +7,16 @@ input_file: crates/cribo/tests/fixtures/xfail_ast_rewriting_function_name_collis
 # https://github.com/ophidiarium/cribo
 
 import types
-def helper_function() -> str:
-    """A helper function unique to module A."""
-    return "Module A helper"
+def process_data(input_data: str) -> str:
+    """Process data in module A's way."""
+    return f"Module A processed: {input_data.upper()}"
 module_a = types.SimpleNamespace()
-module_a.helper_function = helper_function
-def another_helper() -> str:
-    """A helper function unique to module B."""
-    return "Module B helper"
+module_a.process_data = process_data
+def process_data_module_b(input_data: str) -> str:
+    """Process data in module B's way."""
+    return f"Module B processed: {input_data.lower()}"
 module_b = types.SimpleNamespace()
-module_b.another_helper = another_helper
+module_b.process_data = process_data_module_b
 process_b = module_b.process_data
 process_a = module_a.process_data
 """\nFunction name collision test.\nBoth modules define a function with the same name.\n"""

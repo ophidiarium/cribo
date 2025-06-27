@@ -22,33 +22,20 @@ def _register_type(type_name):
     """Internal function to register database types."""
     _registered_types.append(type_name)
     return type_name
-def validate_db_name(name: str) -> bool:
-    """Validate database name with additional rules."""
-    if not validate(name):
-        return False
-    return not any(char in name for char in ["/", "\\", ":"])
 _registered_types = []
-def safe_connect(database_name: str) -> str:
-    """Connect only if core is initialized."""
-    from .. import is_initialized
-    if not is_initialized():
-        raise RuntimeError("Core package must be initialized before connecting")
-    return connect(database_name)
-__all___core_database = ["connect", "get_connection_info", "safe_connect", "validate_db_name", "_registered_types"]
-_register_type("connection")
 core_database = types.SimpleNamespace()
-core_database.validate_db_name = validate_db_name
-core_database.safe_connect = safe_connect
 if HAS_ADVANCED:
     __all__.append("AdvancedModel")
 def get_model_version_models():
     """Get the models package version."""
     return _VERSION
-if sys.version_info >= (3, 9):
-    from typing import TypeAlias
-    ModelID: TypeAlias = str
-else:
-    ModelID = str
+try:
+    from models.advanced import AdvancedModel
+    HAS_ADVANCED = True
+    DEFAULT_MODEL_CONFIG["features"].append("advanced_model")
+except ImportError:
+    HAS_ADVANCED = False
+    AdvancedModel = None
 def get_base_model():
     """Lazy import of BaseModel to avoid circular imports."""
     global _base_model
@@ -56,12 +43,6 @@ def get_base_model():
         from .base import BaseModel
         _base_model = BaseModel
     return _base_model
-if sys.version_info >= (3, 9):
-    from typing import TypeAlias
-    ModelID: TypeAlias = str
-else:
-    ModelID = str
-__all___models = ["get_model_version", "process_user", "get_base_model", "ModelID", "DEFAULT_MODEL_CONFIG", "HAS_ADVANCED"]
 _VERSION = "1.0.0"
 def get_base_model():
     """Lazy import of BaseModel to avoid circular imports."""
@@ -70,18 +51,33 @@ def get_base_model():
         from .base import BaseModel
         _base_model = BaseModel
     return _base_model
-if HAS_ADVANCED:
-    __all__.append("AdvancedModel")
+DEFAULT_MODEL_CONFIG_models = {"version": _VERSION, "features": ["user_processing", "lazy_loading"]}
+try:
+    from models.advanced import AdvancedModel
+    HAS_ADVANCED = True
+    DEFAULT_MODEL_CONFIG["features"].append("advanced_model")
+except ImportError:
+    HAS_ADVANCED = False
+    AdvancedModel = None
+_base_model = None
 if sys.version_info >= (3, 9):
     from typing import TypeAlias
     ModelID: TypeAlias = str
 else:
     ModelID = str
+try:
+    from models.advanced import AdvancedModel
+    HAS_ADVANCED = True
+    DEFAULT_MODEL_CONFIG["features"].append("advanced_model")
+except ImportError:
+    HAS_ADVANCED = False
+    AdvancedModel = None
 models = types.SimpleNamespace()
 models.get_model_version = get_model_version_models
-models.ModelID = ModelID
-models.ModelID = ModelID
 models.get_base_model = get_base_model
+models.DEFAULT_MODEL_CONFIG = DEFAULT_MODEL_CONFIG_models
+models.HAS_ADVANCED = HAS_ADVANCED
+models.HAS_ADVANCED = HAS_ADVANCED
 def initialize_core_core(debug=False):
     """Initialize the core package with configuration."""
     global _initialized, _config
@@ -91,7 +87,6 @@ def initialize_core_core(debug=False):
         print(f"Core initialized with version: {CORE_MODEL_VERSION}")
     return _initialized
 __all__ = ["initialize_core", "is_initialized", "validate", "get_config", "CORE_MODEL_VERSION"]
-set_config_reference(_config)
 _config = {"debug": False}
 def is_initialized():
     """Check if core is initialized."""
@@ -123,6 +118,21 @@ class Connection:
 
     def __str__(self):
         return f"Connection to {self.name}"
+class Connection:
+    """Connection class using mixed imports."""
+
+    def __init__(self, database_name: str):
+        if not helper_validate(database_name) or any(char in database_name for char in ["/", "\\", ":"]):
+            raise ValueError(f"Invalid database name: {database_name}")
+        self.name = process_user(database_name)
+        self.metadata = CONNECTION_METADATA.copy()
+        if database_name.startswith("model_"):
+            BaseModel = get_base_model()
+            self.model = BaseModel(database_name)
+            self.metadata["model_info"] = self.model.get_info()
+
+    def __str__(self):
+        return f"Connection to {self.name}"
 def get_connection_info_core_database_connection() -> dict:
     """Get general connection information."""
     from ..utils.config import is_debug
@@ -146,21 +156,10 @@ class Connection:
 
     def __str__(self):
         return f"Connection to {self.name}"
-class Connection:
-    """Connection class using mixed imports."""
-
-    def __init__(self, database_name: str):
-        if not helper_validate(database_name) or any(char in database_name for char in ["/", "\\", ":"]):
-            raise ValueError(f"Invalid database name: {database_name}")
-        self.name = process_user(database_name)
-        self.metadata = CONNECTION_METADATA.copy()
-        if database_name.startswith("model_"):
-            BaseModel = get_base_model()
-            self.model = BaseModel(database_name)
-            self.metadata["model_info"] = self.model.get_info()
-
-    def __str__(self):
-        return f"Connection to {self.name}"
+CONNECTION_METADATA_core_database_connection = {"supported_types": _connection_types, "validator": helper_validate.__name__, "processor": process_user.__name__, "core_version": CORE_MODEL_VERSION, "model_config": DEFAULT_MODEL_CONFIG}
+def connect_core_database_connection(database_name: str) -> Connection:
+    """Create a new database connection."""
+    return Connection(database_name)
 _connection_types = ["standard", "pooled", "async"]
 def get_connection_info_core_database_connection() -> dict:
     """Get general connection information."""
@@ -171,8 +170,10 @@ def get_connection_info_core_database_connection() -> dict:
         info["config"] = get_full_config()
     return info
 core_database_connection = types.SimpleNamespace()
-core_database_connection.get_connection_info = get_connection_info_core_database_connection
 core_database_connection.Connection = Connection
+core_database_connection.get_connection_info = get_connection_info_core_database_connection
+core_database_connection.CONNECTION_METADATA = CONNECTION_METADATA_core_database_connection
+core_database_connection.connect = connect_core_database_connection
 def process_user(name: str) -> str:
     """Process a user-related string.\n\n    This function is imported by core.database.connection,\n    demonstrating a cross-package absolute import.\n    """
     return f"user_{name}_processed"

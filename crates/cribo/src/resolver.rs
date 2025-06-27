@@ -8,7 +8,7 @@ use anyhow::{Result, anyhow};
 use indexmap::{IndexMap, IndexSet};
 use log::{debug, warn};
 
-use crate::{config::Config, stdlib_detection::is_stdlib_module};
+use crate::{config::Config, stdlib_detection::is_stdlib_module, types::ModuleKind};
 
 /// A scoped guard for safely setting and cleaning up the PYTHONPATH environment variable.
 ///
@@ -159,6 +159,15 @@ pub enum ImportType {
     FirstParty,
     ThirdParty,
     StandardLibrary,
+}
+
+/// Result of module resolution containing path and classification
+#[derive(Debug, Clone)]
+pub struct ModuleResolutionResult {
+    /// The resolved file path of the module
+    pub path: PathBuf,
+    /// Classification of the module (stdlib/third-party/first-party)
+    pub kind: ModuleKind,
 }
 
 /// Module descriptor for import resolution
@@ -663,7 +672,22 @@ impl ModuleResolver {
         }
 
         // Check if it's a standard library module
-        if is_stdlib_module(module_name) {
+        // Get Python version from config
+        let python_version = match self.config.python_version() {
+            Ok(version) => version,
+            Err(e) => {
+                warn!(
+                    "Failed to get Python version from config: {e}. Defaulting to third-party \
+                     classification."
+                );
+                let import_type = ImportType::ThirdParty;
+                self.classification_cache
+                    .insert(module_name.to_string(), import_type.clone());
+                return import_type;
+            }
+        };
+
+        if is_stdlib_module(module_name, python_version) {
             let import_type = ImportType::StandardLibrary;
             self.classification_cache
                 .insert(module_name.to_string(), import_type.clone());

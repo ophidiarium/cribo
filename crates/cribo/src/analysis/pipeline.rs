@@ -5,16 +5,19 @@
 
 use anyhow::Result;
 use log::{debug, info};
+use rustc_hash::FxHashMap;
 
 use crate::{
     analysis::{
         AnalysisResults, CircularDependencyAnalyzer, SymbolConflictDetector, SymbolOriginAnalyzer,
         SymbolOriginResults,
     },
-    cribo_graph::CriboGraph,
+    config::Config,
+    cribo_graph::{CriboGraph, ModuleId},
     module_registry::ModuleRegistry,
     semantic_bundler::SemanticBundler,
     semantic_model_provider::SemanticModelProvider,
+    transformation_detector::TransformationDetector,
     tree_shaking::TreeShaker,
 };
 
@@ -24,23 +27,35 @@ use crate::{
 /// 1. Circular dependency detection (fast graph algorithm)
 /// 2. Semantic analysis for symbol conflicts (hybrid traversal)
 /// 3. Tree-shaking analysis (graph traversal)
+/// 4. Transformation detection (identifies all AST changes needed)
 ///
 /// Each analyzer receives an immutable reference to the graph,
 /// ensuring no mutations occur during analysis.
 pub fn run_analysis_pipeline(
-    graph: &CriboGraph,
-    registry: &ModuleRegistry,
+    graph: CriboGraph,
+    registry: ModuleRegistry,
     _semantic_bundler: &SemanticBundler,
     semantic_provider: &SemanticModelProvider,
     tree_shake_enabled: bool,
     entry_module_name: &str,
+    entry_module_id: ModuleId,
+    config: &Config,
 ) -> Result<AnalysisResults> {
     info!("Starting analysis pipeline");
-    let mut results = AnalysisResults::default();
+    let mut results = AnalysisResults {
+        graph,
+        entry_module: entry_module_id,
+        module_registry: registry,
+        circular_deps: None,
+        symbol_conflicts: Vec::new(),
+        tree_shake_results: None,
+        symbol_origins: SymbolOriginResults::default(),
+        transformations: FxHashMap::default(),
+    };
 
     // Stage 1: Circular dependency detection
     debug!("Stage 1: Running circular dependency analysis");
-    let circular_analyzer = CircularDependencyAnalyzer::new(graph);
+    let circular_analyzer = CircularDependencyAnalyzer::new(&results.graph);
     let circular_deps = circular_analyzer.analyze();
 
     if circular_deps.has_cycles() {
@@ -57,7 +72,8 @@ pub fn run_analysis_pipeline(
 
     // Stage 2: Symbol origin analysis for tracking re-exports
     debug!("Stage 2: Analyzing symbol origins for re-exports and aliases");
-    let origin_analyzer = SymbolOriginAnalyzer::new(graph, registry, semantic_provider);
+    let origin_analyzer =
+        SymbolOriginAnalyzer::new(&results.graph, &results.module_registry, semantic_provider);
     let symbol_origins = origin_analyzer.analyze_origins()?;
 
     info!(
@@ -67,7 +83,8 @@ pub fn run_analysis_pipeline(
 
     // Stage 3: Semantic analysis for symbol conflicts
     debug!("Stage 3: Analyzing symbol conflicts");
-    let conflict_detector = SymbolConflictDetector::new(graph, registry, semantic_provider);
+    let conflict_detector =
+        SymbolConflictDetector::new(&results.graph, &results.module_registry, semantic_provider);
     let symbol_conflicts = conflict_detector.detect_conflicts(&symbol_origins)?;
 
     // Store symbol origins after using them
@@ -91,17 +108,17 @@ pub fn run_analysis_pipeline(
     results.symbol_conflicts = symbol_conflicts;
 
     // Stage 4: Tree-shaking analysis (if enabled)
-    if tree_shake_enabled {
+    let tree_shake_results = if tree_shake_enabled {
         debug!("Stage 4: Running tree-shaking analysis");
 
         // Create tree shaker from graph
-        let mut tree_shaker = TreeShaker::from_graph(graph);
+        let mut tree_shaker = TreeShaker::from_graph(&results.graph);
 
         // Run analysis from entry module
         tree_shaker.analyze(entry_module_name)?;
 
         // Generate tree-shake results from the analysis
-        let tree_shake_results = tree_shaker.generate_results(graph);
+        let tree_shake_results = tree_shaker.generate_results(&results.graph);
 
         debug!(
             "Tree-shaking analysis complete: {} items included, {} items removed",
@@ -109,10 +126,31 @@ pub fn run_analysis_pipeline(
             tree_shake_results.removed_items.len()
         );
 
-        results.tree_shake_results = Some(tree_shake_results);
+        Some(tree_shake_results)
     } else {
         debug!("Stage 4: Tree-shaking disabled, skipping");
-    }
+        None
+    };
+
+    // Stage 5: Transformation detection
+    debug!("Stage 5: Detecting required transformations");
+    let transformation_detector = TransformationDetector::new(
+        &results.graph,
+        &results.module_registry,
+        semantic_provider,
+        tree_shake_results.as_ref(),
+        config.python_version()?,
+    );
+
+    let transformations = transformation_detector.detect_transformations()?;
+
+    info!(
+        "Detected transformations for {} items",
+        transformations.len()
+    );
+
+    results.transformations = transformations;
+    results.tree_shake_results = tree_shake_results;
 
     info!("Analysis pipeline complete");
     Ok(results)

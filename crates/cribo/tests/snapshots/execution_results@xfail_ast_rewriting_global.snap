@@ -6,6 +6,6 @@ ExecutionResults {
     status: Failed(
         1,
     ),
-    stdout: "",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 6, in <module>",
+    stdout: "Module with global keyword: main_foo\nModule with globals() dict: main_bar\nModule with mixed patterns: {'foo': 'main_foo', 'bar': 'main_bar', 'counter': 0}\n\nAfter modifications:\nModule with global keyword: module3_foo_modified\nModule with globals() dict: module3_bar_modified\nModule with mixed patterns: {'foo': 'module3_foo_modified', 'bar': 'module3_bar_modified', 'counter': 1}",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 79, in <module>",
 }

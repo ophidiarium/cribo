@@ -16,7 +16,7 @@ utils_calculator = types.SimpleNamespace()
 utils_calculator.add = add
 utils_calculator.multiply = multiply
 utils_calculator.description = description
-calculator = utils_calculator.calculator
+calculator = utils_calculator
 def process_data():
     from utils import calculator
     result = calculator.add(5, 3)

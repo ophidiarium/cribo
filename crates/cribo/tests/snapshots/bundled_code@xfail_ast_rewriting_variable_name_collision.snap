@@ -8,18 +8,18 @@ input_file: crates/cribo/tests/fixtures/xfail_ast_rewriting_variable_name_collis
 
 import types
 VERSION_constants = "1.0.0"
-RETRY_DELAY = 5
+DEFAULT_TIMEOUT_constants = 30
 API_URL_constants = "https://api.constants.com"
 constants = types.SimpleNamespace()
 constants.VERSION = VERSION_constants
-constants.RETRY_DELAY = RETRY_DELAY
+constants.DEFAULT_TIMEOUT = DEFAULT_TIMEOUT_constants
 constants.API_URL = API_URL_constants
 VERSION_config = "2.1.0"
-CACHE_SIZE = 1000
+MAX_RETRIES_config = 3
 API_URL_config = "https://api.config.com"
 config = types.SimpleNamespace()
 config.VERSION = VERSION_config
-config.CACHE_SIZE = CACHE_SIZE
+config.MAX_RETRIES = MAX_RETRIES_config
 config.API_URL = API_URL_config
 CONFIG_API_URL = config.API_URL
 CONFIG_VERSION = config.VERSION

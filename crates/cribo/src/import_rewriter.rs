@@ -13,7 +13,6 @@ use crate::{
     analysis::{CircularDependencyGroup, CircularDependencyType},
     cribo_graph::{CriboGraph, ItemType, ModuleDepGraph, ModuleId},
     semantic_bundler::SemanticBundler,
-    stdlib_detection::{is_stdlib_module, is_stdlib_without_side_effects},
     visitors::{DiscoveredImport, ImportDiscoveryVisitor},
 };
 
@@ -391,19 +390,20 @@ impl ImportRewriter {
 
     /// Check if an import is likely to have side effects
     fn is_likely_side_effect_import(name: &str) -> bool {
-        // First check if it's a stdlib module with known side effects
-        if is_stdlib_module(name) && !is_stdlib_without_side_effects(name) {
-            return true;
-        }
+        // For now, be conservative and assume most imports might have side effects
+        // The proper way to check this would be to use the module metadata from the graph
+        // but ImportRewriter doesn't have access to the full graph context yet.
 
-        // Additional checks for non-stdlib modules or special cases
         match name {
+            // Known safe stdlib modules without side effects
+            "__future__" => false,
             // Common third-party modules with initialization side effects
             "pygame" | "matplotlib" => true,
             // Private modules often have initialization side effects
             _ if name.starts_with('_') => true,
-            // Otherwise assume no side effects
-            _ => false,
+            // For now, assume other imports might have side effects
+            // This is conservative but safe
+            _ => true,
         }
     }
 
