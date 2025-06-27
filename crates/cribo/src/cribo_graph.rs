@@ -23,7 +23,7 @@ use petgraph::{
 use rustc_hash::{FxHashMap, FxHashSet};
 
 // Import circular dependency types for compatibility
-use crate::analysis::{CircularDependencyType, ResolutionStrategy};
+use crate::analysis::CircularDependencyType;
 use crate::types::ModuleKind;
 
 /// Unique identifier for a module
@@ -1480,39 +1480,6 @@ impl CriboGraph {
 
         // Check if mod1 is parent of mod2 or vice versa
         mod2.starts_with(&format!("{mod1}.")) || mod1.starts_with(&format!("{mod2}."))
-    }
-
-    /// Suggest resolution strategy for a circular dependency
-    fn suggest_resolution_for_cycle(
-        &self,
-        cycle_type: &CircularDependencyType,
-        module_names: &[String],
-    ) -> ResolutionStrategy {
-        // This is a deprecated compatibility function
-        let _ = module_names;
-        match cycle_type {
-            CircularDependencyType::FunctionLevel => ResolutionStrategy::FunctionScopedImport {
-                import_to_function: FxHashMap::default(),
-                descriptions: vec!["Move imports inside functions that use them".to_string()],
-            },
-            CircularDependencyType::ClassLevel => ResolutionStrategy::LazyImport {
-                module_ids: vec![],
-                lazy_var_names: FxHashMap::default(),
-            },
-            CircularDependencyType::ModuleConstants => ResolutionStrategy::Unresolvable {
-                reason: "Module-level constants create temporal paradox - consider moving to a \
-                         shared configuration module"
-                    .into(),
-                manual_suggestions: vec![
-                    "Consider moving constants to a separate module".to_string(),
-                ],
-            },
-            CircularDependencyType::ImportTime => ResolutionStrategy::ModuleSplit {
-                module_id: ModuleId::new(0),
-                suggested_names: vec!["extracted_module".to_string()],
-                item_distribution: vec![],
-            },
-        }
     }
 
     /// Get all import names that resolve to the same file as the given module
