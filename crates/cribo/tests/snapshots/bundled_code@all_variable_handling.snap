@@ -9,22 +9,32 @@ input_file: crates/cribo/tests/fixtures/all_variable_handling/main.py
 import types
 nested_package = types.SimpleNamespace()
 nested_package.__name__ = 'nested_package'
-message_1 = "from conflict_module"
+message_conflict_module = "from conflict_module"
+SHARED_NAME = "conflict_module_version"
 SUB_CONSTANT = "submodule_value"
-def sub_function():
+def sub_function_nested_package_submodule():
     """Function from submodule"""
     return "Hello from submodule"
-def exported_from_init():
+def exported_from_init_nested_package():
     """Function exported from package __init__.py"""
     return f"From init, using helper: {helper_func()}"
-def helper_func():
+UTILS_CONSTANT = "utils value"
+def helper_func_nested_package_utils():
     """Helper function used by other modules"""
     return "helper result"
-CONSTANT = 42
-def public_func():
+def another_helper():
+    """Another helper function"""
+    return "another helper"
+CONSTANT_simple_module = 42
+def public_func_simple_module():
     """A public function that should be exported."""
     return "Hello from public_func"
-message = message_1
+sub_function = sub_function_nested_package_submodule
+helper_func = helper_func_nested_package_utils
+public_func = public_func_simple_module
+CONSTANT = CONSTANT_simple_module
+exported_from_init = exported_from_init_nested_package
+message = message_conflict_module
 print("Testing simple module exports:")
 print(f"public_func() = {public_func()}")
 print(f"CONSTANT = {CONSTANT}")
@@ -35,12 +45,12 @@ print("\nTesting conflict resolution:")
 print(f"message = {message}")
 simple_module = types.SimpleNamespace()
 simple_module.__all__ = ['public_func', 'CONSTANT']
-simple_module.public_func = public_func
-simple_module.CONSTANT = CONSTANT
+simple_module.public_func = public_func_simple_module
+simple_module.CONSTANT = CONSTANT_simple_module
 print(f"\n'public_func' in simple_module.__all__ = {'public_func' in simple_module.__all__}")
 print(f"'CONSTANT' in simple_module.__all__ = {'CONSTANT' in simple_module.__all__}")
 sub = types.SimpleNamespace()
 sub.__all__ = ['sub_function', 'SUB_CONSTANT']
-sub.sub_function = sub_function
+sub.sub_function = sub_function_nested_package_submodule
 sub.SUB_CONSTANT = SUB_CONSTANT
 print(f"\n'sub_function' in submodule.__all__ = {'sub_function' in sub.__all__}")

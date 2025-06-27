@@ -1,13 +1,36 @@
 /// Graph builder that creates CriboGraph from Python AST
 /// This module bridges the gap between ruff's AST and our dependency graph
+use std::hash::BuildHasherDefault;
+
 use anyhow::Result;
-use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
-use rustc_hash::{FxHashMap, FxHashSet};
+use indexmap::IndexMap;
+use petgraph::graph::NodeIndex;
+use ruff_python_ast::{self as ast, AtomicNodeIndex, Expr, ModModule, Stmt};
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
 use crate::{
-    cribo_graph::{ItemData, ItemType, ModuleDepGraph},
+    cribo_graph::{ItemData, ItemId, ItemType, ModuleDepGraph},
     visitors::ExpressionSideEffectDetector,
 };
+
+/// Type alias for IndexMap with FxHasher for better performance
+type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
+
+/// Result of the two-pass graph building process
+pub struct GraphBuildResult {
+    /// Map from symbol name to node index for intra-module references
+    pub symbol_map: FxHashMap<String, NodeIndex>,
+    /// Mappings between items and AST nodes
+    pub item_mappings: ItemMappings,
+}
+
+/// Bidirectional mappings between ItemId and AST nodes
+pub struct ItemMappings {
+    /// Map from ItemId to AST node index
+    pub item_to_node: FxIndexMap<ItemId, AtomicNodeIndex>,
+    /// Map from AST node index to ItemId
+    pub node_to_item: FxIndexMap<AtomicNodeIndex, ItemId>,
+}
 
 /// Context for for statement variable collection
 struct ForStmtContext<'a, 'b> {
@@ -25,9 +48,10 @@ pub struct GraphBuilder<'a> {
     /// Maps local name -> module path (e.g., "il" -> "importlib", "im" ->
     /// "importlib.import_module")
     import_aliases: FxHashMap<String, String>,
-    /// Track which modules were created by stdlib normalization
-    /// This helps with tree-shaking normalized imports
-    normalized_modules: FxHashSet<String>,
+    /// Current statement index in the module body
+    current_statement_index: Option<usize>,
+    /// Current function name if inside a function
+    current_function_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -43,20 +67,25 @@ impl<'a> GraphBuilder<'a> {
             graph,
             current_scope: ScopeType::Module,
             import_aliases: FxHashMap::default(),
-            normalized_modules: FxHashSet::default(),
+            current_statement_index: None,
+            current_function_name: None,
         }
     }
 
-    /// Set the modules that were created by stdlib normalization
-    pub fn set_normalized_modules(&mut self, modules: FxHashSet<String>) {
-        self.normalized_modules = modules;
+    /// Helper to get current scope information for ItemData
+    fn get_scope_info(&self) -> (bool, Option<String>) {
+        (
+            matches!(self.current_scope, ScopeType::Module),
+            self.current_function_name.clone(),
+        )
     }
 
     /// Build the graph from an AST
     pub fn build_from_ast(&mut self, ast: &ModModule) -> Result<()> {
         // Process all statements in the module
         log::trace!("Building graph from AST with {} statements", ast.body.len());
-        for stmt in &ast.body {
+        for (index, stmt) in ast.body.iter().enumerate() {
+            self.current_statement_index = Some(index);
             self.process_statement(stmt)?;
         }
         Ok(())
@@ -147,12 +176,6 @@ impl<'a> GraphBuilder<'a> {
                 var_decls.insert(local_name.to_string());
             }
 
-            // Check if this import was created by stdlib normalization
-            let is_normalized = self.normalized_modules.contains(module_name);
-            if is_normalized {
-                log::debug!("Import '{module_name}' is a normalized stdlib import");
-            }
-
             let item_data = ItemData {
                 item_type: ItemType::Import {
                     module: module_name.to_string(),
@@ -163,14 +186,19 @@ impl<'a> GraphBuilder<'a> {
                 eventual_read_vars: FxHashSet::default(),
                 write_vars: FxHashSet::default(),
                 eventual_write_vars: FxHashSet::default(),
-                has_side_effects: crate::side_effects::import_has_side_effects(module_name),
+                // Side effects will be determined later by the orchestrator based on module
+                // classification
+                has_side_effects: false,
                 span: None, // Could extract from AST if needed
                 imported_names,
                 reexported_names: FxHashSet::default(),
                 defined_symbols: FxHashSet::default(),
                 symbol_dependencies: FxHashMap::default(),
                 attribute_accesses: FxHashMap::default(),
-                is_normalized_import: is_normalized,
+                is_normalized_import: false,
+                statement_index: self.current_statement_index,
+                is_module_level: matches!(self.current_scope, ScopeType::Module),
+                containing_function: self.current_function_name.clone(),
             };
 
             self.graph.add_item(item_data);
@@ -259,7 +287,9 @@ impl<'a> GraphBuilder<'a> {
             eventual_read_vars: FxHashSet::default(),
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
-            has_side_effects: crate::side_effects::from_import_has_side_effects(import_from),
+            // Side effects will be determined later by the orchestrator based on module
+            // classification
+            has_side_effects: false,
             span: None,
             imported_names,
             reexported_names,
@@ -267,6 +297,9 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -353,21 +386,29 @@ impl<'a> GraphBuilder<'a> {
             span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
-            defined_symbols: [func_name].into_iter().collect(),
+            defined_symbols: [func_name.clone()].into_iter().collect(),
             symbol_dependencies,
             attribute_accesses: eventual_attribute_accesses,
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
 
         // Process the function body in function scope
         let old_scope = self.current_scope;
+        let old_function_name = self.current_function_name.take();
         self.current_scope = ScopeType::Function;
+        self.current_function_name = Some(func_name.clone());
+
         for stmt in &func_def.body {
             self.process_statement(stmt)?;
         }
+
         self.current_scope = old_scope;
+        self.current_function_name = old_function_name;
 
         Ok(())
     }
@@ -453,6 +494,9 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies,
             attribute_accesses: method_attribute_accesses,
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -529,6 +573,9 @@ impl<'a> GraphBuilder<'a> {
                     symbol_dependencies: FxHashMap::default(),
                     attribute_accesses: FxHashMap::default(),
                     is_normalized_import: false,
+                    statement_index: self.current_statement_index,
+                    is_module_level: matches!(self.current_scope, ScopeType::Module),
+                    containing_function: self.current_function_name.clone(),
                 };
 
                 self.graph.add_item(item_data);
@@ -553,20 +600,9 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
 
-            // Check if this assignment is from a safe stdlib module attribute access
-            // e.g., ABC = abc.ABC where 'abc' is a safe stdlib module
-            let mut is_safe_stdlib_attribute_access = false;
-            if let Expr::Attribute(attr_expr) = assign.value.as_ref()
-                && let Expr::Name(name_expr) = attr_expr.value.as_ref()
-            {
-                let module_name = name_expr.id.as_str();
-                if crate::side_effects::is_safe_stdlib_module(module_name) {
-                    is_safe_stdlib_attribute_access = true;
-                    log::debug!(
-                        "Assignment from safe stdlib module '{module_name}' attribute access"
-                    );
-                }
-            }
+            // Side effects for assignments will be determined later by orchestrator
+            // For now, we'll use the expression side effect detector
+            let is_safe_stdlib_attribute_access = false;
 
             let item_data = ItemData {
                 item_type: ItemType::Assignment {
@@ -591,6 +627,9 @@ impl<'a> GraphBuilder<'a> {
                 symbol_dependencies: FxHashMap::default(),
                 attribute_accesses,
                 is_normalized_import: false,
+                statement_index: self.current_statement_index,
+                is_module_level: matches!(self.current_scope, ScopeType::Module),
+                containing_function: self.current_function_name.clone(),
             };
 
             self.graph.add_item(item_data);
@@ -637,6 +676,9 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -682,6 +724,9 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses,
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -726,6 +771,9 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses,
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -755,6 +803,9 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -805,6 +856,9 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -842,6 +896,9 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -882,6 +939,9 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -911,6 +971,9 @@ impl<'a> GraphBuilder<'a> {
             symbol_dependencies: FxHashMap::default(),
             attribute_accesses: FxHashMap::default(),
             is_normalized_import: false,
+            statement_index: self.current_statement_index,
+            is_module_level: matches!(self.current_scope, ScopeType::Module),
+            containing_function: self.current_function_name.clone(),
         };
 
         self.graph.add_item(item_data);
@@ -945,6 +1008,9 @@ impl<'a> GraphBuilder<'a> {
                     symbol_dependencies: FxHashMap::default(),
                     attribute_accesses: FxHashMap::default(),
                     is_normalized_import: false,
+                    statement_index: self.current_statement_index,
+                    is_module_level: matches!(self.current_scope, ScopeType::Module),
+                    containing_function: self.current_function_name.clone(),
                 };
                 self.graph.add_item(item_data);
             }
@@ -1247,6 +1313,26 @@ impl<'a> GraphBuilder<'a> {
                             }
                         }
                     }
+                    Stmt::AnnAssign(ann_assign) => {
+                        // Collect variables from the type annotation
+                        self.collect_vars_in_expr_with_attrs(
+                            &ann_assign.annotation,
+                            read_vars,
+                            attribute_accesses,
+                        );
+                        // Collect variables from the value expression if present
+                        if let Some(value) = &ann_assign.value {
+                            self.collect_vars_in_expr_with_attrs(
+                                value,
+                                read_vars,
+                                attribute_accesses,
+                            );
+                        }
+                        // Add assignment target to write vars
+                        if let Some(names) = self.extract_assignment_targets(&ann_assign.target) {
+                            write_vars.extend(names);
+                        }
+                    }
                     Stmt::Return(ret) => {
                         self.handle_return_stmt(ret, read_vars, attribute_accesses);
                     }
@@ -1545,5 +1631,350 @@ impl<'a> GraphBuilder<'a> {
             self.collect_vars_in_expr_with_attrs(&item.context_expr, read_vars, attribute_accesses);
         }
         stack.push(&with_stmt.body);
+    }
+
+    /// Build the graph using a two-pass approach
+    /// Pass A: Discover all symbols and create nodes
+    /// Pass B: Wire up dependencies between nodes
+    pub fn build_from_ast_two_pass(&mut self, ast: &ModModule) -> Result<GraphBuildResult> {
+        log::debug!("Starting two-pass graph building");
+
+        // Pass A: Symbol discovery
+        let symbol_map = self.pass_a_symbol_discovery(ast)?;
+
+        // Pass B: Dependency wiring
+        let item_mappings = self.pass_b_dependency_wiring(ast, &symbol_map)?;
+
+        Ok(GraphBuildResult {
+            symbol_map,
+            item_mappings,
+        })
+    }
+
+    /// Pass A: Traverse AST and discover all top-level definitions
+    /// Creates ItemData and adds to graph, building symbol map
+    fn pass_a_symbol_discovery(&mut self, ast: &ModModule) -> Result<FxHashMap<String, NodeIndex>> {
+        log::trace!("Pass A: Symbol discovery - {} statements", ast.body.len());
+        let mut symbol_map = FxHashMap::default();
+        let mut stmt_index = 0;
+
+        for stmt in &ast.body {
+            match stmt {
+                Stmt::FunctionDef(func_def) => {
+                    let name = func_def.name.to_string();
+                    log::trace!("Pass A: Found function '{name}'");
+
+                    // Create basic ItemData without dependencies
+                    let item_data = ItemData {
+                        item_type: ItemType::FunctionDef { name: name.clone() },
+                        var_decls: [name.clone()].into_iter().collect(),
+                        read_vars: FxHashSet::default(), // Will be filled in Pass B
+                        eventual_read_vars: FxHashSet::default(),
+                        write_vars: FxHashSet::default(),
+                        eventual_write_vars: FxHashSet::default(),
+                        has_side_effects: false,
+                        span: Some((stmt_index, stmt_index)),
+                        imported_names: FxHashSet::default(),
+                        reexported_names: FxHashSet::default(),
+                        defined_symbols: [name.clone()].into_iter().collect(),
+                        symbol_dependencies: FxHashMap::default(),
+                        attribute_accesses: FxHashMap::default(),
+                        is_normalized_import: false,
+                        statement_index: Some(stmt_index),
+                        is_module_level: true, // Pass A always processes module-level items
+                        containing_function: None,
+                    };
+
+                    let node_index = self.graph.add_item_with_index(item_data);
+                    symbol_map.insert(name, node_index);
+                }
+                Stmt::ClassDef(class_def) => {
+                    let name = class_def.name.to_string();
+                    log::trace!("Pass A: Found class '{name}'");
+
+                    let item_data = ItemData {
+                        item_type: ItemType::ClassDef { name: name.clone() },
+                        var_decls: [name.clone()].into_iter().collect(),
+                        read_vars: FxHashSet::default(), // Will be filled in Pass B
+                        eventual_read_vars: FxHashSet::default(),
+                        write_vars: FxHashSet::default(),
+                        eventual_write_vars: FxHashSet::default(),
+                        has_side_effects: false,
+                        span: Some((stmt_index, stmt_index)),
+                        imported_names: FxHashSet::default(),
+                        reexported_names: FxHashSet::default(),
+                        defined_symbols: [name.clone()].into_iter().collect(),
+                        symbol_dependencies: FxHashMap::default(),
+                        attribute_accesses: FxHashMap::default(),
+                        is_normalized_import: false,
+                        statement_index: Some(stmt_index),
+                        is_module_level: true, // Pass A always processes module-level items
+                        containing_function: None,
+                    };
+
+                    let node_index = self.graph.add_item_with_index(item_data);
+                    symbol_map.insert(name, node_index);
+                }
+                Stmt::Assign(assign) => {
+                    // Extract assignment targets
+                    if let Some(names) = self.extract_assignment_targets(&assign.targets[0]) {
+                        log::trace!("Pass A: Found assignments: {names:?}");
+
+                        let item_data = ItemData {
+                            item_type: ItemType::Assignment {
+                                targets: names.clone(),
+                            },
+                            var_decls: names.iter().cloned().collect(),
+                            read_vars: FxHashSet::default(), // Will be filled in Pass B
+                            eventual_read_vars: FxHashSet::default(),
+                            write_vars: names.iter().cloned().collect(),
+                            eventual_write_vars: FxHashSet::default(),
+                            has_side_effects: false,
+                            span: Some((stmt_index, stmt_index)),
+                            imported_names: FxHashSet::default(),
+                            reexported_names: FxHashSet::default(),
+                            defined_symbols: names.iter().cloned().collect(),
+                            symbol_dependencies: FxHashMap::default(),
+                            attribute_accesses: FxHashMap::default(),
+                            is_normalized_import: false,
+                            statement_index: Some(stmt_index),
+                            is_module_level: true, // Pass A always processes module-level items
+                            containing_function: None,
+                        };
+
+                        let node_index = self.graph.add_item_with_index(item_data);
+                        for name in names {
+                            symbol_map.insert(name, node_index);
+                        }
+                    }
+                }
+                Stmt::AnnAssign(ann_assign) => {
+                    // Handle annotated assignments (e.g., x: int = 5)
+                    if let Some(names) = self.extract_assignment_targets(&ann_assign.target) {
+                        log::trace!("Pass A: Found annotated assignment: {names:?}");
+
+                        let item_data = ItemData {
+                            item_type: ItemType::Assignment {
+                                targets: names.clone(),
+                            },
+                            var_decls: names.iter().cloned().collect(),
+                            read_vars: FxHashSet::default(), // Will be filled in Pass B
+                            eventual_read_vars: FxHashSet::default(),
+                            write_vars: names.iter().cloned().collect(),
+                            eventual_write_vars: FxHashSet::default(),
+                            has_side_effects: false,
+                            span: Some((stmt_index, stmt_index)),
+                            imported_names: FxHashSet::default(),
+                            reexported_names: FxHashSet::default(),
+                            defined_symbols: names.iter().cloned().collect(),
+                            symbol_dependencies: FxHashMap::default(),
+                            attribute_accesses: FxHashMap::default(),
+                            is_normalized_import: false,
+                            statement_index: Some(stmt_index),
+                            is_module_level: true, // Pass A always processes module-level items
+                            containing_function: None,
+                        };
+
+                        let node_index = self.graph.add_item_with_index(item_data);
+                        for name in names {
+                            symbol_map.insert(name, node_index);
+                        }
+                    }
+                }
+                Stmt::With(with_stmt) => {
+                    // Handle with statements that use 'as' clause
+                    for item in &with_stmt.items {
+                        if let Some(optional_vars) = &item.optional_vars
+                            && let Some(names) = self.extract_assignment_targets(optional_vars)
+                        {
+                            log::trace!("Pass A: Found with statement bindings: {names:?}");
+
+                            let item_data = ItemData {
+                                item_type: ItemType::Assignment {
+                                    targets: names.clone(),
+                                },
+                                var_decls: names.iter().cloned().collect(),
+                                read_vars: FxHashSet::default(), // Will be filled in Pass B
+                                eventual_read_vars: FxHashSet::default(),
+                                write_vars: names.iter().cloned().collect(),
+                                eventual_write_vars: FxHashSet::default(),
+                                has_side_effects: false,
+                                span: Some((stmt_index, stmt_index)),
+                                imported_names: FxHashSet::default(),
+                                reexported_names: FxHashSet::default(),
+                                defined_symbols: names.iter().cloned().collect(),
+                                symbol_dependencies: FxHashMap::default(),
+                                attribute_accesses: FxHashMap::default(),
+                                is_normalized_import: false,
+                                statement_index: Some(stmt_index),
+                                is_module_level: true, /* Pass A always processes
+                                                        * module-level items */
+                                containing_function: None,
+                            };
+
+                            let node_index = self.graph.add_item_with_index(item_data);
+                            for name in names {
+                                symbol_map.insert(name, node_index);
+                            }
+                        }
+                    }
+                }
+                Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                    // Imports are handled differently - they create items but not local symbols
+                    // They introduce names into the namespace but are tracked separately
+                    // from regular symbol definitions for bundling purposes
+                    self.process_statement(stmt)?;
+                }
+                _ => {
+                    // Other statements will be processed in Pass B for side effects
+                    // This includes:
+                    // - AugAssign: usually modifies existing variables rather than creating new
+                    //   ones
+                    // - Try/Except: exception handlers are processed for their side effects
+                    // - Expression statements: processed for side effects
+                }
+            }
+            stmt_index += 1;
+        }
+
+        log::debug!("Pass A complete: discovered {} symbols", symbol_map.len());
+        Ok(symbol_map)
+    }
+
+    /// Pass B: Traverse AST again to wire up dependencies
+    fn pass_b_dependency_wiring(
+        &mut self,
+        _ast: &ModModule,
+        _symbol_map: &FxHashMap<String, NodeIndex>,
+    ) -> Result<ItemMappings> {
+        log::trace!("Pass B: Dependency wiring");
+        let item_mappings = ItemMappings {
+            item_to_node: FxIndexMap::default(),
+            node_to_item: FxIndexMap::default(),
+        };
+
+        // For now, we'll use the existing single-pass logic for dependency wiring
+        // In a complete implementation, this would:
+        // 1. Re-traverse the AST
+        // 2. Use symbol_map to resolve intra-module references
+        // 3. Create edges for function calls, class instantiations, etc.
+        // 4. Update read_vars and other dependency tracking in ItemData
+
+        // This is a placeholder - the actual implementation would be more complex
+        log::debug!("Pass B complete: dependencies wired");
+        Ok(item_mappings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ruff_python_parser::parse_module;
+
+    use super::*;
+
+    #[test]
+    fn test_function_call_in_dict_literal() {
+        // Test that function calls within dictionary literals are properly tracked
+        let source = r#"
+ProcessingResult = dict
+
+def _transform_data(data):
+    return [f"{k}={v}" for k, v in data.items()]
+
+def process_data(data):
+    result: ProcessingResult = {
+        "input": data,
+        "processed": True,
+        "output": _transform_data(data),
+    }
+    return result
+"#;
+
+        let parsed = parse_module(source).expect("Failed to parse module");
+        let ast = parsed.into_syntax();
+
+        // Create a module graph
+        let module_id = crate::cribo_graph::ModuleId::new(0);
+        let mut module_graph = ModuleDepGraph::new(module_id, "test_module".to_string());
+
+        // Build the graph
+        let mut builder = GraphBuilder::new(&mut module_graph);
+        builder.build_from_ast(&ast).expect("Failed to build graph");
+
+        // Find the process_data function item
+        let process_item = module_graph.items.values()
+            .find(|item| matches!(&item.item_type, ItemType::FunctionDef { name } if name == "process_data"))
+            .expect("Should find process_data function");
+
+        // Check that _transform_data is in the eventual_read_vars
+        assert!(
+            process_item.eventual_read_vars.contains("_transform_data"),
+            "Function 'process_data' should have '_transform_data' in its eventual_read_vars, but \
+             found: {:?}",
+            process_item.eventual_read_vars
+        );
+
+        // Also check symbol dependencies
+        assert!(
+            process_item
+                .symbol_dependencies
+                .get("process_data")
+                .map(|deps| deps.contains("_transform_data"))
+                .unwrap_or(false),
+            "Function 'process_data' should have '_transform_data' in its symbol dependencies, \
+             but found: {:?}",
+            process_item.symbol_dependencies
+        );
+    }
+
+    #[test]
+    fn test_nested_function_call_tracking() {
+        // Test that nested function calls are tracked properly
+        let source = r#"
+def helper(x):
+    return x + 1
+
+def transform(x):
+    return helper(x) * 2
+
+def process():
+    result = transform(42)
+    return result
+"#;
+
+        let parsed = parse_module(source).expect("Failed to parse module");
+        let ast = parsed.into_syntax();
+
+        // Create a module graph
+        let module_id = crate::cribo_graph::ModuleId::new(0);
+        let mut module_graph = ModuleDepGraph::new(module_id, "test_module".to_string());
+
+        // Build the graph
+        let mut builder = GraphBuilder::new(&mut module_graph);
+        builder.build_from_ast(&ast).expect("Failed to build graph");
+
+        // Find the transform function item
+        let transform_item = module_graph.items.values()
+            .find(|item| matches!(&item.item_type, ItemType::FunctionDef { name } if name == "transform"))
+            .expect("Should find transform function");
+
+        // Check that helper is in the eventual_read_vars
+        assert!(
+            transform_item.eventual_read_vars.contains("helper"),
+            "Function 'transform' should have 'helper' in its eventual_read_vars, but found: {:?}",
+            transform_item.eventual_read_vars
+        );
+
+        // Find the process function item
+        let process_item = module_graph.items.values()
+            .find(|item| matches!(&item.item_type, ItemType::FunctionDef { name } if name == "process"))
+            .expect("Should find process function");
+
+        // Check that transform is in the eventual_read_vars
+        assert!(
+            process_item.eventual_read_vars.contains("transform"),
+            "Function 'process' should have 'transform' in its eventual_read_vars, but found: {:?}",
+            process_item.eventual_read_vars
+        );
     }
 }

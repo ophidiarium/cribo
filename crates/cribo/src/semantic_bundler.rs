@@ -33,7 +33,7 @@ pub struct SemanticBundler {
 }
 
 /// Semantic model builder that properly populates bindings using visitor pattern
-struct SemanticModelBuilder<'a> {
+pub struct SemanticModelBuilder<'a> {
     semantic: SemanticModel<'a>,
     /// Tracks enhanced from-import information found during traversal
     from_imports: Vec<EnhancedFromImport>,
@@ -41,7 +41,7 @@ struct SemanticModelBuilder<'a> {
 
 impl<'a> SemanticModelBuilder<'a> {
     /// Create and populate a semantic model for a module
-    fn build_semantic_model(
+    pub fn build_semantic_model(
         source: &'a str,
         file_path: &'a Path,
         ast: &'a ModModule,
@@ -353,8 +353,6 @@ impl ModuleSemanticAnalyzer {
 pub struct ModuleSemanticInfo {
     /// Symbols exported by this module (from semantic analysis)
     pub exported_symbols: FxIndexSet<String>,
-    /// Symbol conflicts detected in this module
-    pub conflicts: Vec<String>,
     /// Source code for re-analysis if needed
     pub source: String,
     /// File path for this module
@@ -368,8 +366,6 @@ pub struct ModuleSemanticInfo {
 pub struct SymbolRegistry {
     /// Symbol name -> list of modules that define it
     pub symbols: FxIndexMap<String, Vec<ModuleId>>,
-    /// Renames: (ModuleId, OriginalName) -> NewName
-    pub renames: FxIndexMap<(ModuleId, String), String>,
     /// Symbol binding information for scope analysis
     pub symbol_bindings: FxIndexMap<(ModuleId, String), SymbolBindingInfo>,
 }
@@ -398,7 +394,6 @@ impl SymbolRegistry {
     pub fn new() -> Self {
         Self {
             symbols: FxIndexMap::default(),
-            renames: FxIndexMap::default(),
             symbol_bindings: FxIndexMap::default(),
         }
     }
@@ -424,42 +419,6 @@ impl SymbolRegistry {
         self.symbols.entry(symbol).or_default().push(module_id);
     }
 
-    /// Detect conflicts across all modules
-    pub fn detect_conflicts(&self) -> Vec<SymbolConflict> {
-        let mut conflicts = Vec::new();
-
-        for (symbol, modules) in &self.symbols {
-            if modules.len() > 1 {
-                conflicts.push(SymbolConflict {
-                    symbol: symbol.clone(),
-                    modules: modules.clone(),
-                });
-            }
-        }
-
-        conflicts
-    }
-
-    /// Generate rename for conflicting symbol
-    pub fn generate_rename(
-        &mut self,
-        module_id: ModuleId,
-        original: &str,
-        suffix: usize,
-    ) -> String {
-        let new_name = format!("{original}_{suffix}");
-        self.renames
-            .insert((module_id, original.to_string()), new_name.clone());
-        new_name
-    }
-
-    /// Get rename for a symbol if it exists
-    pub fn get_rename(&self, module_id: &ModuleId, original: &str) -> Option<&str> {
-        self.renames
-            .get(&(*module_id, original.to_string()))
-            .map(|s| s.as_str())
-    }
-
     /// Check if a symbol has conflicts
     pub fn has_conflict(&self, symbol: &str) -> bool {
         self.symbols
@@ -481,12 +440,6 @@ impl SymbolRegistry {
         self.get_symbol_binding(module_id, symbol)
             .is_some_and(|info| info.is_module_level)
     }
-}
-
-/// Represents a symbol conflict across modules
-pub struct SymbolConflict {
-    pub symbol: String,
-    pub modules: Vec<ModuleId>,
 }
 
 /// Information about module-level global usage
@@ -583,7 +536,6 @@ impl SemanticBundler {
             module_id,
             ModuleSemanticInfo {
                 exported_symbols,
-                conflicts: Vec::new(), // Will be populated later
                 source: source.to_string(),
                 file_path: path.to_path_buf(),
                 module_scope_symbols,
@@ -591,30 +543,6 @@ impl SemanticBundler {
         );
 
         Ok(())
-    }
-
-    /// Detect and resolve symbol conflicts across all modules
-    pub fn detect_and_resolve_conflicts(&mut self) -> Vec<SymbolConflict> {
-        let conflicts = self.global_symbols.detect_conflicts();
-
-        // Generate renames for conflicting symbols
-        for conflict in &conflicts {
-            for (i, module_id) in conflict.modules.iter().enumerate() {
-                // Generate renames for all modules in conflict (including first)
-                let _new_name = self.global_symbols.generate_rename(
-                    *module_id,
-                    &conflict.symbol,
-                    i + 1, // Start numbering from 1 instead of 0
-                );
-
-                // Update conflicts in module info
-                if let Some(module_info) = self.module_semantics.get_mut(module_id) {
-                    module_info.conflicts.push(conflict.symbol.clone());
-                }
-            }
-        }
-
-        conflicts
     }
 
     /// Get module semantic info

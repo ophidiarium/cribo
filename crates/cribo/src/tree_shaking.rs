@@ -18,6 +18,8 @@ pub struct TreeShaker {
     used_symbols: IndexSet<(String, String)>,
     /// Map from module ID to module name
     _module_names: IndexMap<ModuleId, String>,
+    /// The entry module name (used for special handling)
+    entry_module: Option<String>,
 }
 
 impl TreeShaker {
@@ -42,12 +44,16 @@ impl TreeShaker {
             cross_module_refs: IndexMap::new(),
             used_symbols: IndexSet::new(),
             _module_names: module_names,
+            entry_module: None,
         }
     }
 
     /// Analyze which symbols should be kept based on entry point
     pub fn analyze(&mut self, entry_module: &str) -> Result<()> {
         debug!("Starting tree-shaking analysis from entry module: {entry_module}");
+
+        // Store the entry module for special handling
+        self.entry_module = Some(entry_module.to_string());
 
         // First, build cross-module reference information
         self.build_cross_module_refs();
@@ -369,6 +375,32 @@ impl TreeShaker {
                                         "Found from import of module {potential_module} in \
                                          {module_name}"
                                     );
+
+                                    // For directly imported modules (like from mymodule import
+                                    // utils), we need to mark
+                                    // ALL their exports as used because the module
+                                    // object itself is imported
+                                    if let Some(target_items) =
+                                        self.module_items.get(&potential_module)
+                                    {
+                                        debug!(
+                                            "Marking all exports from {potential_module} as used"
+                                        );
+                                        for item in target_items {
+                                            for symbol in &item.defined_symbols {
+                                                if !symbol.starts_with('_') {
+                                                    debug!(
+                                                        "  Marking {potential_module}::{symbol} \
+                                                         as used"
+                                                    );
+                                                    worklist.push_back((
+                                                        potential_module.clone(),
+                                                        symbol.clone(),
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -787,8 +819,15 @@ impl TreeShaker {
         import_name: &str,
         _import_source: &str,
     ) -> bool {
+        debug!(
+            "is_import_required: checking if import '{import_name}' is needed in module \
+             '{module_name}'"
+        );
+
         // Check if any surviving symbol in this module uses this import
-        for symbol in self.get_used_symbols_for_module(module_name) {
+        let used_symbols = self.get_used_symbols_for_module(module_name);
+        debug!("Used symbols in module '{module_name}': {used_symbols:?}");
+        for symbol in used_symbols {
             if let Some(items) = self.module_items.get(module_name) {
                 for item in items {
                     if item.defined_symbols.contains(&symbol) {
@@ -796,6 +835,7 @@ impl TreeShaker {
                         if item.read_vars.contains(import_name)
                             || item.eventual_read_vars.contains(import_name)
                         {
+                            debug!("Import '{import_name}' is used by symbol '{symbol}'");
                             return true;
                         }
 
@@ -803,6 +843,7 @@ impl TreeShaker {
                         if let Some(deps) = item.symbol_dependencies.get(&symbol)
                             && deps.contains(import_name)
                         {
+                            debug!("Import '{import_name}' is a dependency of symbol '{symbol}'");
                             return true;
                         }
                     }
@@ -810,6 +851,7 @@ impl TreeShaker {
             }
         }
 
+        debug!("Import '{import_name}' is NOT required in module '{module_name}'");
         false
     }
 
@@ -831,7 +873,14 @@ impl TreeShaker {
 
     /// Get items that should be kept for a module
     pub fn get_items_to_keep(&self, module_name: &str) -> FxHashSet<usize> {
+        debug!("Getting items to keep for module '{module_name}'");
         let mut items_to_keep = FxHashSet::default();
+
+        // Check if this is the entry module
+        let is_entry_module = self
+            .entry_module
+            .as_ref()
+            .is_some_and(|em| em == module_name);
 
         if let Some(items) = self.module_items.get(module_name) {
             for (idx, item) in items.iter().enumerate() {
@@ -842,7 +891,7 @@ impl TreeShaker {
                     .iter()
                     .any(|symbol| self.is_symbol_used(module_name, symbol));
 
-                // 2. It has side effects
+                // 2. It has side effects (for entry module, keep all side-effect items)
                 let has_side_effects = item.has_side_effects
                     && !matches!(
                         item.item_type,
@@ -853,43 +902,192 @@ impl TreeShaker {
                 let is_needed_import = match &item.item_type {
                     ItemType::Import { module, .. } => {
                         // For regular imports, check if the module is used
-                        item.imported_names
+                        let mut required = item
+                            .imported_names
                             .iter()
-                            .any(|name| self.is_import_required(module_name, name, module))
+                            .any(|name| self.is_import_required(module_name, name, module));
+
+                        // Special case: If this is a module import and the module has side effects,
+                        // check if any item in the current module has attribute accesses on this
+                        // import
+                        if !required && self.module_has_side_effects(module) {
+                            // Check all items in the current module for attribute accesses
+                            for other_item in items {
+                                for base_var in other_item.attribute_accesses.keys() {
+                                    if item.imported_names.contains(base_var) {
+                                        debug!(
+                                            "Import '{module}' is needed for attribute access on \
+                                             '{base_var}'"
+                                        );
+                                        required = true;
+                                        break;
+                                    }
+                                }
+                                if required {
+                                    break;
+                                }
+                            }
+                        }
+
+                        debug!(
+                            "Checking import '{module}' in module '{module_name}': imported_names \
+                             = {:?}, required = {}",
+                            item.imported_names, required
+                        );
+
+                        required
                     }
                     ItemType::FromImport { module, names, .. } => {
                         // For from imports, check both:
                         // a) If any imported name is used by surviving symbols
                         // b) If the imported name itself is a surviving symbol (for imports of
                         // classes/functions)
-                        names.iter().any(|(imported_name, alias_opt)| {
+                        let result = names.iter().any(|(imported_name, alias_opt)| {
                             let local_name = alias_opt.as_ref().unwrap_or(imported_name);
 
                             // Check if this import is required by other surviving symbols
-                            if self.is_import_required(module_name, local_name, module) {
+                            let required = self.is_import_required(module_name, local_name, module);
+                            if required {
+                                debug!("Import {module}::{imported_name} is required");
                                 return true;
                             }
 
                             // Check if the imported symbol itself is marked as used
                             // This handles cases where we import a class/function that gets removed
                             if let Some(source_module) = self.find_defining_module(imported_name) {
-                                return self.is_symbol_used(&source_module, imported_name);
+                                let used = self.is_symbol_used(&source_module, imported_name);
+                                if used {
+                                    debug!(
+                                        "Import {module}::{imported_name} - symbol is used in \
+                                         source module {source_module}"
+                                    );
+                                }
+                                return used;
                             }
 
-                            // For third-party imports, check if the local name is in used symbols
-                            self.is_symbol_used(module_name, local_name)
-                        })
+                            // For third-party imports, we've already checked is_import_required
+                            // above If that returned false, the import
+                            // is not needed
+                            debug!("Import {module}::{imported_name} is NOT needed (third-party)");
+                            false
+                        });
+
+                        if result {
+                            debug!("FromImport {module} in module {module_name} will be kept");
+                        } else {
+                            debug!("FromImport {module} in module {module_name} will be removed");
+                        }
+
+                        result
                     }
                     _ => false,
                 };
 
-                if defines_used_symbol || has_side_effects || is_needed_import {
+                // Special handling for entry module: keep all non-import items
+                // This ensures that all top-level code in the entry module runs
+                let is_entry_item = is_entry_module
+                    && !matches!(
+                        item.item_type,
+                        ItemType::Import { .. } | ItemType::FromImport { .. }
+                    );
+
+                if is_entry_item || defines_used_symbol || has_side_effects || is_needed_import {
                     items_to_keep.insert(idx);
+
+                    // Debug logging for imports
+                    if matches!(
+                        item.item_type,
+                        ItemType::Import { .. } | ItemType::FromImport { .. }
+                    ) {
+                        debug!(
+                            "Keeping import in module '{}' at index {}: {:?} (defines_used={}, \
+                             has_side_effects={}, is_needed={})",
+                            module_name,
+                            idx,
+                            item.item_type,
+                            defines_used_symbol,
+                            has_side_effects,
+                            is_needed_import
+                        );
+                    }
                 }
             }
         }
 
         items_to_keep
+    }
+
+    /// Generate tree-shake results from the graph
+    pub fn generate_results(&self, graph: &CriboGraph) -> crate::analysis::TreeShakeResults {
+        let mut included_items = Vec::new();
+        let mut removed_items = Vec::new();
+        let mut removed_modules = Vec::new();
+
+        // Process each module in the graph
+        for (module_id, module_graph) in &graph.modules {
+            let module_name = &module_graph.module_name;
+            let items_to_keep = self.get_items_to_keep(module_name);
+
+            let mut has_any_items = false;
+
+            // Process all items in the module
+            for (item_id, item_data) in &module_graph.items {
+                // Get the index of this item
+                if let Some(items) = self.module_items.get(module_name) {
+                    // Find the index of this item in our module_items
+                    // Use statement_index if available for accurate matching
+                    // We need to find the index of this item in our module_items list
+                    // Match by item_type and defined_symbols since the order might differ
+                    let idx = items.iter().position(|module_item| {
+                        // First try exact match by statement_index
+                        if let (Some(stmt_idx1), Some(stmt_idx2)) =
+                            (item_data.statement_index, module_item.statement_index)
+                            && stmt_idx1 == stmt_idx2
+                            && module_item.item_type == item_data.item_type
+                        {
+                            return true;
+                        }
+                        // Otherwise match by type and symbols
+                        module_item.item_type == item_data.item_type
+                            && module_item.defined_symbols == item_data.defined_symbols
+                    });
+
+                    // idx is already computed above
+
+                    if let Some(idx) = idx {
+                        if items_to_keep.contains(&idx) {
+                            debug!(
+                                "Including item {item_id:?} at index {idx} in module \
+                                 '{module_name}'"
+                            );
+                            included_items.push((*module_id, *item_id));
+                            has_any_items = true;
+                        } else {
+                            debug!(
+                                "Removing item {item_id:?} at index {idx} in module \
+                                 '{module_name}'"
+                            );
+                            removed_items.push((*module_id, *item_id));
+                        }
+                    } else {
+                        debug!(
+                            "Could not find index for item {item_id:?} in module '{module_name}'"
+                        );
+                    }
+                }
+            }
+
+            // If no items are kept from this module, mark it as removed
+            if !has_any_items {
+                removed_modules.push(*module_id);
+            }
+        }
+
+        crate::analysis::TreeShakeResults {
+            included_items,
+            removed_items,
+            removed_modules,
+        }
     }
 
     /// Mark symbols defined in __all__ as used for star imports
@@ -942,7 +1140,6 @@ impl TreeShaker {
 
 #[cfg(test)]
 mod tests {
-    use rustc_hash::FxHashMap;
 
     use super::*;
 
@@ -966,18 +1163,8 @@ mod tests {
                 name: "used_func".to_string(),
             },
             defined_symbols: ["used_func".into()].into_iter().collect(),
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
             var_decls: ["used_func".into()].into_iter().collect(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
-            has_side_effects: false,
-            span: None,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
+            ..Default::default()
         });
 
         // Add an unused function
@@ -986,18 +1173,8 @@ mod tests {
                 name: "unused_func".to_string(),
             },
             defined_symbols: ["unused_func".into()].into_iter().collect(),
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
             var_decls: ["unused_func".into()].into_iter().collect(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
-            has_side_effects: false,
-            span: None,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
+            ..Default::default()
         });
 
         // Add entry module that uses only used_func
@@ -1010,19 +1187,9 @@ mod tests {
 
         entry.add_item(ItemData {
             item_type: ItemType::Expression,
-            defined_symbols: FxHashSet::default(),
             read_vars: ["used_func".into()].into_iter().collect(),
-            eventual_read_vars: FxHashSet::default(),
-            var_decls: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
             has_side_effects: true,
-            span: None,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
+            ..Default::default()
         });
 
         // Run tree shaking

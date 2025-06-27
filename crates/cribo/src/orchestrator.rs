@@ -2,26 +2,27 @@ use std::{
     fs,
     hash::BuildHasherDefault,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 use anyhow::{Context, Result, anyhow};
 use indexmap::{IndexMap, IndexSet};
 use log::{debug, info, trace, warn};
-use ruff_python_ast::{ModModule, visitor::Visitor};
+use ruff_python_ast::{HasNodeIndex, ModModule, visitor::Visitor};
 use rustc_hash::FxHasher;
 
 use crate::{
-    code_generator::HybridStaticBundler,
-    config::Config,
-    cribo_graph::{
-        CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType, CriboGraph,
-        ModuleId, ResolutionStrategy,
+    analysis::{
+        AnalysisResults, CircularDependencyAnalysis, CircularDependencyGroup,
+        CircularDependencyType, ResolutionStrategy, run_analysis_pipeline,
     },
-    import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
+    bundle_compiler::BundleCompiler,
+    bundle_vm::{ExecutionContext, run as run_bundle_vm},
+    config::Config,
+    cribo_graph::{CriboGraph, ModuleId},
+    module_registry::{ModuleInfo, ModuleRegistry},
     resolver::{ImportType, ModuleResolver},
     semantic_bundler::SemanticBundler,
-    tree_shaking::TreeShaker,
     util::{module_name_from_relative, normalize_line_endings},
     visitors::{ImportDiscoveryVisitor, ImportLocation, ScopeElement},
 };
@@ -32,93 +33,7 @@ type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 /// Static empty parsed module for creating Stylist instances
 static EMPTY_PARSED_MODULE: OnceLock<ruff_python_parser::Parsed<ModModule>> = OnceLock::new();
 
-/// Immutable module information stored in the registry
-#[derive(Debug, Clone)]
-pub struct ModuleInfo {
-    /// The unique module ID assigned by the dependency graph
-    pub id: ModuleId,
-    /// The canonical module name (e.g., "requests.compat")
-    pub canonical_name: String,
-    /// The resolved filesystem path
-    pub resolved_path: PathBuf,
-    /// The original source code
-    pub original_source: String,
-    /// The original parsed AST
-    pub original_ast: ModModule,
-    /// Whether this is a wrapper module (has side effects)
-    pub is_wrapper: bool,
-}
-
-/// Central registry for module information
-/// This is the single source of truth for module identity throughout the bundling process
-pub struct ModuleRegistry {
-    /// Map from ModuleId to complete module information
-    modules: FxIndexMap<ModuleId, ModuleInfo>,
-    /// Map from canonical name to ModuleId for fast lookups
-    name_to_id: FxIndexMap<String, ModuleId>,
-    /// Map from resolved path to ModuleId for fast lookups
-    path_to_id: FxIndexMap<PathBuf, ModuleId>,
-}
-
-impl Default for ModuleRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ModuleRegistry {
-    /// Create a new empty module registry
-    pub fn new() -> Self {
-        Self {
-            modules: FxIndexMap::default(),
-            name_to_id: FxIndexMap::default(),
-            path_to_id: FxIndexMap::default(),
-        }
-    }
-
-    /// Add a module to the registry
-    pub fn add_module(&mut self, info: ModuleInfo) {
-        let id = info.id;
-        let name = info.canonical_name.clone();
-        let path = info.resolved_path.clone();
-
-        // Check if module already exists and validate consistency
-        if let Some(existing) = self.modules.get(&id) {
-            if existing.canonical_name != name || existing.resolved_path != path {
-                panic!(
-                    "Attempting to register module {:?} with conflicting data. Existing: {} at \
-                     {:?}, New: {} at {:?}",
-                    id, existing.canonical_name, existing.resolved_path, name, path
-                );
-            }
-            return; // Module already registered with same data
-        }
-
-        self.name_to_id.insert(name, id);
-        self.path_to_id.insert(path, id);
-        self.modules.insert(id, info);
-    }
-
-    /// Get module info by ID
-    pub fn get_by_id(&self, id: &ModuleId) -> Option<&ModuleInfo> {
-        self.modules.get(id)
-    }
-
-    /// Get module ID by canonical name
-    pub fn get_id_by_name(&self, name: &str) -> Option<ModuleId> {
-        self.name_to_id.get(name).copied()
-    }
-
-    /// Get module ID by resolved path
-    pub fn get_id_by_path(&self, path: &Path) -> Option<ModuleId> {
-        self.path_to_id.get(path).copied()
-    }
-
-    /// Iterate over all modules
-    pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModuleInfo)> {
-        self.modules.iter()
-    }
-}
+// ModuleInfo and ModuleRegistry have been moved to the module_registry module
 
 /// Get or create the empty parsed module for Stylist creation
 fn get_empty_parsed_module() -> &'static ruff_python_parser::Parsed<ModModule> {
@@ -155,8 +70,7 @@ struct StaticBundleParams<'a> {
     _resolver: &'a ModuleResolver,                  // Unused but kept for future use
     entry_module_name: &'a str,
     graph: &'a CriboGraph,
-    circular_dep_analysis: Option<&'a CircularDependencyAnalysis>,
-    tree_shaker: Option<&'a TreeShaker>,
+    analysis_results: &'a AnalysisResults,
 }
 
 /// Context for dependency building operations
@@ -183,10 +97,6 @@ struct ProcessedModule {
     ast: ModModule,
     /// The original source code (needed for semantic analysis and code generation)
     source: String,
-    /// Normalized imports map (alias -> canonical)
-    normalized_imports: FxIndexMap<String, String>,
-    /// Modules created by stdlib normalization (e.g., "abc", "collections")
-    normalized_modules: IndexSet<String, BuildHasherDefault<FxHasher>>,
     /// Module ID if already added to dependency graph
     module_id: Option<crate::cribo_graph::ModuleId>,
 }
@@ -198,6 +108,8 @@ pub struct BundleOrchestrator {
     module_registry: ModuleRegistry,
     /// Cache of processed modules to ensure we only parse and transform once
     module_cache: std::sync::Mutex<FxIndexMap<PathBuf, ProcessedModule>>,
+    /// Registry of pre-built semantic models
+    semantic_model_registry: crate::semantic_model_provider::SemanticModelRegistry,
 }
 
 impl BundleOrchestrator {
@@ -207,6 +119,7 @@ impl BundleOrchestrator {
             semantic_bundler: SemanticBundler::new(),
             module_registry: ModuleRegistry::new(),
             module_cache: std::sync::Mutex::new(FxIndexMap::default()),
+            semantic_model_registry: crate::semantic_model_provider::SemanticModelRegistry::new(),
         }
     }
 
@@ -249,6 +162,9 @@ impl BundleOrchestrator {
                     let module_id =
                         graph.add_module(module_name.to_string(), module_path.to_path_buf());
 
+                    // Create Arc<String> for shared ownership
+                    let source_arc = Arc::new(cached.source.clone());
+
                     // Perform semantic analysis
                     self.semantic_bundler.analyze_module(
                         module_id,
@@ -257,16 +173,43 @@ impl BundleOrchestrator {
                         module_path,
                     )?;
 
+                    // Add to semantic model registry
+                    self.semantic_model_registry.add_model(
+                        module_id,
+                        source_arc.clone(),
+                        cached.ast.clone(),
+                        canonical_path.clone(),
+                    );
+
+                    // Calculate content hash
+                    use sha2::{Digest, Sha256};
+                    let mut hasher = Sha256::new();
+                    hasher.update(cached.source.as_bytes());
+                    let hash = hasher.finalize();
+                    let content_hash = format!("{hash:x}");
+
                     // Add to module registry
                     let module_info = ModuleInfo {
                         id: module_id,
                         canonical_name: module_name.to_string(),
                         resolved_path: canonical_path.clone(),
-                        original_source: cached.source.clone(),
+                        original_source: source_arc,
+                        content_hash,
                         original_ast: cached.ast.clone(),
                         is_wrapper: false, // Will be determined later during bundling
+                        item_to_node: FxIndexMap::default(), /* Will be populated during graph
+                                            * building */
+                        node_to_item: FxIndexMap::default(), /* Will be populated during graph
+                                                              * building */
                     };
-                    self.module_registry.add_module(module_info);
+                    log::debug!("Registering module '{module_name}' with ID {module_id:?}");
+                    let actual_id = self.module_registry.add_module(module_info);
+                    if actual_id != module_id {
+                        log::info!(
+                            "Module '{module_name}' deduplicated: requested ID {module_id:?}, \
+                             using existing ID {actual_id:?}"
+                        );
+                    }
 
                     Some(module_id)
                 } else {
@@ -276,11 +219,41 @@ impl BundleOrchestrator {
                 cached.module_id
             };
 
+            // If we have a module_id but the cached AST was indexed without it,
+            // we need to re-index with the proper module ID
+            let mut ast = cached.ast.clone();
+            if let Some(module_id) = module_id {
+                // Check if this module needs re-indexing with proper module ID
+                // We can tell if it needs re-indexing if the first node has a low index
+                if let Some(first_stmt) = ast.body.first() {
+                    let first_node_index = first_stmt.node_index().load();
+                    let expected_min_index =
+                        module_id.as_u32() * crate::ast_indexer::MODULE_INDEX_RANGE;
+
+                    if first_node_index.as_usize() < expected_min_index as usize {
+                        // Re-index with proper module ID
+                        let _indexed_ast =
+                            crate::ast_indexer::index_module_with_id(&mut ast, module_id.as_u32());
+                        debug!(
+                            "Re-indexed cached AST for module {} (id={:?}) with {} nodes",
+                            module_name, module_id, _indexed_ast.node_count
+                        );
+
+                        // Update the module registry with the re-indexed AST
+                        if let Some(module_info) = self.module_registry.get_module_mut(module_id) {
+                            module_info.original_ast = ast.clone();
+                            debug!(
+                                "Updated module registry with re-indexed AST for module \
+                                 {module_name}"
+                            );
+                        }
+                    }
+                }
+            }
+
             return Ok(ProcessedModule {
-                ast: cached.ast.clone(),
+                ast,
                 source: cached.source.clone(),
-                normalized_imports: cached.normalized_imports.clone(),
-                normalized_modules: cached.normalized_modules.clone(),
                 module_id,
             });
         }
@@ -300,43 +273,74 @@ impl BundleOrchestrator {
         let module_id = if let Some(graph) = graph {
             let module_id = graph.add_module(module_name.to_string(), module_path.to_path_buf());
 
+            // Index the AST to assign stable NodeIndex values to all nodes
+            // MUST use module-specific indexing to avoid NodeIndex collisions
+            let _indexed_ast =
+                crate::ast_indexer::index_module_with_id(&mut ast, module_id.as_u32());
+            debug!(
+                "Indexed AST for module {module_name} (id={:?}) with {} nodes",
+                module_id, _indexed_ast.node_count
+            );
+
+            // Create Arc<String> for shared ownership
+            let source_arc = Arc::new(source.clone());
+
             // Semantic analysis on raw AST
             self.semantic_bundler
                 .analyze_module(module_id, &ast, &source, module_path)?;
+
+            // Add to semantic model registry
+            self.semantic_model_registry.add_model(
+                module_id,
+                source_arc.clone(),
+                ast.clone(),
+                canonical_path.clone(),
+            );
+
+            // Calculate content hash
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(source.as_bytes());
+            let hash = hasher.finalize();
+            let content_hash = format!("{hash:x}");
 
             // Add to module registry
             let module_info = ModuleInfo {
                 id: module_id,
                 canonical_name: module_name.to_string(),
                 resolved_path: canonical_path.clone(),
-                original_source: source.clone(),
+                original_source: source_arc,
+                content_hash,
                 original_ast: ast.clone(),
                 is_wrapper: false, // Will be determined later during bundling
+                item_to_node: FxIndexMap::default(), // Will be populated during graph building
+                node_to_item: FxIndexMap::default(), // Will be populated during graph building
             };
-            self.module_registry.add_module(module_info);
+            log::debug!("Registering module '{module_name}' with ID {module_id:?}");
+            let actual_id = self.module_registry.add_module(module_info);
+            if actual_id != module_id {
+                log::info!(
+                    "Module '{module_name}' deduplicated: requested ID {module_id:?}, using \
+                     existing ID {actual_id:?}"
+                );
+            }
 
             Some(module_id)
         } else {
+            // No graph provided, but we still need to index the AST
+            // Use a temporary module ID of 0 for single-module processing
+            let _indexed_ast = crate::ast_indexer::index_module_with_id(&mut ast, 0);
+            debug!(
+                "Indexed AST for module {module_name} (no graph) with {} nodes",
+                _indexed_ast.node_count
+            );
             None
         };
 
-        // Step 3: Stdlib normalization (transforms AST)
-        let normalization_result = crate::stdlib_normalization::normalize_stdlib_imports(&mut ast);
-        debug!(
-            "Normalized imports for {module_name}: {:?}",
-            normalization_result.alias_to_canonical
-        );
-        debug!(
-            "Normalized modules for {module_name}: {:?}",
-            normalization_result.normalized_modules
-        );
-
-        // Step 4: Cache the result
+        // Step 3: Cache the result
         let processed = ProcessedModule {
             ast: ast.clone(),
             source: source.clone(),
-            normalized_imports: normalization_result.alias_to_canonical.clone(),
-            normalized_modules: normalization_result.normalized_modules.clone(),
             module_id,
         };
 
@@ -351,21 +355,103 @@ impl BundleOrchestrator {
         Ok(ProcessedModule {
             ast,
             source,
-            normalized_imports: normalization_result.alias_to_canonical,
-            normalized_modules: normalization_result.normalized_modules,
             module_id,
         })
     }
 
+    /// Determine module properties (classification and side effects) after adding to graph
+    fn determine_module_properties(
+        &self,
+        graph: &mut CriboGraph,
+        module_id: ModuleId,
+        module_name: &str,
+        resolver: &mut ModuleResolver,
+    ) -> Result<()> {
+        // Use resolver to classify the module
+        let import_type = resolver.classify_import(module_name);
+
+        // Convert ImportType to ModuleKind
+        let kind = match import_type {
+            ImportType::StandardLibrary => crate::types::ModuleKind::StandardLibrary,
+            ImportType::ThirdParty => crate::types::ModuleKind::ThirdParty,
+            ImportType::FirstParty => crate::types::ModuleKind::FirstParty,
+        };
+
+        // Determine side effects based on module kind and other factors
+        let has_side_effects = self.determine_side_effects(module_name, kind);
+
+        // Update the graph with the determined properties
+        graph.update_module_properties(module_id, kind, has_side_effects);
+
+        // Also update ModuleDepGraph directly for modules that share items
+        if let Some(module) = graph.modules.get_mut(&module_id) {
+            module.kind = kind;
+            module.has_side_effects = has_side_effects;
+        }
+
+        Ok(())
+    }
+
+    /// Determine if a module has side effects
+    fn determine_side_effects(&self, module_name: &str, kind: crate::types::ModuleKind) -> bool {
+        use crate::stdlib_detection::is_stdlib_without_side_effects;
+
+        match kind {
+            crate::types::ModuleKind::StandardLibrary => {
+                // Get Python version from config
+                match self.config.python_version() {
+                    Ok(python_version) => {
+                        // Return true if module has side effects (invert the "without" check)
+                        !is_stdlib_without_side_effects(module_name, python_version)
+                    }
+                    Err(_) => {
+                        // If we can't get Python version, assume side effects for safety
+                        true
+                    }
+                }
+            }
+            crate::types::ModuleKind::FirstParty => {
+                // For first-party modules, the graph builder will analyze AST for side effects
+                // Default to true for now, will be updated during graph building
+                true
+            }
+            crate::types::ModuleKind::ThirdParty => {
+                // For third-party modules, default to true unless configured otherwise
+                // TODO: Check user config for known safe third-party modules
+                true
+            }
+        }
+    }
+
+    /// Convert ModuleIds to names for display
+    fn module_ids_to_names(graph: &CriboGraph, module_ids: &[ModuleId]) -> Vec<String> {
+        module_ids
+            .iter()
+            .filter_map(|&id| {
+                graph
+                    .modules
+                    .get(&id)
+                    .map(|module| module.module_name.clone())
+            })
+            .collect()
+    }
+
     /// Format error message for unresolvable cycles
-    fn format_unresolvable_cycles_error(cycles: &[CircularDependencyGroup]) -> String {
+    fn format_unresolvable_cycles_error(
+        &self,
+        cycles: &[CircularDependencyGroup],
+        graph: &CriboGraph,
+    ) -> String {
         let mut error_msg = String::from("Unresolvable circular dependencies detected:\n\n");
 
         for (i, cycle) in cycles.iter().enumerate() {
-            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, cycle.modules.join(" → ")));
+            // Convert ModuleIds to names for display
+            let module_names = Self::module_ids_to_names(graph, &cycle.module_ids);
+
+            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, module_names.join(" → ")));
             error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
 
-            if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
+            if let ResolutionStrategy::Unresolvable { reason, .. } = &cycle.suggested_resolution {
                 error_msg.push_str(&format!("  Reason: {reason}\n"));
             }
             error_msg.push('\n');
@@ -375,19 +461,14 @@ impl BundleOrchestrator {
     }
 
     /// Core bundling logic shared between file and string output modes
-    /// Returns the entry module name, parsed modules, circular dependency analysis, and optional
-    /// tree shaker, with graph and resolver populated via mutable references
+    /// Returns the entry module name, parsed modules, and analysis results,
+    /// with graph and resolver populated via mutable references
     fn bundle_core(
         &mut self,
         entry_path: &Path,
         graph: &mut CriboGraph,
         resolver_opt: &mut Option<ModuleResolver>,
-    ) -> Result<(
-        String,
-        Vec<ParsedModuleData>,
-        Option<CircularDependencyAnalysis>,
-        Option<TreeShaker>,
-    )> {
+    ) -> Result<(String, Vec<ParsedModuleData>, AnalysisResults)> {
         // Handle directory as entry point
         let entry_path = if entry_path.is_dir() {
             // Check for __main__.py first
@@ -487,31 +568,61 @@ impl BundleOrchestrator {
         // In CriboGraph, we track all modules but focus on reachable ones
         debug!("Graph has {} modules", graph.modules.len());
 
-        // Enhanced circular dependency detection and analysis
-        let mut circular_dep_analysis = None;
-        if graph.has_cycles() {
-            let analysis = graph.analyze_circular_dependencies();
+        // Find the entry module ID
+        let entry_module_id = graph
+            .modules
+            .iter()
+            .find(|(_, module)| module.module_name == entry_module_name)
+            .map(|(id, _)| *id)
+            .ok_or_else(|| anyhow!("Entry module '{}' not found in graph", entry_module_name))?;
 
-            // Check if we have unresolvable cycles - these we must fail on
-            if !analysis.unresolvable_cycles.is_empty() {
-                let error_msg =
-                    Self::format_unresolvable_cycles_error(&analysis.unresolvable_cycles);
+        // Run the sequential analysis pipeline
+        info!("Running analysis pipeline...");
+        let semantic_provider = crate::semantic_model_provider::SemanticModelProvider::new(
+            &self.semantic_model_registry,
+        );
+
+        // Clone graph and module_registry for analysis pipeline
+        // TODO: In future, refactor to avoid cloning by restructuring data flow
+        let graph_clone = graph.clone();
+        let analysis_results = run_analysis_pipeline(
+            graph_clone,
+            self.module_registry.clone(),
+            &self.semantic_bundler,
+            &semantic_provider,
+            self.config.tree_shake,
+            &entry_module_name,
+            entry_module_id,
+            &self.config,
+        )?;
+
+        // Check if we have unresolvable cycles - these we must fail on
+        if let Some(circular_deps) = &analysis_results.circular_deps {
+            if !circular_deps.unresolvable_cycles.is_empty() {
+                let error_msg = self.format_unresolvable_cycles_error(
+                    &circular_deps.unresolvable_cycles,
+                    &analysis_results.graph,
+                );
                 return Err(anyhow!(error_msg));
             }
 
             // For resolvable cycles, warn but proceed
-            if !analysis.resolvable_cycles.is_empty() {
+            if !circular_deps.resolvable_cycles.is_empty() {
                 warn!(
                     "Detected {} potentially resolvable circular dependencies",
-                    analysis.resolvable_cycles.len()
+                    circular_deps.resolvable_cycles.len()
                 );
 
                 // Log details about each resolvable cycle
-                for (i, cycle) in analysis.resolvable_cycles.iter().enumerate() {
+                for (i, cycle) in circular_deps.resolvable_cycles.iter().enumerate() {
+                    // Convert ModuleIds to names for display
+                    let module_names =
+                        Self::module_ids_to_names(&analysis_results.graph, &cycle.module_ids);
+
                     warn!(
                         "Cycle {}: {} (Type: {:?})",
                         i + 1,
-                        cycle.modules.join(" → "),
+                        module_names.join(" → "),
                         cycle.cycle_type
                     );
 
@@ -546,68 +657,37 @@ impl BundleOrchestrator {
                     "Proceeding with bundling despite circular dependencies - output may require \
                      manual verification"
                 );
-                circular_dep_analysis = Some(analysis);
             }
         }
 
-        // Run tree-shaking if enabled
-        let tree_shaker = if self.config.tree_shake {
-            info!("Running tree-shaking analysis...");
-            let mut shaker = TreeShaker::from_graph(graph);
-
-            // Check which modules can be tree-shaken (no side effects)
-            let mut modules_with_side_effects = Vec::new();
-            let mut modules_for_tree_shaking = Vec::new();
-
-            for module in graph.modules.values() {
-                if shaker.module_has_side_effects(&module.module_name) {
-                    modules_with_side_effects.push(&module.module_name);
-                } else {
-                    modules_for_tree_shaking.push(&module.module_name);
-                }
-            }
-
-            if !modules_with_side_effects.is_empty() {
+        // Log symbol conflicts if any
+        if !analysis_results.symbol_conflicts.is_empty() {
+            info!(
+                "Detected {} symbol conflicts across modules",
+                analysis_results.symbol_conflicts.len()
+            );
+            for conflict in &analysis_results.symbol_conflicts {
                 debug!(
-                    "Modules with side effects (excluded from tree-shaking): \
-                     {modules_with_side_effects:?}"
+                    "Symbol '{}' conflicts across {} modules",
+                    conflict.symbol_name,
+                    conflict.conflicts.len()
                 );
             }
+        }
 
-            if !modules_for_tree_shaking.is_empty() {
-                debug!("Modules eligible for tree-shaking: {modules_for_tree_shaking:?}");
-            }
-
-            // Analyze from entry module
-            shaker.analyze(&entry_module_name)?;
-
-            // Log tree-shaking results
-            for module_name in modules_for_tree_shaking {
-                let unused = shaker.get_unused_symbols_for_module(module_name);
-                if !unused.is_empty() {
-                    info!(
-                        "Tree-shaking will remove {} unused symbols from module '{}': {:?}",
-                        unused.len(),
-                        module_name,
-                        unused
-                    );
-                }
-            }
-
-            Some(shaker)
-        } else {
-            None
-        };
+        // Log tree-shaking results if available
+        if let Some(tree_shake_results) = &analysis_results.tree_shake_results {
+            info!(
+                "Tree-shaking analysis complete: {} items included, {} items removed",
+                tree_shake_results.included_items.len(),
+                tree_shake_results.removed_items.len()
+            );
+        }
 
         // Set the resolver for the caller to use
         *resolver_opt = Some(resolver);
 
-        Ok((
-            entry_module_name,
-            parsed_modules,
-            circular_dep_analysis,
-            tree_shaker,
-        ))
+        Ok((entry_module_name, parsed_modules, analysis_results))
     }
 
     /// Helper to get sorted modules from graph
@@ -683,14 +763,16 @@ impl BundleOrchestrator {
         let mut resolver_opt = None;
 
         // Perform core bundling logic
-        let (entry_module_name, parsed_modules, circular_dep_analysis, tree_shaker) =
+        let (entry_module_name, parsed_modules, analysis_results) =
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
         let mut resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
-        let sorted_modules =
-            self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
+        let sorted_modules = self.get_sorted_modules_from_graph(
+            &analysis_results.graph,
+            analysis_results.circular_deps.as_ref(),
+        )?;
 
         // Extract module data from sorted_modules
         let module_data = sorted_modules
@@ -705,9 +787,8 @@ impl BundleOrchestrator {
             parsed_modules: Some(&parsed_modules),
             _resolver: &resolver,
             entry_module_name: &entry_module_name,
-            graph: &graph,
-            circular_dep_analysis: circular_dep_analysis.as_ref(),
-            tree_shaker: tree_shaker.as_ref(),
+            graph: &analysis_results.graph,
+            analysis_results: &analysis_results,
         })?;
 
         // Generate requirements.txt if requested
@@ -733,14 +814,16 @@ impl BundleOrchestrator {
         let mut resolver_opt = None;
 
         // Perform core bundling logic
-        let (entry_module_name, parsed_modules, circular_dep_analysis, tree_shaker) =
+        let (entry_module_name, parsed_modules, analysis_results) =
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
         let mut resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
-        let sorted_modules =
-            self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
+        let sorted_modules = self.get_sorted_modules_from_graph(
+            &analysis_results.graph,
+            analysis_results.circular_deps.as_ref(),
+        )?;
 
         // Generate bundled code
         info!("Using hybrid static bundler");
@@ -749,9 +832,8 @@ impl BundleOrchestrator {
             parsed_modules: Some(&parsed_modules), // Use pre-parsed modules to avoid double parsing
             _resolver: &resolver,
             entry_module_name: &entry_module_name,
-            graph: &graph,
-            circular_dep_analysis: circular_dep_analysis.as_ref(),
-            tree_shaker: tree_shaker.as_ref(),
+            graph: &analysis_results.graph,
+            analysis_results: &analysis_results,
         })?;
 
         // Generate requirements.txt if requested
@@ -772,7 +854,7 @@ impl BundleOrchestrator {
     fn get_modules_with_cycle_resolution(
         &self,
         graph: &CriboGraph,
-        analysis: &crate::cribo_graph::CircularDependencyAnalysis,
+        analysis: &CircularDependencyAnalysis,
     ) -> Result<Vec<crate::cribo_graph::ModuleId>> {
         // For simple function-level cycles, we can use a modified topological sort
         // that breaks cycles by removing edges within strongly connected components
@@ -783,8 +865,10 @@ impl BundleOrchestrator {
         // Collect all modules that are part of circular dependencies
         let mut cycle_module_names = IndexSet::new();
         for cycle in &analysis.resolvable_cycles {
-            for module_name in &cycle.modules {
-                cycle_module_names.insert(module_name.as_str());
+            for &module_id in &cycle.module_ids {
+                if let Some(module) = graph.modules.get(&module_id) {
+                    cycle_module_names.insert(module.module_name.as_str());
+                }
             }
         }
 
@@ -1002,12 +1086,31 @@ impl BundleOrchestrator {
             module_id_map.insert(module_name.clone(), module_id);
             debug!("Added module to graph: {module_name} with ID {module_id:?}");
 
+            // Determine module properties (classification and side effects)
+            self.determine_module_properties(
+                params.graph,
+                module_id,
+                &module_name,
+                params.resolver,
+            )?;
+
             // Build dependency graph BEFORE no-ops removal
             if let Some(module) = params.graph.get_module_by_name_mut(&module_name) {
                 let mut builder = crate::graph_builder::GraphBuilder::new(module);
-                builder
-                    .set_normalized_modules(processed.normalized_modules.iter().cloned().collect());
-                builder.build_from_ast(&processed.ast)?;
+
+                // Use two-pass approach if enabled (for Phase 2)
+                if self.config.use_two_pass_graph_builder {
+                    let result = builder.build_from_ast_two_pass(&processed.ast)?;
+
+                    // Store item mappings in module registry
+                    if let Some(module_info) = self.module_registry.get_module_mut(module_id) {
+                        module_info.item_to_node = result.item_mappings.item_to_node;
+                        module_info.node_to_item = result.item_mappings.node_to_item;
+                    }
+                } else {
+                    // Use existing single-pass approach
+                    builder.build_from_ast(&processed.ast)?;
+                }
             }
 
             // Store parsed module data for later use
@@ -1597,22 +1700,10 @@ impl BundleOrchestrator {
 
     /// Emit bundle using static bundler (no exec calls)
     fn emit_static_bundle(&mut self, params: StaticBundleParams<'_>) -> Result<String> {
-        // First, detect and resolve conflicts after all modules have been analyzed
-        let conflicts = self.semantic_bundler.detect_and_resolve_conflicts();
-        if !conflicts.is_empty() {
-            info!(
-                "Detected {} symbol conflicts across modules, applying renaming strategy",
-                conflicts.len()
-            );
-            for conflict in &conflicts {
-                debug!(
-                    "Symbol '{}' conflicts across modules: {:?}",
-                    conflict.symbol, conflict.modules
-                );
-            }
-        }
+        // TODO: Symbol conflict detection and resolution has been moved to the analysis pipeline
+        // The semantic bundler is being refactored to a pure provider pattern
 
-        let mut static_bundler = HybridStaticBundler::new(Some(&self.module_registry));
+        // The analysis results will be used by the BundleCompiler later
 
         // Parse all modules and prepare them for bundling
         let mut module_asts = Vec::new();
@@ -1643,51 +1734,44 @@ impl BundleOrchestrator {
             ));
         }
 
-        // Apply import rewriting if we have resolvable circular dependencies
-        if let Some(analysis) = params.circular_dep_analysis
-            && !analysis.resolvable_cycles.is_empty()
-        {
-            info!("Applying function-scoped import rewriting to resolve circular dependencies");
+        // TODO: Import rewriting for circular dependencies - REMOVED
+        // This is now handled by the transformation plan in BundleCompiler
+        // The CircularDepImportMove transformation will be executed during compilation
 
-            // Create import rewriter
-            let mut import_rewriter =
-                ImportRewriter::new(ImportDeduplicationStrategy::FunctionStart);
-
-            // Prepare module ASTs for semantic analysis
-            let module_ast_pairs: Vec<(String, &ModModule)> = module_asts
-                .iter()
-                .map(|(name, ast, _, _)| (name.clone(), ast))
-                .collect();
-
-            // Analyze movable imports using semantic analysis
-            let movable_imports = import_rewriter.analyze_movable_imports_semantic(
-                params.graph,
-                &analysis.resolvable_cycles,
-                &self.semantic_bundler,
-                &module_ast_pairs,
-            )?;
-
-            debug!(
-                "Found {} imports that can be moved to function scope using semantic analysis",
-                movable_imports.len()
-            );
-
-            // Apply rewriting to each module AST
-            for (module_name, ast, _, _) in &mut module_asts {
-                import_rewriter.rewrite_module(ast, &movable_imports, module_name)?;
+        // Collect source ASTs for the executor
+        let mut source_asts = rustc_hash::FxHashMap::default();
+        for (module_name, ast, _, _) in &module_asts {
+            if let Some(module_id) = self.module_registry.get_id_by_name(module_name) {
+                source_asts.insert(module_id, ast.clone());
             }
         }
 
-        // Bundle all modules using static bundler
-        let bundled_ast = static_bundler.bundle_modules(crate::code_generator::BundleParams {
-            modules: module_asts,
-            sorted_modules: params.sorted_modules,
-            entry_module_name: params.entry_module_name,
+        // Create the semantic provider for AST node renames
+        let semantic_provider = crate::semantic_model_provider::SemanticModelProvider::new(
+            &self.semantic_model_registry,
+        );
+
+        // Create the bundle compiler and compile to a program
+        let python_version = self.config.python_version()?;
+        let compiler = BundleCompiler::new(
+            params.analysis_results,
+            params.graph,
+            &self.module_registry,
+            params.entry_module_name,
+            python_version,
+        )?
+        .with_semantic_provider(&semantic_provider);
+
+        let program = compiler.compile()?;
+
+        // Execute the program using the bundle VM
+        let execution_context = ExecutionContext {
             graph: params.graph,
-            semantic_bundler: &self.semantic_bundler,
-            circular_dep_analysis: params.circular_dep_analysis,
-            tree_shaker: params.tree_shaker,
-        })?;
+            registry: &self.module_registry,
+            source_asts,
+        };
+
+        let bundled_ast = run_bundle_vm(&program, &execution_context)?;
 
         // Generate Python code from AST
         let empty_parsed = get_empty_parsed_module();

@@ -10,7 +10,9 @@ use ruff_text_size::TextRange;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
+    analysis::{CircularDependencyGroup, CircularDependencyType},
     cribo_graph::{CriboGraph, ItemType, ModuleDepGraph, ModuleId},
+    module_registry::ModuleRegistry,
     semantic_bundler::SemanticBundler,
     visitors::{DiscoveredImport, ImportDiscoveryVisitor},
 };
@@ -69,7 +71,8 @@ impl ImportRewriter {
     pub fn analyze_movable_imports(
         &mut self,
         graph: &CriboGraph,
-        resolvable_cycles: &[crate::cribo_graph::CircularDependencyGroup],
+        registry: &ModuleRegistry,
+        resolvable_cycles: &[CircularDependencyGroup],
     ) -> Vec<MovableImport> {
         let mut movable_imports = Vec::new();
 
@@ -77,24 +80,30 @@ impl ImportRewriter {
             debug!(
                 "Analyzing cycle of type {:?} with {} modules",
                 cycle.cycle_type,
-                cycle.modules.len()
+                cycle.module_ids.len()
             );
 
             // Only handle function-level cycles
-            if !matches!(
-                cycle.cycle_type,
-                crate::cribo_graph::CircularDependencyType::FunctionLevel
-            ) {
+            if !matches!(cycle.cycle_type, CircularDependencyType::FunctionLevel) {
                 continue;
             }
 
+            // Convert module IDs to names
+            let cycle_module_names: Vec<String> = cycle
+                .module_ids
+                .iter()
+                .filter_map(|&module_id| registry.get_name_by_id(module_id).map(|s| s.to_string()))
+                .collect();
+
             // For each module in the cycle, find imports that can be moved
-            for module_name in &cycle.modules {
-                if let Some(module_graph) = graph.get_module_by_name(module_name) {
+            for &module_id in &cycle.module_ids {
+                if let Some(module_name) = registry.get_name_by_id(module_id)
+                    && let Some(module_graph) = graph.modules.get(&module_id)
+                {
                     let candidates = self.find_movable_imports_in_module(
                         module_graph,
                         module_name,
-                        &cycle.modules,
+                        &cycle_module_names,
                     );
                     movable_imports.extend(candidates);
                 }
@@ -108,8 +117,9 @@ impl ImportRewriter {
     /// Analyze movable imports using semantic analysis for accurate context detection
     pub fn analyze_movable_imports_semantic(
         &mut self,
-        graph: &CriboGraph,
-        resolvable_cycles: &[crate::cribo_graph::CircularDependencyGroup],
+        _graph: &CriboGraph,
+        registry: &ModuleRegistry,
+        resolvable_cycles: &[CircularDependencyGroup],
         semantic_bundler: &SemanticBundler,
         module_asts: &[(String, &ModModule)],
     ) -> Result<Vec<MovableImport>> {
@@ -123,23 +133,27 @@ impl ImportRewriter {
             debug!(
                 "Analyzing cycle of type {:?} with {} modules using semantic analysis",
                 cycle.cycle_type,
-                cycle.modules.len()
+                cycle.module_ids.len()
             );
 
             // Only handle function-level cycles
-            if !matches!(
-                cycle.cycle_type,
-                crate::cribo_graph::CircularDependencyType::FunctionLevel
-            ) {
+            if !matches!(cycle.cycle_type, CircularDependencyType::FunctionLevel) {
                 continue;
             }
 
+            // Convert module IDs to names
+            let cycle_module_names: Vec<String> = cycle
+                .module_ids
+                .iter()
+                .filter_map(|&module_id| registry.get_name_by_id(module_id).map(|s| s.to_string()))
+                .collect();
+
             // For each module in the cycle, find imports that can be moved
-            for module_name in &cycle.modules {
-                if let Some(module_id) = graph.module_names.get(module_name) {
+            for &module_id in &cycle.module_ids {
+                if let Some(module_name) = registry.get_name_by_id(module_id) {
                     // Check if we've already analyzed this module
                     let discovered_imports =
-                        if let Some(cached_imports) = module_import_cache.get(module_id) {
+                        if let Some(cached_imports) = module_import_cache.get(&module_id) {
                             trace!("Using cached import analysis for module '{module_name}'");
                             cached_imports.clone()
                         } else {
@@ -150,7 +164,7 @@ impl ImportRewriter {
                                 // Perform semantic analysis using enhanced ImportDiscoveryVisitor
                                 let mut visitor = ImportDiscoveryVisitor::with_semantic_bundler(
                                     semantic_bundler,
-                                    *module_id,
+                                    module_id,
                                 );
                                 for stmt in &ast.body {
                                     visitor.visit_stmt(stmt);
@@ -158,7 +172,7 @@ impl ImportRewriter {
                                 let imports = visitor.into_imports();
 
                                 // Cache the results for future use
-                                module_import_cache.insert(*module_id, imports.clone());
+                                module_import_cache.insert(module_id, imports.clone());
                                 imports
                             } else {
                                 continue;
@@ -169,7 +183,7 @@ impl ImportRewriter {
                     let candidates = self.find_movable_imports_from_discovered(
                         &discovered_imports,
                         module_name,
-                        &cycle.modules,
+                        &cycle_module_names,
                     );
                     movable_imports.extend(candidates);
                 }
@@ -389,33 +403,21 @@ impl ImportRewriter {
 
     /// Check if an import is likely to have side effects
     fn is_likely_side_effect_import(name: &str) -> bool {
-        // Modules that modify global state or have initialization side effects
-        matches!(
-            name,
-            // From is_safe_stdlib_module's exclusion list
-            "antigravity"
-                | "this"
-                | "__hello__"
-                | "__phello__"
-                | "site"
-                | "sitecustomize"
-                | "usercustomize"
-                | "readline"
-                | "rlcompleter"
-                | "turtle"
-                | "tkinter"
-                | "webbrowser"
-                | "platform"
-                | "locale"
-                // Additional modules with common side effects
-                | "os"
-                | "sys"
-                | "logging"
-                | "warnings"
-                | "encodings"
-                | "pygame"
-                | "matplotlib"
-        ) || name.starts_with("_") // Private modules often have initialization side effects
+        // For now, be conservative and assume most imports might have side effects
+        // The proper way to check this would be to use the module metadata from the graph
+        // but ImportRewriter doesn't have access to the full graph context yet.
+
+        match name {
+            // Known safe stdlib modules without side effects
+            "__future__" => false,
+            // Common third-party modules with initialization side effects
+            "pygame" | "matplotlib" => true,
+            // Private modules often have initialization side effects
+            _ if name.starts_with('_') => true,
+            // For now, assume other imports might have side effects
+            // This is conservative but safe
+            _ => true,
+        }
     }
 
     /// Rewrite a module's AST to move imports into function scope

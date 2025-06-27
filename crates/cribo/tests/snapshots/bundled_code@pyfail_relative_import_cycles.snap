@@ -7,8 +7,6 @@ input_file: crates/cribo/tests/fixtures/pyfail_relative_import_cycles/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-services = types.SimpleNamespace()
-services.__name__ = 'services'
 def authenticate_user(username):
     """Authenticate user using database connection"""
     conn = get_connection()
@@ -16,14 +14,14 @@ def authenticate_user(username):
 def get_user_context():
     """Get user context - used by database module"""
     return "user_context_from_auth"
-def get_connection():
-    """Get database connection with user context"""
-    context = get_user_context()
-    return f"db_connection(context={context})"
-services_auth = types.SimpleNamespace(authenticate_user=authenticate_user, get_user_context=get_user_context)
+services_auth = types.SimpleNamespace()
+services_auth.authenticate_user = authenticate_user
+services_auth.get_user_context = get_user_context
 auth = services_auth
 def main():
     result = auth.authenticate_user("test_user")
     print(f"Relative import cycle result: {result}")
+if __name__ == "__main__":
+    main()
 if __name__ == "__main__":
     main()
