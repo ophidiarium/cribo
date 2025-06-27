@@ -143,7 +143,6 @@ struct DirectImportContext<'a> {
 }
 
 /// Parameters for handling symbol imports from inlined modules
-#[allow(dead_code)]
 struct SymbolImportParams<'a> {
     imported_name: &'a str,
     local_name: &'a str,
