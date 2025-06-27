@@ -1002,37 +1002,25 @@ impl<'a> BundleCompiler<'a> {
 
     /// Get the renamed name for a symbol, or return the original if not renamed
     fn get_renamed_symbol_name(&self, module_id: ModuleId, symbol_name: &str) -> String {
-        // If we don't have a semantic provider, we can't resolve renames
-        let Some(semantic_provider) = self.semantic_provider else {
-            return symbol_name.to_string();
-        };
+        // Try to get the binding ID through the semantic provider chain
+        let binding_id = self
+            .semantic_provider
+            .and_then(|provider| provider.get_model(module_id))
+            .and_then(|result| result.ok())
+            .and_then(|model| model.global_scope().get(symbol_name));
 
-        // Get the semantic model for this module
-        let Some(result) = semantic_provider.get_model(module_id) else {
-            return symbol_name.to_string();
-        };
-
-        let Ok(semantic_model) = result else {
-            return symbol_name.to_string();
-        };
-
-        // Find the binding for this symbol in the global scope
-        let global_scope = semantic_model.global_scope();
-        let Some(binding_id) = global_scope.get(symbol_name) else {
-            return symbol_name.to_string();
-        };
-
-        // Create the global binding ID
-        let global_binding_id = GlobalBindingId {
-            module_id,
-            binding_id,
-        };
-
-        // Check if this symbol has been renamed
-        self.symbol_renames
-            .get(&global_binding_id)
-            .cloned()
-            .unwrap_or_else(|| symbol_name.to_string())
+        if let Some(binding_id) = binding_id {
+            let global_binding_id = GlobalBindingId {
+                module_id,
+                binding_id,
+            };
+            self.symbol_renames
+                .get(&global_binding_id)
+                .cloned()
+                .unwrap_or_else(|| symbol_name.to_string())
+        } else {
+            symbol_name.to_string()
+        }
     }
 
     // Helper methods moved from BundlePlan
