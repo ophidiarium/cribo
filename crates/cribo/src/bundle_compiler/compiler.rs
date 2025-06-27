@@ -740,74 +740,64 @@ impl<'a> BundleCompiler<'a> {
                     if alias != namespace_name {
                         if alias.contains('.') {
                             // Handle dotted imports like "import app.utils"
-                            // We need to create parent namespace objects and connect them
+                            // Create the proper nested namespace structure
                             debug!(
                                 "Creating dotted namespace structure for alias '{alias}' -> \
                                  '{namespace_name}'"
                             );
 
                             let parts: Vec<&str> = alias.split('.').collect();
-                            if parts.len() >= 2 {
-                                // Create parent namespace objects if needed
-                                for i in 0..parts.len() - 1 {
-                                    let parent_name = parts[..=i].join("_");
-                                    // Check if we need to create this parent namespace
-                                    if i == 0
-                                        || !namespace_modules.values().any(|n| n == &parent_name)
-                                    {
-                                        let create_parent = ast_builder::assign(
-                                            &parent_name,
-                                            ast_builder::call(ast_builder::attribute(
-                                                "types",
-                                                "SimpleNamespace",
-                                            )),
-                                        );
-                                        steps.push(ExecutionStep::InsertStatement {
-                                            stmt: create_parent,
-                                        });
-                                    }
-                                }
 
-                                // Connect the namespaces: e.g., app.utils = app_utils
-                                // Only need to create the connection once
-                                if parts.len() == 2 {
-                                    // Simple case: app.utils -> app_utils
-                                    let parent_name = parts[0];
-                                    let child_attr = parts[1];
+                            // Create parent namespace objects as needed
+                            // Start with the root and work our way down
+                            for i in 0..parts.len() - 1 {
+                                let _current_path = parts[..=i].join(".");
 
-                                    let assign_stmt = ast_builder::assign_attribute(
-                                        parent_name,
-                                        child_attr,
-                                        ast_builder::name(namespace_name),
+                                // Only create if not already created
+                                if i == 0 {
+                                    // Root namespace (e.g., 'app')
+                                    let create_root = ast_builder::assign(
+                                        parts[0],
+                                        ast_builder::call(ast_builder::attribute(
+                                            "types",
+                                            "SimpleNamespace",
+                                        )),
                                     );
                                     steps
-                                        .push(ExecutionStep::InsertStatement { stmt: assign_stmt });
+                                        .push(ExecutionStep::InsertStatement { stmt: create_root });
                                 } else {
-                                    // More complex case with deeper nesting
-                                    for i in (1..parts.len()).rev() {
-                                        let parent_name = if i == 1 {
-                                            parts[0].to_string()
-                                        } else {
-                                            parts[..i].join("_")
-                                        };
-                                        let child_attr = parts[i];
-                                        let child_name = if i == parts.len() - 1 {
-                                            // Last part - use the actual namespace name
-                                            namespace_name.to_string()
-                                        } else {
-                                            parts[..=i].join("_")
-                                        };
+                                    // Nested namespace (e.g., 'app.utils')
+                                    // Create it as an attribute of its parent
+                                    let parent_path = parts[..i].join(".");
+                                    let attr_name = parts[i];
 
-                                        let assign_stmt = ast_builder::assign_attribute(
-                                            &parent_name,
-                                            child_attr,
-                                            ast_builder::name(&child_name),
-                                        );
-                                        steps.push(ExecutionStep::InsertStatement {
-                                            stmt: assign_stmt,
-                                        });
-                                    }
+                                    let create_nested = ast_builder::assign_attribute(
+                                        &parent_path,
+                                        attr_name,
+                                        ast_builder::call(ast_builder::attribute(
+                                            "types",
+                                            "SimpleNamespace",
+                                        )),
+                                    );
+                                    steps.push(ExecutionStep::InsertStatement {
+                                        stmt: create_nested,
+                                    });
                                 }
+                            }
+
+                            // Finally, assign the actual module namespace to the last part
+                            if parts.len() >= 2 {
+                                let parent_path = parts[..parts.len() - 1].join(".");
+                                let last_attr = parts[parts.len() - 1];
+
+                                let assign_module = ast_builder::assign_attribute(
+                                    &parent_path,
+                                    last_attr,
+                                    ast_builder::name(namespace_name),
+                                );
+                                steps.push(ExecutionStep::InsertStatement {
+                                    stmt: assign_module,
+                                });
                             }
                         } else {
                             // Simple alias
