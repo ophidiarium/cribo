@@ -16,7 +16,7 @@ use crate::{
         AnalysisResults, CircularDependencyAnalysis, CircularDependencyGroup,
         CircularDependencyType, ResolutionStrategy, run_analysis_pipeline,
     },
-    bundle_plan::BundleCompiler,
+    bundle_compiler::BundleCompiler,
     bundle_vm::{ExecutionContext, run as run_bundle_vm},
     config::Config,
     cribo_graph::{CriboGraph, ModuleId},

@@ -11,7 +11,6 @@ use ruff_python_ast::Stmt;
 use ruff_text_size::{Ranged, TextRange};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::{ExecutionStep, HoistType, ImportClassification, ModuleMetadata, SymbolImport};
 use crate::{
     analysis::{AnalysisResults, TreeShakeResults},
     ast_builder,
@@ -19,6 +18,75 @@ use crate::{
     module_registry::ModuleRegistry,
     semantic_model_provider::GlobalBindingId,
 };
+
+/// Minimal, orthogonal execution steps for the bundle VM
+#[derive(Debug, Clone)]
+pub enum ExecutionStep {
+    /// Insert a pre-built AST statement at the current position
+    InsertStatement { stmt: Stmt },
+
+    /// Copy a statement from source, applying AST renames
+    CopyStatement {
+        source_module: ModuleId,
+        item_id: ItemId,
+    },
+}
+
+/// Classification of an import statement for bundling decisions
+#[derive(Debug, Clone)]
+pub enum ImportClassification {
+    /// Hoist the import to the top of the bundle
+    Hoist { import_type: HoistType },
+
+    /// Inline the imported symbols directly into the bundle scope
+    Inline {
+        module_id: ModuleId,
+        symbols: Vec<SymbolImport>,
+    },
+
+    /// Emulate the imported module as a namespace object
+    EmulateAsNamespace {
+        module_id: ModuleId,
+        /// The name it will have in the importing module
+        alias: String,
+    },
+}
+
+/// Type of import to hoist
+#[derive(Debug, Clone)]
+pub enum HoistType {
+    /// Direct import (import module)
+    Direct {
+        module_name: String,
+        alias: Option<String>,
+    },
+    /// From import (from module import ...)
+    From {
+        module_name: String,
+        symbols: Vec<(String, Option<String>)>,
+        level: u32,
+    },
+}
+
+/// Symbol import info for Inline imports
+#[derive(Debug, Clone)]
+pub struct SymbolImport {
+    pub source_name: String,
+    pub target_name: String,
+}
+
+/// Module-level metadata for bundling decisions
+#[derive(Debug, Clone, Default)]
+pub struct ModuleMetadata {
+    /// Whether this module needs to be wrapped in an init function
+    pub needs_init_wrapper: bool,
+    /// Whether this module has side effects
+    pub has_side_effects: bool,
+    /// Whether this module has circular dependencies
+    pub has_circular_deps: bool,
+    /// Has conditional logic
+    pub has_conditional: bool,
+}
 
 /// The bundle compiler - a stateful object that orchestrates compilation
 pub struct BundleCompiler<'a> {
@@ -165,7 +233,7 @@ impl<'a> BundleCompiler<'a> {
         let mut stdlib_imports = Vec::new();
 
         // Track imported modules to avoid duplicates
-        let mut imported_modules = std::collections::HashSet::new();
+        let mut imported_modules = indexmap::IndexSet::new();
 
         // Process only LIVE Hoist classifications (imports that are actually used)
         for ((module_id, item_id), classification) in &self.classified_imports {
@@ -622,7 +690,8 @@ impl<'a> BundleCompiler<'a> {
             // Skip the first instance - it keeps the original name
             for (_idx, instance) in conflict.conflicts.iter().enumerate().skip(1) {
                 // Generate rename using module suffix
-                let module_suffix = instance.module_name.replace(['.', '-'], "_");
+                let module_suffix =
+                    ModuleRegistry::sanitize_module_name_for_identifier(&instance.module_name);
                 let new_name = format!("{}_{}", conflict.symbol_name, module_suffix);
 
                 self.symbol_renames.insert(instance.global_id, new_name);
@@ -989,7 +1058,7 @@ fn is_stdlib_module(module_name: &str) -> bool {
 }
 
 /// Sort import statements alphabetically for determinism
-fn sort_import_statements(imports: &mut Vec<Stmt>) {
+fn sort_import_statements(imports: &mut [Stmt]) {
     imports.sort_by(|a, b| {
         let name_a = match a {
             Stmt::Import(imp) => imp.names[0].name.as_str(),

@@ -16,7 +16,7 @@ use ruff_text_size::TextRange;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    bundle_plan::{BundleProgram, ExecutionStep},
+    bundle_compiler::{BundleProgram, ExecutionStep},
     cribo_graph::{CriboGraph, ItemId, ModuleId},
     module_registry::ModuleRegistry,
 };
