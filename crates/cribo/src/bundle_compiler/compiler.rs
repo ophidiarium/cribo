@@ -722,10 +722,13 @@ impl<'a> BundleCompiler<'a> {
                             // Get the potentially renamed symbol name
                             let renamed_symbol = self.get_renamed_symbol_name(*module_id, &symbol);
 
+                            // CRITICAL: Use original symbol name for attribute, renamed symbol for
+                            // value This allows code to access the
+                            // symbol by its original name through the namespace
                             let assign_stmt = ast_builder::assign_attribute(
                                 namespace_name,
-                                &symbol,
-                                ast_builder::name(&renamed_symbol),
+                                &symbol, // Original name as attribute
+                                ast_builder::name(&renamed_symbol), // Renamed symbol as value
                             );
                             steps.push(ExecutionStep::InsertStatement { stmt: assign_stmt });
                         }
