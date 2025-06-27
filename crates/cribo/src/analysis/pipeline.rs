@@ -12,7 +12,7 @@ use crate::{
         SymbolOriginResults,
     },
     cribo_graph::CriboGraph,
-    orchestrator::ModuleRegistry,
+    module_registry::ModuleRegistry,
     semantic_bundler::SemanticBundler,
     semantic_model_provider::SemanticModelProvider,
     tree_shaking::TreeShaker,
@@ -100,13 +100,16 @@ pub fn run_analysis_pipeline(
         // Run analysis from entry module
         tree_shaker.analyze(entry_module_name)?;
 
-        // For now, we don't have direct access to the results
-        // In a future refactoring, TreeShaker should return structured results
-        // instead of maintaining internal state
-        debug!("Tree-shaking analysis complete");
+        // Generate tree-shake results from the analysis
+        let tree_shake_results = tree_shaker.generate_results(graph);
 
-        // TODO: Extract results from tree_shaker once it's refactored to return them
-        results.tree_shake_results = None;
+        debug!(
+            "Tree-shaking analysis complete: {} items included, {} items removed",
+            tree_shake_results.included_items.len(),
+            tree_shake_results.removed_items.len()
+        );
+
+        results.tree_shake_results = Some(tree_shake_results);
     } else {
         debug!("Stage 4: Tree-shaking disabled, skipping");
     }

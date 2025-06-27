@@ -1,8 +1,6 @@
 //! Builder pattern for constructing BundlePlan
 
-use super::{
-    BundlePlan, HoistedImport, ImportRewrite, ImportRewriteAction, ModuleBundleType, ModuleMetadata,
-};
+use super::{BundlePlan, HoistedImport, ImportRewrite, ImportRewriteAction, ModuleMetadata};
 use crate::cribo_graph::{ItemId, ModuleId};
 
 /// Builder for incrementally constructing a BundlePlan
@@ -53,12 +51,16 @@ impl BundlePlanBuilder {
     }
 
     /// Add a deferred import rewrite
+    /// TODO: Implement deferred imports when needed
     pub fn add_deferred_import(
         &mut self,
         module_id: ModuleId,
         import_item_id: ItemId,
     ) -> &mut Self {
-        self.add_import_rewrite(module_id, import_item_id, ImportRewriteAction::DeferInit)
+        // For now, treat deferred imports as regular imports
+        // This functionality may need to be implemented differently
+        let _ = (module_id, import_item_id);
+        self
     }
 
     /// Add a lazy import rewrite
@@ -94,10 +96,9 @@ impl BundlePlanBuilder {
         self.set_module_metadata(
             module_id,
             ModuleMetadata {
-                instantiation: crate::bundle_plan::ModuleInstantiation::Inline,
-                bundle_type: ModuleBundleType::Inlinable,
+                needs_init_wrapper: false,
                 has_side_effects,
-                synthetic_namespace: None,
+                ..Default::default()
             },
         )
     }
@@ -107,13 +108,9 @@ impl BundlePlanBuilder {
         self.set_module_metadata(
             module_id,
             ModuleMetadata {
-                instantiation: crate::bundle_plan::ModuleInstantiation::Wrap {
-                    init_function_name: format!("__cribo_init_{module_id:?}"),
-                    exports: vec![], // Will be populated by analysis
-                },
-                bundle_type: ModuleBundleType::Wrapper,
+                needs_init_wrapper: true,
                 has_side_effects,
-                synthetic_namespace: None,
+                ..Default::default()
             },
         )
     }

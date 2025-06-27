@@ -7,83 +7,212 @@ input_file: crates/cribo/tests/fixtures/xfail_ast_rewrite_parameter_shadow/main.
 # https://github.com/ophidiarium/cribo
 
 """Test fixture for parameter names shadowing global/class names.\n\nThis fixture demonstrates the pattern where function parameters shadow\nimportant module-level names (classes, functions, constants).\n"""
-class Manager:
-    """Class with methods that have shadowing parameters."""
+"""Models module containing classes that will be shadowed by parameters."""
+class User_models:
+    """User class that will be shadowed by function parameters."""
 
-    def __init__(self):
-        self.users = []
-        self.connections = []
+    def __init__(self, name: str):
+        self.name = name
+        self.id = hash(name) % 10000
 
-    def add_user(self, User: "User") -> None:
-        """Method with parameter shadowing the User class."""
-        self.users.append(User)
-        print(f"Added user: {User.name}")
+    def __repr__(self):
+        return f"User(name={self.name!r}, id={self.id})"
+result = "global_result"
+class User_models:
+    """User class that will be shadowed by function parameters."""
 
-    def add_connection(self, Connection: "Connection") -> None:
-        """Method with parameter shadowing the Connection class."""
-        self.connections.append(Connection)
-        print(f"Added connection: {Connection.host}")
+    def __init__(self, name: str):
+        self.name = name
+        self.id = hash(name) % 10000
 
-    def process_with_shadow(self, result: str) -> str:
-        """Method with parameter shadowing the global variable."""
-        global_val = globals()["result"]
-        return f"Param: {result}, Global: {global_val}"
+    def __repr__(self):
+        return f"User(name={self.name!r}, id={self.id})"
 def process_user(User: "User") -> str:
     """Function with parameter shadowing the imported User class."""
     return f"Processing: {User.name}"
-if __name__ == "__main__":
-    main()
-class Manager:
-    """Class with methods that have shadowing parameters."""
+class User_models:
+    """User class that will be shadowed by function parameters."""
 
-    def __init__(self):
-        self.users = []
-        self.connections = []
+    def __init__(self, name: str):
+        self.name = name
+        self.id = hash(name) % 10000
 
-    def add_user(self, User: "User") -> None:
-        """Method with parameter shadowing the User class."""
-        self.users.append(User)
-        print(f"Added user: {User.name}")
-
-    def add_connection(self, Connection: "Connection") -> None:
-        """Method with parameter shadowing the Connection class."""
-        self.connections.append(Connection)
-        print(f"Added connection: {Connection.host}")
-
-    def process_with_shadow(self, result: str) -> str:
-        """Method with parameter shadowing the global variable."""
-        global_val = globals()["result"]
-        return f"Param: {result}, Global: {global_val}"
-class Manager:
-    """Class with methods that have shadowing parameters."""
-
-    def __init__(self):
-        self.users = []
-        self.connections = []
-
-    def add_user(self, User: "User") -> None:
-        """Method with parameter shadowing the User class."""
-        self.users.append(User)
-        print(f"Added user: {User.name}")
-
-    def add_connection(self, Connection: "Connection") -> None:
-        """Method with parameter shadowing the Connection class."""
-        self.connections.append(Connection)
-        print(f"Added connection: {Connection.host}")
-
-    def process_with_shadow(self, result: str) -> str:
-        """Method with parameter shadowing the global variable."""
-        global_val = globals()["result"]
-        return f"Param: {result}, Global: {global_val}"
-from models import User, Connection
-def complex_shadowing(User: type, Connection: callable, result: list) -> dict:
-    """Function with multiple shadowing parameters of different types."""
-    return {"user_type": User.__name__ if hasattr(User, "__name__") else str(User), "connection_callable": Connection() if callable(Connection) else None, "result_list": len(result) if isinstance(result, list) else 0}
+    def __repr__(self):
+        return f"User(name={self.name!r}, id={self.id})"
 def create_connection(Connection: str) -> str:
     """Function with parameter shadowing the imported Connection class."""
     return f"Connection string: {Connection}"
-if __name__ == "__main__":
-    main()
+class User_models:
+    """User class that will be shadowed by function parameters."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.id = hash(name) % 10000
+
+    def __repr__(self):
+        return f"User(name={self.name!r}, id={self.id})"
+def manipulate_result(result: int) -> int:
+    """Function with parameter shadowing the global variable."""
+    return result * 2
+class Connection_models:
+    """Connection class that will be shadowed by function parameters."""
+
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+        self.connected = False
+
+    def connect(self):
+        """Simulate connection."""
+        self.connected = True
+        return f"Connected to {self.host}:{self.port}"
+
+    def __repr__(self):
+        return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
+class Manager:
+    """Class with methods that have shadowing parameters."""
+
+    def __init__(self):
+        self.users = []
+        self.connections = []
+
+    def add_user(self, User: "User") -> None:
+        """Method with parameter shadowing the User class."""
+        self.users.append(User)
+        print(f"Added user: {User.name}")
+
+    def add_connection(self, Connection: "Connection") -> None:
+        """Method with parameter shadowing the Connection class."""
+        self.connections.append(Connection)
+        print(f"Added connection: {Connection.host}")
+
+    def process_with_shadow(self, result: str) -> str:
+        """Method with parameter shadowing the global variable."""
+        global_val = globals()["result"]
+        return f"Param: {result}, Global: {global_val}"
+class Connection_models:
+    """Connection class that will be shadowed by function parameters."""
+
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+        self.connected = False
+
+    def connect(self):
+        """Simulate connection."""
+        self.connected = True
+        return f"Connected to {self.host}:{self.port}"
+
+    def __repr__(self):
+        return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
+class Manager:
+    """Class with methods that have shadowing parameters."""
+
+    def __init__(self):
+        self.users = []
+        self.connections = []
+
+    def add_user(self, User: "User") -> None:
+        """Method with parameter shadowing the User class."""
+        self.users.append(User)
+        print(f"Added user: {User.name}")
+
+    def add_connection(self, Connection: "Connection") -> None:
+        """Method with parameter shadowing the Connection class."""
+        self.connections.append(Connection)
+        print(f"Added connection: {Connection.host}")
+
+    def process_with_shadow(self, result: str) -> str:
+        """Method with parameter shadowing the global variable."""
+        global_val = globals()["result"]
+        return f"Param: {result}, Global: {global_val}"
+class Connection_models:
+    """Connection class that will be shadowed by function parameters."""
+
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+        self.connected = False
+
+    def connect(self):
+        """Simulate connection."""
+        self.connected = True
+        return f"Connected to {self.host}:{self.port}"
+
+    def __repr__(self):
+        return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
+class Manager:
+    """Class with methods that have shadowing parameters."""
+
+    def __init__(self):
+        self.users = []
+        self.connections = []
+
+    def add_user(self, User: "User") -> None:
+        """Method with parameter shadowing the User class."""
+        self.users.append(User)
+        print(f"Added user: {User.name}")
+
+    def add_connection(self, Connection: "Connection") -> None:
+        """Method with parameter shadowing the Connection class."""
+        self.connections.append(Connection)
+        print(f"Added connection: {Connection.host}")
+
+    def process_with_shadow(self, result: str) -> str:
+        """Method with parameter shadowing the global variable."""
+        global_val = globals()["result"]
+        return f"Param: {result}, Global: {global_val}"
+class Connection_models:
+    """Connection class that will be shadowed by function parameters."""
+
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+        self.connected = False
+
+    def connect(self):
+        """Simulate connection."""
+        self.connected = True
+        return f"Connected to {self.host}:{self.port}"
+
+    def __repr__(self):
+        return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
+class Manager:
+    """Class with methods that have shadowing parameters."""
+
+    def __init__(self):
+        self.users = []
+        self.connections = []
+
+    def add_user(self, User: "User") -> None:
+        """Method with parameter shadowing the User class."""
+        self.users.append(User)
+        print(f"Added user: {User.name}")
+
+    def add_connection(self, Connection: "Connection") -> None:
+        """Method with parameter shadowing the Connection class."""
+        self.connections.append(Connection)
+        print(f"Added connection: {Connection.host}")
+
+    def process_with_shadow(self, result: str) -> str:
+        """Method with parameter shadowing the global variable."""
+        global_val = globals()["result"]
+        return f"Param: {result}, Global: {global_val}"
+class Connection_models:
+    """Connection class that will be shadowed by function parameters."""
+
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+        self.connected = False
+
+    def connect(self):
+        """Simulate connection."""
+        self.connected = True
+        return f"Connected to {self.host}:{self.port}"
+
+    def __repr__(self):
+        return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
 class Manager:
     """Class with methods that have shadowing parameters."""
 
@@ -126,7 +255,9 @@ class Manager:
         """Method with parameter shadowing the global variable."""
         global_val = globals()["result"]
         return f"Param: {result}, Global: {global_val}"
-result = "global_result"
+def complex_shadowing(User: type, Connection: callable, result: list) -> dict:
+    """Function with multiple shadowing parameters of different types."""
+    return {"user_type": User.__name__ if hasattr(User, "__name__") else str(User), "connection_callable": Connection() if callable(Connection) else None, "result_list": len(result) if isinstance(result, list) else 0}
 def main():
     """Demonstrate the shadowing patterns."""
     user = User("Alice")
@@ -143,139 +274,7 @@ def main():
     print(f"Global result value: {result}")
     print(f"User class accessible: {User}")
     print(f"Connection class accessible: {Connection}")
-def manipulate_result(result: int) -> int:
-    """Function with parameter shadowing the global variable."""
-    return result * 2
-class Manager:
-    """Class with methods that have shadowing parameters."""
-
-    def __init__(self):
-        self.users = []
-        self.connections = []
-
-    def add_user(self, User: "User") -> None:
-        """Method with parameter shadowing the User class."""
-        self.users.append(User)
-        print(f"Added user: {User.name}")
-
-    def add_connection(self, Connection: "Connection") -> None:
-        """Method with parameter shadowing the Connection class."""
-        self.connections.append(Connection)
-        print(f"Added connection: {Connection.host}")
-
-    def process_with_shadow(self, result: str) -> str:
-        """Method with parameter shadowing the global variable."""
-        global_val = globals()["result"]
-        return f"Param: {result}, Global: {global_val}"
-"""Models module containing classes that will be shadowed by parameters."""
-class Connection:
-    """Connection class that will be shadowed by function parameters."""
-
-    def __init__(self, host: str, port: int):
-        self.host = host
-        self.port = port
-        self.connected = False
-
-    def connect(self):
-        """Simulate connection."""
-        self.connected = True
-        return f"Connected to {self.host}:{self.port}"
-
-    def __repr__(self):
-        return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
-class User:
-    """User class that will be shadowed by function parameters."""
-
-    def __init__(self, name: str):
-        self.name = name
-        self.id = hash(name) % 10000
-
-    def __repr__(self):
-        return f"User(name={self.name!r}, id={self.id})"
-class Connection:
-    """Connection class that will be shadowed by function parameters."""
-
-    def __init__(self, host: str, port: int):
-        self.host = host
-        self.port = port
-        self.connected = False
-
-    def connect(self):
-        """Simulate connection."""
-        self.connected = True
-        return f"Connected to {self.host}:{self.port}"
-
-    def __repr__(self):
-        return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
-class User:
-    """User class that will be shadowed by function parameters."""
-
-    def __init__(self, name: str):
-        self.name = name
-        self.id = hash(name) % 10000
-
-    def __repr__(self):
-        return f"User(name={self.name!r}, id={self.id})"
-class Connection:
-    """Connection class that will be shadowed by function parameters."""
-
-    def __init__(self, host: str, port: int):
-        self.host = host
-        self.port = port
-        self.connected = False
-
-    def connect(self):
-        """Simulate connection."""
-        self.connected = True
-        return f"Connected to {self.host}:{self.port}"
-
-    def __repr__(self):
-        return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
-class Connection:
-    """Connection class that will be shadowed by function parameters."""
-
-    def __init__(self, host: str, port: int):
-        self.host = host
-        self.port = port
-        self.connected = False
-
-    def connect(self):
-        """Simulate connection."""
-        self.connected = True
-        return f"Connected to {self.host}:{self.port}"
-
-    def __repr__(self):
-        return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
-class User:
-    """User class that will be shadowed by function parameters."""
-
-    def __init__(self, name: str):
-        self.name = name
-        self.id = hash(name) % 10000
-
-    def __repr__(self):
-        return f"User(name={self.name!r}, id={self.id})"
-class Connection:
-    """Connection class that will be shadowed by function parameters."""
-
-    def __init__(self, host: str, port: int):
-        self.host = host
-        self.port = port
-        self.connected = False
-
-    def connect(self):
-        """Simulate connection."""
-        self.connected = True
-        return f"Connected to {self.host}:{self.port}"
-
-    def __repr__(self):
-        return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
-class User:
-    """User class that will be shadowed by function parameters."""
-
-    def __init__(self, name: str):
-        self.name = name
-        self.id = hash(name) % 10000
-
-    def __repr__(self):
-        return f"User(name={self.name!r}, id={self.id})"
+if __name__ == "__main__":
+    main()
+if __name__ == "__main__":
+    main()

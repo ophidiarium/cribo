@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use indexmap::{IndexMap, IndexSet};
 use log::{debug, info, trace, warn};
-use ruff_python_ast::{AtomicNodeIndex, ModModule, visitor::Visitor};
+use ruff_python_ast::{ModModule, visitor::Visitor};
 use rustc_hash::FxHasher;
 
 use crate::{
@@ -16,11 +16,12 @@ use crate::{
         AnalysisResults, CircularDependencyAnalysis, CircularDependencyGroup,
         CircularDependencyType, ResolutionStrategy, run_analysis_pipeline,
     },
-    bundle_plan::BundlePlan,
+    bundle_plan::BundleCompiler,
+    bundle_vm::{ExecutionContext, run as run_bundle_vm},
     config::Config,
-    cribo_graph::{CriboGraph, ItemId, ModuleId},
+    cribo_graph::{CriboGraph, ModuleId},
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
-    plan_executor::{ExecutionContext, execute_plan},
+    module_registry::{ModuleInfo, ModuleRegistry},
     resolver::{ImportType, ModuleResolver},
     semantic_bundler::SemanticBundler,
     util::{module_name_from_relative, normalize_line_endings},
@@ -33,107 +34,7 @@ type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 /// Static empty parsed module for creating Stylist instances
 static EMPTY_PARSED_MODULE: OnceLock<ruff_python_parser::Parsed<ModModule>> = OnceLock::new();
 
-/// Immutable module information stored in the registry
-#[derive(Debug, Clone)]
-pub struct ModuleInfo {
-    /// The unique module ID assigned by the dependency graph
-    pub id: ModuleId,
-    /// The canonical module name (e.g., "requests.compat")
-    pub canonical_name: String,
-    /// The resolved filesystem path
-    pub resolved_path: PathBuf,
-    /// The original source code
-    pub original_source: Arc<String>,
-    /// The original parsed AST
-    pub original_ast: ModModule,
-    /// Whether this is a wrapper module (has side effects)
-    pub is_wrapper: bool,
-    /// Mapping from ItemId to AST node index for precise transformations
-    pub item_to_node: FxIndexMap<ItemId, AtomicNodeIndex>,
-    /// Reverse mapping for quick lookups
-    pub node_to_item: FxIndexMap<AtomicNodeIndex, ItemId>,
-}
-
-/// Central registry for module information
-/// This is the single source of truth for module identity throughout the bundling process
-pub struct ModuleRegistry {
-    /// Map from ModuleId to complete module information
-    modules: FxIndexMap<ModuleId, ModuleInfo>,
-    /// Map from canonical name to ModuleId for fast lookups
-    name_to_id: FxIndexMap<String, ModuleId>,
-    /// Map from resolved path to ModuleId for fast lookups
-    path_to_id: FxIndexMap<PathBuf, ModuleId>,
-}
-
-impl Default for ModuleRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ModuleRegistry {
-    /// Create a new empty module registry
-    pub fn new() -> Self {
-        Self {
-            modules: FxIndexMap::default(),
-            name_to_id: FxIndexMap::default(),
-            path_to_id: FxIndexMap::default(),
-        }
-    }
-
-    /// Add a module to the registry
-    pub fn add_module(&mut self, info: ModuleInfo) {
-        let id = info.id;
-        let name = info.canonical_name.clone();
-        let path = info.resolved_path.clone();
-
-        // Check if module already exists and validate consistency
-        if let Some(existing) = self.modules.get(&id) {
-            if existing.canonical_name != name || existing.resolved_path != path {
-                panic!(
-                    "Attempting to register module {:?} with conflicting data. Existing: {} at \
-                     {:?}, New: {} at {:?}",
-                    id, existing.canonical_name, existing.resolved_path, name, path
-                );
-            }
-            return; // Module already registered with same data
-        }
-
-        self.name_to_id.insert(name, id);
-        self.path_to_id.insert(path, id);
-        self.modules.insert(id, info);
-    }
-
-    /// Get module info by ID
-    pub fn get_by_id(&self, id: &ModuleId) -> Option<&ModuleInfo> {
-        self.modules.get(id)
-    }
-
-    /// Get module ID by canonical name
-    pub fn get_id_by_name(&self, name: &str) -> Option<ModuleId> {
-        self.name_to_id.get(name).copied()
-    }
-
-    /// Get module ID by resolved path
-    pub fn get_id_by_path(&self, path: &Path) -> Option<ModuleId> {
-        self.path_to_id.get(path).copied()
-    }
-
-    /// Get module info by ID
-    pub fn get_module_by_id(&self, id: ModuleId) -> Option<&ModuleInfo> {
-        self.modules.get(&id)
-    }
-
-    /// Get mutable module info by ID
-    pub fn get_module_mut(&mut self, id: ModuleId) -> Option<&mut ModuleInfo> {
-        self.modules.get_mut(&id)
-    }
-
-    /// Iterate over all modules
-    pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModuleInfo)> {
-        self.modules.iter()
-    }
-}
+// ModuleInfo and ModuleRegistry have been moved to the module_registry module
 
 /// Get or create the empty parsed module for Stylist creation
 fn get_empty_parsed_module() -> &'static ruff_python_parser::Parsed<ModModule> {
@@ -285,12 +186,20 @@ impl BundleOrchestrator {
                         canonical_path.clone(),
                     );
 
+                    // Calculate content hash
+                    use sha2::{Digest, Sha256};
+                    let mut hasher = Sha256::new();
+                    hasher.update(cached.source.as_bytes());
+                    let hash = hasher.finalize();
+                    let content_hash = format!("{hash:x}");
+
                     // Add to module registry
                     let module_info = ModuleInfo {
                         id: module_id,
                         canonical_name: module_name.to_string(),
                         resolved_path: canonical_path.clone(),
                         original_source: source_arc,
+                        content_hash,
                         original_ast: cached.ast.clone(),
                         is_wrapper: false, // Will be determined later during bundling
                         item_to_node: FxIndexMap::default(), /* Will be populated during graph
@@ -298,7 +207,14 @@ impl BundleOrchestrator {
                         node_to_item: FxIndexMap::default(), /* Will be populated during graph
                                                               * building */
                     };
-                    self.module_registry.add_module(module_info);
+                    log::debug!("Registering module '{module_name}' with ID {module_id:?}");
+                    let actual_id = self.module_registry.add_module(module_info);
+                    if actual_id != module_id {
+                        log::info!(
+                            "Module '{module_name}' deduplicated: requested ID {module_id:?}, \
+                             using existing ID {actual_id:?}"
+                        );
+                    }
 
                     Some(module_id)
                 } else {
@@ -347,18 +263,33 @@ impl BundleOrchestrator {
                 canonical_path.clone(),
             );
 
+            // Calculate content hash
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(source.as_bytes());
+            let hash = hasher.finalize();
+            let content_hash = format!("{hash:x}");
+
             // Add to module registry
             let module_info = ModuleInfo {
                 id: module_id,
                 canonical_name: module_name.to_string(),
                 resolved_path: canonical_path.clone(),
                 original_source: source_arc,
+                content_hash,
                 original_ast: ast.clone(),
                 is_wrapper: false, // Will be determined later during bundling
                 item_to_node: FxIndexMap::default(), // Will be populated during graph building
                 node_to_item: FxIndexMap::default(), // Will be populated during graph building
             };
-            self.module_registry.add_module(module_info);
+            log::debug!("Registering module '{module_name}' with ID {module_id:?}");
+            let actual_id = self.module_registry.add_module(module_info);
+            if actual_id != module_id {
+                log::info!(
+                    "Module '{module_name}' deduplicated: requested ID {module_id:?}, using \
+                     existing ID {actual_id:?}"
+                );
+            }
 
             Some(module_id)
         } else {
@@ -1655,19 +1586,7 @@ impl BundleOrchestrator {
         // TODO: Symbol conflict detection and resolution has been moved to the analysis pipeline
         // The semantic bundler is being refactored to a pure provider pattern
 
-        // Build BundlePlan from analysis results
-        let mut bundle_plan = BundlePlan::from_analysis_results(
-            params.graph,
-            params.analysis_results,
-            &self.module_registry,
-            params.entry_module_name,
-        );
-
-        // Populate AST node renames using semantic models
-        let semantic_provider = crate::semantic_model_provider::SemanticModelProvider::new(
-            &self.semantic_model_registry,
-        );
-        bundle_plan.populate_ast_node_renames(&semantic_provider);
+        // The analysis results will be used by the BundleCompiler later
 
         // Parse all modules and prepare them for bundling
         let mut module_asts = Vec::new();
@@ -1698,9 +1617,8 @@ impl BundleOrchestrator {
             ));
         }
 
-        // TODO: Apply import rewrites from BundlePlan once ImportRewriter is updated
-        // For now, we still use the old approach but will transition to using
-        // bundle_plan.import_rewrites in a future refactoring
+        // TODO: Apply import rewrites from analysis results once ImportRewriter is updated
+        // The BundleCompiler will handle these rewrites internally
         if let Some(circular_deps) = &params.analysis_results.circular_deps
             && !circular_deps.resolvable_cycles.is_empty()
         {
@@ -1743,14 +1661,30 @@ impl BundleOrchestrator {
             }
         }
 
-        // Execute the bundle plan using the dumb executor
+        // Create the semantic provider for AST node renames
+        let semantic_provider = crate::semantic_model_provider::SemanticModelProvider::new(
+            &self.semantic_model_registry,
+        );
+
+        // Create the bundle compiler and compile to a program
+        let compiler = BundleCompiler::new(
+            params.analysis_results,
+            params.graph,
+            &self.module_registry,
+            params.entry_module_name,
+        )?
+        .with_semantic_provider(&semantic_provider);
+
+        let program = compiler.compile()?;
+
+        // Execute the program using the bundle VM
         let execution_context = ExecutionContext {
             graph: params.graph,
             registry: &self.module_registry,
             source_asts,
         };
 
-        let bundled_ast = execute_plan(&bundle_plan, &execution_context)?;
+        let bundled_ast = run_bundle_vm(&program, &execution_context)?;
 
         // Generate Python code from AST
         let empty_parsed = get_empty_parsed_module();

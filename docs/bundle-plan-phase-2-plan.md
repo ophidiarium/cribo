@@ -91,6 +91,7 @@ Phase 2 transforms the bundling architecture from multiple side-channel communic
   - [ ] Class instantiations
   - [ ] Variable references
   - [ ] Import usage
+- [ ] **Extract symbol names from statements** (needed for namespace assignment)
 
 #### 2.4 Update Orchestrator Integration
 
@@ -126,9 +127,9 @@ Phase 2 transforms the bundling architecture from multiple side-channel communic
 
 #### 3.3 Update Individual Analyzers
 
-- [ ] Update `SemanticBundler` to produce `Vec<SymbolConflict>`
-- [ ] Update `TreeShaker` to produce `TreeShakeResults`
-- [ ] Ensure analyzers don't mutate graph or registry
+- [x] ~~Update `SemanticBundler` to produce `Vec<SymbolConflict>`~~ (Deprecated - using different approach)
+- [x] Update `TreeShaker` to produce `TreeShakeResults`
+- [x] Ensure analyzers don't mutate graph or registry
 
 ### Step 4: Implement BundlePlan Assembly
 
@@ -200,17 +201,19 @@ Phase 2 transforms the bundling architecture from multiple side-channel communic
 
 #### 6.1 Remove Analysis Dependencies
 
-- [ ] Remove `circular_dep_analysis` parameter from `BundleParams`
-- [ ] Remove direct `SemanticBundler` usage
-- [ ] Use only `bundle_plan` for decisions
+- [x] ~~Remove `circular_dep_analysis` parameter from `BundleParams`~~ (Deprecated - using ExecutionStep approach)
+- [x] ~~Remove direct `SemanticBundler` usage~~ (Deprecated - using ExecutionStep approach)
+- [x] Use only `bundle_plan` for decisions
 
 #### 6.2 Implement Plan Execution
 
-- [ ] Create methods to apply each type of plan decision:
-  - [ ] `apply_import_rewrites`
-  - [ ] `apply_symbol_renames`
-  - [ ] `filter_dead_code`
-  - [ ] `handle_module_types`
+- [x] ~~Create methods to apply each type of plan decision:~~ (Replaced with ExecutionStep approach)
+  - [x] ~~`apply_import_rewrites`~~ → ExecutionStep variants
+  - [x] ~~`apply_symbol_renames`~~ → AST transformer in plan_executor
+  - [x] ~~`filter_dead_code`~~ → Handled by live_items in BundlePlan
+  - [x] ~~`handle_module_types`~~ → ExecutionStep variants
+- [x] **NEW**: Implement dumb plan executor with ExecutionStep enum
+- [ ] **CURRENT**: Generate proper ExecutionSteps for namespace modules
 
 ### Step 7: Testing and Validation
 
@@ -284,6 +287,6 @@ Phase 2 transforms the bundling architecture from multiple side-channel communic
 
 ## Known Issues
 
-1. **Semantic Bundler Integration**: The semantic bundler's internal symbol renaming is not properly integrated with the BundlePlan. The bundler applies renames internally but these are not communicated through the AnalysisResults, causing undefined variable errors in the generated code.
-   - **Temporary Fix**: Keep `detect_and_resolve_conflicts()` call in `emit_static_bundle`
-   - **Proper Fix**: Extract symbol conflicts during analysis pipeline and include in AnalysisResults
+1. ~~**Semantic Bundler Integration**: The semantic bundler's internal symbol renaming is not properly integrated with the BundlePlan.~~ **RESOLVED** - Replaced with ExecutionStep-based approach
+
+2. **Symbol Extraction for Namespace Assignment**: Need to extract symbol names from module statements to generate proper `CopyStatementToNamespace` steps. Currently falling back to `InlineStatement` which doesn't create the namespace assignments.

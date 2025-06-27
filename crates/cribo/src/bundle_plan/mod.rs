@@ -9,14 +9,17 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     analysis::{AnalysisResults, ResolutionStrategy},
+    ast_builder,
     cribo_graph::{CriboGraph, ItemId, ItemType, ModuleId},
-    orchestrator::ModuleRegistry,
+    module_registry::ModuleRegistry,
     semantic_model_provider::GlobalBindingId,
 };
 
 pub mod builder;
+pub mod compiler;
 pub mod final_layout;
 
+pub use compiler::{BundleCompiler, BundleProgram};
 pub use final_layout::{
     FinalBundleLayout, FinalLayoutBuilder, HoistedImportType, NamespaceCreation,
     NamespacePopulationStep,
@@ -100,91 +103,67 @@ pub struct DirectImport {
 #[derive(Debug, Clone)]
 pub struct FromImport {
     pub module: String,
-    pub symbols: IndexMap<String, Option<String>>, // symbol -> alias
-    pub level: u32,                                // relative import level
+    pub symbols: Vec<(String, Option<String>)>,
+    pub level: u32,
 }
 
-/// How a module should be instantiated in the bundle
-#[derive(Debug, Clone, Default)]
-pub enum ModuleInstantiation {
-    /// Default: statements inserted directly into bundle
-    #[default]
-    Inline,
-    /// Module wrapped in init function with exports
-    Wrap {
-        init_function_name: String,
-        exports: Vec<String>, // Pre-computed by analysis
-    },
-}
-
-/// Metadata about how a module should be bundled
+/// An import rewrite for circular dependency resolution
 #[derive(Debug, Clone)]
-pub struct ModuleMetadata {
-    pub instantiation: ModuleInstantiation,
-    pub bundle_type: ModuleBundleType,
-    pub has_side_effects: bool,
-    pub synthetic_namespace: Option<Vec<String>>,
+pub struct ImportRewrite {
+    pub module_id: ModuleId,
+    pub import_item_id: ItemId,
+    pub action: ImportRewriteAction,
 }
 
-/// How a module should be bundled
+/// Action to take for an import rewrite
+#[derive(Debug, Clone)]
+pub enum ImportRewriteAction {
+    /// Move import to function scope
+    MoveToFunction {
+        function_item_id: ItemId,
+        function_name: String,
+    },
+    /// Convert to lazy import pattern
+    LazyImport { lazy_var_name: String },
+}
+
+/// Module-level metadata for bundling decisions
+#[derive(Debug, Clone, Default)]
+pub struct ModuleMetadata {
+    /// Whether this module needs to be wrapped in an init function
+    pub needs_init_wrapper: bool,
+    /// Resolution strategy for this module
+    pub resolution_strategy: Option<ResolutionStrategy>,
+    /// Whether this module has side effects
+    pub has_side_effects: bool,
+    /// Whether this module has circular dependencies
+    pub has_circular_deps: bool,
+    /// Has conditional logic
+    pub has_conditional: bool,
+}
+
+/// Module status for dependency resolution
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ModuleBundleType {
-    /// Can merge into global scope
-    Inlinable,
-    /// Must keep in init function
-    Wrapper,
+pub enum ModuleStatus {
+    /// Needs init wrapper function
+    NeedsInit,
+    /// Direct inline possible
+    DirectInline,
+    /// Has circular dependencies
+    CircularDep,
     /// Has conditional logic
     Conditional,
 }
 
-/// Granular execution steps for the dumb executor
+/// Minimal, orthogonal execution steps for the dumb executor
 #[derive(Debug, Clone)]
 pub enum ExecutionStep {
-    /// Hoist a `from __future__ import ...` statement
-    HoistFutureImport { name: String },
+    /// Insert a pre-built AST statement at the current position
+    InsertStatement { stmt: ruff_python_ast::Stmt },
 
-    /// Hoist a standard library import
-    HoistStdlibImport { name: String },
-
-    /// Create a namespace object for a bundled module
-    /// Generates: `<target_name> = SimpleNamespace()`
-    CreateModuleNamespace { target_name: String },
-
-    /// Copy a statement from a source module and assign it as an attribute
-    /// on a namespace object.
-    /// Generates: `<target_object>.<target_attribute> = <copied_statement_rhs>`
-    CopyStatementToNamespace {
-        from_module: ModuleId,
-        item_id: ItemId,
-        target_object: String,
-        target_attribute: String,
-    },
-
-    /// Add a pre-determined stdlib/third-party import statement
-    AddImport {
-        module_name: String,
-        alias: Option<String>,
-    },
-
-    /// Add a pre-determined stdlib/third-party from-import statement
-    AddFromImport {
-        module_name: String,
-        symbols: Vec<(String, Option<String>)>, // (name, alias)
-        level: u32,                             // 0 for absolute imports
-    },
-
-    /// Define the init function for a wrapped module
-    DefineInitFunction { module_id: ModuleId },
-
-    /// Create the module object by calling its init function
-    CallInitFunction {
-        module_id: ModuleId,
-        target_variable: String,
-    },
-
-    /// Directly inline a statement from a source module
-    InlineStatement {
-        module_id: ModuleId,
+    /// Copy a statement from source, applying AST renames
+    CopyStatement {
+        source_module: ModuleId,
         item_id: ItemId,
     },
 }
@@ -192,22 +171,25 @@ pub enum ExecutionStep {
 /// Classification of an import statement for bundling decisions
 #[derive(Debug, Clone)]
 pub enum ImportClassification {
-    /// An import of a module to be bundled as a namespace object
-    /// e.g., `import other` or `import other as o`
-    BundleAsNamespace {
-        module_id: ModuleId,
-        /// The name it will have in the importing module, e.g., "o"
-        alias: String,
-    },
-    /// An import of specific symbols from a module to be bundled
-    /// e.g., `from other import x, y as z`
-    BundleFromImport {
+    /// Hoist the import to the top of the bundle (ONLY safe stdlib imports)
+    /// Third-party imports are NEVER hoisted due to potential side effects
+    /// e.g., `import os` or `from json import loads`
+    Hoist { import_type: HoistType },
+
+    /// Inline the imported symbols directly into the bundle scope
+    /// e.g., `from .utils import helper` results in `def helper(): ...` in the bundle
+    Inline {
         module_id: ModuleId,
         symbols: Vec<SymbolImport>,
     },
-    /// An import that should be hoisted to the top of the bundle
-    /// e.g., `import os` or `from json import loads`
-    Hoist { import_type: HoistType },
+
+    /// Emulate the imported module as a namespace object
+    /// e.g., `import .utils` results in `utils = SimpleNamespace()` and `utils.helper = helper`
+    EmulateAsNamespace {
+        module_id: ModuleId,
+        /// The name it will have in the importing module, e.g., "utils"
+        alias: String,
+    },
 }
 
 /// Type of import to hoist
@@ -226,7 +208,7 @@ pub enum HoistType {
     },
 }
 
-/// Symbol import info for BundleFromImport
+/// Symbol import info for Inline imports
 #[derive(Debug, Clone)]
 pub struct SymbolImport {
     pub source_name: String,
@@ -238,37 +220,6 @@ pub struct SymbolImport {
 pub struct HoistedImport {
     pub module_name: String,
     pub alias: Option<String>,
-    pub symbols: Option<Vec<String>>,
-}
-
-/// Instructions for rewriting an import
-#[derive(Debug, Clone)]
-pub struct ImportRewrite {
-    /// The module containing the import
-    pub module_id: ModuleId,
-    /// The specific import item to rewrite
-    pub import_item_id: ItemId,
-    /// The rewrite action to take
-    pub action: ImportRewriteAction,
-}
-
-/// Specific action to take when rewriting an import
-#[derive(Debug, Clone)]
-pub enum ImportRewriteAction {
-    /// Move import into a function
-    MoveToFunction {
-        /// Target function item ID
-        function_item_id: ItemId,
-        /// Name of the function (for debugging)
-        function_name: String,
-    },
-    /// Defer import until after module initialization
-    DeferInit,
-    /// Convert to lazy import pattern
-    LazyImport {
-        /// Variable name for lazy import
-        lazy_var_name: String,
-    },
 }
 
 impl BundlePlan {
@@ -277,26 +228,77 @@ impl BundlePlan {
         Self::default()
     }
 
-    /// Add an import rewrite instruction
+    /// Add an import rewrite for circular dependency resolution
     pub fn add_import_rewrite(&mut self, rewrite: ImportRewrite) {
         self.import_rewrites.push(rewrite);
     }
 
-    /// Set module metadata
+    /// Set symbol renames from conflict analysis
+    pub fn set_symbol_renames(&mut self, renames: IndexMap<GlobalBindingId, String>) {
+        self.symbol_renames = renames;
+    }
+
+    /// Add module metadata
     pub fn set_module_metadata(&mut self, module_id: ModuleId, metadata: ModuleMetadata) {
         self.module_metadata.insert(module_id, metadata);
     }
 
-    /// Get import rewrites for a specific module
-    pub fn get_module_import_rewrites(&self, module_id: ModuleId) -> Vec<&ImportRewrite> {
-        self.import_rewrites
-            .iter()
-            .filter(|r| r.module_id == module_id)
-            .collect()
+    /// Add a hoisted import
+    pub fn add_hoisted_import(&mut self, import: HoistedImport) {
+        self.hoisted_imports.push(import);
     }
 
-    /// Build a BundlePlan from analysis results
-    ///
+    /// Add tree-shaking decisions
+    fn add_tree_shake_decisions(&mut self, tree_shake: &crate::analysis::TreeShakeResults) {
+        log::debug!(
+            "Adding tree-shake decisions: {} live items total",
+            tree_shake.included_items.len()
+        );
+
+        // Convert Vec<(ModuleId, ItemId)> to HashMap<ModuleId, Vec<ItemId>>
+        self.live_items.clear();
+        for (module_id, item_id) in &tree_shake.included_items {
+            self.live_items
+                .entry(*module_id)
+                .or_default()
+                .push(*item_id);
+        }
+    }
+
+    /// Classify modules based on their dependencies and characteristics
+    fn classify_modules(&mut self, graph: &CriboGraph) {
+        log::debug!("Classifying {} modules", graph.modules.len());
+        for (module_id, module_graph) in &graph.modules {
+            let mut metadata = ModuleMetadata::default();
+
+            // Check for circular dependencies
+            if self
+                .import_rewrites
+                .iter()
+                .any(|r| r.module_id == *module_id)
+            {
+                metadata.has_circular_deps = true;
+            }
+
+            // Check for side effects (would need side effect analysis)
+            // For now, assume modules with non-import/assignment statements have side effects
+            for item in module_graph.items.values() {
+                match &item.item_type {
+                    ItemType::Import { .. }
+                    | ItemType::FromImport { .. }
+                    | ItemType::Assignment { .. }
+                    | ItemType::FunctionDef { .. }
+                    | ItemType::ClassDef { .. } => {}
+                    _ => {
+                        metadata.has_side_effects = true;
+                    }
+                }
+            }
+
+            self.module_metadata.insert(*module_id, metadata);
+        }
+    }
+
     /// This is the main assembly method that converts all analysis results
     /// into a consolidated plan for code generation.
     pub fn from_analysis_results(
@@ -341,10 +343,11 @@ impl BundlePlan {
 
         // Get entry module ID
         log::debug!("Looking for entry module '{entry_module_name}' in registry");
+
         if let Some(entry_module_id) = registry.get_id_by_name(entry_module_name) {
             log::debug!("Found entry module ID: {entry_module_id:?}");
             // Build execution plan from all the decisions
-            if let Err(e) = plan.build_execution_plan(graph, entry_module_id) {
+            if let Err(e) = plan.build_execution_plan(graph, registry, entry_module_id) {
                 log::error!("Failed to build execution plan: {e}");
             } else {
                 log::info!("Successfully built execution plan");
@@ -448,155 +451,104 @@ impl BundlePlan {
                 let module_suffix = instance.module_name.replace(['.', '-'], "_");
                 let new_name = format!("{}_{}", conflict.symbol_name, module_suffix);
 
-                // Add rename decision
-                self.symbol_renames
-                    .insert(instance.global_id, new_name.clone());
-
-                log::debug!(
-                    "Renaming symbol '{}' in module '{}' to '{}'",
-                    conflict.symbol_name,
-                    instance.module_name,
-                    new_name
-                );
+                self.symbol_renames.insert(instance.global_id, new_name);
             }
         }
+
+        log::debug!(
+            "Added {} symbol renames from {} conflicts",
+            self.symbol_renames.len(),
+            symbol_conflicts.len()
+        );
     }
 
-    /// Add tree-shaking decisions
-    fn add_tree_shake_decisions(&mut self, tree_shake: &crate::analysis::TreeShakeResults) {
-        // Group included items by module
-        for (module_id, item_id) in &tree_shake.included_items {
-            self.live_items
-                .entry(*module_id)
-                .or_default()
-                .push(*item_id);
-        }
-
-        // Note: removed_items and removed_modules are informational
-        // The absence of items in live_items implies they should be removed
-    }
-
-    /// Classify modules and set their metadata
-    fn classify_modules(&mut self, graph: &CriboGraph) {
-        for (module_id, module_graph) in &graph.modules {
-            let has_side_effects = module_graph
-                .items
-                .values()
-                .any(|item| item.has_side_effects);
-
-            let has_conditional_logic = module_graph.items.values().any(|item| {
-                matches!(
-                    item.item_type,
-                    crate::cribo_graph::ItemType::If { .. } | crate::cribo_graph::ItemType::Try
-                )
-            });
-
-            let bundle_type = if has_conditional_logic {
-                ModuleBundleType::Conditional
-            } else if has_side_effects {
-                ModuleBundleType::Wrapper
-            } else {
-                ModuleBundleType::Inlinable
-            };
-
-            // Determine instantiation based on bundle type
-            let instantiation = match bundle_type {
-                ModuleBundleType::Wrapper | ModuleBundleType::Conditional => {
-                    // TODO: Generate proper init function name and exports list
-                    ModuleInstantiation::Wrap {
-                        init_function_name: format!("__cribo_init_{module_id:?}"),
-                        exports: vec![], // Will be populated by analysis
-                    }
-                }
-                ModuleBundleType::Inlinable => ModuleInstantiation::Inline,
-            };
-
-            self.set_module_metadata(
-                *module_id,
-                ModuleMetadata {
-                    instantiation,
-                    bundle_type,
-                    has_side_effects,
-                    synthetic_namespace: None, // Will be set during code generation if needed
-                },
-            );
-        }
-    }
-
-    /// Populate module aliases from import statements in the graph
-    /// This identifies when a name in a module is an alias for another entire module
+    /// Populate module aliases from import statements
     fn populate_module_aliases(&mut self, graph: &CriboGraph, registry: &ModuleRegistry) {
-        log::debug!("Populating module aliases from imports");
+        log::debug!("Populating module aliases from import statements");
 
-        // Iterate through all modules
         for (module_id, module_graph) in &graph.modules {
-            // Check each item in the module
             for item_data in module_graph.items.values() {
                 match &item_data.item_type {
-                    // Handle regular imports: import config
                     ItemType::Import { module, alias } => {
-                        // Check if this is a first-party module
-                        if let Some(target_module_id) = registry.get_id_by_name(module) {
-                            // Use alias if present, otherwise use module name
-                            let local_name = alias.as_ref().unwrap_or(module);
+                        // import foo -> creates alias "foo" -> module foo
+                        // import foo.bar -> creates alias "foo" -> module foo (not foo.bar!)
+                        // import foo as f -> creates alias "f" -> module foo
+                        if let Some(imported_module_id) = registry.get_id_by_name(module) {
+                            let alias_name = alias.as_ref().unwrap_or(module);
                             self.module_aliases
-                                .insert((*module_id, local_name.clone()), target_module_id);
+                                .insert((*module_id, alias_name.clone()), imported_module_id);
                             log::trace!(
-                                "Added module alias: ({module_id:?}, '{local_name}') -> \
-                                 {target_module_id:?}"
+                                "Module alias: ({module_id:?}, '{alias_name}') -> \
+                                 {imported_module_id:?}"
                             );
                         }
                     }
-                    // Handle from imports: from . import config or from package import submodule
                     ItemType::FromImport {
                         module,
                         names,
                         level,
                         ..
                     } => {
-                        // For each imported name, check if it's actually a submodule
-                        for (name, alias) in names {
-                            let local_name = alias.as_ref().unwrap_or(name);
+                        // from foo import bar -> creates alias "bar" -> item bar in module foo
+                        // from . import foo -> creates alias "foo" -> module foo
+                        // Resolve the full module path considering relative imports
+                        let current_module_name = registry
+                            .get_name_by_id(*module_id)
+                            .expect("Module must have a name");
 
-                            // Construct the full module path
-                            let full_module_path = if *level > 0 {
-                                // For relative imports, we need to resolve based on current module
-                                // This is a simplified version - full implementation would need
-                                // to properly resolve relative imports
+                        let full_module_path = if *level > 0 {
+                            // Relative import - resolve based on current module
+                            let parts: Vec<_> = current_module_name.split('.').collect();
+                            if *level as usize <= parts.len() {
+                                let parent_parts = &parts[..parts.len() - *level as usize];
                                 if module.is_empty() {
-                                    // from . import config case
-                                    let current_module_name = &module_graph.module_name;
-                                    log::debug!(
-                                        "Processing relative import 'from . import {name}' in \
-                                         module '{current_module_name}'"
-                                    );
-                                    if let Some(parent) = current_module_name.rsplit_once('.') {
-                                        let result = format!("{}.{}", parent.0, name);
-                                        log::debug!("Resolved to full path: {result}");
-                                        result
-                                    } else {
-                                        log::debug!("No parent found, using name as-is: {name}");
-                                        name.clone()
-                                    }
+                                    parent_parts.join(".")
                                 } else {
-                                    // from .submodule import something case
-                                    format!("{module}.{name}")
+                                    format!("{}.{}", parent_parts.join("."), module)
                                 }
                             } else {
-                                // Absolute import
-                                format!("{module}.{name}")
-                            };
+                                log::warn!(
+                                    "Relative import level {level} exceeds module depth for \
+                                     {current_module_name}"
+                                );
+                                continue;
+                            }
+                        } else {
+                            // Absolute import
+                            module.clone()
+                        };
 
-                            // Check if this full path is a module
-                            if let Some(target_module_id) =
-                                registry.get_id_by_name(&full_module_path)
+                        // Check if any imported symbol is actually a submodule
+                        for (symbol_name, symbol_alias) in names {
+                            let potential_module_name = format!("{full_module_path}.{symbol_name}");
+                            if let Some(submodule_id) =
+                                registry.get_id_by_name(&potential_module_name)
                             {
+                                let alias_name = symbol_alias.as_ref().unwrap_or(symbol_name);
                                 self.module_aliases
-                                    .insert((*module_id, local_name.clone()), target_module_id);
-                                log::debug!(
-                                    "Added module alias from 'from' import: ({module_id:?}, \
-                                     '{local_name}') -> {target_module_id:?} (full_path: \
-                                     {full_module_path})"
+                                    .insert((*module_id, alias_name.clone()), submodule_id);
+                                log::trace!(
+                                    "Module alias from 'from' import: ({module_id:?}, \
+                                     '{alias_name}') -> {submodule_id:?} (module \
+                                     {potential_module_name})"
+                                );
+                            } else if let Some(direct_module_id) =
+                                registry.get_id_by_name(symbol_name)
+                            {
+                                // Handle "from . import module_name" case
+                                if *level > 0 && module.is_empty() {
+                                    let alias_name = symbol_alias.as_ref().unwrap_or(symbol_name);
+                                    self.module_aliases
+                                        .insert((*module_id, alias_name.clone()), direct_module_id);
+                                    log::trace!(
+                                        "Module alias from relative import: ({module_id:?}, \
+                                         '{alias_name}') -> {direct_module_id:?}"
+                                    );
+                                }
+                            } else {
+                                log::trace!(
+                                    "Import '{symbol_name}' from '{full_module_path}' is not a \
+                                     module (likely a symbol)"
                                 );
                             }
                         }
@@ -655,10 +607,11 @@ impl BundlePlan {
         );
     }
 
-    /// Build the execution plan using classified imports
+    /// Build the execution plan using classified imports - acts as a compiler
     pub fn build_execution_plan(
         &mut self,
         graph: &CriboGraph,
+        registry: &ModuleRegistry,
         entry_module_id: ModuleId,
     ) -> anyhow::Result<()> {
         use anyhow::anyhow;
@@ -668,66 +621,135 @@ impl BundlePlan {
         // Clear any existing plan
         self.execution_plan.clear();
 
-        // Track which modules need namespace objects
+        // Collect all necessary imports by category
+        let mut future_imports = Vec::new();
+        let mut stdlib_imports = Vec::new();
+        let mut third_party_imports = Vec::new();
         let mut namespace_modules: FxHashMap<ModuleId, String> = FxHashMap::default();
 
-        // First pass: Scan all imports to determine which modules need namespaces
+        // Track imported modules to avoid duplicates
+        let mut imported_modules: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+
+        // Process all classified imports
         log::debug!(
-            "Scanning {} modules for namespace requirements",
-            self.live_items.len()
-        );
-        log::debug!(
-            "Classified imports: {} total",
+            "Processing {} classified imports",
             self.classified_imports.len()
         );
+        for ((_module_id, _item_id), classification) in &self.classified_imports {
+            match classification {
+                ImportClassification::EmulateAsNamespace {
+                    module_id: imported_module_id,
+                    alias,
+                } => {
+                    // Record that this module needs a namespace
+                    namespace_modules.insert(*imported_module_id, alias.clone());
+                }
+                ImportClassification::Inline {
+                    module_id,
+                    symbols: _,
+                } => {
+                    // For from imports, we need to bundle the module and create namespace objects
+                    // Use sanitized module name for namespace (e.g., mymodule.utils ->
+                    // mymodule_utils)
+                    if let Some(module_name) = registry.get_name_by_id(*module_id) {
+                        let namespace_name =
+                            ModuleRegistry::sanitize_module_name_for_identifier(module_name);
+                        namespace_modules.insert(*module_id, namespace_name);
+                    }
+                }
+                ImportClassification::Hoist { import_type } => {
+                    // Build the import AST and categorize it
+                    match import_type {
+                        HoistType::Direct { module_name, alias } => {
+                            // Track the module to avoid duplicates
+                            let import_key = if let Some(alias) = alias {
+                                format!("{module_name} as {alias}")
+                            } else {
+                                module_name.clone()
+                            };
 
-        for (module_id, items) in &self.live_items {
-            let module_graph = graph
-                .modules
-                .get(module_id)
-                .ok_or_else(|| anyhow!("Module not found in graph: {:?}", module_id))?;
+                            if imported_modules.insert(import_key) {
+                                // Not a duplicate, create the import
+                                let stmt = if let Some(alias) = alias {
+                                    ast_builder::import_as(module_name, alias)
+                                } else {
+                                    ast_builder::import(module_name)
+                                };
 
-            for item_id in items {
-                let _item_data = module_graph
-                    .items
-                    .get(item_id)
-                    .ok_or_else(|| anyhow!("Item not found: {:?}", item_id))?;
-
-                // Check if this is an import that's been classified
-                if let Some(classification) = self.classified_imports.get(&(*module_id, *item_id)) {
-                    log::trace!(
-                        "Found classification for ({module_id:?}, {item_id:?}): {classification:?}"
-                    );
-                    match classification {
-                        ImportClassification::BundleAsNamespace {
-                            module_id: imported_module_id,
-                            alias,
-                        } => {
-                            // Record that this module needs a namespace
-                            namespace_modules.insert(*imported_module_id, alias.clone());
-                        }
-                        ImportClassification::BundleFromImport { .. } => {
-                            // These will be handled as regular inlined statements
-                        }
-                        ImportClassification::Hoist { import_type } => {
-                            // Generate hoist steps
-                            match import_type {
-                                HoistType::Direct { module_name, alias } => {
-                                    self.execution_plan.push(ExecutionStep::AddImport {
-                                        module_name: module_name.clone(),
-                                        alias: alias.clone(),
-                                    });
+                                // Categorize the import
+                                if module_name == "__future__" {
+                                    future_imports.push(stmt);
+                                } else if is_stdlib_module(module_name) {
+                                    stdlib_imports.push(stmt);
+                                } else {
+                                    third_party_imports.push(stmt);
                                 }
-                                HoistType::From {
+                            }
+                        }
+                        HoistType::From {
+                            module_name,
+                            symbols,
+                            level,
+                        } => {
+                            // Create a unique key for this from import
+                            let symbols_str = symbols
+                                .iter()
+                                .map(|(n, a)| {
+                                    if let Some(alias) = a {
+                                        format!("{n} as {alias}")
+                                    } else {
+                                        n.clone()
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+
+                            let import_key = if *level > 0 {
+                                format!(
+                                    "from {}{} import {}",
+                                    "..".repeat(*level as usize),
                                     module_name,
-                                    symbols,
-                                    level,
-                                } => {
-                                    self.execution_plan.push(ExecutionStep::AddFromImport {
-                                        module_name: module_name.clone(),
-                                        symbols: symbols.clone(),
-                                        level: *level,
-                                    });
+                                    symbols_str
+                                )
+                            } else {
+                                format!("from {module_name} import {symbols_str}")
+                            };
+
+                            if imported_modules.insert(import_key) {
+                                // Not a duplicate, create the import
+                                let stmt = if *level > 0 {
+                                    // Relative import
+                                    let names: Vec<&str> =
+                                        symbols.iter().map(|(n, _)| n.as_str()).collect();
+                                    ast_builder::relative_from_import(
+                                        if module_name.is_empty() {
+                                            None
+                                        } else {
+                                            Some(module_name)
+                                        },
+                                        *level,
+                                        &names,
+                                    )
+                                } else {
+                                    // Absolute import
+                                    let symbols_refs: Vec<(&str, Option<&str>)> = symbols
+                                        .iter()
+                                        .map(|(name, alias)| (name.as_str(), alias.as_deref()))
+                                        .collect();
+                                    ast_builder::from_import_with_aliases(
+                                        module_name,
+                                        &symbols_refs,
+                                    )
+                                };
+
+                                // Categorize the import
+                                if module_name == "__future__" {
+                                    future_imports.push(stmt);
+                                } else if is_stdlib_module(module_name) {
+                                    stdlib_imports.push(stmt);
+                                } else {
+                                    third_party_imports.push(stmt);
                                 }
                             }
                         }
@@ -736,44 +758,203 @@ impl BundlePlan {
             }
         }
 
-        // Second pass: Generate namespace creation steps
-        for namespace_name in namespace_modules.values() {
+        // Sort imports within each category for determinism
+        sort_import_statements(&mut stdlib_imports);
+        sort_import_statements(&mut third_party_imports);
+
+        // Build the execution plan in the correct order
+
+        // 1. Future imports first
+        for stmt in future_imports {
             self.execution_plan
-                .push(ExecutionStep::CreateModuleNamespace {
-                    target_name: namespace_name.clone(),
-                });
+                .push(ExecutionStep::InsertStatement { stmt });
         }
 
-        // Third pass: Process all statements
-        // TODO: This needs to be in topological order
-        for (module_id, items) in &self.live_items {
-            let is_entry = *module_id == entry_module_id;
-            let is_namespace = namespace_modules.contains_key(module_id);
+        // 2. Add types import if we have namespace modules
+        if !namespace_modules.is_empty() {
+            // Check if types was already imported
+            if imported_modules.insert("types".to_string()) {
+                let types_import = ast_builder::import("types");
+                self.execution_plan
+                    .push(ExecutionStep::InsertStatement { stmt: types_import });
+            }
+        }
 
-            for item_id in items {
+        // 3. Other stdlib imports
+        for stmt in stdlib_imports {
+            self.execution_plan
+                .push(ExecutionStep::InsertStatement { stmt });
+        }
+
+        // 4. Third-party imports
+        for stmt in third_party_imports {
+            self.execution_plan
+                .push(ExecutionStep::InsertStatement { stmt });
+        }
+
+        // 5. Process namespace modules' content
+        log::debug!("Processing {} namespace modules", namespace_modules.len());
+        for (module_id, namespace_name) in &namespace_modules {
+            log::debug!("Processing namespace module {module_id:?} as '{namespace_name}'");
+            if let Some(items) = self.live_items.get(module_id) {
+                log::debug!(
+                    "  Found {} live items for module {:?}",
+                    items.len(),
+                    module_id
+                );
+                for item_id in items {
+                    log::debug!("    Processing item {item_id:?}");
+                    let module_graph = graph
+                        .modules
+                        .get(module_id)
+                        .ok_or_else(|| anyhow!("Module not found: {:?}", module_id))?;
+
+                    let item_data = module_graph
+                        .items
+                        .get(item_id)
+                        .ok_or_else(|| anyhow!("Item not found: {:?}", item_id))?;
+
+                    // Skip import statements
+                    if matches!(
+                        item_data.item_type,
+                        ItemType::Import { .. } | ItemType::FromImport { .. }
+                    ) {
+                        continue;
+                    }
+
+                    // Copy the statement
+                    self.execution_plan.push(ExecutionStep::CopyStatement {
+                        source_module: *module_id,
+                        item_id: *item_id,
+                    });
+                }
+            } else {
+                log::warn!("No live items found for namespace module {module_id:?}");
+            }
+        }
+
+        // 6. Create namespace objects and populate them
+        for (module_id, namespace_name) in &namespace_modules {
+            // Create the namespace object
+            let create_stmt = ast_builder::assign(
+                namespace_name,
+                ast_builder::call(ast_builder::attribute("types", "SimpleNamespace")),
+            );
+            self.execution_plan
+                .push(ExecutionStep::InsertStatement { stmt: create_stmt });
+
+            // Populate the namespace
+            if let Some(items) = self.live_items.get(module_id) {
+                let module_graph = graph
+                    .modules
+                    .get(module_id)
+                    .ok_or_else(|| anyhow!("Module not found: {:?}", module_id))?;
+
+                for item_id in items {
+                    let item_data = module_graph
+                        .items
+                        .get(item_id)
+                        .ok_or_else(|| anyhow!("Item not found: {:?}", item_id))?;
+
+                    // Skip imports and private symbols
+                    if matches!(
+                        item_data.item_type,
+                        ItemType::Import { .. } | ItemType::FromImport { .. }
+                    ) {
+                        continue;
+                    }
+
+                    // Extract symbol names based on item type
+                    let symbols = match &item_data.item_type {
+                        ItemType::Assignment { targets } => targets.clone(),
+                        ItemType::FunctionDef { name } => vec![name.clone()],
+                        ItemType::ClassDef { name } => vec![name.clone()],
+                        _ => continue,
+                    };
+
+                    // Generate namespace assignment for each symbol
+                    for symbol in symbols {
+                        // Skip private symbols
+                        if symbol.starts_with('_') {
+                            continue;
+                        }
+
+                        let assign_stmt = ast_builder::assign_attribute(
+                            namespace_name,
+                            &symbol,
+                            ast_builder::name(&symbol),
+                        );
+                        self.execution_plan
+                            .push(ExecutionStep::InsertStatement { stmt: assign_stmt });
+                    }
+                }
+            }
+        }
+
+        // 7. Handle symbol assignments for Inline imports
+        // After creating all namespace objects, assign the imported symbols
+        for ((module_id, _item_id), classification) in &self.classified_imports {
+            if let ImportClassification::Inline {
+                module_id: imported_module_id,
+                symbols,
+            } = classification
+            {
+                // Skip if not from entry module
+                if module_id != &entry_module_id {
+                    continue;
+                }
+
+                // Get the namespace name for the imported module
+                if let Some(namespace_name) = namespace_modules.get(imported_module_id) {
+                    // Generate assignment for each imported symbol
+                    // e.g., from mymodule import utils -> utils = mymodule_utils
+                    for symbol in symbols {
+                        let assign_stmt = ast_builder::assign(
+                            &symbol.target_name,
+                            ast_builder::name(namespace_name),
+                        );
+                        self.execution_plan
+                            .push(ExecutionStep::InsertStatement { stmt: assign_stmt });
+                    }
+                }
+            }
+        }
+
+        // 8. Process entry module statements
+        log::debug!("Processing entry module {entry_module_id:?} statements");
+        if let Some(items) = self.live_items.get(&entry_module_id) {
+            log::debug!("  Entry module has {} live items", items.len());
+
+            // Sort items by their statement index to preserve source order
+            let module_graph = graph
+                .modules
+                .get(&entry_module_id)
+                .ok_or_else(|| anyhow!("Entry module not found in graph"))?;
+
+            let mut sorted_items: Vec<_> = items
+                .iter()
+                .filter_map(|item_id| {
+                    module_graph
+                        .items
+                        .get(item_id)
+                        .and_then(|item_data| item_data.statement_index.map(|idx| (*item_id, idx)))
+                })
+                .collect();
+            sorted_items.sort_by_key(|(_, idx)| *idx);
+
+            for (item_id, _) in sorted_items {
                 // Skip import statements that have been classified
                 if self
                     .classified_imports
-                    .contains_key(&(*module_id, *item_id))
+                    .contains_key(&(entry_module_id, item_id))
                 {
                     continue;
                 }
 
-                if is_entry && !is_namespace {
-                    // Entry module statements go to top level
-                    self.execution_plan.push(ExecutionStep::InlineStatement {
-                        module_id: *module_id,
-                        item_id: *item_id,
-                    });
-                } else if is_namespace {
-                    // Namespace module statements need to be assigned as attributes
-                    // TODO: We need to extract the symbol name from the item
-                    // For now, we'll use InlineStatement and fix this later
-                    self.execution_plan.push(ExecutionStep::InlineStatement {
-                        module_id: *module_id,
-                        item_id: *item_id,
-                    });
-                }
+                self.execution_plan.push(ExecutionStep::CopyStatement {
+                    source_module: entry_module_id,
+                    item_id,
+                });
             }
         }
 
@@ -782,8 +963,8 @@ impl BundlePlan {
             self.execution_plan.len()
         );
 
-        // Log first few steps for debugging
-        for (i, step) in self.execution_plan.iter().take(5).enumerate() {
+        // Log all steps for debugging
+        for (i, step) in self.execution_plan.iter().enumerate() {
             log::debug!("  Step {i}: {step:?}");
         }
 
@@ -793,6 +974,12 @@ impl BundlePlan {
     /// Classify imports based on their type and how they should be bundled
     fn classify_imports(&mut self, graph: &CriboGraph, registry: &ModuleRegistry) {
         use crate::resolver::{ImportType, ModuleResolver};
+
+        log::debug!("Starting import classification");
+        log::debug!("Registry has {} modules", registry.len());
+        for module_name in registry.module_names() {
+            log::debug!("  Module in registry: '{module_name}'");
+        }
 
         // Create a temporary resolver for classification
         // TODO: This should be passed from the orchestrator
@@ -804,52 +991,55 @@ impl BundlePlan {
             }
         };
 
-        // Iterate through all live items to find imports
-        for (module_id, items) in &self.live_items {
-            let module_graph = match graph.modules.get(module_id) {
-                Some(mg) => mg,
-                None => continue,
+        // Iterate through ALL modules and items to find imports
+        // We need to classify all imports, not just those in live_items
+        log::debug!(
+            "Classifying imports from {} modules in graph",
+            graph.modules.len()
+        );
+        for (module_id, module_graph) in &graph.modules {
+            log::debug!(
+                "  Module {:?} has {} items",
+                module_id,
+                module_graph.items.len()
+            );
+
+            let module_name = match registry.get_name_by_id(*module_id) {
+                Some(name) => name,
+                None => {
+                    log::warn!("Module {module_id:?} not found in registry");
+                    continue;
+                }
             };
 
-            for item_id in items {
-                let item_data = match module_graph.items.get(item_id) {
-                    Some(data) => data,
-                    None => continue,
-                };
+            for (item_id, item_data) in &module_graph.items {
+                log::debug!("    Item {:?} type: {:?}", item_id, item_data.item_type);
 
                 match &item_data.item_type {
                     ItemType::Import { module, alias } => {
-                        // Classify the import
-                        let import_type = resolver.classify_import(module);
+                        // Handle direct imports: import foo, import foo as bar
+                        let classification = if registry.has_module(module) {
+                            // This is a first-party module that will be bundled
+                            let imported_module_id =
+                                registry.get_id_by_name(module).expect("Module must exist");
 
-                        let classification = match import_type {
-                            ImportType::FirstParty => {
-                                // Check if this first-party module exists in our graph
-                                if let Some(imported_module_id) = registry.get_id_by_name(module) {
-                                    ImportClassification::BundleAsNamespace {
-                                        module_id: imported_module_id,
-                                        alias: alias.clone().unwrap_or_else(|| module.clone()),
-                                    }
-                                } else {
-                                    // First-party but not discovered - treat as hoist
-                                    ImportClassification::Hoist {
-                                        import_type: HoistType::Direct {
-                                            module_name: module.clone(),
-                                            alias: alias.clone(),
-                                        },
-                                    }
-                                }
+                            ImportClassification::EmulateAsNamespace {
+                                module_id: imported_module_id,
+                                alias: alias.clone().unwrap_or_else(|| module.clone()),
                             }
-                            ImportType::StandardLibrary | ImportType::ThirdParty => {
-                                ImportClassification::Hoist {
-                                    import_type: HoistType::Direct {
-                                        module_name: module.clone(),
-                                        alias: alias.clone(),
-                                    },
-                                }
+                        } else {
+                            // This is stdlib or third-party
+                            ImportClassification::Hoist {
+                                import_type: HoistType::Direct {
+                                    module_name: module.clone(),
+                                    alias: alias.clone(),
+                                },
                             }
                         };
 
+                        log::debug!(
+                            "Classified import at {module_id:?},{item_id:?} as: {classification:?}"
+                        );
                         self.classified_imports
                             .insert((*module_id, *item_id), classification);
                     }
@@ -857,99 +1047,131 @@ impl BundlePlan {
                         module,
                         names,
                         level,
-                        is_star,
+                        ..
                     } => {
-                        // Skip __future__ imports - they're handled specially
-                        if module == "__future__" {
-                            continue;
-                        }
-
-                        // Handle relative imports
-                        let effective_module = if *level > 0 {
-                            // TODO: Resolve relative imports properly
-                            module.clone()
+                        // Handle from imports
+                        // For relative imports, we need to construct the module name with dots
+                        let module_to_resolve = if *level > 0 {
+                            // Relative import
+                            let dots = ".".repeat(*level as usize);
+                            if module.is_empty() {
+                                dots
+                            } else {
+                                format!("{dots}.{module}")
+                            }
                         } else {
                             module.clone()
                         };
 
-                        if *is_star {
-                            // Star imports are always hoisted for now
-                            let classification = ImportClassification::Hoist {
-                                import_type: HoistType::From {
-                                    module_name: effective_module,
-                                    symbols: vec![("*".to_string(), None)],
-                                    level: *level,
-                                },
-                            };
-                            self.classified_imports
-                                .insert((*module_id, *item_id), classification);
-                            continue;
-                        }
+                        // Get the current module's path for context
+                        let current_module_path = registry
+                            .get_by_id(module_id)
+                            .map(|info| info.resolved_path.as_path());
+
+                        // Resolve the import path
+                        let resolved_path = resolver.resolve_module_path_with_context(
+                            &module_to_resolve,
+                            current_module_path,
+                        );
+
+                        log::debug!("Resolved path for '{module_to_resolve}': {resolved_path:?}");
 
                         // Classify the import
-                        let import_type = resolver.classify_import(&effective_module);
+                        // First check if the module exists in our registry
+                        let import_type = if registry.has_module(&module_to_resolve) {
+                            ImportType::FirstParty
+                        } else {
+                            match resolved_path {
+                                Ok(Some(_)) => resolver.classify_import(&module_to_resolve),
+                                _ => ImportType::StandardLibrary, /* Default to stdlib if we
+                                                                   * can't resolve */
+                            }
+                        };
+
+                        log::debug!(
+                            "Import type for '{module_to_resolve}' from '{module_name}': \
+                             {import_type:?}"
+                        );
 
                         let classification = match import_type {
                             ImportType::FirstParty => {
-                                // Check if we're importing the module itself or symbols from it
-                                if let Some(imported_module_id) =
-                                    registry.get_id_by_name(&effective_module)
-                                {
-                                    // Check if all names are submodules
-                                    let mut all_submodules = true;
-                                    for (name, _) in names {
-                                        let full_name = format!("{effective_module}.{name}");
-                                        if registry.get_id_by_name(&full_name).is_none() {
-                                            all_submodules = false;
-                                            break;
-                                        }
-                                    }
+                                // For from imports, we need to check if the imported symbols are
+                                // actually submodules e.g., from
+                                // mymodule import utils -> utils might be mymodule.utils
+                                let mut submodule_imports = Vec::new();
+                                let mut regular_symbol_imports = Vec::new();
 
-                                    if all_submodules {
-                                        // These are submodule imports, handle specially
-                                        // For now, treat as symbol imports
-                                        ImportClassification::BundleFromImport {
-                                            module_id: imported_module_id,
-                                            symbols: names
-                                                .iter()
-                                                .map(|(name, alias)| SymbolImport {
-                                                    source_name: name.clone(),
-                                                    target_name: alias
-                                                        .clone()
-                                                        .unwrap_or_else(|| name.clone()),
-                                                })
-                                                .collect(),
-                                        }
+                                for (name, alias) in names {
+                                    // Check if this is a submodule import
+                                    let potential_module_name = format!("{module}.{name}");
+                                    log::debug!(
+                                        "Checking if '{potential_module_name}' is a module in \
+                                         registry"
+                                    );
+                                    if let Some(submodule_id) =
+                                        registry.get_id_by_name(&potential_module_name)
+                                    {
+                                        log::debug!(
+                                            "Found submodule '{potential_module_name}' with id \
+                                             {submodule_id:?}"
+                                        );
+                                        // This is a submodule import - we need to bundle it as a
+                                        // namespace
+                                        submodule_imports.push((
+                                            submodule_id,
+                                            SymbolImport {
+                                                source_name: name.clone(),
+                                                target_name: alias
+                                                    .clone()
+                                                    .unwrap_or_else(|| name.clone()),
+                                            },
+                                        ));
                                     } else {
-                                        // Regular symbol imports from first-party module
-                                        ImportClassification::BundleFromImport {
-                                            module_id: imported_module_id,
-                                            symbols: names
-                                                .iter()
-                                                .map(|(name, alias)| SymbolImport {
-                                                    source_name: name.clone(),
-                                                    target_name: alias
-                                                        .clone()
-                                                        .unwrap_or_else(|| name.clone()),
-                                                })
-                                                .collect(),
-                                        }
+                                        // Regular symbol import
+                                        regular_symbol_imports.push(SymbolImport {
+                                            source_name: name.clone(),
+                                            target_name: alias
+                                                .clone()
+                                                .unwrap_or_else(|| name.clone()),
+                                        });
+                                    }
+                                }
+
+                                // For now, if we have any submodule imports, treat each as a
+                                // separate Inline import. This is
+                                // a simplification - in the future we might want to handle mixed
+                                // imports differently
+                                if !submodule_imports.is_empty() {
+                                    // Process the first submodule import (simplified for now)
+                                    let (submodule_id, symbol_import) = &submodule_imports[0];
+                                    ImportClassification::Inline {
+                                        module_id: *submodule_id,
+                                        symbols: vec![symbol_import.clone()],
+                                    }
+                                } else if let Some(imported_module_id) =
+                                    registry.get_id_by_name(module)
+                                {
+                                    // Regular from import with symbols
+                                    ImportClassification::Inline {
+                                        module_id: imported_module_id,
+                                        symbols: regular_symbol_imports,
                                     }
                                 } else {
-                                    // First-party but not discovered - treat as hoist
+                                    // First-party but not in registry - hoist it
                                     ImportClassification::Hoist {
                                         import_type: HoistType::From {
-                                            module_name: effective_module,
+                                            module_name: module.clone(),
                                             symbols: names.clone(),
                                             level: *level,
                                         },
                                     }
                                 }
                             }
-                            ImportType::StandardLibrary | ImportType::ThirdParty => {
+                            _ => {
+                                // Stdlib or third-party - hoist it
                                 ImportClassification::Hoist {
                                     import_type: HoistType::From {
-                                        module_name: effective_module,
+                                        module_name: module.clone(),
                                         symbols: names.clone(),
                                         level: *level,
                                     },
@@ -957,16 +1179,65 @@ impl BundlePlan {
                             }
                         };
 
+                        log::debug!(
+                            "Classified from import at {module_id:?},{item_id:?} as: \
+                             {classification:?}"
+                        );
                         self.classified_imports
                             .insert((*module_id, *item_id), classification);
                     }
-                    _ => {
-                        // Not an import
-                    }
+                    _ => {}
                 }
             }
         }
 
         log::debug!("Classified {} imports", self.classified_imports.len());
     }
+}
+
+/// Check if a module is from the standard library
+fn is_stdlib_module(module_name: &str) -> bool {
+    // This is a simplified check - in reality we'd use a comprehensive list
+    matches!(
+        module_name,
+        "os" | "sys"
+            | "types"
+            | "json"
+            | "re"
+            | "math"
+            | "random"
+            | "datetime"
+            | "collections"
+            | "itertools"
+            | "functools"
+            | "pathlib"
+            | "typing"
+            | "io"
+            | "subprocess"
+            | "threading"
+            | "multiprocessing"
+            | "asyncio"
+            | "contextlib"
+    )
+}
+
+/// Sort import statements alphabetically for determinism
+fn sort_import_statements(imports: &mut Vec<ruff_python_ast::Stmt>) {
+    imports.sort_by(|a, b| {
+        let name_a = match a {
+            ruff_python_ast::Stmt::Import(imp) => imp.names[0].name.as_str(),
+            ruff_python_ast::Stmt::ImportFrom(imp) => {
+                imp.module.as_ref().map_or("", |m| m.as_str())
+            }
+            _ => "",
+        };
+        let name_b = match b {
+            ruff_python_ast::Stmt::Import(imp) => imp.names[0].name.as_str(),
+            ruff_python_ast::Stmt::ImportFrom(imp) => {
+                imp.module.as_ref().map_or("", |m| m.as_str())
+            }
+            _ => "",
+        };
+        name_a.cmp(name_b)
+    });
 }

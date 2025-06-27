@@ -3,7 +3,9 @@ source: crates/cribo/tests/test_bundling_snapshots.rs
 input_file: crates/cribo/tests/fixtures/xfail_ast_rewriting_global/main.py
 ---
 ExecutionResults {
-    status: Success,
-    stdout: "",
-    stderr: "",
+    status: Failed(
+        1,
+    ),
+    stdout: "Module with global keyword: main_foo\nModule with globals() dict: main_bar\nModule with mixed patterns: {'foo': 'main_foo', 'bar': 'main_bar', 'counter': 0}\n\nAfter modifications:\nModule with global keyword: module3_foo_modified\nModule with globals() dict: module3_bar_modified\nModule with mixed patterns: {'foo': 'module3_foo_modified', 'bar': 'module3_bar_modified', 'counter': 1}",
+    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 127, in <module>",
 }

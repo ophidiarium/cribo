@@ -18,6 +18,8 @@ pub struct TreeShaker {
     used_symbols: IndexSet<(String, String)>,
     /// Map from module ID to module name
     _module_names: IndexMap<ModuleId, String>,
+    /// The entry module name (used for special handling)
+    entry_module: Option<String>,
 }
 
 impl TreeShaker {
@@ -42,12 +44,16 @@ impl TreeShaker {
             cross_module_refs: IndexMap::new(),
             used_symbols: IndexSet::new(),
             _module_names: module_names,
+            entry_module: None,
         }
     }
 
     /// Analyze which symbols should be kept based on entry point
     pub fn analyze(&mut self, entry_module: &str) -> Result<()> {
         debug!("Starting tree-shaking analysis from entry module: {entry_module}");
+
+        // Store the entry module for special handling
+        self.entry_module = Some(entry_module.to_string());
 
         // First, build cross-module reference information
         self.build_cross_module_refs();
@@ -369,6 +375,32 @@ impl TreeShaker {
                                         "Found from import of module {potential_module} in \
                                          {module_name}"
                                     );
+
+                                    // For directly imported modules (like from mymodule import
+                                    // utils), we need to mark
+                                    // ALL their exports as used because the module
+                                    // object itself is imported
+                                    if let Some(target_items) =
+                                        self.module_items.get(&potential_module)
+                                    {
+                                        debug!(
+                                            "Marking all exports from {potential_module} as used"
+                                        );
+                                        for item in target_items {
+                                            for symbol in &item.defined_symbols {
+                                                if !symbol.starts_with('_') {
+                                                    debug!(
+                                                        "  Marking {potential_module}::{symbol} \
+                                                         as used"
+                                                    );
+                                                    worklist.push_back((
+                                                        potential_module.clone(),
+                                                        symbol.clone(),
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -833,6 +865,12 @@ impl TreeShaker {
     pub fn get_items_to_keep(&self, module_name: &str) -> FxHashSet<usize> {
         let mut items_to_keep = FxHashSet::default();
 
+        // Check if this is the entry module
+        let is_entry_module = self
+            .entry_module
+            .as_ref()
+            .is_some_and(|em| em == module_name);
+
         if let Some(items) = self.module_items.get(module_name) {
             for (idx, item) in items.iter().enumerate() {
                 // Keep the item if:
@@ -842,7 +880,7 @@ impl TreeShaker {
                     .iter()
                     .any(|symbol| self.is_symbol_used(module_name, symbol));
 
-                // 2. It has side effects
+                // 2. It has side effects (for entry module, keep all side-effect items)
                 let has_side_effects = item.has_side_effects
                     && !matches!(
                         item.item_type,
@@ -853,9 +891,19 @@ impl TreeShaker {
                 let is_needed_import = match &item.item_type {
                     ItemType::Import { module, .. } => {
                         // For regular imports, check if the module is used
-                        item.imported_names
+                        let required = item
+                            .imported_names
                             .iter()
-                            .any(|name| self.is_import_required(module_name, name, module))
+                            .any(|name| self.is_import_required(module_name, name, module));
+
+                        if !required && module == "os" {
+                            debug!(
+                                "Import 'os' in module '{module_name}' is not required and will \
+                                 be removed"
+                            );
+                        }
+
+                        required
                     }
                     ItemType::FromImport { module, names, .. } => {
                         // For from imports, check both:
@@ -883,13 +931,101 @@ impl TreeShaker {
                     _ => false,
                 };
 
-                if defines_used_symbol || has_side_effects || is_needed_import {
+                // Special handling for entry module: keep all non-import items
+                // This ensures that all top-level code in the entry module runs
+                let is_entry_item = is_entry_module
+                    && !matches!(
+                        item.item_type,
+                        ItemType::Import { .. } | ItemType::FromImport { .. }
+                    );
+
+                if is_entry_item || defines_used_symbol || has_side_effects || is_needed_import {
                     items_to_keep.insert(idx);
+
+                    // Debug logging for imports
+                    if matches!(
+                        item.item_type,
+                        ItemType::Import { .. } | ItemType::FromImport { .. }
+                    ) {
+                        debug!(
+                            "Keeping import in module '{}' at index {}: {:?} (defines_used={}, \
+                             has_side_effects={}, is_needed={})",
+                            module_name,
+                            idx,
+                            item.item_type,
+                            defines_used_symbol,
+                            has_side_effects,
+                            is_needed_import
+                        );
+                    }
                 }
             }
         }
 
         items_to_keep
+    }
+
+    /// Generate tree-shake results from the graph
+    pub fn generate_results(&self, graph: &CriboGraph) -> crate::analysis::TreeShakeResults {
+        let mut included_items = Vec::new();
+        let mut removed_items = Vec::new();
+        let mut removed_modules = Vec::new();
+
+        // Process each module in the graph
+        for (module_id, module_graph) in &graph.modules {
+            let module_name = &module_graph.module_name;
+            let items_to_keep = self.get_items_to_keep(module_name);
+
+            let mut has_any_items = false;
+
+            // Process all items in the module
+            for (item_id, item_data) in &module_graph.items {
+                // Get the index of this item
+                if let Some(items) = self.module_items.get(module_name) {
+                    // Find the index of this item in our module_items
+                    // Use statement_index if available for accurate matching
+                    let idx = if let Some(stmt_idx) = item_data.statement_index {
+                        // For items with statement index, use that directly
+                        if stmt_idx < items.len() {
+                            Some(stmt_idx)
+                        } else {
+                            None
+                        }
+                    } else {
+                        // Fallback to matching by type and symbols for items without statement
+                        // index
+                        log::warn!(
+                            "Item {item_id:?} in module '{module_name}' has no statement_index, \
+                             falling back to unreliable matching"
+                        );
+                        items.iter().position(|item| {
+                            item.item_type == item_data.item_type
+                                && item.defined_symbols == item_data.defined_symbols
+                        })
+                    };
+
+                    if let Some(idx) = idx {
+                        if items_to_keep.contains(&idx) {
+                            included_items.push((*module_id, *item_id));
+                            has_any_items = true;
+                        } else {
+                            removed_items.push((*module_id, *item_id));
+                        }
+                    }
+                }
+            }
+
+            // If no items are kept from this module, mark it as removed
+            if !has_any_items {
+                removed_modules.push(*module_id);
+            }
+        }
+
+        crate::analysis::TreeShakeResults {
+            included_items,
+            removed_items,
+            removed_modules,
+        }
     }
 
     /// Mark symbols defined in __all__ as used for star imports

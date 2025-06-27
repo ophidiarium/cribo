@@ -4,6 +4,6 @@ input_file: crates/cribo/tests/fixtures/xfail_namespace_simple_test/main.py
 ---
 ExecutionResults {
     status: Success,
-    stdout: "",
+    stdout: "Constant: 42",
     stderr: "",
 }

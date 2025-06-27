@@ -11,7 +11,7 @@ use rustc_hash::FxHashMap;
 use crate::{
     analysis::{ConflictInstance, SymbolConflict, SymbolType},
     cribo_graph::{CriboGraph, ModuleId},
-    orchestrator::ModuleRegistry,
+    module_registry::ModuleRegistry,
     semantic_model_provider::{GlobalBindingId, SemanticModelProvider},
 };
 

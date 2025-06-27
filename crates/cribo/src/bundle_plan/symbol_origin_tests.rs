@@ -57,7 +57,7 @@ mod tests {
         // It demonstrates that from_analysis_results should populate symbol_origins
 
         use crate::{
-            analysis::AnalysisResults, cribo_graph::CriboGraph, orchestrator::ModuleRegistry,
+            analysis::AnalysisResults, cribo_graph::CriboGraph, module_registry::ModuleRegistry,
         };
 
         // Create minimal test data

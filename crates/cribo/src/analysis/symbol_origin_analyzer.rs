@@ -12,7 +12,7 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     cribo_graph::{CriboGraph, ModuleId},
-    orchestrator::ModuleRegistry,
+    module_registry::ModuleRegistry,
     semantic_model_provider::{GlobalBindingId, SemanticModelProvider},
 };
 

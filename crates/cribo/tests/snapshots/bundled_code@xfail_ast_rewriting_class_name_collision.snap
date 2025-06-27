@@ -7,6 +7,48 @@ input_file: crates/cribo/tests/fixtures/xfail_ast_rewriting_class_name_collision
 # https://github.com/ophidiarium/cribo
 
 """\nClass name collision test.\nBoth modules define classes with the same names.\n"""
+"""\nEntities module with User and Product classes.\nThese will conflict with models.py when bundled.\n"""
+"""\nModels module with User and Product classes.\nThese will conflict with entities.py when bundled.\n"""
+class User_entities:
+    """User entity for business logic."""
+
+    def __init__(self, name: str, age: int):
+        self.name = name
+        self.age = age
+        self.active = True
+
+    def __str__(self) -> str:
+        return f"Entity User(name='{self.name}', age={self.age})"
+class User:
+    """User model for data persistence."""
+
+    def __init__(self, name: str, email: str):
+        self.name = name
+        self.email = email
+        self.id = None
+
+    def __str__(self) -> str:
+        return f"Model User(name='{self.name}', email='{self.email}')"
+class User_entities:
+    """User entity for business logic."""
+
+    def __init__(self, name: str, age: int):
+        self.name = name
+        self.age = age
+        self.active = True
+
+    def __str__(self) -> str:
+        return f"Entity User(name='{self.name}', age={self.age})"
+class User:
+    """User model for data persistence."""
+
+    def __init__(self, name: str, email: str):
+        self.name = name
+        self.email = email
+        self.id = None
+
+    def __str__(self) -> str:
+        return f"Model User(name='{self.name}', email='{self.email}')"
 def main():
     model_user = ModelUser("Alice", "alice@example.com")
     entity_user = EntityUser("Bob", 25)
@@ -17,29 +59,7 @@ def main():
     print(f"Model Product: {model_product}")
     print(f"Entity Product: {entity_product}")
     return {"model_user": str(model_user), "entity_user": str(entity_user), "model_product": str(model_product), "entity_product": str(entity_product)}
-from models import User as ModelUser, Product as ModelProduct
-if __name__ == "__main__":
-    result = main()
-    print("Result:", result)
-if __name__ == "__main__":
-    result = main()
-    print("Result:", result)
-if __name__ == "__main__":
-    result = main()
-    print("Result:", result)
-from entities import User as EntityUser, Product as EntityProduct
-"""\nEntities module with User and Product classes.\nThese will conflict with models.py when bundled.\n"""
-class Product:
-    """Product entity for business logic."""
-
-    def __init__(self, sku: str, name: str):
-        self.sku = sku
-        self.name = name
-        self.available = True
-
-    def __str__(self) -> str:
-        return f"Entity Product(sku='{self.sku}', name='{self.name}')"
-class User:
+class User_entities:
     """User entity for business logic."""
 
     def __init__(self, name: str, age: int):
@@ -49,17 +69,20 @@ class User:
 
     def __str__(self) -> str:
         return f"Entity User(name='{self.name}', age={self.age})"
-class Product:
-    """Product entity for business logic."""
+class User:
+    """User model for data persistence."""
 
-    def __init__(self, sku: str, name: str):
-        self.sku = sku
+    def __init__(self, name: str, email: str):
         self.name = name
-        self.available = True
+        self.email = email
+        self.id = None
 
     def __str__(self) -> str:
-        return f"Entity Product(sku='{self.sku}', name='{self.name}')"
-class User:
+        return f"Model User(name='{self.name}', email='{self.email}')"
+if __name__ == "__main__":
+    result = main()
+    print("Result:", result)
+class User_entities:
     """User entity for business logic."""
 
     def __init__(self, name: str, age: int):
@@ -69,130 +92,105 @@ class User:
 
     def __str__(self) -> str:
         return f"Entity User(name='{self.name}', age={self.age})"
+class User:
+    """User model for data persistence."""
+
+    def __init__(self, name: str, email: str):
+        self.name = name
+        self.email = email
+        self.id = None
+
+    def __str__(self) -> str:
+        return f"Model User(name='{self.name}', email='{self.email}')"
+if __name__ == "__main__":
+    result = main()
+    print("Result:", result)
+class Product_entities:
+    """Product entity for business logic."""
+
+    def __init__(self, sku: str, name: str):
+        self.sku = sku
+        self.name = name
+        self.available = True
+
+    def __str__(self) -> str:
+        return f"Entity Product(sku='{self.sku}', name='{self.name}')"
+class Product:
+    """Product model for catalog."""
+
+    def __init__(self, name: str, price: float):
+        self.name = name
+        self.price = price
+        self.id = None
+
+    def __str__(self) -> str:
+        return f"Model Product(name='{self.name}', price={self.price})"
+if __name__ == "__main__":
+    result = main()
+    print("Result:", result)
+class Product_entities:
+    """Product entity for business logic."""
+
+    def __init__(self, sku: str, name: str):
+        self.sku = sku
+        self.name = name
+        self.available = True
+
+    def __str__(self) -> str:
+        return f"Entity Product(sku='{self.sku}', name='{self.name}')"
+class Product:
+    """Product model for catalog."""
+
+    def __init__(self, name: str, price: float):
+        self.name = name
+        self.price = price
+        self.id = None
+
+    def __str__(self) -> str:
+        return f"Model Product(name='{self.name}', price={self.price})"
+class Product_entities:
+    """Product entity for business logic."""
+
+    def __init__(self, sku: str, name: str):
+        self.sku = sku
+        self.name = name
+        self.available = True
+
+    def __str__(self) -> str:
+        return f"Entity Product(sku='{self.sku}', name='{self.name}')"
+class Product:
+    """Product model for catalog."""
+
+    def __init__(self, name: str, price: float):
+        self.name = name
+        self.price = price
+        self.id = None
+
+    def __str__(self) -> str:
+        return f"Model Product(name='{self.name}', price={self.price})"
+class Product_entities:
+    """Product entity for business logic."""
+
+    def __init__(self, sku: str, name: str):
+        self.sku = sku
+        self.name = name
+        self.available = True
+
+    def __str__(self) -> str:
+        return f"Entity Product(sku='{self.sku}', name='{self.name}')"
+class Product:
+    """Product model for catalog."""
+
+    def __init__(self, name: str, price: float):
+        self.name = name
+        self.price = price
+        self.id = None
+
+    def __str__(self) -> str:
+        return f"Model Product(name='{self.name}', price={self.price})"
 def create_product(sku: str, name: str) -> Product:
     """Factory function for creating products."""
     return Product(sku, name)
-class Product:
-    """Product entity for business logic."""
-
-    def __init__(self, sku: str, name: str):
-        self.sku = sku
-        self.name = name
-        self.available = True
-
-    def __str__(self) -> str:
-        return f"Entity Product(sku='{self.sku}', name='{self.name}')"
-class User:
-    """User entity for business logic."""
-
-    def __init__(self, name: str, age: int):
-        self.name = name
-        self.age = age
-        self.active = True
-
-    def __str__(self) -> str:
-        return f"Entity User(name='{self.name}', age={self.age})"
-class Product:
-    """Product entity for business logic."""
-
-    def __init__(self, sku: str, name: str):
-        self.sku = sku
-        self.name = name
-        self.available = True
-
-    def __str__(self) -> str:
-        return f"Entity Product(sku='{self.sku}', name='{self.name}')"
-class User:
-    """User entity for business logic."""
-
-    def __init__(self, name: str, age: int):
-        self.name = name
-        self.age = age
-        self.active = True
-
-    def __str__(self) -> str:
-        return f"Entity User(name='{self.name}', age={self.age})"
-"""\nModels module with User and Product classes.\nThese will conflict with entities.py when bundled.\n"""
-class Product:
-    """Product model for catalog."""
-
-    def __init__(self, name: str, price: float):
-        self.name = name
-        self.price = price
-        self.id = None
-
-    def __str__(self) -> str:
-        return f"Model Product(name='{self.name}', price={self.price})"
-class User:
-    """User model for data persistence."""
-
-    def __init__(self, name: str, email: str):
-        self.name = name
-        self.email = email
-        self.id = None
-
-    def __str__(self) -> str:
-        return f"Model User(name='{self.name}', email='{self.email}')"
-class Product:
-    """Product model for catalog."""
-
-    def __init__(self, name: str, price: float):
-        self.name = name
-        self.price = price
-        self.id = None
-
-    def __str__(self) -> str:
-        return f"Model Product(name='{self.name}', price={self.price})"
-class User:
-    """User model for data persistence."""
-
-    def __init__(self, name: str, email: str):
-        self.name = name
-        self.email = email
-        self.id = None
-
-    def __str__(self) -> str:
-        return f"Model User(name='{self.name}', email='{self.email}')"
 def create_user(name: str, email: str) -> User:
     """Factory function for creating users."""
     return User(name, email)
-class Product:
-    """Product model for catalog."""
-
-    def __init__(self, name: str, price: float):
-        self.name = name
-        self.price = price
-        self.id = None
-
-    def __str__(self) -> str:
-        return f"Model Product(name='{self.name}', price={self.price})"
-class User:
-    """User model for data persistence."""
-
-    def __init__(self, name: str, email: str):
-        self.name = name
-        self.email = email
-        self.id = None
-
-    def __str__(self) -> str:
-        return f"Model User(name='{self.name}', email='{self.email}')"
-class Product:
-    """Product model for catalog."""
-
-    def __init__(self, name: str, price: float):
-        self.name = name
-        self.price = price
-        self.id = None
-
-    def __str__(self) -> str:
-        return f"Model Product(name='{self.name}', price={self.price})"
-class User:
-    """User model for data persistence."""
-
-    def __init__(self, name: str, email: str):
-        self.name = name
-        self.email = email
-        self.id = None
-
-    def __str__(self) -> str:
-        return f"Model User(name='{self.name}', email='{self.email}')"
