@@ -152,10 +152,43 @@ impl<'a> SymbolConflictDetector<'a> {
     fn filter_duplicate_origins(
         &self,
         instances: &[ConflictInstance],
-        _symbol_origins: &FxHashMap<GlobalBindingId, GlobalBindingId>,
+        symbol_origins: &FxHashMap<GlobalBindingId, GlobalBindingId>,
     ) -> Vec<ConflictInstance> {
-        // For now, don't filter anything - we need to handle re-exports properly
-        // This is a temporary solution until we implement proper re-export handling
-        instances.to_vec()
+        // Group instances by their original symbol
+        let mut origin_groups: FxHashMap<GlobalBindingId, Vec<&ConflictInstance>> =
+            FxHashMap::default();
+        let mut no_origin_instances = Vec::new();
+
+        for instance in instances {
+            // Trace back to the original symbol
+            if let Some(origin) = symbol_origins.get(&instance.global_id) {
+                origin_groups.entry(*origin).or_default().push(instance);
+            } else {
+                // This is an original definition, not a re-export
+                no_origin_instances.push(instance);
+            }
+        }
+
+        let mut filtered = Vec::new();
+
+        // Include all original definitions
+        for instance in no_origin_instances {
+            filtered.push(instance.clone());
+        }
+
+        // For re-exports, only include one instance per original symbol
+        // (the first one we encounter, which is deterministic due to sorted module processing)
+        for (_, group) in origin_groups {
+            if let Some(first) = group.first() {
+                filtered.push((*first).clone());
+            }
+        }
+
+        // If after filtering we have less than 2 instances, there's no conflict
+        if filtered.len() < 2 {
+            Vec::new()
+        } else {
+            filtered
+        }
     }
 }
