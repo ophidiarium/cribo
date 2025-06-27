@@ -191,9 +191,6 @@ struct SymbolDependencyGraph {
 
 #[derive(Debug, Clone)]
 struct SymbolDefinition {
-    /// Whether this is a class definition
-    #[allow(dead_code)]
-    is_class: bool,
     /// Whether this is an assignment
     #[allow(dead_code)]
     is_assignment: bool,
@@ -3192,7 +3189,6 @@ impl<'a> HybridStaticBundler<'a> {
         self.symbol_dep_graph.symbol_definitions.insert(
             key,
             SymbolDefinition {
-                is_class: false,
                 is_assignment: false,
                 depends_on: vec![],
             },
@@ -3233,7 +3229,6 @@ impl<'a> HybridStaticBundler<'a> {
         self.symbol_dep_graph.symbol_definitions.insert(
             key,
             SymbolDefinition {
-                is_class: true,
                 is_assignment: false,
                 depends_on: vec![],
             },
@@ -3278,7 +3273,6 @@ impl<'a> HybridStaticBundler<'a> {
         self.symbol_dep_graph.symbol_definitions.insert(
             key,
             SymbolDefinition {
-                is_class: false,
                 is_assignment: true,
                 depends_on: vec![],
             },
