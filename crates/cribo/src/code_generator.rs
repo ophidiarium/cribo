@@ -3016,8 +3016,6 @@ impl<'a> HybridStaticBundler<'a> {
         crate::side_effects::module_has_side_effects(ast)
     }
 
-    /// Check if a module is part of any circular dependency
-
     /// Build symbol-level dependency graph for circular modules
     fn build_symbol_dependency_graph(
         &mut self,
@@ -6652,9 +6650,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create the import hook class and install it
-    fn create_import_hook(&self) -> Vec<Stmt> {
-        Vec::new()
-    }
 
     /// Create a namespace for an inlined submodule
     fn create_namespace_for_inlined_submodule(
