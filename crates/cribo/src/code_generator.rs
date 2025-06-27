@@ -115,7 +115,6 @@ struct NamespaceImportParams<'a> {
 }
 
 /// Parameters for processing module globals
-#[allow(dead_code)]
 struct ProcessGlobalsParams<'a> {
     module_name: &'a str,
     ast: &'a ModModule,
