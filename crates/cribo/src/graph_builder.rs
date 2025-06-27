@@ -1282,6 +1282,26 @@ impl<'a> GraphBuilder<'a> {
                             }
                         }
                     }
+                    Stmt::AnnAssign(ann_assign) => {
+                        // Collect variables from the type annotation
+                        self.collect_vars_in_expr_with_attrs(
+                            &ann_assign.annotation,
+                            read_vars,
+                            attribute_accesses,
+                        );
+                        // Collect variables from the value expression if present
+                        if let Some(value) = &ann_assign.value {
+                            self.collect_vars_in_expr_with_attrs(
+                                value,
+                                read_vars,
+                                attribute_accesses,
+                            );
+                        }
+                        // Add assignment target to write vars
+                        if let Some(names) = self.extract_assignment_targets(&ann_assign.target) {
+                            write_vars.extend(names);
+                        }
+                    }
                     Stmt::Return(ret) => {
                         self.handle_return_stmt(ret, read_vars, attribute_accesses);
                     }
@@ -1729,5 +1749,118 @@ impl<'a> GraphBuilder<'a> {
         // This is a placeholder - the actual implementation would be more complex
         log::debug!("Pass B complete: dependencies wired");
         Ok(item_mappings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ruff_python_parser::parse_module;
+
+    use super::*;
+
+    #[test]
+    fn test_function_call_in_dict_literal() {
+        // Test that function calls within dictionary literals are properly tracked
+        let source = r#"
+ProcessingResult = dict
+
+def _transform_data(data):
+    return [f"{k}={v}" for k, v in data.items()]
+
+def process_data(data):
+    result: ProcessingResult = {
+        "input": data,
+        "processed": True,
+        "output": _transform_data(data),
+    }
+    return result
+"#;
+
+        let parsed = parse_module(source).expect("Failed to parse module");
+        let ast = parsed.into_syntax();
+
+        // Create a module graph
+        let module_id = crate::cribo_graph::ModuleId::new(0);
+        let mut module_graph = ModuleDepGraph::new(module_id, "test_module".to_string());
+
+        // Build the graph
+        let mut builder = GraphBuilder::new(&mut module_graph);
+        builder.build_from_ast(&ast).expect("Failed to build graph");
+
+        // Find the process_data function item
+        let process_item = module_graph.items.values()
+            .find(|item| matches!(&item.item_type, ItemType::FunctionDef { name } if name == "process_data"))
+            .expect("Should find process_data function");
+
+        // Check that _transform_data is in the eventual_read_vars
+        assert!(
+            process_item.eventual_read_vars.contains("_transform_data"),
+            "Function 'process_data' should have '_transform_data' in its eventual_read_vars, but \
+             found: {:?}",
+            process_item.eventual_read_vars
+        );
+
+        // Also check symbol dependencies
+        assert!(
+            process_item
+                .symbol_dependencies
+                .get("process_data")
+                .map(|deps| deps.contains("_transform_data"))
+                .unwrap_or(false),
+            "Function 'process_data' should have '_transform_data' in its symbol dependencies, \
+             but found: {:?}",
+            process_item.symbol_dependencies
+        );
+    }
+
+    #[test]
+    fn test_nested_function_call_tracking() {
+        // Test that nested function calls are tracked properly
+        let source = r#"
+def helper(x):
+    return x + 1
+
+def transform(x):
+    return helper(x) * 2
+
+def process():
+    result = transform(42)
+    return result
+"#;
+
+        let parsed = parse_module(source).expect("Failed to parse module");
+        let ast = parsed.into_syntax();
+
+        // Create a module graph
+        let module_id = crate::cribo_graph::ModuleId::new(0);
+        let mut module_graph = ModuleDepGraph::new(module_id, "test_module".to_string());
+
+        // Build the graph
+        let mut builder = GraphBuilder::new(&mut module_graph);
+        builder.build_from_ast(&ast).expect("Failed to build graph");
+
+        // Find the transform function item
+        let transform_item = module_graph.items.values()
+            .find(|item| matches!(&item.item_type, ItemType::FunctionDef { name } if name == "transform"))
+            .expect("Should find transform function");
+
+        // Check that helper is in the eventual_read_vars
+        assert!(
+            transform_item.eventual_read_vars.contains("helper"),
+            "Function 'transform' should have 'helper' in its eventual_read_vars, but found: {:?}",
+            transform_item.eventual_read_vars
+        );
+
+        // Find the process function item
+        let process_item = module_graph.items.values()
+            .find(|item| matches!(&item.item_type, ItemType::FunctionDef { name } if name == "process"))
+            .expect("Should find process function");
+
+        // Check that transform is in the eventual_read_vars
+        assert!(
+            process_item.eventual_read_vars.contains("transform"),
+            "Function 'process' should have 'transform' in its eventual_read_vars, but found: {:?}",
+            process_item.eventual_read_vars
+        );
     }
 }
