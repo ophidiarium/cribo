@@ -58,7 +58,7 @@ The VM must know to correlate `ast_node_renames` with `CopyStatement` steps, cre
 
 **Risk**: Changes in the compiler's output format can break the VM without compile-time errors.
 
-#### Issue 2: Performance Inefficiency (Medium Priority)
+#### Issue 2: Performance Inefficiency
 
 **Problem**: `live_items` uses `Vec<ItemId>` causing O(n) lookups.
 

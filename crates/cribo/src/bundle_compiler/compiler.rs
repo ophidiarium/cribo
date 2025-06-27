@@ -29,6 +29,9 @@ pub enum ExecutionStep {
     CopyStatement {
         source_module: ModuleId,
         item_id: ItemId,
+        /// Renames to apply to this specific statement
+        /// Maps TextRange to new name (module is already known from source_module)
+        renames: FxHashMap<TextRange, String>,
     },
 }
 
@@ -126,10 +129,6 @@ pub struct BundleCompiler<'a> {
 pub struct BundleProgram {
     /// The linear sequence of instructions to execute
     pub steps: Vec<ExecutionStep>,
-
-    /// AST node renames to apply during CopyStatement execution
-    /// Maps (ModuleId, TextRange) to the new name for that AST node
-    pub ast_node_renames: FxHashMap<(ModuleId, TextRange), String>,
 }
 
 impl<'a> BundleCompiler<'a> {
@@ -171,6 +170,45 @@ impl<'a> BundleCompiler<'a> {
     ) -> Self {
         self.semantic_provider = Some(provider);
         self
+    }
+
+    /// Get renames that apply to a specific statement
+    fn get_renames_for_statement(
+        &self,
+        module_id: ModuleId,
+        _item_id: ItemId,
+    ) -> FxHashMap<TextRange, String> {
+        let mut statement_renames = FxHashMap::default();
+
+        // Get semantic provider to find AST nodes for renamed symbols
+        let Some(semantic_provider) = self.semantic_provider else {
+            return statement_renames;
+        };
+
+        // Get all renames for this module
+        if let Some(Ok(semantic_model)) = semantic_provider.get_model(module_id) {
+            // Iterate through symbol renames for this module
+            for (global_binding_id, new_name) in &self.symbol_renames {
+                if global_binding_id.module_id != module_id {
+                    continue;
+                }
+
+                let binding = semantic_model.binding(global_binding_id.binding_id);
+
+                // Add the binding definition rename
+                statement_renames.insert(binding.range, new_name.clone());
+
+                // Add all reference renames
+                for reference_id in &binding.references {
+                    let reference = semantic_model.reference(*reference_id);
+                    statement_renames.insert(reference.range(), new_name.clone());
+                }
+            }
+        }
+
+        // Note: This currently returns all renames for the module, not just for the specific
+        // statement. This is a limitation until we have better range tracking for items.
+        statement_renames
     }
 
     /// Initialize compiler state from analysis results
@@ -215,13 +253,7 @@ impl<'a> BundleCompiler<'a> {
         let entry_steps = self.compile_entry_module()?;
         steps.extend(entry_steps);
 
-        // Generate AST node renames from symbol renames
-        let ast_node_renames = self.generate_ast_node_renames();
-
-        Ok(BundleProgram {
-            steps,
-            ast_node_renames,
-        })
+        Ok(BundleProgram { steps })
     }
 
     /// Compile hoisted imports into execution steps
@@ -444,6 +476,7 @@ impl<'a> BundleCompiler<'a> {
                     steps.push(ExecutionStep::CopyStatement {
                         source_module: *module_id,
                         item_id: *item_id,
+                        renames: self.get_renames_for_statement(*module_id, *item_id),
                     });
                 }
             }
@@ -464,7 +497,7 @@ impl<'a> BundleCompiler<'a> {
                     .ok_or_else(|| anyhow::anyhow!("Module not found: {:?}", module_id))?;
 
                 // First pass: collect all class names to identify methods
-                let class_names: FxHashSet<_> = items
+                let _class_names: FxHashSet<_> = items
                     .iter()
                     .filter_map(|item_id| {
                         module_graph.items.get(item_id).and_then(|item_data| {
@@ -594,6 +627,7 @@ impl<'a> BundleCompiler<'a> {
                 steps.push(ExecutionStep::CopyStatement {
                     source_module: self.entry_module_id,
                     item_id,
+                    renames: self.get_renames_for_statement(self.entry_module_id, item_id),
                 });
             }
         }
@@ -634,53 +668,6 @@ impl<'a> BundleCompiler<'a> {
             .get(&global_binding_id)
             .cloned()
             .unwrap_or_else(|| symbol_name.to_string())
-    }
-
-    /// Generate AST node renames from symbol renames
-    fn generate_ast_node_renames(&self) -> FxHashMap<(ModuleId, TextRange), String> {
-        let mut ast_node_renames = FxHashMap::default();
-
-        // We need the semantic provider to map bindings to AST nodes
-        let Some(semantic_provider) = self.semantic_provider else {
-            warn!("No semantic provider available for AST node rename generation");
-            return ast_node_renames;
-        };
-
-        // Iterate through all symbol rename decisions
-        for (global_binding_id, new_name) in &self.symbol_renames {
-            let module_id = global_binding_id.module_id;
-            let binding_id = global_binding_id.binding_id;
-
-            // Get the semantic model for this module
-            if let Some(Ok(semantic_model)) = semantic_provider.get_model(module_id) {
-                // Get the binding information
-                let binding = semantic_model.binding(binding_id);
-
-                // 1. Add the definition itself to the rename map
-                ast_node_renames.insert((module_id, binding.range), new_name.clone());
-
-                // 2. Add all references to the rename map
-                for reference_id in &binding.references {
-                    let reference = semantic_model.reference(*reference_id);
-                    ast_node_renames.insert((module_id, reference.range()), new_name.clone());
-                }
-
-                debug!(
-                    "Added {} AST node renames for symbol '{}' in module {:?}",
-                    binding.references.len() + 1,
-                    new_name,
-                    module_id
-                );
-            }
-        }
-
-        debug!(
-            "Generated {} AST node renames from {} symbol renames",
-            ast_node_renames.len(),
-            self.symbol_renames.len()
-        );
-
-        ast_node_renames
     }
 
     // Helper methods moved from BundlePlan

@@ -51,13 +51,13 @@ pub fn run(program: &BundleProgram, context: &ExecutionContext) -> Result<ModMod
             ExecutionStep::CopyStatement {
                 source_module,
                 item_id,
+                renames,
             } => {
                 // Get the original statement
                 let stmt = get_statement(&context.source_asts, *source_module, *item_id, context)?;
 
                 // Apply renames (the only transformation we perform)
-                let renamed_stmt =
-                    apply_ast_renames(stmt, &program.ast_node_renames, *source_module);
+                let renamed_stmt = apply_statement_renames(stmt, renames, *source_module);
 
                 final_body.push(renamed_stmt);
             }
@@ -118,29 +118,27 @@ fn get_statement(
     })
 }
 
-/// Apply AST node renames to a statement
-fn apply_ast_renames(
+/// Apply renames to a statement using the embedded rename map
+fn apply_statement_renames(
     mut stmt: Stmt,
-    ast_node_renames: &FxHashMap<(ModuleId, TextRange), String>,
+    renames: &FxHashMap<TextRange, String>,
     module_id: ModuleId,
 ) -> Stmt {
     struct RenameTransformer<'a> {
-        renames: &'a FxHashMap<(ModuleId, TextRange), String>,
+        renames: &'a FxHashMap<TextRange, String>,
         module_id: ModuleId,
     }
 
     impl<'a> Transformer for RenameTransformer<'a> {
         fn visit_expr(&self, expr: &mut Expr) {
-            if let Expr::Name(name_expr) = expr {
-                let key = (self.module_id, name_expr.range);
-                if let Some(new_name) = self.renames.get(&key) {
+            if let Expr::Name(name_expr) = expr
+                && let Some(new_name) = self.renames.get(&name_expr.range) {
                     trace!(
                         "Renaming identifier at {:?} from '{}' to '{}'",
                         name_expr.range, name_expr.id, new_name
                     );
                     name_expr.id = Name::new(new_name);
                 }
-            }
 
             // Continue visiting child expressions
             walk_expr(self, expr);
@@ -150,8 +148,7 @@ fn apply_ast_renames(
             // Handle class and function definitions
             match stmt {
                 Stmt::ClassDef(class_def) => {
-                    let key = (self.module_id, class_def.name.range);
-                    if let Some(new_name) = self.renames.get(&key) {
+                    if let Some(new_name) = self.renames.get(&class_def.name.range) {
                         trace!(
                             "Renaming class '{}' at {:?} to '{}'",
                             class_def.name, class_def.name.range, new_name
@@ -160,8 +157,7 @@ fn apply_ast_renames(
                     }
                 }
                 Stmt::FunctionDef(func_def) => {
-                    let key = (self.module_id, func_def.name.range);
-                    if let Some(new_name) = self.renames.get(&key) {
+                    if let Some(new_name) = self.renames.get(&func_def.name.range) {
                         trace!(
                             "Renaming function '{}' at {:?} to '{}'",
                             func_def.name, func_def.name.range, new_name
@@ -177,10 +173,7 @@ fn apply_ast_renames(
         }
     }
 
-    let transformer = RenameTransformer {
-        renames: ast_node_renames,
-        module_id,
-    };
+    let transformer = RenameTransformer { renames, module_id };
 
     transformer.visit_stmt(&mut stmt);
     stmt
@@ -209,7 +202,6 @@ mod tests {
                     stmt: ast_builder::assign("x", ast_builder::name("y")),
                 },
             ],
-            ast_node_renames: FxHashMap::default(),
         };
 
         // Create empty context
