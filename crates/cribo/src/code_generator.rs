@@ -190,11 +190,7 @@ struct SymbolDependencyGraph {
 }
 
 #[derive(Debug, Clone)]
-struct SymbolDefinition {
-    /// Dependencies this symbol has on other symbols
-    #[allow(dead_code)]
-    depends_on: Vec<(String, String)>,
-}
+struct SymbolDefinition {}
 
 impl SymbolDependencyGraph {
     /// Perform topological sort on symbols within circular modules
@@ -3185,7 +3181,7 @@ impl<'a> HybridStaticBundler<'a> {
             .insert(key.clone(), module_level_deps);
         self.symbol_dep_graph
             .symbol_definitions
-            .insert(key, SymbolDefinition { depends_on: vec![] });
+            .insert(key, SymbolDefinition {});
     }
 
     /// Analyze dependencies for a class definition
@@ -3221,7 +3217,7 @@ impl<'a> HybridStaticBundler<'a> {
             .insert(key.clone(), module_level_deps);
         self.symbol_dep_graph
             .symbol_definitions
-            .insert(key, SymbolDefinition { depends_on: vec![] });
+            .insert(key, SymbolDefinition {});
     }
 
     /// Analyze dependencies for an assignment
@@ -3261,7 +3257,7 @@ impl<'a> HybridStaticBundler<'a> {
             .insert(key.clone(), dependencies); // All assignment deps are module-level
         self.symbol_dep_graph
             .symbol_definitions
-            .insert(key, SymbolDefinition { depends_on: vec![] });
+            .insert(key, SymbolDefinition {});
     }
 
     /// Find which module defines a symbol
