@@ -234,16 +234,6 @@ impl<'a> TransformationDetector<'a> {
         if let Some(tree_shake) = self.tree_shake_results {
             let is_included = tree_shake.included_items.contains(&(module_id, item_id));
 
-            // Debug: show what's in included_items for this module
-            if module_id.as_u32() == 4 {
-                let module_items: Vec<_> = tree_shake
-                    .included_items
-                    .iter()
-                    .filter(|(mid, _)| *mid == module_id)
-                    .collect();
-                debug!("Module {module_id:?} included items: {module_items:?}");
-            }
-
             debug!(
                 "From-import {module_name} in module {module_id:?} item {item_id:?}: \
                  included={is_included}, module_kind={module_kind:?}, names={names:?}"
