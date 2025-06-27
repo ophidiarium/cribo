@@ -3,7 +3,7 @@
 //! This module provides the analysis logic for circular dependencies,
 //! working directly with CriboGraph and producing structured results.
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::circular_deps::{
     CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType, CycleMetadata,
@@ -88,11 +88,14 @@ impl<'a> CircularDependencyAnalyzer<'a> {
     fn build_import_chain_for_scc(&self, scc: &[ModuleId]) -> Vec<ModuleEdge> {
         let mut import_chain = Vec::new();
 
+        // Convert to HashSet for O(1) lookups
+        let scc_set: FxHashSet<_> = scc.iter().cloned().collect();
+
         for &from_module_id in scc {
             // Get dependencies of this module that are also in the SCC
             let deps = self.graph.get_dependencies(from_module_id);
             for to_module_id in deps {
-                if !scc.contains(&to_module_id) {
+                if !scc_set.contains(&to_module_id) {
                     continue;
                 }
 
