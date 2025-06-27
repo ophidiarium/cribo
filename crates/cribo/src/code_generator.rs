@@ -3193,8 +3193,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Find which module defines a symbol
-    /// Get module ID by name from dependency graph
-
     /// Find module ID in semantic bundler by iterating through all modules
     fn find_module_id_in_semantic_bundler(
         &self,
@@ -6649,8 +6647,6 @@ impl<'a> HybridStaticBundler<'a> {
         Vec::new()
     }
 
-    /// Create the import hook class and install it
-
     /// Create a namespace for an inlined submodule
     fn create_namespace_for_inlined_submodule(
         &self,
@@ -6802,35 +6798,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create an assignment to a namespace attribute
-    fn create_namespace_attr_assignment(
-        &self,
-        namespace_var: &str,
-        attr: &str,
-        value: &str,
-    ) -> Stmt {
-        Stmt::Assign(StmtAssign {
-            node_index: AtomicNodeIndex::dummy(),
-            targets: vec![Expr::Attribute(ExprAttribute {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: namespace_var.to_string().into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new(attr, TextRange::default()),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: value.to_string().into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        })
-    }
 
     /// Create a string literal expression
     fn create_string_literal(&self, value: &str) -> Expr {
