@@ -819,8 +819,15 @@ impl TreeShaker {
         import_name: &str,
         _import_source: &str,
     ) -> bool {
+        debug!(
+            "is_import_required: checking if import '{import_name}' is needed in module \
+             '{module_name}'"
+        );
+
         // Check if any surviving symbol in this module uses this import
-        for symbol in self.get_used_symbols_for_module(module_name) {
+        let used_symbols = self.get_used_symbols_for_module(module_name);
+        debug!("Used symbols in module '{module_name}': {used_symbols:?}");
+        for symbol in used_symbols {
             if let Some(items) = self.module_items.get(module_name) {
                 for item in items {
                     if item.defined_symbols.contains(&symbol) {
@@ -828,6 +835,7 @@ impl TreeShaker {
                         if item.read_vars.contains(import_name)
                             || item.eventual_read_vars.contains(import_name)
                         {
+                            debug!("Import '{import_name}' is used by symbol '{symbol}'");
                             return true;
                         }
 
@@ -835,6 +843,7 @@ impl TreeShaker {
                         if let Some(deps) = item.symbol_dependencies.get(&symbol)
                             && deps.contains(import_name)
                         {
+                            debug!("Import '{import_name}' is a dependency of symbol '{symbol}'");
                             return true;
                         }
                     }
@@ -842,6 +851,7 @@ impl TreeShaker {
             }
         }
 
+        debug!("Import '{import_name}' is NOT required in module '{module_name}'");
         false
     }
 
@@ -891,17 +901,38 @@ impl TreeShaker {
                 let is_needed_import = match &item.item_type {
                     ItemType::Import { module, .. } => {
                         // For regular imports, check if the module is used
-                        let required = item
+                        let mut required = item
                             .imported_names
                             .iter()
                             .any(|name| self.is_import_required(module_name, name, module));
 
-                        if !required && module == "os" {
-                            debug!(
-                                "Import 'os' in module '{module_name}' is not required and will \
-                                 be removed"
-                            );
+                        // Special case: If this is a module import and the module has side effects,
+                        // check if any item in the current module has attribute accesses on this
+                        // import
+                        if !required && self.module_has_side_effects(module_name) {
+                            // Check all items in the current module for attribute accesses
+                            for other_item in items {
+                                for base_var in other_item.attribute_accesses.keys() {
+                                    if item.imported_names.contains(base_var) {
+                                        debug!(
+                                            "Import '{module}' is needed for attribute access on \
+                                             '{base_var}'"
+                                        );
+                                        required = true;
+                                        break;
+                                    }
+                                }
+                                if required {
+                                    break;
+                                }
+                            }
                         }
+
+                        debug!(
+                            "Checking import '{module}' in module '{module_name}': imported_names \
+                             = {:?}, required = {}",
+                            item.imported_names, required
+                        );
 
                         required
                     }

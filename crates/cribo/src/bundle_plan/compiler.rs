@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use log::{debug, warn};
 use ruff_python_ast::Stmt;
 use ruff_text_size::{Ranged, TextRange};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{ExecutionStep, HoistType, ImportClassification, ModuleMetadata, SymbolImport};
 use crate::{
@@ -321,9 +321,12 @@ impl<'a> BundleCompiler<'a> {
         steps.push(ExecutionStep::InsertStatement { stmt: types_import });
 
         // Process each namespace module
+        debug!("Processing {} namespace modules", namespace_modules.len());
         for (module_id, namespace_name) in &namespace_modules {
+            debug!("Processing namespace module {module_id:?} with name '{namespace_name}'");
             // First, copy all non-import statements from the module
             if let Some(items) = self.live_items.get(module_id) {
+                debug!("Module {:?} has {} live items", module_id, items.len());
                 let module_graph = self
                     .graph
                     .modules
@@ -344,6 +347,32 @@ impl<'a> BundleCompiler<'a> {
                         continue;
                     }
 
+                    // Skip function definitions and expressions that are likely inside a class
+                    // (they have the same statement_index as the class itself)
+                    if matches!(
+                        item_data.item_type,
+                        ItemType::FunctionDef { .. } | ItemType::Expression
+                    ) {
+                        // Check if there's a class definition with the same statement index
+                        let has_class_with_same_index = items.iter().any(|other_id| {
+                            if let Some(other_data) = module_graph.items.get(other_id) {
+                                matches!(other_data.item_type, ItemType::ClassDef { .. })
+                                    && other_data.statement_index == item_data.statement_index
+                            } else {
+                                false
+                            }
+                        });
+
+                        if has_class_with_same_index {
+                            debug!("Skipping method {:?} (inside a class)", item_data.item_type);
+                            continue;
+                        }
+                    }
+
+                    debug!(
+                        "Adding CopyStatement for item {:?} of type {:?}",
+                        item_id, item_data.item_type
+                    );
                     steps.push(ExecutionStep::CopyStatement {
                         source_module: *module_id,
                         item_id: *item_id,
@@ -366,6 +395,20 @@ impl<'a> BundleCompiler<'a> {
                     .get(module_id)
                     .ok_or_else(|| anyhow::anyhow!("Module not found: {:?}", module_id))?;
 
+                // First pass: collect all class names to identify methods
+                let class_names: FxHashSet<_> = items
+                    .iter()
+                    .filter_map(|item_id| {
+                        module_graph.items.get(item_id).and_then(|item_data| {
+                            if let ItemType::ClassDef { name } = &item_data.item_type {
+                                Some(name.clone())
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                    .collect();
+
                 for item_id in items {
                     let item_data = module_graph
                         .items
@@ -380,6 +423,22 @@ impl<'a> BundleCompiler<'a> {
                         continue;
                     }
 
+                    // Skip methods (functions that are inside classes)
+                    if let ItemType::FunctionDef { .. } = &item_data.item_type {
+                        let has_class_with_same_index = items.iter().any(|other_id| {
+                            if let Some(other_data) = module_graph.items.get(other_id) {
+                                matches!(other_data.item_type, ItemType::ClassDef { .. })
+                                    && other_data.statement_index == item_data.statement_index
+                            } else {
+                                false
+                            }
+                        });
+
+                        if has_class_with_same_index {
+                            continue; // Skip methods
+                        }
+                    }
+
                     // Extract symbol names based on item type
                     let symbols = match &item_data.item_type {
                         ItemType::Assignment { targets } => targets.clone(),
@@ -391,10 +450,13 @@ impl<'a> BundleCompiler<'a> {
                     // Generate namespace assignment for each public symbol
                     for symbol in symbols {
                         if !symbol.starts_with('_') {
+                            // Get the potentially renamed symbol name
+                            let renamed_symbol = self.get_renamed_symbol_name(*module_id, &symbol);
+
                             let assign_stmt = ast_builder::assign_attribute(
                                 namespace_name,
                                 &symbol,
-                                ast_builder::name(&symbol),
+                                ast_builder::name(&renamed_symbol),
                             );
                             steps.push(ExecutionStep::InsertStatement { stmt: assign_stmt });
                         }
@@ -469,6 +531,41 @@ impl<'a> BundleCompiler<'a> {
         }
 
         Ok(steps)
+    }
+
+    /// Get the renamed name for a symbol, or return the original if not renamed
+    fn get_renamed_symbol_name(&self, module_id: ModuleId, symbol_name: &str) -> String {
+        // If we don't have a semantic provider, we can't resolve renames
+        let Some(semantic_provider) = self.semantic_provider else {
+            return symbol_name.to_string();
+        };
+
+        // Get the semantic model for this module
+        let Some(result) = semantic_provider.get_model(module_id) else {
+            return symbol_name.to_string();
+        };
+
+        let Ok(semantic_model) = result else {
+            return symbol_name.to_string();
+        };
+
+        // Find the binding for this symbol in the global scope
+        let global_scope = semantic_model.global_scope();
+        let Some(binding_id) = global_scope.get(symbol_name) else {
+            return symbol_name.to_string();
+        };
+
+        // Create the global binding ID
+        let global_binding_id = GlobalBindingId {
+            module_id,
+            binding_id,
+        };
+
+        // Check if this symbol has been renamed
+        self.symbol_renames
+            .get(&global_binding_id)
+            .cloned()
+            .unwrap_or_else(|| symbol_name.to_string())
     }
 
     /// Generate AST node renames from symbol renames
@@ -656,16 +753,25 @@ impl<'a> BundleCompiler<'a> {
                 }
                 match &item_data.item_type {
                     ItemType::Import { module, alias } => {
+                        debug!(
+                            "Classifying import '{module}' in module {module_id:?}, item \
+                             {item_id:?}"
+                        );
                         let classification = if self.registry.has_module(module) {
                             let imported_module_id = self
                                 .registry
                                 .get_id_by_name(module)
                                 .expect("Module must exist");
+                            debug!(
+                                "Classified '{module}' as EmulateAsNamespace with module_id \
+                                 {imported_module_id:?}"
+                            );
                             ImportClassification::EmulateAsNamespace {
                                 module_id: imported_module_id,
                                 alias: alias.clone().unwrap_or_else(|| module.clone()),
                             }
                         } else {
+                            debug!("Classified '{module}' as Hoist (not first-party)");
                             ImportClassification::Hoist {
                                 import_type: HoistType::Direct {
                                     module_name: module.clone(),

@@ -103,6 +103,11 @@ fn get_statement(
         .statement_index
         .ok_or_else(|| anyhow::anyhow!("Item {:?} has no statement index", item_id))?;
 
+    debug!(
+        "Getting statement at index {} for item {:?} of type {:?} in module {:?}",
+        stmt_index, item_id, item_data.item_type, module_id
+    );
+
     module_ast.body.get(stmt_index).cloned().ok_or_else(|| {
         anyhow::anyhow!(
             "Statement index {} out of bounds for module {:?} (has {} statements)",
