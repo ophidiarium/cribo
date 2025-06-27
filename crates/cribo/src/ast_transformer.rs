@@ -21,6 +21,8 @@ pub struct AstTransformer<'a> {
     transformations: &'a FxHashMap<NodeIndex, Vec<TransformationMetadata>>,
     /// Current module being transformed
     current_module: ModuleId,
+    /// Stylist for code generation
+    stylist: &'a ruff_python_codegen::Stylist<'a>,
 }
 
 impl<'a> AstTransformer<'a> {
@@ -28,10 +30,12 @@ impl<'a> AstTransformer<'a> {
     pub fn new(
         transformations: &'a FxHashMap<NodeIndex, Vec<TransformationMetadata>>,
         current_module: ModuleId,
+        stylist: &'a ruff_python_codegen::Stylist<'a>,
     ) -> Self {
         Self {
             transformations,
             current_module,
+            stylist,
         }
     }
 
@@ -151,9 +155,8 @@ impl<'a> AstTransformer<'a> {
 
     /// Render a statement to Python code
     fn render_statement(&self, stmt: &Stmt) -> String {
-        // For now, use the unparse module if available, or a basic implementation
-        // In a real implementation, this would use ruff's code generation utilities
-        format!("{stmt:?}") // Placeholder - replace with proper rendering
+        let generator = ruff_python_codegen::Generator::from(self.stylist);
+        generator.stmt(stmt)
     }
 
     /// Create an import statement from ImportData
