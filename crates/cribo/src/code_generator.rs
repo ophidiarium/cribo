@@ -6814,13 +6814,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create a number literal expression
-    fn create_number_literal(&self, value: i32) -> Expr {
-        Expr::NumberLiteral(ruff_python_ast::ExprNumberLiteral {
-            node_index: AtomicNodeIndex::dummy(),
-            value: ruff_python_ast::Number::Int(ruff_python_ast::Int::from(value as u32)),
-            range: TextRange::default(),
-        })
-    }
 
     /// Create module object
     fn create_module_object_stmt(&self, module_name: &str, _module_path: &Path) -> Vec<Stmt> {
