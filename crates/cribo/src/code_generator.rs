@@ -6911,64 +6911,6 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Create a module attribute assignment from a dotted expression
     /// e.g., module.MutableMapping = collections.abc.MutableMapping
-    fn create_module_attr_assignment_from_expr(
-        &self,
-        module_var: &str,
-        attr_name: &str,
-        dotted_name: &str,
-    ) -> Stmt {
-        // Parse the dotted name and create the appropriate expression
-        let parts: Vec<&str> = dotted_name.split('.').collect();
-        let expr = if parts.len() == 1 {
-            // Simple name
-            Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: parts[0].into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })
-        } else {
-            // Build nested attribute expression from dotted name
-            let mut expr = Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: parts[0].into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            });
-
-            for part in &parts[1..] {
-                expr = Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(expr),
-                    attr: Identifier::new(*part, TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                });
-            }
-
-            expr
-        };
-
-        Stmt::Assign(StmtAssign {
-            node_index: AtomicNodeIndex::dummy(),
-            targets: vec![Expr::Attribute(ExprAttribute {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: module_var.into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new(attr_name, TextRange::default()),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(expr),
-            range: TextRange::default(),
-        })
-    }
-
-    /// Transform nested functions to use module attributes for module-level variables
     fn transform_nested_function_for_module_vars(
         &self,
         func_def: &mut StmtFunctionDef,
