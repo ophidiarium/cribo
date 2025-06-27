@@ -3017,26 +3017,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Check if a module is part of any circular dependency
-    fn is_in_circular_dependency(
-        module_name: &str,
-        circular_dep_analysis: Option<&crate::cribo_graph::CircularDependencyAnalysis>,
-    ) -> bool {
-        if let Some(analysis) = circular_dep_analysis {
-            // Check if module is in any resolvable cycle
-            for cycle in &analysis.resolvable_cycles {
-                if cycle.modules.contains(&module_name.to_string()) {
-                    return true;
-                }
-            }
-            // Check if module is in any unresolvable cycle
-            for cycle in &analysis.unresolvable_cycles {
-                if cycle.modules.contains(&module_name.to_string()) {
-                    return true;
-                }
-            }
-        }
-        false
-    }
 
     /// Build symbol-level dependency graph for circular modules
     fn build_symbol_dependency_graph(
