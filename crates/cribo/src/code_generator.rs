@@ -107,7 +107,6 @@ struct SemanticContext<'a> {
 }
 
 /// Parameters for namespace import operations
-#[allow(dead_code)]
 struct NamespaceImportParams<'a> {
     local_name: &'a str,
     imported_name: &'a str,
