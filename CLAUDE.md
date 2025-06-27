@@ -261,6 +261,43 @@ cribo --entry main.py --stdout -vv
 - NEVER skip coverage verification
 - NEVER declare success without full validation suite
 
+## Rule: Use Worktree, Not Checkout
+
+When you need to check how something works on `main` branch while working on a feature branch, **use `git worktree` instead of `git checkout`**.
+
+### Why
+
+- Preserves your current uncommitted changes
+- Keeps development context intact
+- Enables side-by-side comparison
+
+### Standard Process
+
+```bash
+# Create worktree for main
+git worktree add ../main-ref main
+
+# Check the code
+cd ../main-ref
+# ... examine files ...
+cd -
+
+# Clean up when done
+git worktree remove ../main-ref
+```
+
+### Quick Commands
+
+```bash
+git worktree add <path> <branch>    # Create
+git worktree list                   # List all
+git worktree remove <path>          # Remove
+```
+
+### Exception
+
+Only use `git checkout` when you have no uncommitted changes and are permanently switching branches.
+
 ### CODE COVERAGE & PERFORMANCE DISCIPLINE
 
 #### Coverage Verification Commands
