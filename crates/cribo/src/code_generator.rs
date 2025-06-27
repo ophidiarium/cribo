@@ -2540,7 +2540,6 @@ impl<'a> Default for HybridStaticBundler<'a> {
     }
 }
 
-#[allow(dead_code)]
 impl<'a> HybridStaticBundler<'a> {
     pub fn new(module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>) -> Self {
         Self {
@@ -2684,43 +2683,7 @@ impl<'a> HybridStaticBundler<'a> {
         assigner.visit_mod(&ruff_python_ast::Mod::Module(module.clone()));
     }
 
-    /// Check if an expression is accessing a module namespace
-    fn is_module_namespace_access(&self, expr: &Expr) -> bool {
-        match expr {
-            // Direct module name (e.g., schemas)
-            Expr::Name(name) => {
-                let module_name = name.id.as_str();
-                // Check if it's a known module or namespace
-                self.bundled_modules.contains(module_name)
-                    || self.namespace_imported_modules.contains_key(module_name)
-                    || self.created_namespaces.contains(module_name)
-            }
-            // Nested module access (e.g., schemas.user)
-            Expr::Attribute(_attr) => {
-                // Check if this represents a module path
-                let module_path = Self::expr_to_module_path(expr);
-                if let Some(path) = module_path {
-                    self.bundled_modules.contains(&path)
-                        || self.namespace_imported_modules.contains_key(&path)
-                        || self.created_namespaces.contains(&path)
-                } else {
-                    false
-                }
-            }
-            _ => false,
-        }
-    }
-
     /// Convert an expression to a module path if it represents one
-    fn expr_to_module_path(expr: &Expr) -> Option<String> {
-        match expr {
-            Expr::Name(name) => Some(name.id.to_string()),
-            Expr::Attribute(attr) => Self::expr_to_module_path(&attr.value)
-                .map(|base_path| format!("{}.{}", base_path, attr.attr.as_str())),
-            _ => None,
-        }
-    }
-
     /// Compare two expressions for equality
     fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
         match (expr1, expr2) {
