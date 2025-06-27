@@ -3196,14 +3196,6 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Find which module defines a symbol
     /// Get module ID by name from dependency graph
-    fn get_module_id_by_name(
-        &self,
-        module_name: &str,
-        graph: &DependencyGraph,
-    ) -> Option<crate::cribo_graph::ModuleId> {
-        // Get module from dependency graph
-        graph.get_module_by_name(module_name).map(|m| m.module_id)
-    }
 
     /// Find module ID in semantic bundler by iterating through all modules
     fn find_module_id_in_semantic_bundler(
