@@ -117,7 +117,7 @@ impl<'a> SymbolOriginAnalyzer<'a> {
         binding_id: ruff_python_semantic::BindingId,
         name: &str,
         import: &Import,
-        _symbol_origins: &mut FxHashMap<GlobalBindingId, GlobalBindingId>,
+        symbol_origins: &mut FxHashMap<GlobalBindingId, GlobalBindingId>,
     ) -> Result<()> {
         // For "import foo.bar as baz", import.qualified_name is a QualifiedName
         let imported_module = import.qualified_name.to_string();
@@ -126,16 +126,31 @@ impl<'a> SymbolOriginAnalyzer<'a> {
 
         // Find the module being imported
         if let Some(source_module_id) = self.registry.get_id_by_name(&imported_module) {
-            // For module imports, we need to check if this module re-exports anything
-            // This is a simplified version - in reality, we'd need to handle __all__ etc.
-            let _current_binding = GlobalBindingId {
+            let current_binding = GlobalBindingId {
                 module_id,
                 binding_id,
             };
 
-            // For now, we'll just track that this import exists
-            // Full implementation would need to handle attribute access on imported modules
-            trace!("Import {name} in module {module_id:?} imports module {source_module_id:?}");
+            // For module imports, we need to create a special "module binding" that represents
+            // the module itself. This allows us to track attribute access on the module.
+            // We use a special binding ID that represents the module as a whole.
+            if let Some(_source_module) = self.registry.get_module_by_id(source_module_id) {
+                // Find the implicit module binding (usually the first binding in __init__.py)
+                // For now, we'll use a placeholder approach
+                // In a full implementation, we'd need to handle module-level bindings properly
+                let source_binding = GlobalBindingId {
+                    module_id: source_module_id,
+                    binding_id: ruff_python_semantic::BindingId::from(0u32), // Module itself
+                };
+
+                // Track that this binding points to the imported module
+                symbol_origins.insert(current_binding, source_binding);
+
+                trace!(
+                    "Import {name} in module {module_id:?} imports module {source_module_id:?} \
+                     (tracked as {current_binding:?} -> {source_binding:?})"
+                );
+            }
         }
 
         Ok(())
