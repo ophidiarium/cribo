@@ -910,7 +910,7 @@ impl TreeShaker {
                         // Special case: If this is a module import and the module has side effects,
                         // check if any item in the current module has attribute accesses on this
                         // import
-                        if !required && self.module_has_side_effects(module_name) {
+                        if !required && self.module_has_side_effects(module) {
                             // Check all items in the current module for attribute accesses
                             for other_item in items {
                                 for base_var in other_item.attribute_accesses.keys() {
@@ -1140,7 +1140,6 @@ impl TreeShaker {
 
 #[cfg(test)]
 mod tests {
-    
 
     use super::*;
 
