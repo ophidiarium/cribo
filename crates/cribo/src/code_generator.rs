@@ -191,9 +191,6 @@ struct SymbolDependencyGraph {
 
 #[derive(Debug, Clone)]
 struct SymbolDefinition {
-    /// Whether this is an assignment
-    #[allow(dead_code)]
-    is_assignment: bool,
     /// Dependencies this symbol has on other symbols
     #[allow(dead_code)]
     depends_on: Vec<(String, String)>,
@@ -3186,13 +3183,9 @@ impl<'a> HybridStaticBundler<'a> {
         self.symbol_dep_graph
             .module_level_dependencies
             .insert(key.clone(), module_level_deps);
-        self.symbol_dep_graph.symbol_definitions.insert(
-            key,
-            SymbolDefinition {
-                is_assignment: false,
-                depends_on: vec![],
-            },
-        );
+        self.symbol_dep_graph
+            .symbol_definitions
+            .insert(key, SymbolDefinition { depends_on: vec![] });
     }
 
     /// Analyze dependencies for a class definition
@@ -3226,13 +3219,9 @@ impl<'a> HybridStaticBundler<'a> {
         self.symbol_dep_graph
             .module_level_dependencies
             .insert(key.clone(), module_level_deps);
-        self.symbol_dep_graph.symbol_definitions.insert(
-            key,
-            SymbolDefinition {
-                is_assignment: false,
-                depends_on: vec![],
-            },
-        );
+        self.symbol_dep_graph
+            .symbol_definitions
+            .insert(key, SymbolDefinition { depends_on: vec![] });
     }
 
     /// Analyze dependencies for an assignment
@@ -3270,13 +3259,9 @@ impl<'a> HybridStaticBundler<'a> {
         self.symbol_dep_graph
             .module_level_dependencies
             .insert(key.clone(), dependencies); // All assignment deps are module-level
-        self.symbol_dep_graph.symbol_definitions.insert(
-            key,
-            SymbolDefinition {
-                is_assignment: true,
-                depends_on: vec![],
-            },
-        );
+        self.symbol_dep_graph
+            .symbol_definitions
+            .insert(key, SymbolDefinition { depends_on: vec![] });
     }
 
     /// Find which module defines a symbol
