@@ -106,7 +106,7 @@ pub struct BundleCompiler<'a> {
     symbol_renames: IndexMap<GlobalBindingId, String>,
 
     /// Live items from tree-shaking
-    live_items: FxHashMap<ModuleId, Vec<ItemId>>,
+    live_items: FxHashMap<ModuleId, FxHashSet<ItemId>>,
 
     /// Classified imports
     classified_imports: FxHashMap<(ModuleId, ItemId), ImportClassification>,
@@ -184,7 +184,7 @@ impl<'a> BundleCompiler<'a> {
         } else {
             // If no tree-shaking, include all items
             for (module_id, module_graph) in &self.graph.modules {
-                let items: Vec<_> = module_graph.items.keys().cloned().collect();
+                let items: FxHashSet<_> = module_graph.items.keys().cloned().collect();
                 self.live_items.insert(*module_id, items);
             }
         }
@@ -716,7 +716,7 @@ impl<'a> BundleCompiler<'a> {
             self.live_items
                 .entry(*module_id)
                 .or_default()
-                .push(*item_id);
+                .insert(*item_id);
         }
     }
 
