@@ -443,11 +443,7 @@ impl<'a> BundleCompiler<'a> {
                                     &names,
                                 )
                             } else {
-                                let symbols_refs: Vec<(&str, Option<&str>)> = symbols
-                                    .iter()
-                                    .map(|(name, alias)| (name.as_str(), alias.as_deref()))
-                                    .collect();
-                                ast_builder::from_import_with_aliases(module_name, &symbols_refs)
+                                ast_builder::from_import_specific(module_name, symbols)
                             };
 
                             // Only hoist __future__ and stdlib imports

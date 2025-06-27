@@ -64,27 +64,6 @@ pub fn from_import(module: &str, names: &[&str]) -> Stmt {
     })
 }
 
-/// Create a from import with aliases: `from module import (name, alias)...`
-pub fn from_import_with_aliases(module: &str, imports: &[(&str, Option<&str>)]) -> Stmt {
-    let aliases = imports
-        .iter()
-        .map(|(name, alias)| Alias {
-            name: Identifier::new(*name, synthetic_range()),
-            asname: alias.map(|a| Identifier::new(a, synthetic_range())),
-            range: synthetic_range(),
-            node_index: AtomicNodeIndex::dummy(),
-        })
-        .collect();
-
-    Stmt::ImportFrom(StmtImportFrom {
-        module: Some(Identifier::new(module, synthetic_range())),
-        names: aliases,
-        level: 0,
-        range: synthetic_range(),
-        node_index: AtomicNodeIndex::dummy(),
-    })
-}
-
 /// Create a relative from import: `from ..module import name`
 pub fn relative_from_import(module: Option<&str>, level: u32, names: &[&str]) -> Stmt {
     let aliases = names
