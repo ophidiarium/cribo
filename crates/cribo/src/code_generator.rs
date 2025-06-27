@@ -182,15 +182,12 @@ struct SymbolDependencyGraph {
     /// Map from (module, symbol) to list of (module, symbol) dependencies
     dependencies: FxIndexMap<(String, String), Vec<(String, String)>>,
     /// Track which symbols are defined in which modules
-    symbol_definitions: FxIndexMap<(String, String), SymbolDefinition>,
+    symbol_definitions: FxIndexSet<(String, String)>,
     /// Module-level dependencies (used at definition time, not inside function bodies)
     module_level_dependencies: FxIndexMap<(String, String), Vec<(String, String)>>,
     /// Topologically sorted symbols for circular modules (computed after analysis)
     sorted_symbols: Vec<(String, String)>,
 }
-
-#[derive(Debug, Clone)]
-struct SymbolDefinition {}
 
 impl SymbolDependencyGraph {
     /// Perform topological sort on symbols within circular modules
@@ -208,7 +205,7 @@ impl SymbolDependencyGraph {
         let mut node_map: FxHashMap<(String, String), NodeIndex> = FxHashMap::default();
 
         // Add nodes for all symbols in circular modules
-        for (module_symbol, _) in &self.symbol_definitions {
+        for module_symbol in &self.symbol_definitions {
             if circular_modules.contains(&module_symbol.0) {
                 let node = graph.add_node(module_symbol.clone());
                 node_map.insert(module_symbol.clone(), node);
@@ -297,7 +294,7 @@ impl SymbolDependencyGraph {
         let mut symbols_in_module = Vec::new();
 
         // Add nodes for all symbols in this specific module
-        for ((module, symbol), _) in &self.symbol_definitions {
+        for (module, symbol) in &self.symbol_definitions {
             if module == module_name {
                 let node = graph.add_node(symbol.clone());
                 node_map.insert(symbol.clone(), node);
@@ -3179,9 +3176,7 @@ impl<'a> HybridStaticBundler<'a> {
         self.symbol_dep_graph
             .module_level_dependencies
             .insert(key.clone(), module_level_deps);
-        self.symbol_dep_graph
-            .symbol_definitions
-            .insert(key, SymbolDefinition {});
+        self.symbol_dep_graph.symbol_definitions.insert(key);
     }
 
     /// Analyze dependencies for a class definition
@@ -3215,9 +3210,7 @@ impl<'a> HybridStaticBundler<'a> {
         self.symbol_dep_graph
             .module_level_dependencies
             .insert(key.clone(), module_level_deps);
-        self.symbol_dep_graph
-            .symbol_definitions
-            .insert(key, SymbolDefinition {});
+        self.symbol_dep_graph.symbol_definitions.insert(key);
     }
 
     /// Analyze dependencies for an assignment
@@ -3255,9 +3248,7 @@ impl<'a> HybridStaticBundler<'a> {
         self.symbol_dep_graph
             .module_level_dependencies
             .insert(key.clone(), dependencies); // All assignment deps are module-level
-        self.symbol_dep_graph
-            .symbol_definitions
-            .insert(key, SymbolDefinition {});
+        self.symbol_dep_graph.symbol_definitions.insert(key);
     }
 
     /// Find which module defines a symbol
