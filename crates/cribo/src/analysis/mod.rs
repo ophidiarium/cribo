@@ -23,7 +23,7 @@ pub use symbol_conflict_detector::SymbolConflictDetector;
 pub use symbol_origin_analyzer::{SymbolOriginAnalyzer, SymbolOriginResults};
 
 use crate::{
-    cribo_graph::{CriboGraph, ItemId, ModuleId},
+    cribo_graph::{CriboGraph, ModuleId},
     module_registry::ModuleRegistry,
     semantic_model_provider::GlobalBindingId,
     transformations::TransformationMetadata,
@@ -53,8 +53,8 @@ pub struct AnalysisResults {
     /// Symbol origin mappings for re-exports and aliases
     pub symbol_origins: SymbolOriginResults,
 
-    /// Transformation plan: (ModuleId, ItemId) -> required transformations
-    pub transformations: FxHashMap<(ModuleId, ItemId), Vec<TransformationMetadata>>,
+    /// Transformation plan: NodeIndex -> required transformations
+    pub transformations: FxHashMap<ruff_python_ast::NodeIndex, Vec<TransformationMetadata>>,
 }
 
 /// Represents a symbol conflict between modules

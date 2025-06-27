@@ -2,301 +2,287 @@
 
 ## Overview
 
-This document describes the architectural pattern for handling AST transformations in the Cribo bundler. Instead of mutating ASTs in-place during pre-processing, we use a declarative "Transformation Plan" that is executed by the BundleCompiler.
+The Transformation Plan Architecture is a two-phase system that separates the identification of code changes (detection phase) from their execution (compilation phase). This architecture replaces direct AST mutations with a declarative transformation plan, improving maintainability, testability, and architectural clarity.
 
-## Problem Statement
+## Core Concepts
 
-The current architecture has AST transformation steps (stdlib normalization, import rewriting) that run after semantic analysis but before compilation. This creates several issues:
+### Two-Phase Processing
 
-1. **Metadata Desynchronization**: The dependency graph is built from original ASTs, but the compiler receives transformed ASTs
-2. **Architectural Violation**: Mutations happen outside the compiler, breaking the clean separation of concerns
-3. **Timing Issues**: Import aliases are removed by normalization but the graph still contains the original import info
-
-## Architectural Principles
-
-### Three-Stage Compiler Model
-
-```
-┌─────────────┐     ┌────────────────┐     ┌──────────┐
-│   Frontend  │     │    Mid-end     │     │ Backend  │
-│  (Analysis) │ --> │ (BundleCompiler)│ --> │   (VM)   │
-└─────────────┘     └────────────────┘     └──────────┘
-      |                    |                     |
-      v                    v                     v
-AnalysisResults      BundleProgram         Final AST
-(High-Level IR)      (Low-Level IR)
-```
+1. **Detection Phase**: Analyzes the code and produces a declarative plan of transformations
+2. **Compilation Phase**: Executes the transformation plan to generate the final bundled code
 
 ### Key Principles
 
-1. **Single Traversal**: AST analysis happens exactly once in the frontend
-2. **Declarative Plans**: Analysis produces a plan of *what* to transform, not *how*
-3. **Compiler Intelligence**: BundleCompiler knows *how* to execute transformations
-4. **VM Simplicity**: The VM remains a mechanical executor of simple instructions
+- **Immutable ASTs**: Original ASTs are never mutated; transformations create new code
+- **Declarative Plans**: Transformations are described as data, not imperative operations
+- **Separation of Concerns**: Analysis logic is isolated from execution logic
+- **Precise Addressing**: Every transformation targets a specific AST node via NodeIndex
 
-## Design
+## Architecture Components
 
 ### TransformationMetadata
 
-The analysis phase produces transformation metadata for items that need changes:
+The core data structure that describes a transformation to be applied:
 
 ```rust
-#[derive(Debug, Clone)]
 pub enum TransformationMetadata {
-    /// Stdlib import needs normalization
+    /// Remove an import statement entirely
+    RemoveImport { reason: RemovalReason },
+
+    /// Remove some symbols from a from-import
+    PartialImportRemoval {
+        remaining_symbols: Vec<(String, Option<String>)>,
+        removed_symbols: Vec<String>,
+    },
+
+    /// Normalize a stdlib import
     StdlibImportRewrite {
-        // Original: from typing import Any, List
-        // Target: import typing
         canonical_module: String,
         symbols: Vec<(String, String)>, // (original, canonical)
     },
 
-    /// Partial import removal - remove specific symbols from a from-import
-    PartialImportRemoval {
-        // from foo import One, Two, Three -> from foo import Two
-        // (if One and Three are unused)
-        remaining_symbols: Vec<(String, Option<String>)>, // (name, alias)
-        removed_symbols: Vec<String>,                     // For debugging/logging
-    },
-
-    /// Symbol usage needs rewriting (generic for all symbol transformations)
+    /// Rewrite symbol usages
     SymbolRewrite {
-        // Map of TextRange -> new text
-        // Handles: qualifications (Any -> typing.Any), renames (foo -> _b_foo),
-        // attribute rewrites (j.dumps -> json.dumps)
-        rewrites: FxHashMap<TextRange, String>,
+        rewrites: FxHashMap<NodeIndex, String>,
     },
 
-    /// Import needs moving for circular deps
+    /// Move an import to resolve circular dependencies
     CircularDepImportMove {
-        target_scope: ItemId, // Function to move import into
-        import_stmt: Stmt,    // The import to move
+        target_scope: ItemId,
+        import_data: ImportData, // Semantic representation
+    },
+}
+```
+
+### Transformation Map
+
+A mapping from AST nodes to their transformations:
+
+```rust
+transformations: FxHashMap<NodeIndex, Vec<TransformationMetadata>>
+```
+
+Key insights:
+
+- Uses `NodeIndex` for precise, stable addressing
+- Multiple transformations can apply to a single node
+- Transformations are ordered by priority
+
+### NodeIndex System
+
+Every AST node receives a unique index during parsing:
+
+- Stable across transformations
+- Module-relative addressing (1M indices per module)
+- Enables precise transformation targeting
+- Foundation for source map generation
+
+## Detection Phase
+
+### TransformationDetector
+
+Responsible for analyzing code and identifying needed transformations:
+
+1. **Input**: CriboGraph, SemanticModelProvider, TreeShakeResults
+2. **Process**:
+   - Walks the graph analyzing each item
+   - Identifies patterns requiring transformation
+   - Queries semantic model for symbol usage
+   - Creates TransformationMetadata instances
+3. **Output**: Populated transformation map
+
+### Detection Patterns
+
+#### Unused Import Detection
+
+- Leverages tree-shaking results
+- Checks if import is in `included_items`
+- Creates `RemoveImport` transformation
+
+#### Stdlib Normalization
+
+- Identifies stdlib imports with aliases
+- Finds all symbol usages via semantic model
+- Creates `StdlibImportRewrite` + `SymbolRewrite` transformations
+
+#### Circular Dependency Resolution
+
+- Analyzes import usage patterns
+- Determines safe relocation targets
+- Creates `CircularDepImportMove` transformations
+
+## Compilation Phase
+
+### BundleCompiler
+
+Executes the transformation plan:
+
+1. **Input**: Analysis results including transformation map
+2. **Process**:
+   - Iterates through live items in topological order
+   - Applies transformations to AST nodes
+   - Renders transformed ASTs to code
+3. **Output**: ExecutionStep instructions for the VM
+
+### Transformation Execution
+
+The compiler uses a recursive AST transformer:
+
+```rust
+fn transform_and_render(
+    node: &Stmt,
+    transformations: &FxHashMap<NodeIndex, Vec<TransformationMetadata>>,
+) -> String {
+    // 1. Check for transformations on this node
+    // 2. Apply transformations in priority order
+    // 3. Recursively transform child nodes
+    // 4. Pretty-print the result
+}
+```
+
+### ExecutionStep Evolution
+
+New execution step for transformed code:
+
+```rust
+pub enum ExecutionStep {
+    /// Insert pre-built AST statement
+    InsertStatement { stmt: Stmt },
+
+    /// Insert fully rendered code (NEW)
+    InsertRenderedCode {
+        source_module: ModuleId,
+        original_item_id: ItemId,
+        code: String,
     },
 
-    /// Import should be removed (unused)
-    RemoveImport { reason: RemovalReason },
-}
-
-#[derive(Debug, Clone)]
-pub enum RemovalReason {
-    /// Import is completely unused
-    Unused,
-    /// Import is only used in type annotations (and we're stripping types)
-    TypeOnly,
-    /// Import was inlined/bundled
-    Bundled,
+    /// Copy statement without transformation (RARE)
+    CopyStatement {
+        source_module: ModuleId,
+        item_id: ItemId,
+    },
 }
 ```
 
-### AnalysisResults Extension
+## Transformation Types
 
-```rust
-pub struct AnalysisResults {
-    // ... existing fields ...
-    /// The dependency graph (currently passed separately - should be here!)
-    pub graph: CriboGraph,
+### RemoveImport
 
-    /// Transformation plan: ItemId -> required transformation
-    pub transformations: FxHashMap<ItemId, TransformationMetadata>,
-}
-```
+**Purpose**: Eliminate unnecessary imports
 
-**Note**: Currently the graph is passed separately from AnalysisResults, which violates the principle of having analysis produce a complete result. The graph should be part of AnalysisResults since:
+- Unused imports (from tree-shaking)
+- Type-only imports (when type stripping enabled)
+- First-party imports (will be inlined)
 
-1. It's produced during analysis
-2. It's needed by the compiler
-3. Transformations reference ItemIds from the graph
+**Detection**: Check tree-shake results and import classification
+**Execution**: Skip the import entirely
 
-### BundleCompiler Execution Model
+### PartialImportRemoval
 
-The compiler maintains state for handling transformations:
+**Purpose**: Remove unused symbols from from-imports
 
-```rust
-// Global state for the entire bundle
-pub struct BundleCompiler {
-    // ... other fields ...
-    hoisted_imports: FxHashSet<String>, // Prevents duplicate imports
-}
+- `from typing import Any, List` → `from typing import Any`
 
-// Local state for recursive compilation
-struct CompilationContext<'a> {
-    compiler: &'a mut BundleCompiler,
-    destination_module_id: ModuleId,
-    symbol_resolution_map: FxHashMap<String, String>, // e.g., {"Any": "typing.Any"}
-    processed_items: FxHashSet<ItemId>,
-}
-```
+**Detection**: Per-symbol usage analysis
+**Execution**: Generate new from-import with remaining symbols
 
-For each item, transformations are processed in priority order:
+### StdlibImportRewrite
 
-```rust
-// Process transformations with fixed priority
-fn process_item(&mut self, item_id: ItemId) -> Option<ExecutionStep> {
-    let transformations = self.get_sorted_transformations(item_id);
+**Purpose**: Normalize stdlib imports for consistency
 
-    for transformation in transformations {
-        match transformation {
-            RemoveImport { .. } => return None, // Highest priority - skip item
-            CircularDepImportMove { .. } => { /* relocate */ }
-            StdlibImportRewrite { .. } => {
-                self.update_symbol_resolution_map(..);
-                return Some(build_normalized_import(..));
-            }
-            PartialImportRemoval { .. } => return Some(build_partial_import(..)),
-            SymbolRewrite { rewrites } => {
-                // Apply all rewrites to the statement
-                return Some(build_transformed_statement(stmt, rewrites));
-            }
-        }
-    }
+- `from typing import Any` → `import typing` + rewrite `Any` to `typing.Any`
 
-    // No transformations - fast path
-    Some(ExecutionStep::CopyStatement { .. })
-}
-```
+**Detection**: Identify stdlib imports and find all symbol usages
+**Execution**:
+
+1. Replace import with canonical form
+2. Apply SymbolRewrite to all usages
+
+### SymbolRewrite
+
+**Purpose**: Rename or requalify symbol usages
+
+- Support for stdlib normalization
+- Resolve naming conflicts
+- Handle circular dependency moves
+
+**Detection**: Via semantic model's reference tracking
+**Execution**: Replace AST nodes at specific NodeIndices
+
+### CircularDepImportMove
+
+**Purpose**: Break circular dependencies by moving imports
+
+- Move import from module scope to function scope
+
+**Detection**: Analyze where imported symbols are used
+**Execution**:
+
+1. Remove import from original location
+2. Insert inside target function/class
 
 ## Benefits
 
-1. **Clean Boundaries**: Each phase has clear responsibilities
-2. **No Re-traversal**: AST analysis happens once
-3. **Testability**: Each phase can be tested independently
-4. **Maintainability**: Transformation logic is centralized in the compiler
-5. **Performance**: Fast path for unmodified code
+### Architectural Clarity
 
-## Implementation Strategy
+- Clear separation between "what" and "how"
+- Each phase has a single responsibility
+- Easy to understand and reason about
 
-Since we're implementing this as a complete architectural change in a single branch, the implementation will proceed as follows:
+### Testability
 
-### Core Changes
+- Detection can be tested without code generation
+- Transformations can be tested in isolation
+- Easy to verify transformation plans
 
-1. Add TransformationMetadata enum and extend AnalysisResults
-2. Create transformation detection as part of the analysis pipeline
-3. Remove ALL AST mutation code from orchestrator
-4. Update BundleCompiler to execute transformation plans
-5. Implement AST builders for each transformation type
+### Maintainability
 
-### Key Principles
+- Adding new transformations is straightforward
+- Changes don't cascade across phases
+- Debugging is simplified
 
-- No parallel paths or feature flags
-- Direct replacement of the old system
-- All tests must pass with the new architecture
-- No backwards compatibility needed
+### Robustness
 
-## Example: Stdlib Normalization
+- NodeIndex provides stable addressing
+- No string-based text manipulation
+- Preserves AST structure integrity
 
-### Before (Current Architecture)
+## Integration Points
 
-```
-1. Analysis: Builds graph with "import json as j"
-2. Normalization: Mutates AST to "import json" + rewrites "j" -> "json"
-3. Compiler: Sees transformed AST but uses stale graph data
-```
+### With Semantic Analysis
 
-### After (Transformation Plan)
+- Reads from SemanticModelProvider
+- Uses GlobalBindingId for symbol resolution
+- Leverages reference tracking
 
-```
-1. Analysis: 
-   - Builds graph with original import
-   - Detects alias, adds to transformations:
-     StdlibImportRewrite { canonical_module: "json", symbols: [] }
-     SymbolRewrite { rewrites: {j@123 -> "json"} }
-   
-2. Compiler:
-   - Sees transformation for import statement
-   - Builds new "import json" statement
-   - Emits InsertStatement
-   
-3. VM:
-   - Mechanically inserts the pre-built statement
-```
+### With Tree Shaking
 
-## Handling Import Removal
+- Consumes TreeShakeResults
+- Respects included_items decisions
+- Coordinates import removal
 
-The transformation architecture naturally handles import removal through the `RemoveImport` transformation. This unifies several current mechanisms:
+### With Bundle VM
 
-### Current State (Fragmented)
-
-1. Tree-shaking marks unused imports
-2. Import classification filters some imports
-3. Bundle compiler skips classified imports
-4. Multiple places decide what to include/exclude
-
-### New Architecture (Unified)
-
-1. Analysis phase detects unused imports and adds `RemoveImport` transformation
-2. Bundle compiler sees transformation and emits no ExecutionStep
-3. Import simply doesn't appear in final bundle
-
-### Types of Import Removal
-
-#### Complete Removal (`RemoveImport`)
-
-- **Unused**: Import never referenced in code
-- **TypeOnly**: Import only used in type annotations (when stripping types)
-- **Bundled**: First-party import that's been inlined
-
-#### Partial Removal (`PartialImportRemoval`)
-
-Handles cases like `from foo import One, Two, Three` where only some symbols are used:
-
-- Analysis determines which symbols are actually used
-- Transformation specifies remaining symbols
-- Compiler rebuilds import with only needed symbols
-
-Example:
-
-```python
-# Original
-from utils import helper1, helper2, helper3, DEBUG_FLAG
-
-# Analysis finds helper2 and DEBUG_FLAG unused
-# Transformation: PartialImportRemoval { 
-#     remaining_symbols: [("helper1", None), ("helper3", None)],
-#     removed_symbols: ["helper2", "DEBUG_FLAG"]
-# }
-
-# Result
-from utils import helper1, helper3
-```
-
-This approach ensures all import removal decisions are made in one place (analysis) and executed uniformly (compiler).
-
-## Key Architectural Decisions
-
-### 1. No ItemId Remapping
-
-When inlining module B into module A, items retain their original ItemIds. The CompilationContext tracks where output goes, not item identity.
-
-### 2. Transformation Priority Order
-
-Transformations are processed in a fixed priority order per item:
-
-1. RemoveImport (highest - if present, skip all others)
-2. CircularDepImportMove
-3. StdlibImportRewrite
-4. PartialImportRemoval
-5. SymbolRewrite (lowest - changes to usages)
-
-### 3. Generic SymbolRewrite
-
-We keep SymbolRewrite generic (TextRange → String) rather than splitting into specific types. The compiler is responsible for parsing the string and building the appropriate AST node.
-
-### 4. Fail-Fast Error Handling
-
-The BundleCompiler must fail immediately on internal errors (e.g., invalid TextRange). Silent recovery could produce syntactically valid but semantically incorrect code.
-
-### 5. Analysis Detects Conflicts
-
-Semantic conflicts (e.g., namespace collisions from inlining) must be detected by the analysis phase and resolved via preemptive transformations. The compiler only executes valid plans.
+- Produces simple ExecutionSteps
+- VM remains text-based and simple
+- Clear execution boundary
 
 ## Future Extensions
 
-This architecture easily supports new transformation types:
+### Source Maps
 
-- Dead code elimination markers
-- Optimization hints
-- Module merging directives
-- Performance annotations
-- Type stripping transformations
+- NodeIndex provides foundation
+- Track transformations for debugging
+- Map bundled code to original
 
-Simply add new variants to TransformationMetadata and corresponding logic to BundleCompiler.
+### Incremental Compilation
+
+- Transformation map can be cached
+- Only recompute for changed modules
+- Enable faster rebuilds
+
+### Advanced Transformations
+
+- Constant folding
+- Dead code elimination beyond imports
+- Optimization passes

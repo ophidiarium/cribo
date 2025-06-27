@@ -6,8 +6,8 @@
 
 use anyhow::Result;
 use indexmap::IndexMap;
-use log::{debug, warn};
-use ruff_python_ast::Stmt;
+use log::{debug, trace, warn};
+use ruff_python_ast::{HasNodeIndex, Stmt};
 use ruff_text_size::{Ranged, TextRange};
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -34,6 +34,13 @@ pub enum ExecutionStep {
         /// Renames to apply to this specific statement
         /// Maps TextRange to new name (module is already known from source_module)
         renames: FxHashMap<TextRange, String>,
+    },
+
+    /// Insert fully rendered code from AST transformation
+    InsertRenderedCode {
+        source_module: ModuleId,
+        original_item_id: ItemId,
+        code: String,
     },
 }
 
@@ -134,6 +141,37 @@ pub struct BundleProgram {
 }
 
 impl<'a> BundleCompiler<'a> {
+    /// Get the NodeIndex for a specific item in a module
+    fn get_node_index(
+        &self,
+        module_id: ModuleId,
+        item_id: ItemId,
+    ) -> Option<ruff_python_ast::NodeIndex> {
+        // Get the item data
+        let item_data = self.graph.modules.get(&module_id)?.items.get(&item_id)?;
+
+        // Get the statement index
+        let stmt_index = item_data.statement_index?;
+
+        // Get the module from registry
+        let module = self.registry.get_module_by_id(module_id)?;
+
+        // Get the AST
+        let ast = &module.original_ast;
+
+        // Get the statement at this index
+        let stmt = ast.body.get(stmt_index)?;
+
+        let node_index = stmt.node_index().load();
+        trace!(
+            "get_node_index: module {module_id:?} item {item_id:?} (stmt_index {stmt_index}) -> \
+             NodeIndex {node_index:?}"
+        );
+
+        // Return its node index
+        Some(node_index)
+    }
+
     /// Create a new compiler with all necessary context
     pub fn new(
         analysis_results: &'a AnalysisResults,
@@ -284,10 +322,9 @@ impl<'a> BundleCompiler<'a> {
 
             if let ImportClassification::Hoist { import_type } = classification {
                 // Check if this item has transformations that would remove it
-                if let Some(transformations) = self
-                    .analysis_results
-                    .transformations
-                    .get(&(*module_id, *item_id))
+                if let Some(node_index) = self.get_node_index(*module_id, *item_id)
+                    && let Some(transformations) =
+                        self.analysis_results.transformations.get(&node_index)
                 {
                     let has_remove = transformations
                         .iter()
@@ -517,11 +554,13 @@ impl<'a> BundleCompiler<'a> {
         let types_import = ast_builder::import("types");
         steps.push(ExecutionStep::InsertStatement { stmt: types_import });
 
-        // Process each namespace module
-        debug!("Processing {} namespace modules", namespace_modules.len());
+        // Phase 1: First copy all module content from ALL namespace modules
+        debug!(
+            "Phase 1: Copying content from {} namespace modules",
+            namespace_modules.len()
+        );
         for (module_id, namespace_name) in &namespace_modules {
-            debug!("Processing namespace module {module_id:?} with name '{namespace_name}'");
-            // First, copy all non-import statements from the module
+            debug!("Copying content from module {module_id:?} (namespace: '{namespace_name}')");
             if let Some(items) = self.live_items.get(module_id) {
                 debug!("Module {:?} has {} live items", module_id, items.len());
                 let module_graph = self
@@ -567,11 +606,19 @@ impl<'a> BundleCompiler<'a> {
                     }
 
                     // Check if this item has transformations
-                    if let Some(transformations) = self
-                        .analysis_results
-                        .transformations
-                        .get(&(*module_id, *item_id))
+                    if let Some(node_index) = self.get_node_index(*module_id, *item_id)
+                        && let Some(transformations) =
+                            self.analysis_results.transformations.get(&node_index)
                     {
+                        debug!(
+                            "Found {} transformations for item {:?} (type: {:?}) in module {:?} \
+                             at NodeIndex {:?}",
+                            transformations.len(),
+                            item_id,
+                            item_data.item_type,
+                            module_id,
+                            node_index
+                        );
                         // Process transformations
                         if self.process_item_transformations(
                             &mut steps,
@@ -595,6 +642,12 @@ impl<'a> BundleCompiler<'a> {
                     });
                 }
             }
+        }
+
+        // Phase 2: Create namespace objects and populate them
+        debug!("Phase 2: Creating and populating namespace objects");
+        for (module_id, namespace_name) in &namespace_modules {
+            debug!("Creating namespace object '{namespace_name}' for module {module_id:?}");
 
             // Create the namespace object
             let create_stmt = ast_builder::assign(
@@ -689,7 +742,8 @@ impl<'a> BundleCompiler<'a> {
                             // Handle dotted imports like "import app.utils"
                             // We need to create parent namespace objects and connect them
                             debug!(
-                                "Creating dotted namespace structure for alias '{alias}' -> '{namespace_name}'"
+                                "Creating dotted namespace structure for alias '{alias}' -> \
+                                 '{namespace_name}'"
                             );
 
                             let parts: Vec<&str> = alias.split('.').collect();
@@ -843,10 +897,9 @@ impl<'a> BundleCompiler<'a> {
                 }
 
                 // Check if this item has transformations
-                if let Some(transformations) = self
-                    .analysis_results
-                    .transformations
-                    .get(&(self.entry_module_id, item_id))
+                if let Some(node_index) = self.get_node_index(self.entry_module_id, item_id)
+                    && let Some(transformations) =
+                        self.analysis_results.transformations.get(&node_index)
                 {
                     // Process transformations
                     if self.process_item_transformations(
@@ -946,7 +999,7 @@ impl<'a> BundleCompiler<'a> {
 
                 TransformationMetadata::CircularDepImportMove {
                     target_scope: _,
-                    import_stmt: _,
+                    import_data: _,
                 } => {
                     // TODO: Handle moving imports to different scopes
                     debug!("Circular dependency import move not yet implemented");

@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use indexmap::{IndexMap, IndexSet};
 use log::{debug, info, trace, warn};
-use ruff_python_ast::{ModModule, visitor::Visitor};
+use ruff_python_ast::{HasNodeIndex, ModModule, visitor::Visitor};
 use rustc_hash::FxHasher;
 
 use crate::{
@@ -223,8 +223,40 @@ impl BundleOrchestrator {
                 cached.module_id
             };
 
+            // If we have a module_id but the cached AST was indexed without it,
+            // we need to re-index with the proper module ID
+            let mut ast = cached.ast.clone();
+            if let Some(module_id) = module_id {
+                // Check if this module needs re-indexing with proper module ID
+                // We can tell if it needs re-indexing if the first node has a low index
+                if let Some(first_stmt) = ast.body.first() {
+                    let first_node_index = first_stmt.node_index().load();
+                    let expected_min_index =
+                        module_id.as_u32() * crate::ast_indexer::MODULE_INDEX_RANGE;
+
+                    if first_node_index.as_usize() < expected_min_index as usize {
+                        // Re-index with proper module ID
+                        let _indexed_ast =
+                            crate::ast_indexer::index_module_with_id(&mut ast, module_id.as_u32());
+                        debug!(
+                            "Re-indexed cached AST for module {} (id={:?}) with {} nodes",
+                            module_name, module_id, _indexed_ast.node_count
+                        );
+
+                        // Update the module registry with the re-indexed AST
+                        if let Some(module_info) = self.module_registry.get_module_mut(module_id) {
+                            module_info.original_ast = ast.clone();
+                            debug!(
+                                "Updated module registry with re-indexed AST for module \
+                                 {module_name}"
+                            );
+                        }
+                    }
+                }
+            }
+
             return Ok(ProcessedModule {
-                ast: cached.ast.clone(),
+                ast,
                 source: cached.source.clone(),
                 normalized_imports: cached.normalized_imports.clone(),
                 normalized_modules: cached.normalized_modules.clone(),
@@ -241,11 +273,20 @@ impl BundleOrchestrator {
 
         let parsed = ruff_python_parser::parse_module(&source)
             .with_context(|| format!("Failed to parse Python file: {module_path:?}"))?;
-        let ast = parsed.into_syntax();
+        let mut ast = parsed.into_syntax();
 
         // Step 2: Add to graph and perform semantic analysis (if graph provided)
         let module_id = if let Some(graph) = graph {
             let module_id = graph.add_module(module_name.to_string(), module_path.to_path_buf());
+
+            // Index the AST to assign stable NodeIndex values to all nodes
+            // MUST use module-specific indexing to avoid NodeIndex collisions
+            let _indexed_ast =
+                crate::ast_indexer::index_module_with_id(&mut ast, module_id.as_u32());
+            debug!(
+                "Indexed AST for module {module_name} (id={:?}) with {} nodes",
+                module_id, _indexed_ast.node_count
+            );
 
             // Create Arc<String> for shared ownership
             let source_arc = Arc::new(source.clone());
@@ -292,6 +333,13 @@ impl BundleOrchestrator {
 
             Some(module_id)
         } else {
+            // No graph provided, but we still need to index the AST
+            // Use a temporary module ID of 0 for single-module processing
+            let _indexed_ast = crate::ast_indexer::index_module_with_id(&mut ast, 0);
+            debug!(
+                "Indexed AST for module {module_name} (no graph) with {} nodes",
+                _indexed_ast.node_count
+            );
             None
         };
 

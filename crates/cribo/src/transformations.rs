@@ -4,11 +4,21 @@
 //! and the bundle compiler executes. All AST modifications are declaratively
 //! specified here rather than performed imperatively during analysis.
 
-use ruff_python_ast::Stmt;
-use ruff_text_size::TextRange;
+use ruff_python_ast::NodeIndex;
 use rustc_hash::FxHashMap;
 
 use crate::cribo_graph::ItemId;
+
+/// Semantic representation of an import statement
+#[derive(Debug, Clone)]
+pub struct ImportData {
+    /// The module being imported
+    pub module: String,
+    /// For from-imports, the names being imported: (name, optional_alias)
+    pub names: Vec<(String, Option<String>)>,
+    /// Import level (0 for absolute, >0 for relative)
+    pub level: u32,
+}
 
 /// Metadata describing a transformation to be applied to an AST item
 #[derive(Debug, Clone)]
@@ -35,16 +45,16 @@ pub enum TransformationMetadata {
     /// Handles: qualifications (Any -> typing.Any), renames (foo -> _b_foo),
     /// attribute rewrites (j.dumps -> json.dumps)
     SymbolRewrite {
-        /// Map of TextRange -> new text
-        rewrites: FxHashMap<TextRange, String>,
+        /// Map of NodeIndex -> new text
+        rewrites: FxHashMap<NodeIndex, String>,
     },
 
     /// Import needs moving for circular dependency resolution
     CircularDepImportMove {
         /// The scope (usually a function) to move the import into
         target_scope: ItemId,
-        /// The import statement to move
-        import_stmt: Stmt,
+        /// Import data instead of the AST node
+        import_data: ImportData,
     },
 
     /// Import should be removed entirely

@@ -5,6 +5,7 @@
 
 use anyhow::Result;
 use log::debug;
+use ruff_python_ast::{HasNodeIndex, NodeIndex};
 use rustc_hash::FxHashMap;
 
 use crate::{
@@ -19,7 +20,7 @@ use crate::{
 /// Detects and collects all transformations needed for the bundle
 pub struct TransformationDetector<'a> {
     graph: &'a CriboGraph,
-    _registry: &'a ModuleRegistry,
+    registry: &'a ModuleRegistry,
     _semantic_provider: &'a SemanticModelProvider<'a>,
     tree_shake_results: Option<&'a TreeShakeResults>,
     python_version: u8,
@@ -35,17 +36,39 @@ impl<'a> TransformationDetector<'a> {
     ) -> Self {
         Self {
             graph,
-            _registry: registry,
+            registry,
             _semantic_provider: semantic_provider,
             tree_shake_results,
             python_version,
         }
     }
 
+    /// Get the NodeIndex for a specific item in a module
+    fn get_node_index(
+        &self,
+        module_id: ModuleId,
+        item_data: &crate::cribo_graph::ItemData,
+    ) -> Option<NodeIndex> {
+        // Get the statement index
+        let stmt_index = item_data.statement_index?;
+
+        // Get the module from registry
+        let module = self.registry.get_module_by_id(module_id)?;
+
+        // Get the AST
+        let ast = &module.original_ast;
+
+        // Get the statement at this index
+        let stmt = ast.body.get(stmt_index)?;
+
+        // Return its node index
+        Some(stmt.node_index().load())
+    }
+
     /// Detect all transformations needed for the bundle
     pub fn detect_transformations(
         &self,
-    ) -> Result<FxHashMap<(ModuleId, ItemId), Vec<TransformationMetadata>>> {
+    ) -> Result<FxHashMap<NodeIndex, Vec<TransformationMetadata>>> {
         let mut transformations = FxHashMap::default();
 
         // Process each module in the graph
@@ -93,14 +116,35 @@ impl<'a> TransformationDetector<'a> {
                         }
                     }
                     _ => {
-                        // Check for symbol rewrites in other statement types
+                        // For non-import items, only check for symbol rewrites
+                        debug!(
+                            "Non-import item in module {:?} item {:?}: type={:?}",
+                            module_id, item_id, item_data.item_type
+                        );
                         self.detect_symbol_rewrites(module_id, item_id, &mut item_transformations)?;
                     }
                 }
 
                 // Store transformations if any were detected
                 if !item_transformations.is_empty() {
-                    transformations.insert((module_id, item_id), item_transformations);
+                    // Get the NodeIndex for this item
+                    if let Some(node_index) = self.get_node_index(module_id, item_data) {
+                        debug!(
+                            "Storing {} transformations for module {:?} item {:?} (type: {:?}) at \
+                             NodeIndex {:?}",
+                            item_transformations.len(),
+                            module_id,
+                            item_id,
+                            item_data.item_type,
+                            node_index
+                        );
+                        transformations.insert(node_index, item_transformations);
+                    } else {
+                        debug!(
+                            "Warning: Could not get NodeIndex for module {module_id:?} item \
+                             {item_id:?}"
+                        );
+                    }
                 }
             }
         }
@@ -271,7 +315,7 @@ impl<'a> TransformationDetector<'a> {
     /// Detect import moves needed for circular dependency resolution
     fn detect_circular_dep_moves(
         &self,
-        _transformations: &mut FxHashMap<(ModuleId, ItemId), Vec<TransformationMetadata>>,
+        _transformations: &mut FxHashMap<NodeIndex, Vec<TransformationMetadata>>,
     ) -> Result<()> {
         // TODO: Implement based on CircularDependencyAnalysis results
         // This requires:
@@ -284,7 +328,7 @@ impl<'a> TransformationDetector<'a> {
     /// Detect namespace collisions that need preemptive renames
     fn detect_inlining_collisions(
         &self,
-        _transformations: &mut FxHashMap<(ModuleId, ItemId), Vec<TransformationMetadata>>,
+        _transformations: &mut FxHashMap<NodeIndex, Vec<TransformationMetadata>>,
     ) -> Result<()> {
         // TODO: Implement collision detection for module inlining
         // This requires:

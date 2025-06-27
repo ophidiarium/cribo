@@ -61,6 +61,24 @@ pub fn run(program: &BundleProgram, context: &ExecutionContext) -> Result<ModMod
 
                 final_body.push(renamed_stmt);
             }
+
+            ExecutionStep::InsertRenderedCode {
+                source_module: _,
+                original_item_id: _,
+                code,
+            } => {
+                // Parse the code back into an AST statement
+                // For now, we'll need to use the parser or create a simple statement
+                // TODO: Implement proper parsing of rendered code
+                debug!("InsertRenderedCode not yet fully implemented, code: {code}");
+
+                // For now, just create a pass statement as a placeholder
+                let placeholder = ruff_python_ast::StmtPass {
+                    range: TextRange::default(),
+                    node_index: AtomicNodeIndex::dummy(),
+                };
+                final_body.push(Stmt::Pass(placeholder));
+            }
         }
     }
 

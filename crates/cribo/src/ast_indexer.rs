@@ -378,3 +378,157 @@ impl NodeIndexMap {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod indexing_validation_tests {
+    use ruff_python_parser::parse_module;
+
+    use super::*;
+
+    #[test]
+    fn test_unindexed_ast_has_dummy_node_indices() {
+        // Parse a simple Python module WITHOUT indexing
+        let source = r#"
+import foo
+
+def greet(name):
+    return f"Hello, {name}!"
+"#;
+
+        let parsed = parse_module(source).expect("Failed to parse module");
+        let ast = parsed.into_syntax();
+
+        // Check that all nodes have dummy NodeIndex values (u32::MAX)
+        // The import statement should have a dummy index
+        if let Stmt::Import(import_stmt) = &ast.body[0] {
+            let node_index = import_stmt.node_index.load();
+            assert_eq!(
+                node_index.as_usize() as u32,
+                u32::MAX,
+                "Unindexed import statement should have dummy NodeIndex (u32::MAX), but got \
+                 {node_index:?}"
+            );
+        } else {
+            panic!("Expected import statement");
+        }
+
+        // The function definition should also have a dummy index
+        if let Stmt::FunctionDef(func_def) = &ast.body[1] {
+            let node_index = func_def.node_index.load();
+            assert_eq!(
+                node_index.as_usize() as u32,
+                u32::MAX,
+                "Unindexed function definition should have dummy NodeIndex (u32::MAX), but got \
+                 {node_index:?}"
+            );
+        } else {
+            panic!("Expected function definition");
+        }
+    }
+
+    #[test]
+    fn test_indexed_ast_has_proper_node_indices() {
+        // Parse and INDEX a simple Python module
+        let source = r#"
+import foo
+
+def greet(name):
+    return f"Hello, {name}!"
+"#;
+
+        let parsed = parse_module(source).expect("Failed to parse module");
+        let mut ast = parsed.into_syntax();
+
+        // Index the AST with module_id = 0
+        let indexed_result = index_module(&mut ast);
+
+        // Check that nodes now have proper NodeIndex values (not u32::MAX)
+        // The import statement should have a proper index
+        if let Stmt::Import(import_stmt) = &ast.body[0] {
+            let node_index = import_stmt.node_index.load();
+            assert_ne!(
+                node_index.as_usize() as u32,
+                u32::MAX,
+                "Indexed import statement should NOT have dummy NodeIndex"
+            );
+            // For module_id = 0, indices should be less than MODULE_INDEX_RANGE
+            assert!(
+                (node_index.as_usize() as u32) < MODULE_INDEX_RANGE,
+                "Node index {} should be less than MODULE_INDEX_RANGE {}",
+                node_index.as_usize(),
+                MODULE_INDEX_RANGE
+            );
+        } else {
+            panic!("Expected import statement");
+        }
+
+        // The function definition should also have a proper index
+        if let Stmt::FunctionDef(func_def) = &ast.body[1] {
+            let node_index = func_def.node_index.load();
+            assert_ne!(
+                node_index.as_usize() as u32,
+                u32::MAX,
+                "Indexed function definition should NOT have dummy NodeIndex"
+            );
+            assert!(
+                (node_index.as_usize() as u32) < MODULE_INDEX_RANGE,
+                "Node index {} should be less than MODULE_INDEX_RANGE {}",
+                node_index.as_usize(),
+                MODULE_INDEX_RANGE
+            );
+        } else {
+            panic!("Expected function definition");
+        }
+
+        // Verify the indexed result
+        assert!(
+            indexed_result.node_count > 0,
+            "Should have indexed some nodes"
+        );
+    }
+
+    #[test]
+    fn test_node_index_uniqueness_within_module() {
+        // Parse and index a module with multiple statements
+        let source = r#"
+import foo
+import bar
+
+def greet(name):
+    return f"Hello, {name}!"
+
+class Person:
+    pass
+"#;
+
+        let parsed = parse_module(source).expect("Failed to parse module");
+        let mut ast = parsed.into_syntax();
+
+        // Index the AST
+        let _indexed_result = index_module(&mut ast);
+
+        // Collect all node indices
+        let mut indices = Vec::new();
+        for stmt in &ast.body {
+            let node_index = match stmt {
+                Stmt::Import(s) => s.node_index.load(),
+                Stmt::FunctionDef(s) => s.node_index.load(),
+                Stmt::ClassDef(s) => s.node_index.load(),
+                _ => continue,
+            };
+            indices.push(node_index);
+        }
+
+        // Check that all indices are unique
+        let mut seen = std::collections::HashSet::new();
+        for (i, &index) in indices.iter().enumerate() {
+            assert!(
+                seen.insert(index),
+                "Duplicate NodeIndex found at position {i}: {index:?}"
+            );
+        }
+
+        // Verify we collected the expected number of indices
+        assert_eq!(indices.len(), 4, "Should have 4 indexed statements");
+    }
+}

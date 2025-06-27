@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod ast_builder;
 pub mod ast_indexer;
+pub mod ast_transformer;
 pub mod bundle_compiler;
 pub mod bundle_vm;
 pub mod combine;
