@@ -6797,8 +6797,6 @@ impl<'a> HybridStaticBundler<'a> {
         stmts
     }
 
-    /// Create an assignment to a namespace attribute
-
     /// Create a string literal expression
     fn create_string_literal(&self, value: &str) -> Expr {
         Expr::StringLiteral(ExprStringLiteral {
@@ -6812,8 +6810,6 @@ impl<'a> HybridStaticBundler<'a> {
             range: TextRange::default(),
         })
     }
-
-    /// Create a number literal expression
 
     /// Create module object
     fn create_module_object_stmt(&self, module_name: &str, _module_path: &Path) -> Vec<Stmt> {
@@ -7871,20 +7867,6 @@ impl<'a> HybridStaticBundler<'a> {
 
         debug!("Entry module imported modules: {imported_modules:?}");
         imported_modules
-    }
-
-    /// Generate statements to attach sub-modules to their parent modules
-    fn generate_submodule_attributes(
-        &self,
-        sorted_modules: &[(String, PathBuf, Vec<String>)],
-        final_body: &mut Vec<Stmt>,
-    ) {
-        let empty_exclusions = FxIndexSet::default();
-        self.generate_submodule_attributes_with_exclusions(
-            sorted_modules,
-            final_body,
-            &empty_exclusions,
-        );
     }
 
     /// Generate statements to attach sub-modules to their parent modules with exclusions
