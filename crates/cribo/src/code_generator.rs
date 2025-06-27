@@ -122,7 +122,6 @@ struct ProcessGlobalsParams<'a> {
 }
 
 /// Parameters for handling inlined module imports
-#[allow(dead_code)]
 struct InlinedImportParams<'a> {
     import_from: &'a StmtImportFrom,
     resolved_module: &'a str,
