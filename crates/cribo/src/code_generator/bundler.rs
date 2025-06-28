@@ -1893,12 +1893,181 @@ impl<'a> HybridStaticBundler<'a> {
     /// Create assignments for symbols imported from inlined modules
     fn create_assignments_for_inlined_imports(
         &self,
-        _import_from: StmtImportFrom,
-        _module_name: &str,
-        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        import_from: StmtImportFrom,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
-        // TODO: Implementation from original file
-        vec![]
+        let mut assignments = Vec::new();
+
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let local_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+            // Check if we're importing a module itself (not a symbol from it)
+            // This happens when the imported name refers to a submodule
+            let full_module_path = format!("{module_name}.{imported_name}");
+
+            // Check if this is a module import
+            // First check if it's a wrapped module
+            if self.module_registry.contains_key(&full_module_path) {
+                // For pure static approach, we don't use sys.modules
+                // Instead, we'll handle this as a deferred import
+                log::debug!("Module '{full_module_path}' is a wrapped module, deferring import");
+                // Skip this - it will be handled differently
+                continue;
+            } else if self.inlined_modules.contains(&full_module_path)
+                || self.bundled_modules.contains(&full_module_path)
+            {
+                // Create a namespace object for the inlined module
+                log::debug!(
+                    "Creating namespace object for module '{imported_name}' imported from \
+                     '{module_name}' - module was inlined"
+                );
+
+                // Create a SimpleNamespace-like object with __name__ set
+                let namespace_stmts =
+                    self.create_namespace_with_name(local_name, &full_module_path);
+                assignments.extend(namespace_stmts);
+
+                // Now add all symbols from the inlined module to the namespace
+                // This should come from semantic analysis of what symbols the module exports
+                if let Some(module_renames) = symbol_renames.get(&full_module_path) {
+                    // Add each symbol from the module to the namespace
+                    for (original_name, renamed_name) in module_renames {
+                        // base.original_name = renamed_name
+                        assignments.push(Stmt::Assign(StmtAssign {
+                            node_index: AtomicNodeIndex::dummy(),
+                            targets: vec![Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: local_name.as_str().into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(original_name, TextRange::default()),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            })],
+                            value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
+                                id: renamed_name.clone().into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        }));
+                    }
+                }
+            } else {
+                // Regular symbol import
+                // Check if this symbol was renamed during inlining
+                let actual_name = if let Some(module_renames) = symbol_renames.get(module_name) {
+                    module_renames
+                        .get(imported_name)
+                        .map(|s| s.as_str())
+                        .unwrap_or(imported_name)
+                } else {
+                    imported_name
+                };
+
+                // Only create assignment if the names are different
+                if local_name.as_str() != actual_name {
+                    log::debug!(
+                        "Creating assignment: {local_name} = {actual_name} (from inlined module \
+                         '{module_name}')"
+                    );
+
+                    let assignment = StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
+                        targets: vec![Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: local_name.as_str().into(),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: actual_name.into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    };
+
+                    assignments.push(Stmt::Assign(assignment));
+                }
+            }
+        }
+
+        assignments
+    }
+
+    /// Create a namespace object with __name__ attribute
+    fn create_namespace_with_name(&self, var_name: &str, module_path: &str) -> Vec<Stmt> {
+        // Create: var_name = types.SimpleNamespace()
+        let mut statements = vec![Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: var_name.into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "types".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: ruff_python_ast::Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        })];
+
+        // Set the __name__ attribute
+        statements.push(Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: var_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("__name__", TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                node_index: AtomicNodeIndex::dummy(),
+                value: StringLiteralValue::single(StringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: module_path.to_string().into(),
+                    range: TextRange::default(),
+                    flags: StringLiteralFlags::empty(),
+                }),
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        }));
+
+        statements
     }
 
     /// Transform imports from namespace packages
