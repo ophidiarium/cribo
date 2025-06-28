@@ -3010,6 +3010,37 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
+    /// Extract simple assignment target name
+    fn extract_simple_assign_target(&self, assign: &StmtAssign) -> Option<String> {
+        if assign.targets.len() == 1
+            && let Expr::Name(name) = &assign.targets[0]
+        {
+            return Some(name.id.to_string());
+        }
+        None
+    }
+
+    /// Check if an assignment is self-referential (e.g., x = x)
+    fn is_self_referential_assignment(&self, assign: &StmtAssign) -> bool {
+        // Check if this is a simple assignment with a single target and value
+        if assign.targets.len() == 1
+            && let (Expr::Name(target), Expr::Name(value)) =
+                (&assign.targets[0], assign.value.as_ref())
+        {
+            // It's self-referential if target and value have the same name
+            let is_self_ref = target.id == value.id;
+            if is_self_ref {
+                log::debug!(
+                    "Found self-referential assignment: {} = {}",
+                    target.id,
+                    value.id
+                );
+            }
+            return is_self_ref;
+        }
+        false
+    }
+
 
     /// Transform a module into an initialization function
     /// This wraps the module body in a function that creates and returns a module object

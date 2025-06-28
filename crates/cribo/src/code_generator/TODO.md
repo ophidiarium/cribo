@@ -140,9 +140,10 @@ This document tracks the remaining work to complete the refactoring of `code_gen
 - [ ] **Line 947**: Create namespace for inlined modules
   - **Original location**: `code_generator_old.rs:6621-6769`
   - **Function**: `create_namespace_for_inlined_submodule`
-- [ ] **Line 956**: Generate registries and hooks
+- [x] **Line 956**: Generate registries and hooks
   - **Original location**: `code_generator_old.rs:6615-6619`
   - **Function**: `generate_registries_and_hook`
+  - **Completed**: In commit 40cf73f (already had correct implementation)
 - [ ] **Line 987**: Generate submodule attributes
   - **Original location**: `code_generator_old.rs:7843-8153`
   - **Function**: `generate_submodule_attributes_with_exclusions`
