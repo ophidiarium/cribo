@@ -195,12 +195,13 @@ impl SymbolDependencyGraph {
         // For classes, check both immediate reads (base classes) and eventual reads (methods)
         for var in &item_data.read_vars {
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
-                && circular_modules.contains(&dep_module) {
-                    let dep = (dep_module, var.clone());
-                    all_dependencies.push(dep.clone());
-                    // Base classes need to exist at definition time, even within same module
-                    module_level_deps.push(dep);
-                }
+                && circular_modules.contains(&dep_module)
+            {
+                let dep = (dep_module, var.clone());
+                all_dependencies.push(dep.clone());
+                // Base classes need to exist at definition time, even within same module
+                module_level_deps.push(dep);
+            }
         }
 
         self.dependencies.insert(key.clone(), all_dependencies);
@@ -225,10 +226,11 @@ impl SymbolDependencyGraph {
         // For functions, we only care about reads that happen during execution
         for var in &item_data.read_vars {
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
-                && circular_modules.contains(&dep_module) {
-                    let dep = (dep_module, var.clone());
-                    all_dependencies.push(dep);
-                }
+                && circular_modules.contains(&dep_module)
+            {
+                let dep = (dep_module, var.clone());
+                all_dependencies.push(dep);
+            }
         }
 
         self.dependencies.insert(key.clone(), all_dependencies);
@@ -255,11 +257,12 @@ impl SymbolDependencyGraph {
         // For assignments, all reads are module-level dependencies
         for var in &item_data.read_vars {
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
-                && circular_modules.contains(&dep_module) {
-                    let dep = (dep_module, var.clone());
-                    all_dependencies.push(dep.clone());
-                    module_level_deps.push(dep);
-                }
+                && circular_modules.contains(&dep_module)
+            {
+                let dep = (dep_module, var.clone());
+                all_dependencies.push(dep.clone());
+                module_level_deps.push(dep);
+            }
         }
 
         self.dependencies.insert(key.clone(), all_dependencies);

@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
+use log::{debug, warn};
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
     ExprName, Identifier, ModModule, Stmt, StmtAssign, StmtImport, StmtImportFrom,
@@ -553,11 +554,25 @@ impl<'a> HybridStaticBundler<'a> {
     /// Handle imports from inlined module
     pub fn handle_imports_from_inlined_module(
         &self,
+        import_from: &StmtImportFrom,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Vec<Stmt> {
+        self.handle_imports_from_inlined_module_with_context(
+            import_from,
+            module_name,
+            symbol_renames,
+            None,
+        )
+    }
+
+    /// Handle imports from inlined modules with optional module context
+    fn handle_imports_from_inlined_module_with_context(
+        &self,
+        _import_from: &StmtImportFrom,
         _module_name: &str,
-        _names: &[Alias],
         _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-        _deferred_imports: &mut Vec<Stmt>,
-        _is_entry_module: bool,
+        _module_context: Option<&str>,
     ) -> Vec<Stmt> {
         // TODO: Implementation from original file
         vec![]
@@ -579,6 +594,165 @@ impl<'a> HybridStaticBundler<'a> {
     ) -> Vec<Stmt> {
         // TODO: Implementation from original file
         vec![Stmt::Import(import_stmt)]
+    }
+
+    /// Rewrite import from statement with proper handling for bundled modules
+    pub fn rewrite_import_from(
+        &self,
+        import_from: StmtImportFrom,
+        current_module: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        inside_wrapper_init: bool,
+    ) -> Vec<Stmt> {
+        // Resolve relative imports to absolute module names
+        log::debug!(
+            "rewrite_import_from: Processing import {:?} in module '{}'",
+            import_from.module.as_ref().map(|m| m.as_str()),
+            current_module
+        );
+        let resolved_module_name = self.resolve_relative_import(&import_from, current_module);
+
+        let Some(module_name) = resolved_module_name else {
+            // If we can't resolve the module, return the original import
+            log::warn!(
+                "Could not resolve module name for import {:?}, keeping original import",
+                import_from.module.as_ref().map(|m| m.as_str())
+            );
+            return vec![Stmt::ImportFrom(import_from)];
+        };
+
+        if !self.bundled_modules.contains(&module_name) {
+            log::debug!(
+                "Module '{module_name}' not found in bundled modules, checking if inlined or \
+                 importing submodules"
+            );
+
+            // Check if this module is inlined
+            if self.inlined_modules.contains(&module_name) {
+                log::debug!(
+                    "Module '{module_name}' is an inlined module, \
+                     inside_wrapper_init={inside_wrapper_init}"
+                );
+                // Handle imports from inlined modules
+                return self.handle_imports_from_inlined_module(
+                    &import_from,
+                    &module_name,
+                    symbol_renames,
+                );
+            }
+
+            // Check if we're importing submodules from a namespace package
+            // e.g., from greetings import greeting where greeting is actually greetings.greeting
+            let mut has_bundled_submodules = false;
+            for alias in &import_from.names {
+                let imported_name = alias.name.as_str();
+                let full_module_path = format!("{module_name}.{imported_name}");
+                if self.bundled_modules.contains(&full_module_path) {
+                    has_bundled_submodules = true;
+                    break;
+                }
+            }
+
+            if !has_bundled_submodules {
+                log::debug!(
+                    "No bundled submodules found for module '{module_name}', checking if it's a \
+                     wrapper module"
+                );
+
+                // Check if this module is in the module_registry (wrapper module)
+                if self.module_registry.contains_key(&module_name) {
+                    log::debug!("Module '{module_name}' is a wrapper module in module_registry");
+                    // This is a wrapper module, we need to transform it
+                    return self.transform_bundled_import_from_multiple_with_context(
+                        import_from,
+                        &module_name,
+                        inside_wrapper_init,
+                    );
+                }
+
+                // No bundled submodules, keep original import
+                // For relative imports from non-bundled modules, convert to absolute import
+                if import_from.level > 0 {
+                    let mut absolute_import = import_from.clone();
+                    absolute_import.level = 0;
+                    absolute_import.module =
+                        Some(Identifier::new(&module_name, TextRange::default()));
+                    return vec![Stmt::ImportFrom(absolute_import)];
+                }
+                return vec![Stmt::ImportFrom(import_from)];
+            }
+
+            // We have bundled submodules, need to transform them
+            log::debug!("Module '{module_name}' has bundled submodules, transforming imports");
+            // Transform each submodule import
+            return self.transform_namespace_package_imports(
+                import_from,
+                &module_name,
+                symbol_renames,
+            );
+        }
+
+        log::debug!(
+            "Transforming bundled import from module: {module_name}, is wrapper: {}",
+            self.module_registry.contains_key(&module_name)
+        );
+
+        // Check if this module is in the registry (wrapper approach)
+        // or if it was inlined
+        if self.module_registry.contains_key(&module_name) {
+            // Module uses wrapper approach - transform to sys.modules access
+            // For relative imports, we need to create an absolute import
+            let mut absolute_import = import_from.clone();
+            if import_from.level > 0 {
+                // Convert relative import to absolute
+                absolute_import.level = 0;
+                absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
+            }
+            self.transform_bundled_import_from_multiple_with_context(
+                absolute_import,
+                &module_name,
+                inside_wrapper_init,
+            )
+        } else {
+            // Module was inlined - create assignments for imported symbols
+            log::debug!(
+                "Module '{module_name}' was inlined, creating assignments for imported symbols"
+            );
+            self.create_assignments_for_inlined_imports(import_from, &module_name, symbol_renames)
+        }
+    }
+
+    /// Transform bundled import from statement with context
+    fn transform_bundled_import_from_multiple_with_context(
+        &self,
+        _import_from: StmtImportFrom,
+        _module_name: &str,
+        _inside_wrapper_init: bool,
+    ) -> Vec<Stmt> {
+        // TODO: Implementation from original file
+        vec![]
+    }
+
+    /// Create assignments for symbols imported from inlined modules
+    fn create_assignments_for_inlined_imports(
+        &self,
+        _import_from: StmtImportFrom,
+        _module_name: &str,
+        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Vec<Stmt> {
+        // TODO: Implementation from original file
+        vec![]
+    }
+
+    /// Transform imports from namespace packages
+    fn transform_namespace_package_imports(
+        &self,
+        _import_from: StmtImportFrom,
+        _module_name: &str,
+        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Vec<Stmt> {
+        // TODO: Implementation from original file
+        vec![]
     }
 
     /// Get synthetic module name using content hash
@@ -2606,6 +2780,20 @@ impl<'a> HybridStaticBundler<'a> {
             }
             _ => false,
         }
+    }
+
+    /// Transform a module into an initialization function
+    /// This wraps the module body in a function that creates and returns a module object
+    pub fn transform_module_to_init_function(
+        &self,
+        ctx: ModuleTransformContext,
+        mut ast: ModModule,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Result<Stmt> {
+        // TODO: Implementation from original file
+        // Original location: code_generator_old.rs:6076-6612
+        // This transforms module body into an init function
+        todo!("transform_module_to_init_function not yet implemented")
     }
 }
 

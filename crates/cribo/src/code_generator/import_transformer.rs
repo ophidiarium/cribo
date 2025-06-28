@@ -1058,22 +1058,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                     log::debug!("  Module '{resolved}' is a circular module with pre-declarations");
                     // Return import assignments immediately - symbols are pre-declared
                     return self.bundler.handle_imports_from_inlined_module(
+                        import_from,
                         resolved,
-                        &import_from.names,
                         self.symbol_renames,
-                        self.deferred_imports,
-                        self.is_entry_module,
                     );
                 } else {
                     log::debug!("  Module '{resolved}' is inlined, handling import assignments");
                     // For the entry module, we should not defer these imports
                     // because they need to be available when the entry module's code runs
                     let import_stmts = self.bundler.handle_imports_from_inlined_module(
+                        import_from,
                         resolved,
-                        &import_from.names,
                         self.symbol_renames,
-                        self.deferred_imports,
-                        self.is_entry_module,
                     );
 
                     // Only defer if we're not in the entry module
@@ -1133,12 +1129,9 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
 
         // Otherwise, use standard transformation
-        // TODO: Implement proper transformation when the method is available in bundler
-        // The original code calls rewrite_import_in_stmt_multiple_with_full_context
-        // which handles both Import and ImportFrom statements, but the current
-        // bundler only has a method for Import statements.
-        // For now, return the original import unchanged
-        vec![Stmt::ImportFrom(import_from.clone())]
+        let empty_renames = FxIndexMap::default();
+        self.bundler
+            .rewrite_import_from(import_from.clone(), self.module_name, &empty_renames, self.is_wrapper_init)
     }
 
     /// Transform an expression, rewriting module attribute access to direct references
