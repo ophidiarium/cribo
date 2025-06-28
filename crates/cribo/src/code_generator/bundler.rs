@@ -835,11 +835,7 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Check if a module is a safe stdlib module
     fn is_safe_stdlib_module(&self, module_name: &str) -> bool {
-        // TODO: Implement proper stdlib module checking
-        matches!(
-            module_name,
-            "sys" | "os" | "types" | "functools" | "importlib" | "collections" | "itertools"
-        )
+        crate::side_effects::is_safe_stdlib_module(module_name)
     }
 
     /// Collect future imports from an AST
@@ -2895,37 +2891,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
-    /// Check if an import has been hoisted
-    fn is_hoisted_import(&self, stmt: &Stmt) -> bool {
-        match stmt {
-            Stmt::ImportFrom(import_from) => {
-                if let Some(ref module) = import_from.module {
-                    let module_name = module.as_str();
-                    // Check if this is a __future__ import (always hoisted)
-                    if module_name == "__future__" {
-                        return true;
-                    }
-                    
-                    // Check if this module has been hoisted as safe stdlib
-                    if self.stdlib_import_from_map.contains_key(module_name) {
-                        return true;
-                    }
-                }
-                false
-            }
-            Stmt::Import(import_stmt) => {
-                // Check if any of the imports in this statement are hoisted
-                import_stmt.names.iter().any(|alias| {
-                    let module_name = alias.name.as_str();
-                    self.stdlib_import_statements.iter().any(|hoisted| {
-                        matches!(hoisted, Stmt::Import(hoisted_import) 
-                            if hoisted_import.names.iter().any(|h_alias| h_alias.name.as_str() == module_name))
-                    })
-                })
-            }
-            _ => false,
-        }
-    }
 
     /// Transform a module into an initialization function
     /// This wraps the module body in a function that creates and returns a module object
