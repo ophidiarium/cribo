@@ -3,13 +3,13 @@ use std::path::Path;
 use cow_utils::CowUtils;
 use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
 use ruff_python_ast::{
-    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute,
-    ExprCall, ExprContext, ExprFString, ExprList, ExprName,
-    ExprStringLiteral, FString, FStringFlags, FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement, InterpolatedStringElements,
+    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
+    ExprFString, ExprList, ExprName, ExprStringLiteral, FString, FStringFlags, FStringValue,
+    Identifier, InterpolatedElement, InterpolatedStringElement, InterpolatedStringElements,
     ModModule, Stmt, StmtAssign, StmtImportFrom, StringLiteral, StringLiteralFlags,
     StringLiteralValue,
 };
-use ruff_text_size::{Ranged, TextRange};
+use ruff_text_size::TextRange;
 
 use crate::code_generator::bundler::HybridStaticBundler;
 
@@ -1708,7 +1708,10 @@ impl<'a> RecursiveImportTransformer<'a> {
 
             // Replace the statement with the transformed ones
             if transformed.len() == 1 {
-                *stmt = transformed.into_iter().next().unwrap();
+                *stmt = transformed
+                    .into_iter()
+                    .next()
+                    .expect("Transform should return at least one statement");
             } else if transformed.is_empty() {
                 // Mark as a pass statement to be removed later
                 *stmt = Stmt::Pass(ruff_python_ast::StmtPass {
@@ -1718,7 +1721,10 @@ impl<'a> RecursiveImportTransformer<'a> {
             } else {
                 // Multiple statements - we need to handle this at the parent level
                 // For now, just take the first one
-                *stmt = transformed.into_iter().next().unwrap();
+                *stmt = transformed
+                    .into_iter()
+                    .next()
+                    .expect("Transform should return at least one statement");
             }
         } else {
             // For non-import statements, recurse into nested structures and transform expressions

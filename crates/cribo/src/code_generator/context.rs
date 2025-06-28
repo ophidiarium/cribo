@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
 use ruff_python_ast::{ModModule, Stmt};
-use rustc_hash::FxHashSet;
 
 use crate::{
     cribo_graph::CriboGraph as DependencyGraph,

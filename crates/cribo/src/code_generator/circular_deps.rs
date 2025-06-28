@@ -2,7 +2,7 @@ use anyhow::Result;
 use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
 use log::error;
 use ruff_python_ast::ModModule;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 
 // use crate::semantic_analysis::ClassDependencyCollector;
 use crate::transformation_context::TransformationContext;
@@ -106,11 +106,8 @@ impl SymbolDependencyGraph {
                     }
                 }
 
-                error!(
-                    "Cannot bundle due to circular symbol dependency in module '{}'",
-                    module_name
-                );
-                error!("Circular dependency involves symbols: {:?}", cycle_symbols);
+                error!("Cannot bundle due to circular symbol dependency in module '{module_name}'");
+                error!("Circular dependency involves symbols: {cycle_symbols:?}");
                 error!("This is an unresolvable circular dependency at the symbol level.");
                 error!("Consider refactoring to break the circular dependency:");
                 error!("  - Move shared base classes to a separate module");
@@ -130,13 +127,13 @@ impl SymbolDependencyGraph {
     /// Collect symbol dependencies for a module
     pub fn collect_dependencies(
         &mut self,
-        module_name: &str,
-        ast: &ModModule,
-        transform_context: &TransformationContext,
-        normalized_imports: &FxIndexMap<String, String>,
+        _module_name: &str,
+        _ast: &ModModule,
+        _transform_context: &TransformationContext,
+        _normalized_imports: &FxIndexMap<String, String>,
     ) {
         // Use ImportDiscoveryVisitor to find imports
-        let mut import_visitor = ImportDiscoveryVisitor::new();
+        let _import_visitor = ImportDiscoveryVisitor::new();
         // Note: ImportDiscoveryVisitor uses the Visitor trait which expects &ModModule, not &mut
         // import_visitor.visit_module(ast);
 
