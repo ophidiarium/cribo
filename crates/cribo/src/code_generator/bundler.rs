@@ -1047,12 +1047,86 @@ impl<'a> HybridStaticBundler<'a> {
     fn collect_module_renames(
         &self,
         module_name: &str,
-        _semantic_ctx: &SemanticContext,
+        semantic_ctx: &SemanticContext,
         symbol_renames: &mut FxIndexMap<String, FxIndexMap<String, String>>,
     ) {
-        // TODO: Implement based on semantic analysis
-        // For now, just ensure the module has an entry
-        symbol_renames.entry(module_name.to_string()).or_default();
+        log::debug!("collect_module_renames: Processing module '{module_name}'");
+
+        // Find the module ID for this module name
+        let module_id = match semantic_ctx.graph.get_module_by_name(module_name) {
+            Some(module) => module.module_id,
+            None => {
+                log::warn!("Module '{module_name}' not found in graph");
+                return;
+            }
+        };
+
+        log::debug!("Module '{module_name}' has ID: {module_id:?}");
+
+        // Get all renames for this module from semantic analysis
+        let mut module_renames = FxIndexMap::default();
+
+        // Use ModuleSemanticInfo to get ALL exported symbols from the module
+        if let Some(module_info) = semantic_ctx.semantic_bundler.get_module_info(&module_id) {
+            log::debug!(
+                "Module '{}' exports {} symbols: {:?}",
+                module_name,
+                module_info.exported_symbols.len(),
+                module_info.exported_symbols.iter().collect::<Vec<_>>()
+            );
+
+            // Process all exported symbols from the module
+            for symbol in &module_info.exported_symbols {
+                if let Some(new_name) = semantic_ctx.symbol_registry.get_rename(&module_id, symbol)
+                {
+                    module_renames.insert(symbol.to_string(), new_name.to_string());
+                    log::debug!(
+                        "Module '{module_name}': symbol '{symbol}' renamed to '{new_name}'"
+                    );
+                } else {
+                    // Include non-renamed symbols too - they still need to be in the namespace
+                    module_renames.insert(symbol.to_string(), symbol.to_string());
+                    log::debug!(
+                        "Module '{module_name}': symbol '{symbol}' has no rename, using original \
+                         name"
+                    );
+                }
+            }
+        } else {
+            log::warn!("No semantic info found for module '{module_name}' with ID {module_id:?}");
+        }
+
+        // For inlined modules with __all__, we need to also include symbols from __all__
+        // even if they're not defined in this module (they might be re-exports)
+        if self.inlined_modules.contains(module_name) {
+            log::debug!("Module '{module_name}' is inlined, checking for __all__ exports");
+            if let Some(export_info) = self.module_exports.get(module_name) {
+                log::debug!("Module '{module_name}' export info: {export_info:?}");
+                if let Some(all_exports) = export_info {
+                    log::debug!(
+                        "Module '{}' has __all__ with {} exports: {:?}",
+                        module_name,
+                        all_exports.len(),
+                        all_exports
+                    );
+
+                    // Add any symbols from __all__ that aren't already in module_renames
+                    for export in all_exports {
+                        if !module_renames.contains_key(export) {
+                            // This is a re-exported symbol - use the original name
+                            module_renames.insert(export.clone(), export.clone());
+                            log::debug!(
+                                "Module '{module_name}': adding re-exported symbol '{export}' \
+                                 from __all__"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Store the renames for this module
+        symbol_renames.insert(module_name.to_string(), module_renames);
     }
 
     /// Collect global symbols from modules
