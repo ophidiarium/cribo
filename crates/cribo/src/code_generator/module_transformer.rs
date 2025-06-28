@@ -1,0 +1,688 @@
+//! Module transformation logic for converting Python modules into init functions
+//!
+//! This module handles the complex transformation of Python module ASTs into
+//! initialization functions that can be called to create module objects.
+
+use anyhow::Result;
+use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
+use log::debug;
+use ruff_python_ast::{
+    AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier,
+    ModModule, Stmt, StmtAssign, StmtFunctionDef, StmtGlobal, StmtReturn,
+};
+use ruff_text_size::TextRange;
+
+use crate::code_generator::{
+    bundler::HybridStaticBundler,
+    context::ModuleTransformContext,
+    globals::{GlobalsLifter, transform_globals_in_stmt},
+    import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
+};
+
+/// Transforms a module AST into an initialization function
+pub fn transform_module_to_init_function<'a>(
+    bundler: &'a HybridStaticBundler<'a>,
+    ctx: ModuleTransformContext,
+    mut ast: ModModule,
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+) -> Result<Stmt> {
+    let init_func_name = &bundler.init_functions[ctx.synthetic_name];
+    let mut body = Vec::new();
+
+    // Create module object (returns multiple statements)
+    body.extend(bundler.create_module_object_stmt(ctx.module_name, ctx.module_path));
+
+    // Apply globals lifting if needed
+    let lifted_names = if let Some(ref global_info) = ctx.global_info {
+        if !global_info.global_declarations.is_empty() {
+            let globals_lifter = GlobalsLifter::new_from_global_info(global_info);
+            let lifted_names = globals_lifter.get_lifted_names().clone();
+
+            // Transform the AST to use lifted globals
+            // Create a temporary context::ModuleGlobalInfo for compatibility
+            let context_global_info = crate::code_generator::context::ModuleGlobalInfo::default();
+            bundler.transform_ast_with_lifted_globals(
+                &mut ast,
+                &lifted_names,
+                &context_global_info,
+            );
+
+            Some(lifted_names)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // First, recursively transform all imports in the AST
+    // For wrapper modules, we don't need to defer imports since they run in their own scope
+    let mut wrapper_deferred_imports = Vec::new();
+    let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
+        bundler,
+        module_name: ctx.module_name,
+        module_path: Some(ctx.module_path),
+        symbol_renames,
+        deferred_imports: &mut wrapper_deferred_imports,
+        is_entry_module: false,        // This is not the entry module
+        is_wrapper_init: true,         // This IS a wrapper init function
+        global_deferred_imports: None, // No need for global deferred imports in wrapper modules
+    });
+
+    // Track imports from inlined modules before transformation
+    let mut imports_from_inlined = Vec::new();
+    for stmt in &ast.body {
+        if let Stmt::ImportFrom(import_from) = stmt {
+            // Resolve the module to check if it's inlined
+            let resolved_module = bundler.resolve_relative_import_with_context(
+                import_from,
+                ctx.module_name,
+                Some(ctx.module_path),
+            );
+
+            if let Some(ref module) = resolved_module {
+                // Check if the module is bundled (either inlined or wrapper)
+                let is_bundled = bundler.inlined_modules.contains(module)
+                    || bundler.module_registry.contains_key(module);
+
+                debug!(
+                    "Checking if resolved module '{}' is bundled (inlined: {}, wrapper: {})",
+                    module,
+                    bundler.inlined_modules.contains(module),
+                    bundler.module_registry.contains_key(module)
+                );
+
+                if is_bundled {
+                    // Track all imported names from this bundled module
+                    for alias in &import_from.names {
+                        let imported_name = alias.name.as_str();
+                        debug!(
+                            "Tracking imported name '{imported_name}' from bundled module \
+                             '{module}'"
+                        );
+                        imports_from_inlined.push(imported_name.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    transformer.transform_module(&mut ast);
+
+    // If namespace objects were created, we need types import
+    // (though wrapper modules already have types import)
+    if transformer.created_namespace_objects() {
+        debug!("Namespace objects were created in wrapper module, types import already present");
+    }
+
+    // Store deferred imports to add after module body
+    let deferred_imports_to_add = wrapper_deferred_imports.clone();
+
+    // IMPORTANT: Add import alias assignments FIRST, before processing the module body
+    // This ensures that aliases like 'helper_validate = validate' are available when
+    // the module body code tries to use them (e.g., helper_validate.__name__)
+    for stmt in &deferred_imports_to_add {
+        if let Stmt::Assign(assign) = stmt {
+            // Check if this is a simple name-to-name assignment (import alias)
+            if let [Expr::Name(_target)] = assign.targets.as_slice()
+                && let Expr::Name(_value) = &*assign.value {
+                    // This is an import alias assignment, add it immediately
+                    body.push(stmt.clone());
+                }
+        }
+    }
+
+    // Collect all variables that are referenced by exported functions
+    let mut vars_used_by_exported_functions: FxIndexSet<String> = FxIndexSet::default();
+    for stmt in &ast.body {
+        if let Stmt::FunctionDef(func_def) = stmt
+            && bundler.should_export_symbol(func_def.name.as_ref(), ctx.module_name)
+        {
+            // This function will be exported, collect variables it references
+            bundler.collect_referenced_vars(&func_def.body, &mut vars_used_by_exported_functions);
+        }
+    }
+
+    // Now process the transformed module
+    // We'll do the in-place symbol export as we process each statement
+    let module_scope_symbols_set = if let Some(semantic_bundler) = ctx.semantic_bundler {
+        debug!(
+            "Looking up module ID for '{}' in semantic bundler",
+            ctx.module_name
+        );
+        if let Some(module_id) =
+            bundler.find_module_id_in_semantic_bundler(ctx.module_name, semantic_bundler)
+        {
+            if let Some(module_info) = semantic_bundler.get_module_info(&module_id) {
+                debug!(
+                    "Found module-scope symbols for '{}': {:?}",
+                    ctx.module_name, module_info.module_scope_symbols
+                );
+                // Convert FxHashSet to FxIndexSet
+                let symbols: FxIndexSet<String> =
+                    module_info.module_scope_symbols.iter().cloned().collect();
+                Some(symbols)
+            } else {
+                log::warn!(
+                    "No semantic info found for module '{}' (module_id: {:?})",
+                    ctx.module_name,
+                    module_id
+                );
+                None
+            }
+        } else {
+            log::warn!(
+                "Could not find module ID for '{}' in semantic bundler",
+                ctx.module_name
+            );
+            None
+        }
+    } else {
+        debug!(
+            "No semantic bundler provided for module '{}'",
+            ctx.module_name
+        );
+        None
+    };
+
+    // Process the body with a new recursive approach
+    let processed_body = bundler.process_body_recursive(
+        ast.body,
+        ctx.module_name,
+        module_scope_symbols_set.as_ref(),
+    );
+
+    // Process each statement from the transformed module body
+    for stmt in processed_body {
+        match &stmt {
+            Stmt::Import(_import_stmt) => {
+                // Skip imports that are already hoisted
+                if !bundler.is_hoisted_import(&stmt) {
+                    body.push(stmt.clone());
+                }
+            }
+            Stmt::ImportFrom(import_from) => {
+                // Skip __future__ imports - they cannot appear inside functions
+                if import_from.module.as_ref().map(|m| m.as_str()) == Some("__future__") {
+                    continue;
+                }
+
+                // Skip imports that are already hoisted
+                if !bundler.is_hoisted_import(&stmt) {
+                    body.push(stmt.clone());
+                }
+
+                // Create module attribute assignments for imported names
+                // This ensures that imported symbols are accessible outside the wrapper
+                for alias in &import_from.names {
+                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                    // Check if this symbol should be exported
+                    if bundler.should_export_symbol(local_name, ctx.module_name) {
+                        body.push(bundler.create_module_attr_assignment("module", local_name));
+                    }
+                }
+            }
+            Stmt::ClassDef(class_def) => {
+                // Add class definition
+                body.push(stmt.clone());
+                // Set as module attribute only if it should be exported
+                let symbol_name = class_def.name.to_string();
+                if bundler.should_export_symbol(&symbol_name, ctx.module_name) {
+                    body.push(bundler.create_module_attr_assignment("module", &symbol_name));
+                }
+            }
+            Stmt::FunctionDef(func_def) => {
+                // Clone the function for transformation
+                let mut func_def_clone = func_def.clone();
+
+                // Transform nested functions to use module attributes for module-level vars
+                if let Some(ref global_info) = ctx.global_info {
+                    // Convert semantic_bundler's FxHashSet (aliased as FxIndexSet) to our
+                    // FxIndexSet
+                    let module_vars: FxIndexSet<String> =
+                        global_info.module_level_vars.iter().cloned().collect();
+                    bundler.transform_nested_function_for_module_vars(
+                        &mut func_def_clone,
+                        &module_vars,
+                    );
+                }
+
+                // Add transformed function definition
+                body.push(Stmt::FunctionDef(func_def_clone));
+
+                // Set as module attribute only if it should be exported
+                let symbol_name = func_def.name.to_string();
+                if bundler.should_export_symbol(&symbol_name, ctx.module_name) {
+                    body.push(bundler.create_module_attr_assignment("module", &symbol_name));
+                }
+            }
+            Stmt::Assign(assign) => {
+                // Skip __all__ assignments - they have no meaning for types.SimpleNamespace
+                if let Some(name) = bundler.extract_simple_assign_target(assign)
+                    && name == "__all__"
+                {
+                    continue;
+                }
+
+                // Skip self-referential assignments like `process = process`
+                // These are meaningless in the init function context and cause errors
+                if !bundler.is_self_referential_assignment(assign) {
+                    // Clone and transform the assignment to handle __name__ references
+                    let mut assign_clone = assign.clone();
+                    // Use actual module-level variables if available, but filter to only
+                    // exported ones
+                    let module_level_vars = if let Some(ref global_info) = ctx.global_info {
+                        let all_vars = &global_info.module_level_vars;
+                        let mut exported_vars = FxIndexSet::default();
+                        for var in all_vars {
+                            if bundler.should_export_symbol(var, ctx.module_name) {
+                                exported_vars.insert(var.clone());
+                            }
+                        }
+                        exported_vars
+                    } else {
+                        FxIndexSet::default()
+                    };
+                    transform_expr_for_module_vars(&mut assign_clone.value, &module_level_vars);
+
+                    // For simple assignments, also set as module attribute if it should be
+                    // exported
+                    body.push(Stmt::Assign(assign_clone));
+
+                    // Check if this assignment came from a transformed import
+                    if let Some(name) = bundler.extract_simple_assign_target(assign) {
+                        debug!(
+                            "Checking assignment '{}' in module '{}' (imports_from_inlined: {:?})",
+                            name, ctx.module_name, imports_from_inlined
+                        );
+                        if imports_from_inlined.contains(&name) {
+                            // This was imported from an inlined module, export it
+                            debug!("Exporting imported symbol '{name}' as module attribute");
+                            body.push(bundler.create_module_attr_assignment("module", &name));
+                        } else if let Some(name) = bundler.extract_simple_assign_target(assign) {
+                            // Check if this variable is used by exported functions
+                            if vars_used_by_exported_functions.contains(&name) {
+                                debug!("Exporting '{name}' as it's used by exported functions");
+                                body.push(bundler.create_module_attr_assignment("module", &name));
+                            } else {
+                                // Regular assignment, use the normal export logic
+                                bundler.add_module_attr_if_exported(
+                                    assign,
+                                    ctx.module_name,
+                                    &mut body,
+                                );
+                            }
+                        } else {
+                            // Not a simple assignment
+                            bundler.add_module_attr_if_exported(assign, ctx.module_name, &mut body);
+                        }
+                    }
+                } else {
+                    debug!(
+                        "Skipping self-referential assignment in module '{}': {:?}",
+                        ctx.module_name,
+                        assign.targets.first().and_then(|t| match t {
+                            Expr::Name(name) => Some(name.id.as_str()),
+                            _ => None,
+                        })
+                    );
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                // Clone the try statement
+                let try_clone = try_stmt.clone();
+
+                // Process assignments in try body
+                let mut additional_exports = Vec::new();
+                for stmt in &try_stmt.body {
+                    if let Stmt::Assign(assign) = stmt
+                        && let Some(name) = bundler.extract_simple_assign_target(assign)
+                        && bundler.should_export_symbol(&name, ctx.module_name)
+                    {
+                        additional_exports
+                            .push(bundler.create_module_attr_assignment("module", &name));
+                    }
+                }
+
+                // Process assignments in except handlers
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(eh) = handler;
+                    for stmt in &eh.body {
+                        if let Stmt::Assign(assign) = stmt
+                            && let Some(name) = bundler.extract_simple_assign_target(assign)
+                            && bundler.should_export_symbol(&name, ctx.module_name)
+                        {
+                            additional_exports
+                                .push(bundler.create_module_attr_assignment("module", &name));
+                        }
+                    }
+                }
+
+                // Add the try statement
+                body.push(Stmt::Try(try_clone));
+
+                // Add any module attribute assignments after the try block
+                body.extend(additional_exports);
+            }
+            _ => {
+                // Clone and transform other statements to handle __name__ references
+                let mut stmt_clone = stmt.clone();
+                // Use actual module-level variables if available, but filter to only exported
+                // ones
+                let module_level_vars = if let Some(ref global_info) = ctx.global_info {
+                    let all_vars = &global_info.module_level_vars;
+                    let mut exported_vars = FxIndexSet::default();
+                    for var in all_vars {
+                        if bundler.should_export_symbol(var, ctx.module_name) {
+                            exported_vars.insert(var.clone());
+                        }
+                    }
+                    exported_vars
+                } else {
+                    FxIndexSet::default()
+                };
+                transform_stmt_for_module_vars(&mut stmt_clone, &module_level_vars);
+                body.push(stmt_clone);
+            }
+        }
+    }
+
+    // Initialize lifted globals if any
+    if let Some(ref lifted_names) = lifted_names {
+        for (original_name, lifted_name) in lifted_names {
+            // global __cribo_module_var
+            body.push(Stmt::Global(StmtGlobal {
+                node_index: AtomicNodeIndex::dummy(),
+                names: vec![Identifier::new(lifted_name, TextRange::default())],
+                range: TextRange::default(),
+            }));
+
+            // __cribo_module_var = original_var
+            body.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: lifted_name.clone().into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: original_name.clone().into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            }));
+        }
+    }
+
+    // Set submodules as attributes on this module BEFORE processing deferred imports
+    // This is needed because deferred imports may reference these submodules
+    let current_module_prefix = format!("{}.", ctx.module_name);
+    let mut submodules_to_add = Vec::new();
+
+    // Collect all direct submodules
+    for (module_name, _) in &bundler.module_registry {
+        if module_name.starts_with(&current_module_prefix) {
+            let relative_name = &module_name[current_module_prefix.len()..];
+            // Only handle direct children, not nested submodules
+            if !relative_name.contains('.') {
+                submodules_to_add.push((module_name.clone(), relative_name.to_string()));
+            }
+        }
+    }
+
+    // Also check inlined modules
+    for module_name in &bundler.inlined_modules {
+        if module_name.starts_with(&current_module_prefix) {
+            let relative_name = &module_name[current_module_prefix.len()..];
+            // Only handle direct children, not nested submodules
+            if !relative_name.contains('.') {
+                submodules_to_add.push((module_name.clone(), relative_name.to_string()));
+            }
+        }
+    }
+
+    // Now add the submodules as attributes
+    for (full_name, relative_name) in submodules_to_add {
+        debug!(
+            "Setting submodule {} as attribute {} on {}",
+            full_name, relative_name, ctx.module_name
+        );
+
+        if bundler.inlined_modules.contains(&full_name) {
+            // For inlined submodules, we create a types.SimpleNamespace with the exported
+            // symbols
+            let create_namespace_stmts = bundler.create_namespace_for_inlined_submodule(
+                &full_name,
+                &relative_name,
+                symbol_renames,
+            );
+            body.extend(create_namespace_stmts);
+        } else {
+            // For wrapped submodules, we'll set them up later when they're initialized
+            // For now, just skip - the parent module will get the submodule reference
+            // when the submodule's init function is called
+        }
+    }
+
+    // Add remaining deferred imports after submodule namespaces are created
+    // Skip import alias assignments since they were already added at the beginning
+    for stmt in &deferred_imports_to_add {
+        // Skip simple name-to-name assignments (import aliases) as they were already added
+        let is_import_alias = if let Stmt::Assign(assign) = stmt {
+            matches!(
+                (assign.targets.as_slice(), &*assign.value),
+                ([Expr::Name(_)], Expr::Name(_))
+            )
+        } else {
+            false
+        };
+
+        if is_import_alias {
+            continue; // Already added at the beginning
+        }
+
+        if let Stmt::Assign(assign) = stmt
+            && !bundler.is_self_referential_assignment(assign)
+        {
+            // For deferred imports that are assignments, also set as module attribute if
+            // exported
+            body.push(stmt.clone());
+            bundler.add_module_attr_if_exported(assign, ctx.module_name, &mut body);
+        } else {
+            body.push(stmt.clone());
+        }
+    }
+
+    // Skip __all__ generation - it has no meaning for types.SimpleNamespace objects
+
+    // For imports from inlined modules that don't create assignments,
+    // we still need to set them as module attributes if they're exported
+    for imported_name in imports_from_inlined {
+        if bundler.should_export_symbol(&imported_name, ctx.module_name) {
+            // Check if we already have a module attribute assignment for this
+            let already_assigned = body.iter().any(|stmt| {
+                if let Stmt::Assign(assign) = stmt
+                    && let [Expr::Attribute(attr)] = assign.targets.as_slice()
+                    && let Expr::Name(name) = &*attr.value
+                {
+                    return name.id == "module" && attr.attr == imported_name;
+                }
+                false
+            });
+
+            if !already_assigned {
+                body.push(bundler.create_module_attr_assignment("module", &imported_name));
+            }
+        }
+    }
+
+    // Transform globals() calls to module.__dict__ in the entire body
+    for stmt in &mut body {
+        transform_globals_in_stmt(stmt);
+    }
+
+    // Return the module object
+    body.push(Stmt::Return(StmtReturn {
+        node_index: AtomicNodeIndex::dummy(),
+        value: Some(Box::new(Expr::Name(ExprName {
+            node_index: AtomicNodeIndex::dummy(),
+            id: "module".into(),
+            ctx: ExprContext::Load,
+            range: TextRange::default(),
+        }))),
+        range: TextRange::default(),
+    }));
+
+    // Create the init function WITHOUT decorator - we're not using module cache
+    Ok(Stmt::FunctionDef(StmtFunctionDef {
+        node_index: AtomicNodeIndex::dummy(),
+        name: Identifier::new(init_func_name, TextRange::default()),
+        type_params: None,
+        parameters: Box::new(ruff_python_ast::Parameters {
+            node_index: AtomicNodeIndex::dummy(),
+            posonlyargs: vec![],
+            args: vec![],
+            vararg: None,
+            kwonlyargs: vec![],
+            kwarg: None,
+            range: TextRange::default(),
+        }),
+        returns: None,
+        body,
+        decorator_list: vec![], // No decorator for non-cache mode
+        is_async: false,
+        range: TextRange::default(),
+    }))
+}
+
+/// Transform an expression to use module attributes for module-level variables
+fn transform_expr_for_module_vars(expr: &mut Expr, module_level_vars: &FxIndexSet<String>) {
+    match expr {
+        Expr::Name(name) if name.ctx == ExprContext::Load => {
+            // Check if this is a reference to a module-level variable
+            if module_level_vars.contains(name.id.as_str()) {
+                // Transform to module.var
+                *expr = Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "module".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new(name.id.as_str(), TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+            }
+        }
+        // Recursively handle other expressions
+        Expr::Call(call) => {
+            transform_expr_for_module_vars(&mut call.func, module_level_vars);
+            for arg in &mut call.arguments.args {
+                transform_expr_for_module_vars(arg, module_level_vars);
+            }
+            for kw in &mut call.arguments.keywords {
+                transform_expr_for_module_vars(&mut kw.value, module_level_vars);
+            }
+        }
+        Expr::Attribute(attr) => {
+            transform_expr_for_module_vars(&mut attr.value, module_level_vars);
+        }
+        Expr::BinOp(binop) => {
+            transform_expr_for_module_vars(&mut binop.left, module_level_vars);
+            transform_expr_for_module_vars(&mut binop.right, module_level_vars);
+        }
+        Expr::UnaryOp(unop) => {
+            transform_expr_for_module_vars(&mut unop.operand, module_level_vars);
+        }
+        Expr::If(if_expr) => {
+            transform_expr_for_module_vars(&mut if_expr.test, module_level_vars);
+            transform_expr_for_module_vars(&mut if_expr.body, module_level_vars);
+            transform_expr_for_module_vars(&mut if_expr.orelse, module_level_vars);
+        }
+        Expr::List(list) => {
+            for elem in &mut list.elts {
+                transform_expr_for_module_vars(elem, module_level_vars);
+            }
+        }
+        Expr::Tuple(tuple) => {
+            for elem in &mut tuple.elts {
+                transform_expr_for_module_vars(elem, module_level_vars);
+            }
+        }
+        Expr::Dict(dict) => {
+            for item in &mut dict.items {
+                if let Some(key) = &mut item.key {
+                    transform_expr_for_module_vars(key, module_level_vars);
+                }
+                transform_expr_for_module_vars(&mut item.value, module_level_vars);
+            }
+        }
+        Expr::Subscript(sub) => {
+            transform_expr_for_module_vars(&mut sub.value, module_level_vars);
+            transform_expr_for_module_vars(&mut sub.slice, module_level_vars);
+        }
+        _ => {}
+    }
+}
+
+/// Transform a statement to use module attributes for module-level variables
+fn transform_stmt_for_module_vars(stmt: &mut Stmt, module_level_vars: &FxIndexSet<String>) {
+    match stmt {
+        Stmt::Expr(expr_stmt) => {
+            transform_expr_for_module_vars(&mut expr_stmt.value, module_level_vars);
+        }
+        Stmt::Assign(assign) => {
+            transform_expr_for_module_vars(&mut assign.value, module_level_vars);
+            // Don't transform targets - we're only transforming loads
+        }
+        Stmt::AnnAssign(ann_assign) => {
+            if let Some(value) = &mut ann_assign.value {
+                transform_expr_for_module_vars(value, module_level_vars);
+            }
+        }
+        Stmt::Return(ret) => {
+            if let Some(value) = &mut ret.value {
+                transform_expr_for_module_vars(value, module_level_vars);
+            }
+        }
+        Stmt::If(if_stmt) => {
+            transform_expr_for_module_vars(&mut if_stmt.test, module_level_vars);
+            for stmt in &mut if_stmt.body {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+            for clause in &mut if_stmt.elif_else_clauses {
+                if let Some(test) = &mut clause.test {
+                    transform_expr_for_module_vars(test, module_level_vars);
+                }
+                for stmt in &mut clause.body {
+                    transform_stmt_for_module_vars(stmt, module_level_vars);
+                }
+            }
+        }
+        Stmt::While(while_stmt) => {
+            transform_expr_for_module_vars(&mut while_stmt.test, module_level_vars);
+            for stmt in &mut while_stmt.body {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+            for stmt in &mut while_stmt.orelse {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+        }
+        Stmt::For(for_stmt) => {
+            transform_expr_for_module_vars(&mut for_stmt.iter, module_level_vars);
+            for stmt in &mut for_stmt.body {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+            for stmt in &mut for_stmt.orelse {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+        }
+        _ => {}
+    }
+}

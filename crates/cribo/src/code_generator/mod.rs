@@ -11,6 +11,7 @@ pub mod circular_deps;
 pub mod context;
 pub mod globals;
 pub mod import_transformer;
+pub mod module_transformer;
 
 // Re-export the main bundler and key types
 pub use bundler::HybridStaticBundler;

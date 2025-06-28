@@ -1130,8 +1130,12 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // Otherwise, use standard transformation
         let empty_renames = FxIndexMap::default();
-        self.bundler
-            .rewrite_import_from(import_from.clone(), self.module_name, &empty_renames, self.is_wrapper_init)
+        self.bundler.rewrite_import_from(
+            import_from.clone(),
+            self.module_name,
+            &empty_renames,
+            self.is_wrapper_init,
+        )
     }
 
     /// Transform an expression, rewriting module attribute access to direct references

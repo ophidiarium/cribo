@@ -49,22 +49,33 @@ This document tracks the remaining work to complete the refactoring of `code_gen
 - [x] **Line 399**: `transform_module_to_init_function` - Convert module to init function
   - **Original location**: `code_generator_old.rs:6076-6612`
   - **Large function**: Transforms module body into an init function
-  - **Status**: Stub added in commit a9b309c, implementation pending
-- [ ] **Line 410**: `transform_module_to_cache_init_function` - Convert module for cache initialization
+  - **Status**: ✅ Completed! Implemented in module_transformer.rs with all helper methods:
+    - [x] `collect_referenced_vars` - Collect variables referenced by functions (line 9487) ✅
+    - [x] `find_module_id_in_semantic_bundler` - Find module ID in semantic bundler (line 3167) ✅
+    - [x] `process_body_recursive` - Process module body recursively (line 5933) ✅
+    - [x] `transform_nested_function_for_module_vars` - Transform nested functions (line 6880) ✅
+    - [x] `create_namespace_for_inlined_submodule` - Create namespace for inlined submodules (line 6621) ✅
+    - [x] `transform_ast_with_lifted_globals` - Transform AST with lifted globals (line 8881) ✅
+- [x] **Line 410**: `transform_module_to_cache_init_function` - Convert module for cache initialization
   - **Original location**: `code_generator_old.rs:14177-14210`
   - **Purpose**: Similar to above but for module cache system
-- [ ] **Line 426**: `inline_module` - Inline module implementation
+  - **Completed**: Adds @functools.cache decorator to regular init function
+- [x] **Line 426**: `inline_module` - Inline module implementation
   - **Original location**: `code_generator_old.rs:10868-11072`
   - **Core function**: Handles inlining of module bodies
-- [ ] **Line 436**: `inline_class` - Inline class implementation
+  - **Completed**: Migrated with helper methods for alias resolution and renaming
+- [x] **Line 436**: `inline_class` - Inline class implementation
   - **Original location**: `code_generator_old.rs:12944-13094`
   - **Purpose**: Inlines class definitions with renaming
-- [ ] **Line 468**: `inline_assignment` - Inline assignment implementation
+  - **Completed**: Migrated with full implementation for renaming and **module**/**name** preservation
+- [x] **Line 468**: `inline_assignment` - Inline assignment implementation
   - **Original location**: `code_generator_old.rs:13097-13218`
   - **Purpose**: Handles assignment statement inlining
-- [ ] **Line 486**: `inline_ann_assignment` - Inline annotated assignment implementation
+  - **Completed**: Migrated with namespace module reference checking
+- [x] **Line 486**: `inline_ann_assignment` - Inline annotated assignment implementation
   - **Original location**: `code_generator_old.rs:13221-13298`
   - **Purpose**: Handles annotated assignment inlining
+  - **Completed**: Migrated with full renaming logic for type-annotated variables
 
 ### 6. Import Processing (`bundler.rs`)
 
@@ -222,7 +233,7 @@ Each migrated function should:
 ## Progress Tracking
 
 - [x] Phase 1: Core Infrastructure (3/3 tasks) ✅
-- [ ] Phase 2: Module Processing Pipeline (2/6 tasks) - transform_module_to_init_function stub, process_entry_module_statement
+- [ ] Phase 2: Module Processing Pipeline (2/6 tasks + 6 helper methods) - transform_module_to_init_function partial, process_entry_module_statement complete
 - [x] Phase 3: Import Resolution (3/3 tasks) ✅ - stdlib checking, entry module imports, relative imports
 - [ ] Phase 4: Final Integration (3/4 tasks) - namespace management, build_symbol_dependency_graph, detect_hard_dependencies
 

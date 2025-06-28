@@ -2,6 +2,8 @@ use indexmap::IndexMap as FxIndexMap;
 use ruff_python_ast::{Expr, ExprName, Identifier, Stmt, StmtFunctionDef};
 use rustc_hash::FxHashSet;
 
+use crate::semantic_bundler::ModuleGlobalInfo;
+
 /// Transformer that lifts module-level globals to true global scope
 pub struct GlobalsLifter {
     /// Map from original name to lifted name
@@ -144,6 +146,26 @@ impl GlobalsLifter {
             lifted_names: FxIndexMap::default(),
             lifted_declarations: Vec::new(),
         }
+    }
+
+    /// Create a new GlobalsLifter from module global info
+    pub fn new_from_global_info(global_info: &ModuleGlobalInfo) -> Self {
+        let mut lifter = Self::new();
+        // Process global declarations from the module
+        for global_name in global_info.global_declarations.keys() {
+            let lifted_name = format!(
+                "__cribo_{}_{}",
+                global_info.module_name.replace('.', "_"),
+                global_name
+            );
+            lifter.lifted_names.insert(global_name.clone(), lifted_name);
+        }
+        lifter
+    }
+
+    /// Get the lifted names mapping
+    pub fn get_lifted_names(&self) -> &FxIndexMap<String, String> {
+        &self.lifted_names
     }
 
     /// Process a function and lift its globals
