@@ -61,8 +61,11 @@ commit-msg:
       run: uvx typos {1}
 
 pre-push:
+  files: 'git diff --name-only --cached'
   commands:
-    'disable-dead-code':
+    disable-dead-code:
+      glob:
+        - '**/*.rs'
       run: cargo clippy --workspace -- -F dead_code
 
 post-checkout:
