@@ -5,7 +5,8 @@ use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
 use log::{debug, warn};
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
-    ExprName, Identifier, ModModule, Stmt, StmtAssign, StmtImport, StmtImportFrom,
+    ExprName, ExprStringLiteral, Identifier, ModModule, Stmt, StmtAssign, StmtFunctionDef,
+    StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
     visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
@@ -2780,6 +2781,100 @@ impl<'a> HybridStaticBundler<'a> {
             }
             _ => false,
         }
+    }
+
+    /// Create module object statements (types.SimpleNamespace)
+    fn create_module_object_stmt(&self, module_name: &str, _module_path: &Path) -> Vec<Stmt> {
+        let module_call = Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
+            func: Box::new(Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: "types".into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            arguments: Arguments {
+                node_index: AtomicNodeIndex::dummy(),
+                args: Box::from([]),
+                keywords: Box::from([]),
+                range: TextRange::default(),
+            },
+            range: TextRange::default(),
+        });
+
+        vec![
+            // module = types.SimpleNamespace()
+            Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: "module".into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(module_call),
+                range: TextRange::default(),
+            }),
+            // module.__name__ = "module_name"
+            Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "module".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("__name__", TextRange::default()),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: StringLiteralValue::single(StringLiteral {
+                        node_index: AtomicNodeIndex::dummy(),
+                        range: TextRange::default(),
+                        value: module_name.to_string().into_boxed_str(),
+                        flags: StringLiteralFlags::empty(),
+                    }),
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            }),
+        ]
+    }
+
+    /// Create module attribute assignment
+    fn create_module_attr_assignment(&self, module_var: &str, attr_name: &str) -> Stmt {
+        Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: module_var.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new(attr_name, TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: attr_name.into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        })
     }
 
     /// Transform a module into an initialization function

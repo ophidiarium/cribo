@@ -46,9 +46,10 @@ This document tracks the remaining work to complete the refactoring of `code_gen
 
 ### 5. Module Transformation Pipeline (`bundler.rs`)
 
-- [ ] **Line 399**: `transform_module_to_init_function` - Convert module to init function
+- [x] **Line 399**: `transform_module_to_init_function` - Convert module to init function
   - **Original location**: `code_generator_old.rs:6076-6612`
   - **Large function**: Transforms module body into an init function
+  - **Status**: Stub added in commit a9b309c, implementation pending
 - [ ] **Line 410**: `transform_module_to_cache_init_function` - Convert module for cache initialization
   - **Original location**: `code_generator_old.rs:14177-14210`
   - **Purpose**: Similar to above but for module cache system
