@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
+use log::debug;
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
     ExprName, ExprStringLiteral, Identifier, ModModule, Stmt, StmtAssign, StmtClassDef, StmtImport,
@@ -3151,6 +3152,116 @@ impl<'a> HybridStaticBundler<'a> {
 
         // Fallback with module prefix
         format!("__cribo_renamed_{base_name}")
+    }
+
+    /// Collect unique imports from an import statement
+    fn collect_unique_imports(
+        &self,
+        import_stmt: &StmtImport,
+        seen_modules: &mut FxIndexSet<String>,
+        unique_imports: &mut Vec<(String, Stmt)>,
+    ) {
+        for alias in &import_stmt.names {
+            let module_name = alias.name.as_str();
+            if seen_modules.contains(module_name) {
+                continue;
+            }
+            seen_modules.insert(module_name.to_string());
+            // Create import statement preserving the original alias
+            unique_imports.push((
+                module_name.to_string(),
+                Stmt::Import(StmtImport {
+                    node_index: AtomicNodeIndex::dummy(),
+                    names: vec![Alias {
+                        node_index: AtomicNodeIndex::dummy(),
+                        name: Identifier::new(module_name, TextRange::default()),
+                        asname: alias.asname.clone(),
+                        range: TextRange::default(),
+                    }],
+                    range: TextRange::default(),
+                }),
+            ));
+        }
+    }
+
+    /// Ensure a namespace exists, creating it and any parent namespaces if needed
+    /// Returns statements to create any missing namespaces
+    fn ensure_namespace_exists(&mut self, namespace_path: &str) -> Vec<Stmt> {
+        let mut statements = Vec::new();
+
+        // For dotted names like "models.user", we need to ensure "models" exists first
+        if namespace_path.contains('.') {
+            let parts: Vec<&str> = namespace_path.split('.').collect();
+
+            // Create all parent namespaces
+            for i in 1..=parts.len() {
+                let namespace = parts[..i].join(".");
+
+                if !self.created_namespaces.contains(&namespace) {
+                    debug!("Creating namespace dynamically: {namespace}");
+
+                    if i == 1 {
+                        // Top-level namespace
+                        statements.extend(self.create_namespace_module(&namespace));
+                    } else {
+                        // Nested namespace - create as attribute
+                        let parent = parts[..i - 1].join(".");
+                        let child = parts[i - 1];
+                        statements.push(self.create_namespace_attribute(&parent, child));
+                    }
+
+                    self.created_namespaces.insert(namespace);
+                }
+            }
+        } else {
+            // Simple namespace without dots
+            if !self.created_namespaces.contains(namespace_path) {
+                debug!("Creating simple namespace dynamically: {namespace_path}");
+                statements.extend(self.create_namespace_module(namespace_path));
+                self.created_namespaces.insert(namespace_path.to_string());
+            }
+        }
+
+        statements
+    }
+
+    /// Create a namespace module using types.SimpleNamespace
+    fn create_namespace_module(&self, namespace_name: &str) -> Vec<Stmt> {
+        vec![
+            // namespace = types.SimpleNamespace()
+            Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: namespace_name.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::Call(ExprCall {
+                    node_index: AtomicNodeIndex::dummy(),
+                    func: Box::new(Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: "types".into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    arguments: Arguments {
+                        node_index: AtomicNodeIndex::dummy(),
+                        args: Box::from([]),
+                        keywords: Box::from([]),
+                        range: TextRange::default(),
+                    },
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            }),
+        ]
     }
 
     /// Transform a module into an initialization function
