@@ -5,9 +5,9 @@ use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
 use log::debug;
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
-    ExprContext, ExprName, ExprStringLiteral, Identifier, ModModule, Stmt, StmtAssign,
-    StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
-    StringLiteralValue, visitor::source_order::SourceOrderVisitor,
+    ExprContext, ExprName, ExprStringLiteral, ExprSubscript, Identifier, ModModule, Stmt,
+    StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral,
+    StringLiteralFlags, StringLiteralValue, visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -1534,26 +1534,139 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Generate module cache initialization
     fn generate_module_cache_init(&mut self) -> Stmt {
-        // TODO: Implement module cache initialization
-        Stmt::Pass(ruff_python_ast::StmtPass {
+        // __cribo_module_cache__ = {}
+        let assign = StmtAssign {
             node_index: self.create_node_index(),
+            targets: vec![Expr::Name(ExprName {
+                node_index: self.create_node_index(),
+                id: "__cribo_module_cache__".into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Dict(ruff_python_ast::ExprDict {
+                node_index: self.create_node_index(),
+                items: vec![],
+                range: TextRange::default(),
+            })),
             range: TextRange::default(),
-        })
+        };
+
+        Stmt::Assign(assign)
     }
 
     /// Generate module cache population
     fn generate_module_cache_population(
         &mut self,
-        _modules: &[(String, ModModule, PathBuf, String)],
+        modules: &[(String, ModModule, PathBuf, String)],
     ) -> Vec<Stmt> {
-        // TODO: Implement module cache population
-        Vec::new()
+        let mut stmts = Vec::new();
+
+        // For each module, add: __cribo_module_cache__["module.name"] = _ModuleNamespace()
+        for (module_name, _, _, _) in modules {
+            let assign = StmtAssign {
+                node_index: self.create_node_index(),
+                targets: vec![Expr::Subscript(ExprSubscript {
+                    node_index: self.create_node_index(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: "__cribo_module_cache__".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                        node_index: self.create_node_index(),
+                        value: StringLiteralValue::single(StringLiteral {
+                            node_index: self.create_node_index(),
+                            value: module_name.clone().into_boxed_str(),
+                            flags: StringLiteralFlags::empty(),
+                            range: TextRange::default(),
+                        }),
+                        range: TextRange::default(),
+                    })),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::Call(ExprCall {
+                    node_index: self.create_node_index(),
+                    func: Box::new(Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: "_ModuleNamespace".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    arguments: Arguments {
+                        node_index: self.create_node_index(),
+                        args: Box::from([]),
+                        keywords: Box::from([]),
+                        range: TextRange::default(),
+                    },
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            };
+            stmts.push(Stmt::Assign(assign));
+        }
+
+        stmts
     }
 
     /// Generate sys.modules sync
     fn generate_sys_modules_sync(&mut self) -> Vec<Stmt> {
-        // TODO: Implement sys.modules synchronization
-        Vec::new()
+        let mut stmts = Vec::new();
+
+        // import sys
+        stmts.push(Stmt::Import(StmtImport {
+            node_index: self.create_node_index(),
+            names: vec![Alias {
+                node_index: self.create_node_index(),
+                name: Identifier::new("sys", TextRange::default()),
+                asname: None,
+                range: TextRange::default(),
+            }],
+            range: TextRange::default(),
+        }));
+
+        // sys.modules.update(__cribo_module_cache__)
+        let update_call = Stmt::Expr(ruff_python_ast::StmtExpr {
+            node_index: self.create_node_index(),
+            value: Box::new(Expr::Call(ExprCall {
+                node_index: self.create_node_index(),
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: self.create_node_index(),
+                    value: Box::new(Expr::Attribute(ExprAttribute {
+                        node_index: self.create_node_index(),
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: self.create_node_index(),
+                            id: "sys".into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new("modules", TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("update", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: self.create_node_index(),
+                    args: Box::from([Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: "__cribo_module_cache__".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        });
+        stmts.push(update_call);
+
+        stmts
     }
 
     /// Process wrapper module globals
