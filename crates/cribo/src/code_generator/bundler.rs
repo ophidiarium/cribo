@@ -4020,7 +4020,30 @@ impl<'a> HybridStaticBundler<'a> {
                                 // from abc import ABC)
                                 if !used_by_surviving_code {
                                     // Check if any assignment that uses this import is kept
-                                    // TODO: Complete implementation
+                                    for item in module_dep_graph.items.values() {
+                                        if let crate::cribo_graph::ItemType::Assignment {
+                                            targets,
+                                        } = &item.item_type
+                                        {
+                                            // Check if this assignment reads the import
+                                            if item.read_vars.contains(import_name) {
+                                                // Check if any of the assignment targets are kept
+                                                for target in targets {
+                                                    if used_symbols.contains(target) {
+                                                        log::debug!(
+                                                            "Import '{import_name}' is used by \
+                                                             surviving assignment to '{target}'"
+                                                        );
+                                                        used_by_surviving_code = true;
+                                                        break;
+                                                    }
+                                                }
+                                                if used_by_surviving_code {
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
 
                                 if !used_by_surviving_code {
