@@ -121,35 +121,42 @@ This document tracks the remaining work to complete the refactoring of `code_gen
   - **Original location**: `code_generator_old.rs:13851-13987`
   - **Function**: `detect_hard_dependencies`
   - **Completed**: Implemented in commit 89a09b8
-- [ ] **Line 966**: Sort wrapper modules by dependencies
+- [x] **Line 966**: Sort wrapper modules by dependencies
   - **Original location**: `code_generator_old.rs:3386-3479`
   - **Function**: `sort_wrapped_modules_by_dependencies`
+  - **Completed**: Implemented in commit a70ab12
 
 ### 9. Module Cache Infrastructure (`bundler.rs`)
 
-- [ ] **Line 873**: Generate module cache initialization
+- [x] **Line 873**: Generate module cache initialization
   - **Original location**: `code_generator_old.rs:14039-14059`
   - **Function**: `generate_module_cache_init`
-- [ ] **Line 885**: Populate module cache
+  - **Completed**: Implemented in commit ad77397
+- [x] **Line 885**: Populate module cache
   - **Original location**: `code_generator_old.rs:14061-14115`
   - **Function**: `generate_module_cache_population`
-- [ ] **Line 891**: Implement sys.modules synchronization
+  - **Completed**: Implemented in commit ad77397
+- [x] **Line 891**: Implement sys.modules synchronization
   - **Original location**: `code_generator_old.rs:14117-14175`
   - **Function**: `generate_sys_modules_sync`
+  - **Completed**: Implemented in commit ad77397
 
 ### 10. Code Generation (`bundler.rs`)
 
-- [ ] **Line 864**: Generate module namespace class
+- [x] **Line 864**: Generate module namespace class
   - **Original location**: `code_generator_old.rs:14019-14037`
   - **Function**: `generate_module_namespace_class`
-- [ ] **Line 902**: Process globals
+  - **Completed**: Already implemented (found at line 3965)
+- [x] **Line 902**: Process globals
   - **Original location**: `code_generator_old.rs:9310-9340`
   - **Function**: `process_wrapper_module_globals`
+  - **Completed**: Implemented in commit 1d78036
 - [ ] **Line 912**: Transform module
   - **Note**: Refers to various transformation functions already listed
-- [ ] **Line 925**: Generate module init calls
+- [x] **Line 925**: Generate module init calls
   - **Original location**: `code_generator_old.rs:7670-7809`
   - **Function**: `generate_module_init_call`
+  - **Completed**: Implemented in commit 6705cf0
 - [ ] **Line 937**: Inline modules
   - **Note**: Duplicate of item 5.3 (`inline_module`)
 - [ ] **Line 947**: Create namespace for inlined modules
@@ -159,9 +166,10 @@ This document tracks the remaining work to complete the refactoring of `code_gen
   - **Original location**: `code_generator_old.rs:6615-6619`
   - **Function**: `generate_registries_and_hook`
   - **Completed**: In commit 40cf73f (already had correct implementation)
-- [ ] **Line 987**: Generate submodule attributes
+- [x] **Line 987**: Generate submodule attributes
   - **Original location**: `code_generator_old.rs:7843-8153`
   - **Function**: `generate_submodule_attributes_with_exclusions`
+  - **Completed**: Implemented with helper methods for namespace creation
 
 ### 11. Deduplication (`bundler.rs`)
 

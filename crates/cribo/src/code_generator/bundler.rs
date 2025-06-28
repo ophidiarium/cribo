@@ -96,6 +96,318 @@ pub struct HybridStaticBundler<'a> {
 
 // Implementation block for importlib detection methods
 impl<'a> HybridStaticBundler<'a> {
+    /// Generate submodule attributes for module hierarchy with exclusions
+    pub fn generate_submodule_attributes_with_exclusions(
+        &self,
+        sorted_modules: &[(String, PathBuf, Vec<String>)],
+        final_body: &mut Vec<Stmt>,
+        exclusions: &FxIndexSet<String>,
+    ) {
+        debug!(
+            "generate_submodule_attributes: Starting with {} modules",
+            sorted_modules.len()
+        );
+
+        // Step 1: Identify all namespaces and modules that need to be created/assigned
+        let mut namespace_modules: FxIndexSet<String> = FxIndexSet::default(); // Simple namespace modules to create
+        let mut module_assignments = Vec::new(); // (depth, parent, attr, module_name)
+
+        // First, collect ALL modules that have been initialized (both wrapper and namespace)
+        let mut all_initialized_modules: FxIndexSet<String> = FxIndexSet::default();
+
+        // Add all wrapper modules
+        for (module_name, _, _) in sorted_modules {
+            if self.module_registry.contains_key(module_name) {
+                all_initialized_modules.insert(module_name.clone());
+            }
+        }
+
+        // Now analyze what namespaces are needed based on all initialized modules
+        for module_name in &all_initialized_modules {
+            if !module_name.contains('.') {
+                continue;
+            }
+
+            // This is a dotted module - ensure all parent namespaces exist
+            let parts: Vec<&str> = module_name.split('.').collect();
+
+            // Collect all parent levels that need to exist
+            for i in 1..parts.len() {
+                let parent_path = parts[..i].join(".");
+
+                // If this parent is not already an initialized module, it's a namespace that needs
+                // to be created
+                if !all_initialized_modules.contains(&parent_path) {
+                    if i == 1 {
+                        // Top-level namespace (e.g., 'core', 'models', 'services')
+                        namespace_modules.insert(parent_path);
+                    } else {
+                        // Intermediate namespace (e.g., 'core.database')
+                        // These will be created as attributes after their parent exists
+                        let parent = parts[..i - 1].join(".");
+                        let attr = parts[i - 1];
+                        module_assignments.push((i, parent, attr.to_string(), parent_path));
+                    }
+                }
+            }
+        }
+
+        // Add wrapper module assignments
+        for module_name in &all_initialized_modules {
+            if !module_name.contains('.') {
+                continue;
+            }
+
+            let parts: Vec<&str> = module_name.split('.').collect();
+            let parent = parts[..parts.len() - 1].join(".");
+            let attr = parts[parts.len() - 1];
+
+            // Only add if this is actually a wrapper module
+            if self.module_registry.contains_key(module_name) {
+                module_assignments.push((
+                    parts.len(),
+                    parent,
+                    attr.to_string(),
+                    module_name.clone(),
+                ));
+            }
+        }
+
+        // Step 2: Create top-level namespace modules and wrapper module references
+        let mut created_namespaces: FxIndexSet<String> = FxIndexSet::default();
+
+        // Add all namespaces that were already created via the namespace tracking index
+        for namespace in &self.required_namespaces {
+            created_namespaces.insert(namespace.clone());
+        }
+
+        // First, create references to top-level wrapper modules
+        let mut top_level_wrappers = Vec::new();
+        for module_name in &all_initialized_modules {
+            if !module_name.contains('.') && self.module_registry.contains_key(module_name) {
+                // This is a top-level wrapper module
+                top_level_wrappers.push(module_name.clone());
+            }
+        }
+        top_level_wrappers.sort(); // Deterministic order
+
+        for wrapper in top_level_wrappers {
+            // Skip if this module is imported in the entry module
+            if exclusions.contains(&wrapper) {
+                debug!("Skipping top-level wrapper '{wrapper}' - imported in entry module");
+                created_namespaces.insert(wrapper);
+                continue;
+            }
+
+            debug!("Top-level wrapper '{wrapper}' already initialized, skipping assignment");
+            // Top-level wrapper modules are already initialized via their init functions
+            // No need to create any assignment - the module already exists
+            created_namespaces.insert(wrapper);
+        }
+
+        // Then, create namespace modules
+        let mut sorted_namespaces: Vec<String> = namespace_modules.into_iter().collect();
+        sorted_namespaces.sort(); // Deterministic order
+
+        for namespace in sorted_namespaces {
+            // Skip if this namespace was already created via the namespace tracking index
+            if self.required_namespaces.contains(&namespace) {
+                debug!(
+                    "Skipping top-level namespace '{namespace}' - already created via namespace \
+                     index"
+                );
+                created_namespaces.insert(namespace);
+                continue;
+            }
+
+            // Check if this namespace was already created globally
+            if self.created_namespaces.contains(&namespace) {
+                debug!("Skipping top-level namespace '{namespace}' - already created globally");
+                created_namespaces.insert(namespace);
+                continue;
+            }
+
+            debug!("Creating top-level namespace: {namespace}");
+            final_body.extend(self.create_namespace_module(&namespace));
+            created_namespaces.insert(namespace);
+        }
+
+        // Step 3: Sort module assignments by depth to ensure parents exist before children
+        module_assignments.sort_by_key(|(depth, parent, attr, name)| {
+            (*depth, parent.clone(), attr.clone(), name.clone())
+        });
+
+        // Step 4: Process all assignments in order
+        for (depth, parent, attr, module_name) in module_assignments {
+            debug!("Processing assignment: {parent}.{attr} = {module_name} (depth={depth})");
+
+            // Check if parent exists or will exist
+            let parent_exists = created_namespaces.contains(&parent)
+                || self.module_registry.contains_key(&parent)
+                || parent.is_empty(); // Empty parent means top-level
+
+            if !parent_exists {
+                debug!("Warning: Parent '{parent}' doesn't exist for assignment {parent}.{attr}");
+                continue;
+            }
+
+            if self.module_registry.contains_key(&module_name) {
+                // Check if parent module has this attribute in __all__ (indicating a re-export)
+                // OR if the parent is a wrapper module and the attribute is already defined there
+                let skip_assignment = if let Some(Some(parent_exports)) =
+                    self.module_exports.get(&parent)
+                {
+                    if parent_exports.contains(&attr) {
+                        // Check if this is a symbol re-exported from within the parent module
+                        // rather than the submodule itself
+                        // For example, in mypackage/__init__.py:
+                        // from .config import config  # imports the 'config' instance, not the
+                        // module __all__ = ['config']        # exports the
+                        // instance
+
+                        // In this case, 'config' in parent_exports refers to an imported symbol,
+                        // not the submodule 'mypackage.config'
+                        debug!(
+                            "Skipping submodule assignment for {parent}.{attr} - it's a \
+                             re-exported attribute (not the module itself)"
+                        );
+                        true
+                    } else {
+                        false
+                    }
+                } else if self.module_registry.contains_key(&parent) {
+                    // Parent is a wrapper module - check if it already has this attribute defined
+                    // This handles cases where the wrapper module imports a symbol with the same
+                    // name as a submodule (e.g., from .config import config)
+                    debug!(
+                        "Parent {parent} is a wrapper module, checking if {attr} is already \
+                         defined there"
+                    );
+                    // For now, we'll check if the attribute is in parent_exports
+                    // This may need refinement based on more complex cases
+                    false
+                } else {
+                    false
+                };
+
+                if !skip_assignment {
+                    // Check if this module was imported in the entry module
+                    if exclusions.contains(&module_name) {
+                        debug!(
+                            "Skipping wrapper module assignment '{parent}.{attr} = {module_name}' \
+                             - imported in entry module"
+                        );
+                    } else {
+                        // Check if this would be a redundant self-assignment
+                        let full_target = format!("{parent}.{attr}");
+                        if full_target == module_name {
+                            debug!(
+                                "Skipping redundant self-assignment: {parent}.{attr} = \
+                                 {module_name}"
+                            );
+                        } else {
+                            // This is a wrapper module - assign direct reference
+                            debug!("Assigning wrapper module: {parent}.{attr} = {module_name}");
+                            final_body.push(self.create_dotted_attribute_assignment(
+                                &parent,
+                                &attr,
+                                &module_name,
+                            ));
+                        }
+                    }
+                }
+            } else {
+                // This is an intermediate namespace - skip if already created via namespace index
+                if self.required_namespaces.contains(&module_name) {
+                    debug!(
+                        "Skipping intermediate namespace '{module_name}' - already created via \
+                         namespace index"
+                    );
+                    created_namespaces.insert(module_name);
+                    continue;
+                }
+
+                debug!(
+                    "Creating intermediate namespace: {parent}.{attr} = types.SimpleNamespace()"
+                );
+                final_body.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
+                    targets: vec![Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: parent.clone().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new(&attr, TextRange::default()),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Call(ExprCall {
+                        node_index: AtomicNodeIndex::dummy(),
+                        func: Box::new(Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
+                                id: "types".into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        arguments: ruff_python_ast::Arguments {
+                            node_index: AtomicNodeIndex::dummy(),
+                            args: Box::from([]),
+                            keywords: Box::from([]),
+                            range: TextRange::default(),
+                        },
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+
+                // Set the __name__ attribute
+                final_body.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
+                    targets: vec![Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
+                                id: parent.clone().into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            attr: Identifier::new(&attr, TextRange::default()),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new("__name__", TextRange::default()),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: StringLiteralValue::single(StringLiteral {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: module_name.to_string().into(),
+                            range: TextRange::default(),
+                            flags: StringLiteralFlags::empty(),
+                        }),
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+
+                created_namespaces.insert(module_name);
+            }
+        }
+    }
+
     /// Check if a statement uses importlib
     fn stmt_uses_importlib(stmt: &Stmt) -> bool {
         match stmt {
@@ -918,17 +1230,17 @@ impl<'a> HybridStaticBundler<'a> {
             node_index: self
                 .create_transformed_node(format!("Create namespace object for {namespace}")),
             targets: vec![Expr::Name(ExprName {
-                node_index: self.create_node_index(),
+                node_index: AtomicNodeIndex::dummy(),
                 id: namespace.into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Call(ExprCall {
-                node_index: self.create_node_index(),
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Attribute(ExprAttribute {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "types".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -938,7 +1250,7 @@ impl<'a> HybridStaticBundler<'a> {
                     range: TextRange::default(),
                 })),
                 arguments: Arguments {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     args: Box::from([]),
                     keywords: Box::from([]),
                     range: TextRange::default(),
@@ -956,9 +1268,9 @@ impl<'a> HybridStaticBundler<'a> {
             node_index: self
                 .create_transformed_node(format!("Create namespace attribute {parent}.{child}")),
             targets: vec![Expr::Attribute(ExprAttribute {
-                node_index: self.create_node_index(),
+                node_index: AtomicNodeIndex::dummy(),
                 value: Box::new(Expr::Name(ExprName {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     id: parent.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
@@ -968,11 +1280,11 @@ impl<'a> HybridStaticBundler<'a> {
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Call(ExprCall {
-                node_index: self.create_node_index(),
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Attribute(ExprAttribute {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "types".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -982,7 +1294,7 @@ impl<'a> HybridStaticBundler<'a> {
                     range: TextRange::default(),
                 })),
                 arguments: Arguments {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     args: Box::from([]),
                     keywords: Box::from([]),
                     range: TextRange::default(),
@@ -1536,15 +1848,15 @@ impl<'a> HybridStaticBundler<'a> {
     fn generate_module_cache_init(&mut self) -> Stmt {
         // __cribo_module_cache__ = {}
         let assign = StmtAssign {
-            node_index: self.create_node_index(),
+            node_index: AtomicNodeIndex::dummy(),
             targets: vec![Expr::Name(ExprName {
-                node_index: self.create_node_index(),
+                node_index: AtomicNodeIndex::dummy(),
                 id: "__cribo_module_cache__".into(),
                 ctx: ExprContext::Store,
                 range: TextRange::default(),
             })],
             value: Box::new(Expr::Dict(ruff_python_ast::ExprDict {
-                node_index: self.create_node_index(),
+                node_index: AtomicNodeIndex::dummy(),
                 items: vec![],
                 range: TextRange::default(),
             })),
@@ -1564,19 +1876,19 @@ impl<'a> HybridStaticBundler<'a> {
         // For each module, add: __cribo_module_cache__["module.name"] = _ModuleNamespace()
         for (module_name, _, _, _) in modules {
             let assign = StmtAssign {
-                node_index: self.create_node_index(),
+                node_index: AtomicNodeIndex::dummy(),
                 targets: vec![Expr::Subscript(ExprSubscript {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Name(ExprName {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "__cribo_module_cache__".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
                     slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         value: StringLiteralValue::single(StringLiteral {
-                            node_index: self.create_node_index(),
+                            node_index: AtomicNodeIndex::dummy(),
                             value: module_name.clone().into_boxed_str(),
                             flags: StringLiteralFlags::empty(),
                             range: TextRange::default(),
@@ -1587,15 +1899,15 @@ impl<'a> HybridStaticBundler<'a> {
                     range: TextRange::default(),
                 })],
                 value: Box::new(Expr::Call(ExprCall {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     func: Box::new(Expr::Name(ExprName {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "_ModuleNamespace".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
                     arguments: Arguments {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         args: Box::from([]),
                         keywords: Box::from([]),
                         range: TextRange::default(),
@@ -1616,9 +1928,9 @@ impl<'a> HybridStaticBundler<'a> {
 
         // import sys
         stmts.push(Stmt::Import(StmtImport {
-            node_index: self.create_node_index(),
+            node_index: AtomicNodeIndex::dummy(),
             names: vec![Alias {
-                node_index: self.create_node_index(),
+                node_index: AtomicNodeIndex::dummy(),
                 name: Identifier::new("sys", TextRange::default()),
                 asname: None,
                 range: TextRange::default(),
@@ -1628,15 +1940,15 @@ impl<'a> HybridStaticBundler<'a> {
 
         // sys.modules.update(__cribo_module_cache__)
         let update_call = Stmt::Expr(ruff_python_ast::StmtExpr {
-            node_index: self.create_node_index(),
+            node_index: AtomicNodeIndex::dummy(),
             value: Box::new(Expr::Call(ExprCall {
-                node_index: self.create_node_index(),
+                node_index: AtomicNodeIndex::dummy(),
                 func: Box::new(Expr::Attribute(ExprAttribute {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     value: Box::new(Expr::Attribute(ExprAttribute {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         value: Box::new(Expr::Name(ExprName {
-                            node_index: self.create_node_index(),
+                            node_index: AtomicNodeIndex::dummy(),
                             id: "sys".into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
@@ -1650,9 +1962,9 @@ impl<'a> HybridStaticBundler<'a> {
                     range: TextRange::default(),
                 })),
                 arguments: Arguments {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     args: Box::from([Expr::Name(ExprName {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         id: "__cribo_module_cache__".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -1777,23 +2089,23 @@ impl<'a> HybridStaticBundler<'a> {
                 // First, create a variable to hold the init result
                 let init_result_var = "__cribo_init_result";
                 statements.push(Stmt::Assign(StmtAssign {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Name(ExprName {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         id: init_result_var.into(),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::Call(ExprCall {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         func: Box::new(Expr::Name(ExprName {
-                            node_index: self.create_node_index(),
+                            node_index: AtomicNodeIndex::dummy(),
                             id: init_func_name.as_str().into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
                         })),
                         arguments: Arguments {
-                            node_index: self.create_node_index(),
+                            node_index: AtomicNodeIndex::dummy(),
                             args: Box::from([]),
                             keywords: Box::from([]),
                             range: TextRange::default(),
@@ -1812,15 +2124,15 @@ impl<'a> HybridStaticBundler<'a> {
 
                 // For now, just assign directly
                 statements.push(Stmt::Assign(StmtAssign {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Name(ExprName {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         id: module_name.as_str().into(),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
                     })],
                     value: Box::new(Expr::Name(ExprName {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         id: init_result_var.into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -1833,7 +2145,7 @@ impl<'a> HybridStaticBundler<'a> {
                     // For dotted modules like models.base, create an attribute expression
                     let parts: Vec<&str> = module_name.split('.').collect();
                     let mut expr = Expr::Name(ExprName {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         id: parts[0].into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
@@ -1846,7 +2158,7 @@ impl<'a> HybridStaticBundler<'a> {
                             ExprContext::Load
                         };
                         expr = Expr::Attribute(ExprAttribute {
-                            node_index: self.create_node_index(),
+                            node_index: AtomicNodeIndex::dummy(),
                             value: Box::new(expr),
                             attr: Identifier::new(*part, TextRange::default()),
                             ctx,
@@ -1857,7 +2169,7 @@ impl<'a> HybridStaticBundler<'a> {
                 } else {
                     // For simple modules, use direct name
                     Expr::Name(ExprName {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         id: module_name.as_str().into(),
                         ctx: ExprContext::Store,
                         range: TextRange::default(),
@@ -1867,18 +2179,18 @@ impl<'a> HybridStaticBundler<'a> {
                 // Generate: module_name = __cribo_init_synthetic_name()
                 // or: parent.child = __cribo_init_synthetic_name()
                 statements.push(Stmt::Assign(StmtAssign {
-                    node_index: self.create_node_index(),
+                    node_index: AtomicNodeIndex::dummy(),
                     targets: vec![target_expr],
                     value: Box::new(Expr::Call(ExprCall {
-                        node_index: self.create_node_index(),
+                        node_index: AtomicNodeIndex::dummy(),
                         func: Box::new(Expr::Name(ExprName {
-                            node_index: self.create_node_index(),
+                            node_index: AtomicNodeIndex::dummy(),
                             id: init_func_name.as_str().into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
                         })),
                         arguments: Arguments {
-                            node_index: self.create_node_index(),
+                            node_index: AtomicNodeIndex::dummy(),
                             args: Box::from([]),
                             keywords: Box::from([]),
                             range: TextRange::default(),
@@ -1890,7 +2202,7 @@ impl<'a> HybridStaticBundler<'a> {
             }
         } else {
             statements.push(Stmt::Pass(ruff_python_ast::StmtPass {
-                node_index: self.create_node_index(),
+                node_index: AtomicNodeIndex::dummy(),
                 range: TextRange::default(),
             }));
         }
@@ -2111,7 +2423,7 @@ impl<'a> HybridStaticBundler<'a> {
     ) -> Stmt {
         // TODO: Implement namespace creation for inlined modules
         Stmt::Pass(ruff_python_ast::StmtPass {
-            node_index: self.create_node_index(),
+            node_index: AtomicNodeIndex::dummy(),
             range: TextRange::default(),
         })
     }
@@ -2294,15 +2606,7 @@ impl<'a> HybridStaticBundler<'a> {
         imported_modules
     }
 
-    /// Generate submodule attributes with exclusions
-    fn generate_submodule_attributes_with_exclusions(
-        &mut self,
-        _sorted_modules: &[(String, String)],
-        _final_body: &mut Vec<Stmt>,
-        _exclusions: &FxIndexSet<String>,
-    ) {
-        // TODO: Implement submodule attribute generation
-    }
+    /// Generate submodule attributes with exclusions (moved to earlier in file)
 
     /// Deduplicate deferred imports
     fn deduplicate_deferred_imports_with_existing(
@@ -4136,13 +4440,13 @@ impl<'a> HybridStaticBundler<'a> {
         // class _ModuleNamespace:
         //     pass
         let class_def = StmtClassDef {
-            node_index: self.create_node_index(),
+            node_index: AtomicNodeIndex::dummy(),
             decorator_list: vec![],
             name: Identifier::new("_ModuleNamespace", TextRange::default()),
             type_params: None,
             arguments: None,
             body: vec![Stmt::Pass(ruff_python_ast::StmtPass {
-                node_index: self.create_node_index(),
+                node_index: AtomicNodeIndex::dummy(),
                 range: TextRange::default(),
             })],
             range: TextRange::default(),
@@ -4315,6 +4619,37 @@ impl<'a> HybridStaticBundler<'a> {
         }
 
         statements
+    }
+
+    /// Create a dotted attribute assignment
+    fn create_dotted_attribute_assignment(
+        &self,
+        parent_module: &str,
+        attr_name: &str,
+        full_module_name: &str,
+    ) -> Stmt {
+        Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: parent_module.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new(attr_name, TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: full_module_name.into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        })
     }
 
     /// Create a namespace module using types.SimpleNamespace

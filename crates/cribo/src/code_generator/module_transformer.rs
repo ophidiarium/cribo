@@ -125,10 +125,11 @@ pub fn transform_module_to_init_function<'a>(
         if let Stmt::Assign(assign) = stmt {
             // Check if this is a simple name-to-name assignment (import alias)
             if let [Expr::Name(_target)] = assign.targets.as_slice()
-                && let Expr::Name(_value) = &*assign.value {
-                    // This is an import alias assignment, add it immediately
-                    body.push(stmt.clone());
-                }
+                && let Expr::Name(_value) = &*assign.value
+            {
+                // This is an import alias assignment, add it immediately
+                body.push(stmt.clone());
+            }
         }
     }
 
