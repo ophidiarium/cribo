@@ -101,12 +101,14 @@ This document tracks the remaining work to complete the refactoring of `code_gen
 - [ ] **Line 835**: Implement proper dependency sorting algorithm
   - **Original location**: `code_generator_old.rs:3243-3383`
   - **Function**: `sort_wrapper_modules_by_dependencies`
-- [ ] **Line 847**: Build symbol dependency graph
+- [x] **Line 847**: Build symbol dependency graph
   - **Original location**: `code_generator_old.rs:2990-3044`
   - **Function**: `build_symbol_dependency_graph`
-- [ ] **Line 858**: Detect hard dependencies between modules
+  - **Completed**: Implemented in commit a7f08a9 (connects to circular_deps.rs)
+- [x] **Line 858**: Detect hard dependencies between modules
   - **Original location**: `code_generator_old.rs:13851-13987`
   - **Function**: `detect_hard_dependencies`
+  - **Completed**: Implemented in commit 89a09b8
 - [ ] **Line 966**: Sort wrapper modules by dependencies
   - **Original location**: `code_generator_old.rs:3386-3479`
   - **Function**: `sort_wrapped_modules_by_dependencies`
@@ -222,9 +224,9 @@ Each migrated function should:
 - [x] Phase 1: Core Infrastructure (3/3 tasks) ✅
 - [ ] Phase 2: Module Processing Pipeline (2/6 tasks) - transform_module_to_init_function stub, process_entry_module_statement
 - [x] Phase 3: Import Resolution (3/3 tasks) ✅ - stdlib checking, entry module imports, relative imports
-- [ ] Phase 4: Final Integration (1/4 tasks) - namespace management functions
+- [ ] Phase 4: Final Integration (3/4 tasks) - namespace management, build_symbol_dependency_graph, detect_hard_dependencies
 
-Total: 11/16 major tasks completed (with some partial implementations)
+Total: 13/16 major tasks completed (with some partial implementations)
 
 ## Migration Helpers
 
