@@ -14,9 +14,10 @@ type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
-    ExprContext, ExprName, ExprStringLiteral, ExprSubscript, Identifier, ModModule, Stmt,
-    StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral,
-    StringLiteralFlags, StringLiteralValue, visitor::source_order::SourceOrderVisitor,
+    ExprContext, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, Identifier, Keyword,
+    ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom,
+    StringLiteral, StringLiteralFlags, StringLiteralValue,
+    visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -996,15 +997,155 @@ impl<'a> HybridStaticBundler<'a> {
     pub fn create_module_access_expr(
         &self,
         module_name: &str,
-        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Expr {
-        // TODO: Implementation from original file
-        // For now, just return a simple name expression
-        Expr::Name(ExprName {
-            id: Identifier::new(module_name, TextRange::default()).into(),
-            ctx: ExprContext::Load,
+        // Check if this is a wrapper module
+        if let Some(synthetic_name) = self.module_registry.get(module_name) {
+            // This is a wrapper module - we need to call its init function
+            // This handles modules with invalid Python identifiers like "my-module"
+            let init_func_name = format!("__cribo_init_{synthetic_name}");
+
+            // Create init function call
+            Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
+                func: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: init_func_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })
+        } else if self.inlined_modules.contains(module_name) {
+            // This is an inlined module - create namespace object
+            self.create_namespace_call_for_inlined_module(
+                module_name,
+                symbol_renames.get(module_name),
+            )
+        } else {
+            // This module wasn't bundled - shouldn't happen for static imports
+            log::warn!("Module '{module_name}' referenced in static import but not bundled");
+            Expr::NoneLiteral(ExprNoneLiteral {
+                node_index: AtomicNodeIndex::dummy(),
+                range: TextRange::default(),
+            })
+        }
+    }
+
+    /// Create a namespace call expression for an inlined module
+    fn create_namespace_call_for_inlined_module(
+        &self,
+        module_name: &str,
+        module_renames: Option<&FxIndexMap<String, String>>,
+    ) -> Expr {
+        // Create a types.SimpleNamespace with all the module's symbols
+        let mut keywords = Vec::new();
+        let mut seen_args = FxIndexSet::default();
+
+        // Add all renamed symbols as keyword arguments, avoiding duplicates
+        if let Some(renames) = module_renames {
+            for (original_name, renamed_name) in renames {
+                // Skip if we've already added this argument name
+                if seen_args.contains(original_name) {
+                    log::debug!(
+                        "Skipping duplicate namespace argument '{original_name}' for module \
+                         '{module_name}'"
+                    );
+                    continue;
+                }
+
+                // Check if this symbol survived tree-shaking
+                if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                    && !kept_symbols.contains(&(module_name.to_string(), original_name.clone()))
+                {
+                    log::debug!(
+                        "Skipping tree-shaken symbol '{original_name}' from namespace for module \
+                         '{module_name}'"
+                    );
+                    continue;
+                }
+
+                seen_args.insert(original_name.clone());
+
+                keywords.push(Keyword {
+                    node_index: AtomicNodeIndex::dummy(),
+                    arg: Some(Identifier::new(original_name, TextRange::default())),
+                    value: Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: renamed_name.clone().into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    }),
+                    range: TextRange::default(),
+                });
+            }
+        }
+
+        // Also check if module has module-level variables that weren't renamed
+        if let Some(exports) = self.module_exports.get(module_name)
+            && let Some(export_list) = exports
+        {
+            for export in export_list {
+                // Check if this export was already added as a renamed symbol
+                let was_renamed =
+                    module_renames.is_some_and(|renames| renames.contains_key(export));
+                if !was_renamed && !seen_args.contains(export) {
+                    // Check if this symbol survived tree-shaking
+                    if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                        && !kept_symbols.contains(&(module_name.to_string(), export.clone()))
+                    {
+                        log::debug!(
+                            "Skipping tree-shaken export '{export}' from namespace for module \
+                             '{module_name}'"
+                        );
+                        continue;
+                    }
+
+                    // This export wasn't renamed and wasn't already added, add it directly
+                    seen_args.insert(export.clone());
+                    keywords.push(Keyword {
+                        node_index: AtomicNodeIndex::dummy(),
+                        arg: Some(Identifier::new(export, TextRange::default())),
+                        value: Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: export.clone().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        }),
+                        range: TextRange::default(),
+                    });
+                }
+            }
+        }
+
+        // Create types.SimpleNamespace(**kwargs) call
+        Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
+            func: Box::new(Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: "types".into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            arguments: Arguments {
+                node_index: AtomicNodeIndex::dummy(),
+                args: Box::from([]),
+                keywords: keywords.into_boxed_slice(),
+                range: TextRange::default(),
+            },
             range: TextRange::default(),
-            node_index: Default::default(),
         })
     }
 
