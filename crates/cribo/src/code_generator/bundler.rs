@@ -7406,27 +7406,231 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Rewrite hard dependencies in a module's AST
-    fn rewrite_hard_dependencies_in_module(&self, _ast: &mut ModModule, _module_name: &str) {
-        // TODO: Implementation from original file
-        // This handles rewriting of class base classes for circular dependencies
+    fn rewrite_hard_dependencies_in_module(&self, ast: &mut ModModule, module_name: &str) {
+        log::debug!("Rewriting hard dependencies in module {module_name}");
+
+        for stmt in &mut ast.body {
+            if let Stmt::ClassDef(class_def) = stmt {
+                let class_name = class_def.name.as_str();
+                log::debug!("  Checking class {class_name} in module {module_name}");
+
+                // Check if this class has hard dependencies
+                if let Some(arguments) = &mut class_def.arguments {
+                    for arg in &mut arguments.args {
+                        let base_str = expr_to_dotted_name(arg);
+                        log::debug!("    Base class: {base_str}");
+
+                        // Check against all hard dependencies for this class
+                        for hard_dep in &self.hard_dependencies {
+                            if hard_dep.module_name == module_name
+                                && hard_dep.class_name == class_name
+                            {
+                                log::debug!(
+                                    "      Checking against hard dep: {} -> {}",
+                                    hard_dep.base_class,
+                                    hard_dep.imported_attr
+                                );
+                                if base_str == hard_dep.base_class {
+                                    // Rewrite to use the hoisted import
+                                    // Use the alias if it's mandatory, otherwise use the imported
+                                    // attr
+                                    let name_to_use = if hard_dep.alias_is_mandatory
+                                        && hard_dep.alias.is_some()
+                                    {
+                                        hard_dep
+                                            .alias
+                                            .as_ref()
+                                            .expect(
+                                                "alias should exist when alias_is_mandatory is \
+                                                 true and alias.is_some() is true",
+                                            )
+                                            .clone()
+                                    } else {
+                                        hard_dep.imported_attr.clone()
+                                    };
+
+                                    *arg = Expr::Name(ExprName {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        id: name_to_use.clone().into(),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    });
+                                    log::info!(
+                                        "Rewrote base class {} to {} for class {} in inlined \
+                                         module",
+                                        hard_dep.base_class,
+                                        name_to_use,
+                                        class_name
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Reorder statements in a module based on symbol dependencies for circular modules
     fn reorder_statements_for_circular_module(
         &self,
-        _module_name: &str,
+        module_name: &str,
         statements: Vec<Stmt>,
     ) -> Vec<Stmt> {
-        // TODO: Implementation from original file
-        // For now, return statements as-is
-        statements
+        // Get the ordered symbols for this module from the dependency graph
+        let ordered_symbols = self
+            .symbol_dep_graph
+            .get_module_symbols_ordered(module_name);
+
+        if ordered_symbols.is_empty() {
+            // No ordering information, return statements as-is
+            return statements;
+        }
+
+        log::debug!(
+            "Reordering statements for circular module '{module_name}' based on symbol order: \
+             {ordered_symbols:?}"
+        );
+
+        // Create a map from symbol name to statement
+        let mut symbol_to_stmt: FxIndexMap<String, Stmt> = FxIndexMap::default();
+        let mut other_stmts = Vec::new();
+        let mut imports = Vec::new();
+
+        for stmt in statements {
+            match &stmt {
+                Stmt::FunctionDef(func_def) => {
+                    symbol_to_stmt.insert(func_def.name.to_string(), stmt);
+                }
+                Stmt::ClassDef(class_def) => {
+                    symbol_to_stmt.insert(class_def.name.to_string(), stmt);
+                }
+                Stmt::Assign(assign) => {
+                    if let Some(name) = self.extract_simple_assign_target(assign) {
+                        // Skip self-referential assignments - they'll be handled later
+                        if self.is_self_referential_assignment(assign) {
+                            log::debug!(
+                                "Skipping self-referential assignment '{name}' in circular module \
+                                 reordering"
+                            );
+                            other_stmts.push(stmt);
+                        } else if symbol_to_stmt.contains_key(&name) {
+                            // If we already have a function/class with this name, keep the
+                            // function/class and treat the assignment
+                            // as a regular statement
+                            log::debug!(
+                                "Assignment '{name}' conflicts with existing function/class, \
+                                 keeping function/class"
+                            );
+                            other_stmts.push(stmt);
+                        } else {
+                            symbol_to_stmt.insert(name, stmt);
+                        }
+                    } else {
+                        other_stmts.push(stmt);
+                    }
+                }
+                Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                    // Keep imports at the beginning
+                    imports.push(stmt);
+                }
+                _ => {
+                    // Other statements maintain their relative order
+                    other_stmts.push(stmt);
+                }
+            }
+        }
+
+        // Build the reordered statement list
+        let mut reordered = Vec::new();
+
+        // First, add all imports
+        reordered.extend(imports);
+
+        // Then add symbols in the specified order
+        for symbol in &ordered_symbols {
+            if let Some(stmt) = symbol_to_stmt.shift_remove(symbol) {
+                reordered.push(stmt);
+            }
+        }
+
+        // Add any remaining symbols that weren't in the ordered list
+        reordered.extend(symbol_to_stmt.into_values());
+
+        // Finally, add other statements
+        reordered.extend(other_stmts);
+
+        reordered
     }
 
     /// Reorder statements to ensure proper declaration order
     fn reorder_statements_for_proper_declaration_order(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
-        // TODO: Implementation from original file
-        // For now, return statements as-is
-        statements
+        let mut imports = Vec::new();
+        let mut assignments = Vec::new();
+        let mut self_assignments = Vec::new();
+        let mut functions_and_classes = Vec::new();
+        let mut other_stmts = Vec::new();
+
+        // Categorize statements
+        for stmt in statements {
+            match &stmt {
+                Stmt::Import(_) | Stmt::ImportFrom(_) => {
+                    imports.push(stmt);
+                }
+                Stmt::Assign(assign) => {
+                    // Check if this is a self-assignment (e.g., validate = validate)
+                    let is_self_assignment = if assign.targets.len() == 1 {
+                        if let (Expr::Name(target), Expr::Name(value)) =
+                            (&assign.targets[0], assign.value.as_ref())
+                        {
+                            target.id == value.id
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if is_self_assignment {
+                        // Self-assignments should come after function definitions
+                        self_assignments.push(stmt);
+                    } else {
+                        // Regular module-level variable assignments
+                        assignments.push(stmt);
+                    }
+                }
+                Stmt::AnnAssign(_) => {
+                    // Annotated assignments are regular variable declarations
+                    assignments.push(stmt);
+                }
+                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
+                    // Functions and classes that might reference module-level variables
+                    functions_and_classes.push(stmt);
+                }
+                _ => {
+                    other_stmts.push(stmt);
+                }
+            }
+        }
+
+        // Don't reorder classes - Python supports forward references in type annotations
+        // and reordering can break other dependencies we're not tracking
+        let ordered_functions_and_classes = functions_and_classes;
+
+        // Build the reordered list:
+        // 1. Imports first
+        // 2. Module-level assignments (variables) - but not self-assignments
+        // 3. Functions and classes (ordered by inheritance)
+        // 4. Self-assignments (after functions are defined)
+        // 5. Other statements
+        let mut reordered = Vec::new();
+        reordered.extend(imports);
+        reordered.extend(assignments);
+        reordered.extend(ordered_functions_and_classes);
+        reordered.extend(self_assignments);
+        reordered.extend(other_stmts);
+
+        reordered
     }
 
     /// Resolve import aliases in an expression
@@ -8689,6 +8893,18 @@ impl<'a> HybridStaticBundler<'a> {
         });
 
         statements.push(for_loop);
+    }
+}
+
+/// Convert an expression to a dotted name string
+fn expr_to_dotted_name(expr: &Expr) -> String {
+    match expr {
+        Expr::Name(name) => name.id.as_str().to_string(),
+        Expr::Attribute(attr) => {
+            let base = expr_to_dotted_name(&attr.value);
+            format!("{}.{}", base, attr.attr.as_str())
+        }
+        _ => String::new(),
     }
 }
 

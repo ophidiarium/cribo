@@ -25,6 +25,96 @@ pub struct SymbolDependencyGraph {
 }
 
 impl SymbolDependencyGraph {
+    pub fn new() -> Self {
+        Self {
+            dependencies: FxIndexMap::default(),
+            symbol_definitions: FxIndexSet::default(),
+            module_level_dependencies: FxIndexMap::default(),
+            sorted_symbols: Vec::new(),
+        }
+    }
+
+    /// Get symbols for a specific module in dependency order
+    pub fn get_module_symbols_ordered(&self, module_name: &str) -> Vec<String> {
+        use petgraph::{
+            algo::toposort,
+            graph::{DiGraph, NodeIndex},
+            visit::EdgeRef,
+        };
+        use rustc_hash::FxHashMap;
+
+        // Build a directed graph of symbol dependencies ONLY for this module
+        let mut graph = DiGraph::new();
+        let mut node_map: FxHashMap<String, NodeIndex> = FxHashMap::default();
+        let mut symbols_in_module = Vec::new();
+
+        // Add nodes for all symbols in this specific module
+        for (module, symbol) in &self.symbol_definitions {
+            if module == module_name {
+                let node = graph.add_node(symbol.clone());
+                node_map.insert(symbol.clone(), node);
+                symbols_in_module.push(symbol.clone());
+            }
+        }
+
+        // Add edges for dependencies within this module
+        for ((module, symbol), deps) in &self.module_level_dependencies {
+            if module == module_name
+                && let Some(&from_node) = node_map.get(symbol)
+            {
+                for (dep_module, dep_symbol) in deps {
+                    // Only add edges for dependencies within the same module
+                    if dep_module == module_name
+                        && let Some(&to_node) = node_map.get(dep_symbol)
+                    {
+                        // Edge from dependency to dependent
+                        graph.add_edge(to_node, from_node, ());
+                    }
+                }
+            }
+        }
+
+        // Perform topological sort
+        match toposort(&graph, None) {
+            Ok(sorted_nodes) => {
+                // Return symbols in topological order (dependencies first)
+                sorted_nodes
+                    .into_iter()
+                    .map(|node_idx| graph[node_idx].clone())
+                    .collect()
+            }
+            Err(cycle) => {
+                // If topological sort fails, there's a symbol-level circular dependency
+                // This is a fatal error - we cannot generate correct code
+                let cycle_info = cycle.node_id();
+                let symbol = &graph[cycle_info];
+                log::error!(
+                    "Fatal: Circular dependency detected in module '{module_name}' involving \
+                     symbol '{symbol}'"
+                );
+
+                // Find all symbols involved in the cycle
+                let mut cycle_symbols = vec![symbol.clone()];
+                let current = cycle_info;
+
+                // Walk through edges to find the cycle
+                for edge in graph.edges(current) {
+                    let target = edge.target();
+                    if target != cycle_info {
+                        cycle_symbols.push(graph[target].clone());
+                    } else {
+                        break;
+                    }
+                }
+
+                panic!(
+                    "Cannot bundle due to circular symbol dependency in module '{module_name}': \
+                     {cycle_symbols:?}"
+                );
+            }
+        }
+    }
+
     /// Perform topological sort on symbols within circular modules
     /// Stores symbols in reverse topological order (dependencies first)
     pub fn topological_sort_symbols(
