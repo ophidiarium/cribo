@@ -15,7 +15,7 @@ use crate::{
     code_generator::{
         circular_deps::SymbolDependencyGraph,
         context::{
-            BundleParams, HardDependency, InlineContext, ModuleGlobalInfo, ModuleTransformContext,
+            BundleParams, HardDependency, InlineContext, ModuleTransformContext,
             ProcessGlobalsParams, SemanticContext,
         },
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
@@ -1671,12 +1671,37 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Process wrapper module globals
     fn process_wrapper_module_globals(
-        &mut self,
-        _params: &ProcessGlobalsParams,
-        _module_globals: &mut FxIndexMap<String, ModuleGlobalInfo>,
-        _lifted_declarations: &mut Vec<Stmt>,
+        &self,
+        params: &ProcessGlobalsParams,
+        module_globals: &mut FxIndexMap<String, crate::semantic_bundler::ModuleGlobalInfo>,
+        all_lifted_declarations: &mut Vec<Stmt>,
     ) {
-        // TODO: Implement globals processing
+        // Get module ID from graph
+        let module = match params
+            .semantic_ctx
+            .graph
+            .get_module_by_name(params.module_name)
+        {
+            Some(m) => m,
+            None => return,
+        };
+
+        let module_id = module.module_id;
+        let global_info = params.semantic_ctx.semantic_bundler.analyze_module_globals(
+            module_id,
+            params.ast,
+            params.module_name,
+        );
+
+        // Create GlobalsLifter and collect declarations
+        if !global_info.global_declarations.is_empty() {
+            let globals_lifter =
+                crate::code_generator::globals::GlobalsLifter::new_from_global_info(&global_info);
+            all_lifted_declarations
+                .extend(globals_lifter.get_lifted_declarations().iter().cloned());
+        }
+
+        module_globals.insert(params.module_name.to_string(), global_info);
     }
 
     /// Transform module to cache init function
