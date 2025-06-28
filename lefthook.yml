@@ -60,6 +60,11 @@ commit-msg:
     'check spelling':
       run: uvx typos {1}
 
+pre-push:
+  commands:
+    'disable-dead-code':
+      run: cargo clippy --workspace -- -F dead_code
+
 post-checkout:
   commands:
     cargo-clean:
