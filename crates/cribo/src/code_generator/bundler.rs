@@ -539,19 +539,20 @@ impl<'a> HybridStaticBundler<'a> {
         for stmt in &ast.body {
             if let Stmt::Assign(assign) = stmt
                 && assign.targets.len() == 1
-                    && let Expr::Name(name) = &assign.targets[0]
-                        && name.id.as_str() == "__all__" {
-                            // Try to extract the list of exports
-                            if let Expr::List(list_expr) = &assign.value.as_ref() {
-                                let mut exports = Vec::new();
-                                for elt in &list_expr.elts {
-                                    if let Expr::StringLiteral(s) = elt {
-                                        exports.push(s.value.to_str().to_string());
-                                    }
-                                }
-                                return (true, Some(exports));
-                            }
+                && let Expr::Name(name) = &assign.targets[0]
+                && name.id.as_str() == "__all__"
+            {
+                // Try to extract the list of exports
+                if let Expr::List(list_expr) = &assign.value.as_ref() {
+                    let mut exports = Vec::new();
+                    for elt in &list_expr.elts {
+                        if let Expr::StringLiteral(s) = elt {
+                            exports.push(s.value.to_str().to_string());
                         }
+                    }
+                    return (true, Some(exports));
+                }
+            }
         }
         (false, None)
     }
@@ -612,9 +613,7 @@ impl<'a> HybridStaticBundler<'a> {
                     let namespace = parts[..i].join(".");
                     // Only add as required namespace if it's not an actual module
                     if !all_module_names.contains(&namespace) {
-                        log::debug!(
-                            "Module '{module_name}' requires namespace '{namespace}'"
-                        );
+                        log::debug!("Module '{module_name}' requires namespace '{namespace}'");
                         self.required_namespaces.insert(namespace);
                     }
                 }
@@ -689,9 +688,8 @@ impl<'a> HybridStaticBundler<'a> {
     fn create_namespace_attribute(&mut self, parent: &str, child: &str) -> Stmt {
         // Create: parent.child = types.SimpleNamespace()
         Stmt::Assign(StmtAssign {
-            node_index: self.create_transformed_node(format!(
-                "Create namespace attribute {parent}.{child}"
-            )),
+            node_index: self
+                .create_transformed_node(format!("Create namespace attribute {parent}.{child}")),
             targets: vec![Expr::Attribute(ExprAttribute {
                 node_index: self.create_node_index(),
                 value: Box::new(Expr::Name(ExprName {
@@ -1239,7 +1237,7 @@ impl<'a> HybridStaticBundler<'a> {
         self.find_namespace_imported_modules(&all_modules_for_namespace_check);
 
         // Identify all modules that are part of circular dependencies
-        let mut has_circular_dependencies = false;
+        let mut _has_circular_dependencies = false;
         if let Some(analysis) = params.circular_dep_analysis {
             log::debug!("CircularDependencyAnalysis received:");
             log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
@@ -1254,7 +1252,7 @@ impl<'a> HybridStaticBundler<'a> {
                     self.circular_modules.insert(module.clone());
                 }
             }
-            has_circular_dependencies = !self.circular_modules.is_empty();
+            _has_circular_dependencies = !self.circular_modules.is_empty();
             log::debug!("Circular modules: {:?}", self.circular_modules);
         } else {
             log::debug!("No circular dependency analysis provided");
@@ -1502,13 +1500,13 @@ impl<'a> HybridStaticBundler<'a> {
         }
 
         // Collect global symbols from the entry module first (for compatibility)
-        let global_symbols = self.collect_global_symbols(&modules, params.entry_module_name);
+        let mut global_symbols = self.collect_global_symbols(&modules, params.entry_module_name);
 
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
 
         // Sort wrapper modules by their dependencies
-        let sorted_wrapper_modules =
+        let _sorted_wrapper_modules =
             self.sort_wrapper_modules_by_dependencies(&wrapper_modules_saved, params.graph)?;
 
         // Build symbol-level dependency graph for circular modules if needed
@@ -1543,8 +1541,184 @@ impl<'a> HybridStaticBundler<'a> {
             }
         }
 
-        // TODO: Continue with the rest of the implementation...
-        // This is a large method that needs to be completed step by step
+        // Inline the inlinable modules FIRST to populate symbol_renames
+        // This ensures we know what symbols have been renamed before processing wrapper modules and
+        // namespace hybrids
+        let mut all_deferred_imports = Vec::new();
+        for (module_name, ast, _module_path, _content_hash) in &inlinable_modules {
+            log::debug!("Inlining module '{module_name}'");
+            let mut inlined_stmts = Vec::new();
+            let mut deferred_imports = Vec::new();
+            let mut inline_ctx = InlineContext {
+                module_exports_map: &module_exports_map,
+                global_symbols: &mut global_symbols,
+                module_renames: &mut symbol_renames,
+                inlined_stmts: &mut inlined_stmts,
+                import_aliases: FxIndexMap::default(),
+                deferred_imports: &mut deferred_imports,
+            };
+            self.inline_module(module_name, ast.clone(), _module_path, &mut inline_ctx)?;
+            log::debug!(
+                "Inlined {} statements from module '{}'",
+                inlined_stmts.len(),
+                module_name
+            );
+            final_body.extend(inlined_stmts);
+            // Track deferred imports globally
+            for stmt in &deferred_imports {
+                if let Stmt::Assign(assign) = stmt {
+                    // Check for pattern: symbol = sys.modules['module'].symbol
+                    if let Expr::Attribute(attr) = &assign.value.as_ref()
+                        && let Expr::Subscript(subscript) = &attr.value.as_ref()
+                        && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
+                        && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
+                        && sys_name.id.as_str() == "sys"
+                        && sys_attr.attr.as_str() == "modules"
+                        && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
+                    {
+                        let import_module = lit.value.to_str();
+                        let attr_name = attr.attr.as_str();
+                        log::debug!(
+                            "Registering deferred import: {attr_name} from {import_module} \
+                             (deferred by {module_name})"
+                        );
+                        self.global_deferred_imports.insert(
+                            (import_module.to_string(), attr_name.to_string()),
+                            module_name.to_string(),
+                        );
+                    }
+                }
+            }
+
+            // Filter deferred imports to avoid conflicts
+            // If an inlined module imports a symbol but doesn't export it,
+            // and that symbol would conflict with other imports, skip it
+            for stmt in deferred_imports {
+                let should_include = if let Stmt::Assign(assign) = &stmt {
+                    if let [Expr::Name(target)] = assign.targets.as_slice()
+                        && let Expr::Name(_value) = &*assign.value
+                    {
+                        let symbol_name = target.id.as_str();
+
+                        // Check if this module exports the symbol
+                        let exports_symbol =
+                            if let Some(Some(exports)) = module_exports_map.get(module_name) {
+                                exports.contains(&symbol_name.to_string())
+                            } else {
+                                // No explicit __all__, check if it's a module-level definition
+                                // For now, assume it's not exported if there's no __all__
+                                false
+                            };
+
+                        if !exports_symbol {
+                            // Check if this would conflict with existing deferred imports
+                            let has_conflict = all_deferred_imports.iter().any(|existing| {
+                                if let Stmt::Assign(existing_assign) = existing
+                                    && let [Expr::Name(existing_target)] =
+                                        existing_assign.targets.as_slice()
+                                {
+                                    existing_target.id.as_str() == symbol_name
+                                } else {
+                                    false
+                                }
+                            });
+
+                            if has_conflict {
+                                log::debug!(
+                                    "Skipping deferred import '{symbol_name}' from module \
+                                     '{module_name}' due to conflict"
+                                );
+                                false
+                            } else {
+                                true
+                            }
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    }
+                } else {
+                    true
+                };
+
+                if should_include {
+                    // Check if this deferred import already exists in all_deferred_imports
+                    let is_duplicate = if let Stmt::Assign(assign) = &stmt {
+                        if let Expr::Name(target) = &assign.targets[0] {
+                            let target_name = target.id.as_str();
+
+                            // Check against existing deferred imports
+                            all_deferred_imports.iter().any(|existing| {
+                                if let Stmt::Assign(existing_assign) = existing
+                                    && let [Expr::Name(existing_target)] =
+                                        existing_assign.targets.as_slice()
+                                    && existing_target.id.as_str() == target_name
+                                {
+                                    // Check if the values are the same
+                                    return Self::expr_equals(
+                                        &existing_assign.value,
+                                        &assign.value,
+                                    );
+                                }
+                                false
+                            })
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if !is_duplicate {
+                        // Log what we're adding to deferred imports
+                        if let Stmt::Assign(assign) = &stmt
+                            && let Expr::Name(target) = &assign.targets[0]
+                        {
+                            if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                                let attr_path = self.extract_attribute_path(attr);
+                                log::debug!(
+                                    "Adding to all_deferred_imports: {} = {} (from inlined module \
+                                     '{}')",
+                                    target.id.as_str(),
+                                    attr_path,
+                                    module_name
+                                );
+                            } else if let Expr::Name(value) = &assign.value.as_ref() {
+                                log::debug!(
+                                    "Adding to all_deferred_imports: {} = {} (from inlined module \
+                                     '{}')",
+                                    target.id.as_str(),
+                                    value.id.as_str(),
+                                    module_name
+                                );
+                            }
+                        }
+                        all_deferred_imports.push(stmt);
+                    } else {
+                        log::debug!(
+                            "Skipping duplicate deferred import from module '{module_name}': \
+                             {stmt:?}"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Create namespace objects for inlined modules that are imported as namespaces
+        for (module_name, _, _, _) in &inlinable_modules {
+            if self.namespace_imported_modules.contains_key(module_name) {
+                log::debug!("Creating namespace for inlined module '{module_name}'");
+
+                // Get the symbols that were inlined from this module
+                if let Some(module_rename_map) = symbol_renames.get(module_name) {
+                    // Create a SimpleNamespace for this module
+                    let namespace_stmt = self
+                        .create_namespace_for_inlined_module_static(module_name, module_rename_map);
+                    final_body.push(namespace_stmt);
+                }
+            }
+        }
 
         // Finally, add entry module code (it's always last in topological order)
         // Find the entry module in our modules list
