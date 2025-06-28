@@ -1285,15 +1285,80 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Check if import from is duplicate
-    fn is_duplicate_import_from(&self, _import_from: &StmtImportFrom, _existing: &[Stmt]) -> bool {
-        // TODO: Implement duplicate checking
+    fn is_duplicate_import_from(&self, import_from: &StmtImportFrom, existing_body: &[Stmt]) -> bool {
+        if let Some(ref module) = import_from.module {
+            let module_name = module.as_str();
+            // For third-party imports, check if they're already in the body
+            if !self.is_safe_stdlib_module(module_name) 
+                && !self.is_bundled_module_or_package(module_name) 
+            {
+                return existing_body.iter().any(|existing| {
+                    if let Stmt::ImportFrom(existing_import) = existing {
+                        existing_import.module.as_ref().map(|m| m.as_str()) == Some(module_name)
+                            && Self::import_names_match(&import_from.names, &existing_import.names)
+                    } else {
+                        false
+                    }
+                });
+            }
+        }
         false
     }
 
     /// Check if import is duplicate
-    fn is_duplicate_import(&self, _import: &StmtImport, _existing: &[Stmt]) -> bool {
-        // TODO: Implement duplicate checking
-        false
+    fn is_duplicate_import(&self, import_stmt: &StmtImport, existing_body: &[Stmt]) -> bool {
+        import_stmt.names.iter().any(|alias| {
+            let module_name = alias.name.as_str();
+            // For third-party imports, check if they're already in the body
+            if !self.is_safe_stdlib_module(module_name) 
+                && !self.is_bundled_module_or_package(module_name) 
+            {
+                existing_body.iter().any(|existing| {
+                    if let Stmt::Import(existing_import) = existing {
+                        existing_import.names.iter().any(|existing_alias| {
+                            existing_alias.name == alias.name 
+                                && existing_alias.asname == alias.asname
+                        })
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                false
+            }
+        })
+    }
+
+    /// Check if two import name lists match
+    fn import_names_match(
+        names1: &[Alias],
+        names2: &[Alias],
+    ) -> bool {
+        if names1.len() != names2.len() {
+            return false;
+        }
+
+        // Check if all names match (order doesn't matter)
+        names1.iter().all(|n1| {
+            names2
+                .iter()
+                .any(|n2| n1.name == n2.name && n1.asname == n2.asname)
+        })
+    }
+
+    /// Check if a module is bundled or is a package containing bundled modules
+    fn is_bundled_module_or_package(&self, module_name: &str) -> bool {
+        // Direct check
+        if self.bundled_modules.contains(module_name) {
+            return true;
+        }
+
+        // Check if it's a package containing bundled modules
+        // e.g., if "greetings.greeting" is bundled, then "greetings" is a package
+        let package_prefix = format!("{module_name}.");
+        self.bundled_modules
+            .iter()
+            .any(|bundled| bundled.starts_with(&package_prefix))
     }
 
     /// Extract attribute path from expression

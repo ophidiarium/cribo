@@ -79,9 +79,10 @@ This document tracks the remaining work to complete the refactoring of `code_gen
   - **Original location**: `code_generator_old.rs:7811-7841`
   - **Function**: `get_entry_module_imports`
   - **Completed**: In commit 6592e3c
-- [ ] **Line 2282**: Implement relative import collection
+- [x] **Line 2282**: Implement relative import collection
   - **Original location**: `code_generator_old.rs:10325-10394`
   - **Function**: `collect_direct_relative_imports`
+  - **Completed**: In commit e02167e
 
 ### 7. Statement Processing (`bundler.rs`)
 
@@ -216,10 +217,10 @@ Each migrated function should:
 
 - [x] Phase 1: Core Infrastructure (3/3 tasks) ✅
 - [ ] Phase 2: Module Processing Pipeline (1/6 tasks) - transform_module_to_init_function stub added
-- [ ] Phase 3: Import Resolution (2/3 tasks) - stdlib checking, entry module imports
+- [x] Phase 3: Import Resolution (3/3 tasks) ✅ - stdlib checking, entry module imports, relative imports
 - [ ] Phase 4: Final Integration (0/4 tasks)
 
-Total: 6/16 major tasks completed (with some partial implementations)
+Total: 7/16 major tasks completed (with some partial implementations)
 
 ## Migration Helpers
 
