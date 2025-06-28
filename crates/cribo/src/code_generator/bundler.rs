@@ -1126,9 +1126,13 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Check if two expressions are equal
     fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
-        // TODO: Implement proper expression equality checking
-        // For now, just check if they're the same variant
-        std::mem::discriminant(expr1) == std::mem::discriminant(expr2)
+        match (expr1, expr2) {
+            (Expr::Name(n1), Expr::Name(n2)) => n1.id == n2.id,
+            (Expr::Attribute(a1), Expr::Attribute(a2)) => {
+                a1.attr == a2.attr && Self::expr_equals(&a1.value, &a2.value)
+            }
+            _ => false,
+        }
     }
 
     /// Process entry module statement
