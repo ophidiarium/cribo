@@ -4,10 +4,6 @@ use log::error;
 use ruff_python_ast::ModModule;
 use rustc_hash::FxHashSet;
 
-// use crate::semantic_analysis::ClassDependencyCollector;
-use crate::transformation_context::TransformationContext;
-use crate::visitors::ImportDiscoveryVisitor;
-
 /// Handles symbol-level circular dependency analysis and resolution
 #[derive(Debug, Default)]
 pub struct SymbolDependencyGraph {
@@ -127,20 +123,178 @@ impl SymbolDependencyGraph {
     /// Collect symbol dependencies for a module
     pub fn collect_dependencies(
         &mut self,
-        _module_name: &str,
+        module_name: &str,
         _ast: &ModModule,
-        _transform_context: &TransformationContext,
-        _normalized_imports: &FxIndexMap<String, String>,
+        graph: &crate::cribo_graph::CriboGraph,
+        circular_modules: &FxIndexSet<String>,
     ) {
-        // Use ImportDiscoveryVisitor to find imports
-        let _import_visitor = ImportDiscoveryVisitor::new();
-        // Note: ImportDiscoveryVisitor uses the Visitor trait which expects &ModModule, not &mut
-        // import_visitor.visit_module(ast);
+        // Only analyze modules that are part of circular dependencies
+        if !circular_modules.contains(module_name) {
+            return;
+        }
 
-        // TODO: Implement ClassDependencyCollector to analyze dependencies
-        // For now, this is a placeholder implementation
-        // The actual implementation would analyze class dependencies,
-        // track symbol definitions, and determine module-level dependencies
+        log::debug!("Building symbol dependency graph for circular module: {module_name}");
+
+        // Get the module from the graph
+        if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+            // For each item in the module
+            for item_data in module_dep_graph.items.values() {
+                match &item_data.item_type {
+                    crate::cribo_graph::ItemType::FunctionDef { name } => {
+                        self.analyze_function_dependencies(
+                            module_name,
+                            name,
+                            item_data,
+                            module_dep_graph,
+                            graph,
+                            circular_modules,
+                        );
+                    }
+                    crate::cribo_graph::ItemType::ClassDef { name } => {
+                        self.analyze_class_dependencies(
+                            module_name,
+                            name,
+                            item_data,
+                            module_dep_graph,
+                            graph,
+                            circular_modules,
+                        );
+                    }
+                    crate::cribo_graph::ItemType::Assignment { targets } => {
+                        for target in targets {
+                            self.analyze_assignment_dependencies(
+                                module_name,
+                                target,
+                                item_data,
+                                module_dep_graph,
+                                graph,
+                                circular_modules,
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Analyze dependencies for a class definition
+    fn analyze_class_dependencies(
+        &mut self,
+        module_name: &str,
+        class_name: &str,
+        item_data: &crate::cribo_graph::ItemData,
+        _module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+        graph: &crate::cribo_graph::CriboGraph,
+        circular_modules: &FxIndexSet<String>,
+    ) {
+        let key = (module_name.to_string(), class_name.to_string());
+        let mut all_dependencies = Vec::new();
+        let mut module_level_deps = Vec::new();
+
+        // For classes, check both immediate reads (base classes) and eventual reads (methods)
+        for var in &item_data.read_vars {
+            if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
+                && circular_modules.contains(&dep_module) {
+                    let dep = (dep_module, var.clone());
+                    all_dependencies.push(dep.clone());
+                    // Base classes need to exist at definition time, even within same module
+                    module_level_deps.push(dep);
+                }
+        }
+
+        self.dependencies.insert(key.clone(), all_dependencies);
+        self.module_level_dependencies
+            .insert(key.clone(), module_level_deps);
+        self.symbol_definitions.insert(key);
+    }
+
+    /// Analyze dependencies for a function definition
+    fn analyze_function_dependencies(
+        &mut self,
+        module_name: &str,
+        function_name: &str,
+        item_data: &crate::cribo_graph::ItemData,
+        _module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+        graph: &crate::cribo_graph::CriboGraph,
+        circular_modules: &FxIndexSet<String>,
+    ) {
+        let key = (module_name.to_string(), function_name.to_string());
+        let mut all_dependencies = Vec::new();
+
+        // For functions, we only care about reads that happen during execution
+        for var in &item_data.read_vars {
+            if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
+                && circular_modules.contains(&dep_module) {
+                    let dep = (dep_module, var.clone());
+                    all_dependencies.push(dep);
+                }
+        }
+
+        self.dependencies.insert(key.clone(), all_dependencies);
+        // Functions have no module-level dependencies (they're executed later)
+        self.module_level_dependencies
+            .insert(key.clone(), Vec::new());
+        self.symbol_definitions.insert(key);
+    }
+
+    /// Analyze dependencies for an assignment
+    fn analyze_assignment_dependencies(
+        &mut self,
+        module_name: &str,
+        target_name: &str,
+        item_data: &crate::cribo_graph::ItemData,
+        _module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+        graph: &crate::cribo_graph::CriboGraph,
+        circular_modules: &FxIndexSet<String>,
+    ) {
+        let key = (module_name.to_string(), target_name.to_string());
+        let mut all_dependencies = Vec::new();
+        let mut module_level_deps = Vec::new();
+
+        // For assignments, all reads are module-level dependencies
+        for var in &item_data.read_vars {
+            if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
+                && circular_modules.contains(&dep_module) {
+                    let dep = (dep_module, var.clone());
+                    all_dependencies.push(dep.clone());
+                    module_level_deps.push(dep);
+                }
+        }
+
+        self.dependencies.insert(key.clone(), all_dependencies);
+        self.module_level_dependencies
+            .insert(key.clone(), module_level_deps);
+        self.symbol_definitions.insert(key);
+    }
+
+    /// Find which module defines a symbol
+    fn find_symbol_module(
+        &self,
+        symbol: &str,
+        _current_module: &str,
+        graph: &crate::cribo_graph::CriboGraph,
+    ) -> Option<String> {
+        // Search through all modules in the graph
+        for module_graph in graph.modules.values() {
+            for item_data in module_graph.items.values() {
+                match &item_data.item_type {
+                    crate::cribo_graph::ItemType::FunctionDef { name }
+                    | crate::cribo_graph::ItemType::ClassDef { name } => {
+                        if name == symbol {
+                            return Some(module_graph.module_name.clone());
+                        }
+                    }
+                    crate::cribo_graph::ItemType::Assignment { targets } => {
+                        if targets.contains(&symbol.to_string()) {
+                            return Some(module_graph.module_name.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        None
     }
 
     /// Check if we should sort symbols for the given modules
