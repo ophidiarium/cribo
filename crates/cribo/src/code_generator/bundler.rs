@@ -3,20 +3,30 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
 use ruff_python_ast::{
-    Alias, AtomicNodeIndex, ExceptHandler, Expr, ExprContext, ExprName, Identifier, ModModule,
-    Stmt, StmtImport, StmtImportFrom,
+    Alias, Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
+    ExprName, Identifier, ModModule, Stmt, StmtAssign, StmtImport, StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
 use crate::{
     code_generator::{
         circular_deps::SymbolDependencyGraph,
-        context::{BundleParams, HardDependency},
-        // import_transformer::RecursiveImportTransformerParams, // TODO: Use when implementing
+        context::{
+            BundleParams, HardDependency, InlineContext, ModuleGlobalInfo, ModuleTransformContext,
+            ProcessGlobalsParams, SemanticContext,
+        },
+        import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
     },
     cribo_graph::CriboGraph as DependencyGraph,
     transformation_context::TransformationContext,
 };
+
+/// Direct import collection context
+struct DirectImportContext<'a> {
+    current_module: &'a str,
+    module_path: &'a Path,
+    modules: &'a [(String, ModModule, PathBuf, String)],
+}
 
 /// This approach avoids forward reference issues while maintaining Python module semantics
 pub struct HybridStaticBundler<'a> {
@@ -477,6 +487,91 @@ impl<'a> HybridStaticBundler<'a> {
         vec![Stmt::Import(import_stmt)]
     }
 
+    /// Get synthetic module name using content hash
+    fn get_synthetic_module_name(&self, module_name: &str, content_hash: &str) -> String {
+        // Use only the first 8 characters of the hash for readability
+        let hash_prefix = &content_hash[..8.min(content_hash.len())];
+        let safe_name = module_name.replace(['.', '-'], "_");
+        format!("{safe_name}_{hash_prefix}")
+    }
+
+    /// Check if a string is a valid Python identifier
+    fn is_valid_python_identifier(s: &str) -> bool {
+        if s.is_empty() {
+            return false;
+        }
+        let first_char = s.chars().next().unwrap();
+        if !first_char.is_alphabetic() && first_char != '_' {
+            return false;
+        }
+        s.chars().all(|c| c.is_alphanumeric() || c == '_')
+    }
+
+    /// Check if a module has side effects
+    fn has_side_effects(ast: &ModModule) -> bool {
+        ast.body.iter().any(|stmt| match stmt {
+            // Imports don't count as side effects for our purposes
+            Stmt::Import(_) | Stmt::ImportFrom(_) => false,
+            // Definitions don't count as side effects
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
+            // Annotations and type aliases don't count
+            Stmt::AnnAssign(ann) if ann.value.is_none() => false,
+            Stmt::TypeAlias(_) => false,
+            // __all__ assignment doesn't count
+            Stmt::Assign(assign) => {
+                if assign.targets.len() == 1 {
+                    if let Expr::Name(name) = &assign.targets[0] {
+                        name.id.as_str() != "__all__"
+                    } else {
+                        true
+                    }
+                } else {
+                    true
+                }
+            }
+            // Everything else is a potential side effect
+            _ => true,
+        })
+    }
+
+    /// Extract __all__ exports from a module
+    fn extract_all_exports(&self, ast: &ModModule) -> (bool, Option<Vec<String>>) {
+        for stmt in &ast.body {
+            if let Stmt::Assign(assign) = stmt
+                && assign.targets.len() == 1
+                    && let Expr::Name(name) = &assign.targets[0]
+                        && name.id.as_str() == "__all__" {
+                            // Try to extract the list of exports
+                            if let Expr::List(list_expr) = &assign.value.as_ref() {
+                                let mut exports = Vec::new();
+                                for elt in &list_expr.elts {
+                                    if let Expr::StringLiteral(s) = elt {
+                                        exports.push(s.value.to_str().to_string());
+                                    }
+                                }
+                                return (true, Some(exports));
+                            }
+                        }
+        }
+        (false, None)
+    }
+
+    /// Add a stdlib import to be hoisted
+    fn add_stdlib_import(&mut self, module_name: &str) {
+        self.stdlib_import_from_map
+            .entry(module_name.to_string())
+            .or_default();
+    }
+
+    /// Check if a module is a safe stdlib module
+    fn is_safe_stdlib_module(&self, module_name: &str) -> bool {
+        // TODO: Implement proper stdlib module checking
+        matches!(
+            module_name,
+            "sys" | "os" | "types" | "functools" | "importlib" | "collections" | "itertools"
+        )
+    }
+
     /// Collect future imports from an AST
     fn collect_future_imports_from_ast(&mut self, ast: &ModModule) {
         for stmt in &ast.body {
@@ -496,9 +591,468 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
+    /// Identify required namespaces from module names
+    fn identify_required_namespaces(&mut self, modules: &[(String, ModModule, PathBuf, String)]) {
+        log::debug!(
+            "Identifying required namespaces from {} modules",
+            modules.len()
+        );
+
+        // Collect all module names first
+        let all_module_names: FxIndexSet<String> =
+            modules.iter().map(|(name, _, _, _)| name.clone()).collect();
+
+        // For each module, check if it has parent namespaces
+        for module_name in &all_module_names {
+            if module_name.contains('.') {
+                let parts: Vec<&str> = module_name.split('.').collect();
+
+                // Create all parent namespaces
+                for i in 1..parts.len() {
+                    let namespace = parts[..i].join(".");
+                    // Only add as required namespace if it's not an actual module
+                    if !all_module_names.contains(&namespace) {
+                        log::debug!(
+                            "Module '{module_name}' requires namespace '{namespace}'"
+                        );
+                        self.required_namespaces.insert(namespace);
+                    }
+                }
+            }
+        }
+
+        log::debug!(
+            "Identified {} required namespaces: {:?}",
+            self.required_namespaces.len(),
+            self.required_namespaces
+        );
+    }
+
+    /// Create namespace statements for required namespaces
+    fn create_namespace_statements(&mut self) -> Vec<Stmt> {
+        let mut statements = Vec::new();
+
+        // Sort namespaces by depth to create parent namespaces first
+        let mut sorted_namespaces: Vec<String> = self.required_namespaces.iter().cloned().collect();
+        sorted_namespaces.sort_by_key(|ns| ns.matches('.').count());
+
+        for namespace in sorted_namespaces {
+            if !self.created_namespaces.contains(&namespace) {
+                let stmt = self.create_namespace_object(&namespace);
+                statements.push(stmt);
+                self.created_namespaces.insert(namespace);
+            }
+        }
+
+        statements
+    }
+
+    /// Create a namespace object statement
+    fn create_namespace_object(&mut self, namespace: &str) -> Stmt {
+        // Create: namespace_name = types.SimpleNamespace()
+        Stmt::Assign(StmtAssign {
+            node_index: self
+                .create_transformed_node(format!("Create namespace object for {namespace}")),
+            targets: vec![Expr::Name(ExprName {
+                node_index: self.create_node_index(),
+                id: namespace.into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Call(ExprCall {
+                node_index: self.create_node_index(),
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: self.create_node_index(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: "types".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: self.create_node_index(),
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Create namespace attribute assignment
+    fn create_namespace_attribute(&mut self, parent: &str, child: &str) -> Stmt {
+        // Create: parent.child = types.SimpleNamespace()
+        Stmt::Assign(StmtAssign {
+            node_index: self.create_transformed_node(format!(
+                "Create namespace attribute {parent}.{child}"
+            )),
+            targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: self.create_node_index(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: self.create_node_index(),
+                    id: parent.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new(child, TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Call(ExprCall {
+                node_index: self.create_node_index(),
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: self.create_node_index(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: "types".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: self.create_node_index(),
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Collect imports from a module for hoisting
+    fn collect_imports_from_module(
+        &mut self,
+        ast: &ModModule,
+        module_name: &str,
+        _module_path: &Path,
+    ) {
+        log::debug!("Collecting imports from module: {module_name}");
+
+        for stmt in &ast.body {
+            match stmt {
+                Stmt::ImportFrom(import_from) => {
+                    if let Some(ref module) = import_from.module {
+                        let module_str = module.as_str();
+
+                        // Skip __future__ imports (handled separately)
+                        if module_str == "__future__" {
+                            continue;
+                        }
+
+                        // Check if this is a safe stdlib module
+                        if self.is_safe_stdlib_module(module_str) {
+                            let import_map = self
+                                .stdlib_import_from_map
+                                .entry(module_str.to_string())
+                                .or_default();
+
+                            for alias in &import_from.names {
+                                let name = alias.name.as_str();
+                                let alias_name =
+                                    alias.asname.as_ref().map(|a| a.as_str().to_string());
+                                import_map.insert(name.to_string(), alias_name);
+                            }
+                        }
+                    }
+                }
+                Stmt::Import(import_stmt) => {
+                    // Track regular import statements for stdlib modules
+                    for alias in &import_stmt.names {
+                        let module_name = alias.name.as_str();
+                        if self.is_safe_stdlib_module(module_name) && alias.asname.is_none() {
+                            self.stdlib_import_statements.push(stmt.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Collect module renames from semantic analysis
+    fn collect_module_renames(
+        &self,
+        module_name: &str,
+        _semantic_ctx: &SemanticContext,
+        symbol_renames: &mut FxIndexMap<String, FxIndexMap<String, String>>,
+    ) {
+        // TODO: Implement based on semantic analysis
+        // For now, just ensure the module has an entry
+        symbol_renames.entry(module_name.to_string()).or_default();
+    }
+
+    /// Collect global symbols from modules
+    fn collect_global_symbols(
+        &self,
+        modules: &[(String, ModModule, PathBuf, String)],
+        entry_module_name: &str,
+    ) -> FxIndexSet<String> {
+        let mut global_symbols = FxIndexSet::default();
+
+        // Find entry module and collect its top-level symbols
+        if let Some((_, ast, _, _)) = modules
+            .iter()
+            .find(|(name, _, _, _)| name == entry_module_name)
+        {
+            for stmt in &ast.body {
+                match stmt {
+                    Stmt::FunctionDef(func_def) => {
+                        global_symbols.insert(func_def.name.to_string());
+                    }
+                    Stmt::ClassDef(class_def) => {
+                        global_symbols.insert(class_def.name.to_string());
+                    }
+                    Stmt::Assign(assign) => {
+                        for target in &assign.targets {
+                            if let Expr::Name(name) = target {
+                                global_symbols.insert(name.id.to_string());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        global_symbols
+    }
+
+    /// Sort wrapper modules by dependencies
+    fn sort_wrapper_modules_by_dependencies(
+        &self,
+        wrapper_modules: &[(String, ModModule, PathBuf, String)],
+        _graph: &DependencyGraph,
+    ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
+        // TODO: Implement proper dependency sorting
+        // For now, just return in original order
+        Ok(wrapper_modules.to_vec())
+    }
+
+    /// Build symbol dependency graph for circular modules
+    fn build_symbol_dependency_graph(
+        &mut self,
+        _modules: &[(String, ModModule, PathBuf, String)],
+        _graph: &DependencyGraph,
+        _semantic_ctx: &SemanticContext,
+    ) {
+        // TODO: Implement symbol dependency graph building
+        log::debug!("Building symbol dependency graph - not yet implemented");
+    }
+
+    /// Detect hard dependencies in a module
+    fn detect_hard_dependencies(
+        &self,
+        _module_name: &str,
+        _ast: &ModModule,
+        _import_map: &FxIndexMap<String, (String, Option<String>)>,
+    ) -> Vec<HardDependency> {
+        // TODO: Implement hard dependency detection
+        Vec::new()
+    }
+
+    /// Generate module namespace class
+    fn generate_module_namespace_class(&mut self) -> Stmt {
+        // TODO: Implement module namespace class generation
+        Stmt::Pass(ruff_python_ast::StmtPass {
+            node_index: self.create_node_index(),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Generate module cache initialization
+    fn generate_module_cache_init(&mut self) -> Stmt {
+        // TODO: Implement module cache initialization
+        Stmt::Pass(ruff_python_ast::StmtPass {
+            node_index: self.create_node_index(),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Generate module cache population
+    fn generate_module_cache_population(
+        &mut self,
+        _modules: &[(String, ModModule, PathBuf, String)],
+    ) -> Vec<Stmt> {
+        // TODO: Implement module cache population
+        Vec::new()
+    }
+
+    /// Generate sys.modules sync
+    fn generate_sys_modules_sync(&mut self) -> Vec<Stmt> {
+        // TODO: Implement sys.modules synchronization
+        Vec::new()
+    }
+
+    /// Process wrapper module globals
+    fn process_wrapper_module_globals(
+        &mut self,
+        _params: &ProcessGlobalsParams,
+        _module_globals: &mut FxIndexMap<String, ModuleGlobalInfo>,
+        _lifted_declarations: &mut Vec<Stmt>,
+    ) {
+        // TODO: Implement globals processing
+    }
+
+    /// Transform module to cache init function
+    fn transform_module_to_cache_init_function(
+        &mut self,
+        _ctx: ModuleTransformContext,
+        _ast: ModModule,
+        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Result<Stmt> {
+        // TODO: Implement module transformation
+        Ok(Stmt::Pass(ruff_python_ast::StmtPass {
+            node_index: self.create_node_index(),
+            range: TextRange::default(),
+        }))
+    }
+
+    /// Generate module init call
+    fn generate_module_init_call(
+        &mut self,
+        _synthetic_name: &str,
+        _temp_names: &mut FxIndexSet<String>,
+    ) -> Vec<Stmt> {
+        // TODO: Implement module init call generation
+        Vec::new()
+    }
+
+    /// Inline a module
+    fn inline_module(
+        &mut self,
+        _module_name: &str,
+        _ast: ModModule,
+        _module_path: &Path,
+        _ctx: &mut InlineContext,
+    ) -> Result<()> {
+        // TODO: Implement module inlining
+        Ok(())
+    }
+
+    /// Create namespace for inlined module
+    fn create_namespace_for_inlined_module_static(
+        &mut self,
+        _module_name: &str,
+        _module_renames: &FxIndexMap<String, String>,
+    ) -> Stmt {
+        // TODO: Implement namespace creation for inlined modules
+        Stmt::Pass(ruff_python_ast::StmtPass {
+            node_index: self.create_node_index(),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Generate registries and hook
+    fn generate_registries_and_hook(&mut self) -> Vec<Stmt> {
+        // TODO: Implement registries and hook generation
+        Vec::new()
+    }
+
+    /// Sort wrapped modules by dependencies
+    fn sort_wrapped_modules_by_dependencies(
+        &self,
+        _wrapped_modules: &[String],
+        _sorted_modules: &[(String, String)],
+    ) -> Vec<String> {
+        // TODO: Implement proper dependency sorting
+        _wrapped_modules.to_vec()
+    }
+
+    /// Get imports from entry module
+    fn get_entry_module_imports(
+        &self,
+        _modules: &[(String, ModModule, PathBuf, String)],
+        _entry_module_name: &str,
+    ) -> FxIndexSet<String> {
+        // TODO: Implement entry module import collection
+        FxIndexSet::default()
+    }
+
+    /// Generate submodule attributes with exclusions
+    fn generate_submodule_attributes_with_exclusions(
+        &mut self,
+        _sorted_modules: &[(String, String)],
+        _final_body: &mut Vec<Stmt>,
+        _exclusions: &FxIndexSet<String>,
+    ) {
+        // TODO: Implement submodule attribute generation
+    }
+
+    /// Deduplicate deferred imports
+    fn deduplicate_deferred_imports_with_existing(
+        &self,
+        _imports: Vec<Stmt>,
+        _existing: &[Stmt],
+    ) -> Vec<Stmt> {
+        // TODO: Implement deduplication
+        _imports
+    }
+
+    /// Check if import from is duplicate
+    fn is_duplicate_import_from(&self, _import_from: &StmtImportFrom, _existing: &[Stmt]) -> bool {
+        // TODO: Implement duplicate checking
+        false
+    }
+
+    /// Check if import is duplicate
+    fn is_duplicate_import(&self, _import: &StmtImport, _existing: &[Stmt]) -> bool {
+        // TODO: Implement duplicate checking
+        false
+    }
+
+    /// Extract attribute path from expression
+    fn extract_attribute_path(&self, attr: &ExprAttribute) -> String {
+        let mut parts = Vec::new();
+        let mut current = attr;
+
+        loop {
+            parts.push(current.attr.as_str());
+            match &*current.value {
+                Expr::Attribute(parent_attr) => current = parent_attr,
+                Expr::Name(name) => {
+                    parts.push(name.id.as_str());
+                    break;
+                }
+                _ => break,
+            }
+        }
+
+        parts.reverse();
+        parts.join(".")
+    }
+
+    /// Check if two expressions are equal
+    fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
+        // TODO: Implement proper expression equality checking
+        // For now, just check if they're the same variant
+        std::mem::discriminant(expr1) == std::mem::discriminant(expr2)
+    }
+
+    /// Process entry module statement
+    fn process_entry_module_statement(
+        &mut self,
+        stmt: &mut Stmt,
+        _renames: &FxIndexMap<String, String>,
+        final_body: &mut Vec<Stmt>,
+    ) {
+        // TODO: Implement entry module statement processing
+        final_body.push(stmt.clone());
+    }
+
     /// Bundle multiple modules using the hybrid approach
     pub fn bundle_modules(&mut self, params: BundleParams<'_>) -> Result<ModModule> {
-        let final_body = Vec::new();
+        let mut final_body = Vec::new();
 
         // Store tree shaking decisions if provided
         if let Some(shaker) = params.tree_shaker {
@@ -602,13 +1156,550 @@ impl<'a> HybridStaticBundler<'a> {
         // Trim unused imports from all modules
         // Note: stdlib import normalization now happens in the orchestrator
         // before dependency graph building, so imports are already normalized
-        let _modules = self.trim_unused_imports_from_modules(
+        let mut modules = self.trim_unused_imports_from_modules(
             params.modules,
             params.graph,
             params.tree_shaker,
         )?;
 
-        // TODO: Implement the rest of the bundling logic - need to port over 1700+ lines
+        // Index all module ASTs to assign node indices and initialize transformation context
+        log::debug!("Indexing {} modules", modules.len());
+        let mut module_indices = Vec::new();
+        let mut total_nodes = 0u32;
+        let mut module_id = 0u32;
+
+        // Create a mapping from module name to module ID for debugging
+        let mut module_id_map: FxIndexMap<String, u32> = FxIndexMap::default();
+
+        for (module_name, ast, path, _content_hash) in &mut modules {
+            let indexed = crate::ast_indexer::index_module_with_id(ast, module_id);
+            let node_count = indexed.node_count;
+            log::debug!(
+                "Module {} (ID: {}) indexed with {} nodes (indices {}-{})",
+                module_name,
+                module_id,
+                node_count,
+                module_id * crate::ast_indexer::MODULE_INDEX_RANGE,
+                module_id * crate::ast_indexer::MODULE_INDEX_RANGE + node_count - 1
+            );
+            module_id_map.insert(module_name.clone(), module_id);
+            module_indices.push((module_name.clone(), path.clone(), indexed));
+            total_nodes += node_count;
+            module_id += 1;
+        }
+
+        // Initialize transformation context
+        // Start new node indices after all module ranges
+        self.transformation_context = TransformationContext::new();
+        let starting_index = module_id * crate::ast_indexer::MODULE_INDEX_RANGE;
+        for _ in 0..starting_index {
+            self.transformation_context.next_node_index();
+        }
+        log::debug!(
+            "Transformation context initialized. Module count: {module_id}, Total nodes: \
+             {total_nodes}, New nodes start at: {starting_index}"
+        );
+
+        // Store module ASTs for re-export resolution
+        self.module_asts = Some(modules.clone());
+
+        // Store entry path for relative path calculation
+        if let Some((_, entry_path, _)) = params.sorted_modules.last() {
+            self.entry_path = Some(entry_path.to_string_lossy().to_string());
+        }
+
+        // Track bundled modules
+        for (module_name, _, _, _) in &modules {
+            self.bundled_modules.insert(module_name.clone());
+        }
+
+        // Check which modules are imported directly (e.g., import module_name)
+        let directly_imported_modules =
+            self.find_directly_imported_modules(&modules, params.entry_module_name);
+        log::debug!("Directly imported modules: {directly_imported_modules:?}");
+
+        // Find modules that are imported as namespaces (e.g., from models import base)
+        // We need to include the entry module in this analysis since it might contain namespace
+        // imports
+        let mut all_modules_for_namespace_check = modules.clone();
+
+        // Find the entry module from the topologically sorted modules
+        for (module_name, ast, module_path, content_hash) in &modules {
+            if module_name == params.entry_module_name {
+                all_modules_for_namespace_check.push((
+                    module_name.clone(),
+                    ast.clone(),
+                    module_path.clone(),
+                    content_hash.clone(),
+                ));
+                break;
+            }
+        }
+
+        self.find_namespace_imported_modules(&all_modules_for_namespace_check);
+
+        // Identify all modules that are part of circular dependencies
+        let mut has_circular_dependencies = false;
+        if let Some(analysis) = params.circular_dep_analysis {
+            log::debug!("CircularDependencyAnalysis received:");
+            log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
+            log::debug!("  Unresolvable cycles: {:?}", analysis.unresolvable_cycles);
+            for group in &analysis.resolvable_cycles {
+                for module in &group.modules {
+                    self.circular_modules.insert(module.clone());
+                }
+            }
+            for group in &analysis.unresolvable_cycles {
+                for module in &group.modules {
+                    self.circular_modules.insert(module.clone());
+                }
+            }
+            has_circular_dependencies = !self.circular_modules.is_empty();
+            log::debug!("Circular modules: {:?}", self.circular_modules);
+        } else {
+            log::debug!("No circular dependency analysis provided");
+        }
+
+        // Separate modules into inlinable and wrapper modules
+        // Note: modules are already normalized before unused import trimming
+        let mut inlinable_modules = Vec::new();
+        let mut wrapper_modules = Vec::new();
+        let mut module_exports_map: FxIndexMap<String, Option<Vec<String>>> = FxIndexMap::default();
+
+        for (module_name, ast, module_path, content_hash) in &modules {
+            log::debug!("Processing module: '{module_name}'");
+            if module_name == params.entry_module_name {
+                continue;
+            }
+
+            // Extract __all__ exports from the module
+            let (has_explicit_all, module_exports) = self.extract_all_exports(ast);
+            if has_explicit_all {
+                self.modules_with_explicit_all.insert(module_name.clone());
+            }
+            module_exports_map.insert(module_name.clone(), module_exports.clone());
+
+            // Check if module is imported as a namespace
+            let is_namespace_imported = self.namespace_imported_modules.contains_key(module_name);
+
+            if is_namespace_imported {
+                log::debug!(
+                    "Module '{}' is imported as namespace by: {:?}",
+                    module_name,
+                    self.namespace_imported_modules.get(module_name)
+                );
+            }
+
+            // With full static bundling, we only need to wrap modules with side effects
+            // All imports are rewritten at bundle time, so namespace imports, direct imports,
+            // and circular dependencies can all be handled through static transformation
+            let has_side_effects = Self::has_side_effects(ast);
+
+            // Check if this module has an invalid identifier (can't be imported normally)
+            // These modules are likely imported via importlib and need to be wrapped
+            // Note: Module names with dots are valid (e.g., "core.utils.helpers"), so we only
+            // check if the module name itself (without dots) is invalid
+            let module_base_name = module_name.split('.').next_back().unwrap_or(module_name);
+            let has_invalid_identifier = !Self::is_valid_python_identifier(module_base_name);
+
+            if has_side_effects || has_invalid_identifier {
+                if has_invalid_identifier {
+                    log::debug!(
+                        "Module '{module_name}' has invalid Python identifier - using wrapper \
+                         approach"
+                    );
+                } else {
+                    log::debug!("Module '{module_name}' has side effects - using wrapper approach");
+                }
+
+                wrapper_modules.push((
+                    module_name.clone(),
+                    ast.clone(),
+                    module_path.clone(),
+                    content_hash.clone(),
+                ));
+            } else {
+                log::debug!("Module '{module_name}' has no side effects - can be inlined");
+                inlinable_modules.push((
+                    module_name.clone(),
+                    ast.clone(),
+                    module_path.clone(),
+                    content_hash.clone(),
+                ));
+            }
+        }
+
+        // Track which modules will be inlined (before wrapper module generation)
+        for (module_name, _, _, _) in &inlinable_modules {
+            self.inlined_modules.insert(module_name.clone());
+            // Also store module exports for inlined modules
+            self.module_exports.insert(
+                module_name.clone(),
+                module_exports_map.get(module_name).cloned().flatten(),
+            );
+        }
+
+        // Identify required namespaces BEFORE inlining any modules
+        // This is crucial for cases like 'requests' where the entry module has submodules
+        let all_modules_for_namespace_detection = modules
+            .iter()
+            .map(|(name, ast, path, hash)| (name.clone(), ast.clone(), path.clone(), hash.clone()))
+            .collect::<Vec<_>>();
+        self.identify_required_namespaces(&all_modules_for_namespace_detection);
+
+        // If we need to create namespace statements, ensure types import is available
+        if !self.required_namespaces.is_empty() {
+            log::debug!(
+                "Need to create {} namespace statements - adding types import",
+                self.required_namespaces.len()
+            );
+            self.add_stdlib_import("types");
+
+            // Create namespace statements immediately after identifying them
+            // This ensures namespaces exist before any module code that might reference them
+            log::debug!(
+                "Creating {} namespace statements before module inlining",
+                self.required_namespaces.len()
+            );
+            let namespace_statements = self.create_namespace_statements();
+            final_body.extend(namespace_statements);
+
+            // For wrapper modules that are submodules (e.g., requests.compat),
+            // we need to create placeholder attributes on their parent namespaces
+            // so that inlined code can reference them before they're initialized
+            for (module_name, _, _, _) in &modules {
+                if module_name.contains('.') && module_name != "__init__" {
+                    // Check if this is a wrapper module
+                    let is_wrapper = modules.iter().any(|(name, ast, _, _)| {
+                        name == module_name && Self::has_side_effects(ast)
+                    });
+
+                    if is_wrapper {
+                        // Create a placeholder namespace attribute for this wrapper module
+                        let parts: Vec<&str> = module_name.split('.').collect();
+                        if parts.len() == 2 {
+                            // Simple case like "requests.compat"
+                            let parent = parts[0];
+                            let child = parts[1];
+
+                            // Check if the full namespace was already created
+                            if !self.required_namespaces.contains(module_name) {
+                                log::debug!(
+                                    "Creating placeholder namespace attribute {parent}.{child} \
+                                     for wrapper module"
+                                );
+                                let placeholder_stmt =
+                                    self.create_namespace_attribute(parent, child);
+                                final_body.push(placeholder_stmt);
+                            } else {
+                                log::debug!(
+                                    "Skipping placeholder namespace attribute {parent}.{child} - \
+                                     already created as full namespace"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Now check if entry module has direct imports of inlined modules that have exports
+        let needs_types_for_inlined_imports = if let Some((_, ast, _, _)) = modules
+            .iter()
+            .find(|(name, _, _, _)| name == params.entry_module_name)
+        {
+            ast.body.iter().any(|stmt| {
+                if let Stmt::Import(import_stmt) = stmt {
+                    import_stmt.names.iter().any(|alias| {
+                        let module_name = alias.name.as_str();
+                        // Check for direct imports of inlined modules that have exports
+                        if self.inlined_modules.contains(module_name) {
+                            // Check if the module has exports
+                            if let Some(Some(exports)) = self.module_exports.get(module_name) {
+                                let has_exports = !exports.is_empty();
+                                if has_exports {
+                                    log::debug!(
+                                        "Direct import of inlined module '{module_name}' with \
+                                         exports: {exports:?}"
+                                    );
+                                }
+                                return has_exports;
+                            }
+                        }
+                        false
+                    })
+                } else {
+                    false
+                }
+            })
+        } else {
+            false
+        };
+
+        if needs_types_for_inlined_imports {
+            log::debug!("Adding types import for inlined module imports in entry module");
+            self.add_stdlib_import("types");
+        }
+
+        // Collect imports from ALL modules (after normalization) for hoisting
+        // This must be done on the normalized modules to capture stdlib imports
+        // that were converted from "from X import Y" to "import X" format
+        for (module_name, ast, module_path, _) in &modules {
+            log::debug!("Collecting imports from module: {module_name}");
+            self.collect_imports_from_module(ast, module_name, module_path);
+        }
+
+        // If we have wrapper modules, inject types as stdlib dependency
+        // functools will be added later only if we use module cache
+        if !wrapper_modules.is_empty() {
+            log::debug!("Adding types import for wrapper modules");
+            self.add_stdlib_import("types");
+        }
+
+        // If we have namespace imports, inject types as stdlib dependency
+        if !self.namespace_imported_modules.is_empty() {
+            log::debug!("Adding types import for namespace imports");
+            self.add_stdlib_import("types");
+        }
+
+        // If entry module has direct imports or dotted imports that need namespace objects
+        if _needs_types_for_entry_imports {
+            log::debug!("Adding types import for namespace objects in entry module");
+            self.add_stdlib_import("types");
+        }
+
+        // Register wrapper modules
+        for (module_name, _ast, _module_path, content_hash) in &wrapper_modules {
+            self.module_exports.insert(
+                module_name.clone(),
+                module_exports_map.get(module_name).cloned().flatten(),
+            );
+
+            // Register module with synthetic name using content hash
+            let synthetic_name = self.get_synthetic_module_name(module_name, content_hash);
+            self.module_registry
+                .insert(module_name.clone(), synthetic_name.clone());
+
+            // Register init function
+            let init_func_name = format!("__cribo_init_{synthetic_name}");
+            self.init_functions.insert(synthetic_name, init_func_name);
+        }
+
+        // Get symbol renames from semantic analysis
+        let symbol_registry = params.semantic_bundler.symbol_registry();
+        let mut symbol_renames = FxIndexMap::default();
+
+        // Create semantic context
+        let semantic_ctx = SemanticContext {
+            graph: params.graph,
+            symbol_registry,
+            semantic_bundler: params.semantic_bundler,
+        };
+
+        // Convert ModuleId-based renames to module name-based renames
+        for (module_name, _, _, _) in &modules {
+            self.collect_module_renames(module_name, &semantic_ctx, &mut symbol_renames);
+        }
+
+        // Collect global symbols from the entry module first (for compatibility)
+        let global_symbols = self.collect_global_symbols(&modules, params.entry_module_name);
+
+        // Save wrapper modules for later processing
+        let wrapper_modules_saved = wrapper_modules;
+
+        // Sort wrapper modules by their dependencies
+        let sorted_wrapper_modules =
+            self.sort_wrapper_modules_by_dependencies(&wrapper_modules_saved, params.graph)?;
+
+        // Build symbol-level dependency graph for circular modules if needed
+        if !self.circular_modules.is_empty() {
+            log::debug!("Building symbol dependency graph for circular modules");
+
+            // Convert modules to the format expected by build_symbol_dependency_graph
+            let modules_for_graph: Vec<(String, ModModule, PathBuf, String)> = modules
+                .iter()
+                .map(|(name, ast, path, hash)| {
+                    (name.clone(), ast.clone(), path.clone(), hash.clone())
+                })
+                .collect();
+
+            self.build_symbol_dependency_graph(&modules_for_graph, params.graph, &semantic_ctx);
+
+            // Get ordered symbols for circular modules
+            match self
+                .symbol_dep_graph
+                .topological_sort_symbols(&self.circular_modules)
+            {
+                Ok(()) => {
+                    log::debug!(
+                        "Symbol ordering for circular modules: {:?}",
+                        self.symbol_dep_graph.sorted_symbols
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Failed to order symbols in circular modules: {e}");
+                    // Continue with default ordering
+                }
+            }
+        }
+
+        // TODO: Continue with the rest of the implementation...
+        // This is a large method that needs to be completed step by step
+
+        // Finally, add entry module code (it's always last in topological order)
+        // Find the entry module in our modules list
+        let entry_module = modules
+            .into_iter()
+            .find(|(name, _, _, _)| name == params.entry_module_name);
+
+        if let Some((module_name, mut ast, module_path, _)) = entry_module {
+            log::debug!("Processing entry module: '{module_name}'");
+            log::debug!("Entry module has {} statements", ast.body.len());
+
+            // Entry module - add its code directly at the end
+            // The entry module needs special handling for symbol conflicts
+            let entry_module_renames = symbol_renames
+                .get(&module_name)
+                .cloned()
+                .unwrap_or_default();
+
+            log::debug!("Entry module '{module_name}' renames: {entry_module_renames:?}");
+
+            // First pass: collect locally defined symbols in the entry module
+            let mut locally_defined_symbols: FxIndexSet<String> = FxIndexSet::default();
+            for stmt in &ast.body {
+                match stmt {
+                    Stmt::FunctionDef(func_def) => {
+                        locally_defined_symbols.insert(func_def.name.to_string());
+                    }
+                    Stmt::ClassDef(class_def) => {
+                        locally_defined_symbols.insert(class_def.name.to_string());
+                    }
+                    _ => {}
+                }
+            }
+            log::debug!("Entry module locally defined symbols: {locally_defined_symbols:?}");
+
+            // Apply recursive import transformation to the entry module
+            log::debug!("Creating RecursiveImportTransformer for entry module '{module_name}'");
+            let mut entry_deferred_imports = Vec::new();
+
+            // Check if importlib has been fully transformed
+            let (importlib_was_transformed, created_namespace_objects) = {
+                let mut transformer = RecursiveImportTransformer::new(
+                    RecursiveImportTransformerParams {
+                        bundler: self,
+                        module_name: &module_name,
+                        module_path: Some(&module_path),
+                        symbol_renames: &symbol_renames,
+                        deferred_imports: &mut entry_deferred_imports,
+                        is_entry_module: true,  // This is the entry module
+                        is_wrapper_init: false, // Not a wrapper init
+                        global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports for checking */
+                    },
+                );
+
+                // Pre-populate hoisted importlib aliases for the entry module
+                if let Some(importlib_imports) = self.stdlib_import_from_map.get("importlib") {
+                    for (name, alias_opt) in importlib_imports {
+                        if name == "import_module"
+                            && let Some(alias) = alias_opt
+                        {
+                            log::debug!(
+                                "Pre-populating importlib.import_module alias for entry module: \
+                                 {alias} -> importlib.import_module"
+                            );
+                            transformer
+                                .import_aliases
+                                .insert(alias.clone(), "importlib.import_module".to_string());
+                        }
+                    }
+                }
+                log::debug!(
+                    "Transforming entry module '{module_name}' with RecursiveImportTransformer"
+                );
+                transformer.transform_module(&mut ast);
+                log::debug!("Finished transforming entry module '{module_name}'");
+
+                (
+                    transformer.importlib_transformed,
+                    transformer.created_namespace_objects,
+                )
+            };
+
+            // Track if namespace objects were created
+            if created_namespace_objects {
+                log::debug!("Namespace objects were created, adding types import");
+                self.add_stdlib_import("types");
+            }
+
+            // If importlib was transformed, remove importlib import
+            if importlib_was_transformed {
+                log::debug!("importlib was transformed, removing import if present");
+                self.importlib_fully_transformed = true;
+                ast.body.retain(|stmt| {
+                    match stmt {
+                        Stmt::Import(import_stmt) => {
+                            // Check if this is import importlib
+                            !import_stmt
+                                .names
+                                .iter()
+                                .any(|alias| alias.name.as_str() == "importlib")
+                        }
+                        Stmt::ImportFrom(import_from) => {
+                            // Check if this is from importlib import ...
+                            import_from
+                                .module
+                                .as_ref()
+                                .is_none_or(|m| m.as_str() != "importlib")
+                        }
+                        _ => true,
+                    }
+                });
+            }
+
+            // Process statements in order
+            for stmt in &ast.body {
+                let is_hoisted = self.is_hoisted_import(stmt);
+                if is_hoisted {
+                    continue;
+                }
+
+                match stmt {
+                    Stmt::ImportFrom(import_from) => {
+                        let is_duplicate = self.is_duplicate_import_from(import_from, &final_body);
+
+                        if !is_duplicate {
+                            // Imports have already been transformed by RecursiveImportTransformer
+                            final_body.push(stmt.clone());
+                        } else {
+                            log::debug!(
+                                "Skipping duplicate import in entry module: {:?}",
+                                import_from.module
+                            );
+                        }
+                    }
+                    Stmt::Import(import_stmt) => {
+                        let is_duplicate = self.is_duplicate_import(import_stmt, &final_body);
+
+                        if !is_duplicate {
+                            // Imports have already been transformed by RecursiveImportTransformer
+                            final_body.push(stmt.clone());
+                        } else {
+                            log::debug!("Skipping duplicate import in entry module");
+                        }
+                    }
+                    _ => {
+                        let mut stmt_clone = stmt.clone();
+                        self.process_entry_module_statement(
+                            &mut stmt_clone,
+                            &entry_module_renames,
+                            &mut final_body,
+                        );
+                    }
+                }
+            }
+        }
 
         Ok(ModModule {
             body: final_body,
@@ -856,19 +1947,331 @@ impl<'a> HybridStaticBundler<'a> {
     /// Find modules that are imported directly
     fn find_directly_imported_modules(
         &self,
-        _modules: &[(String, ModModule, PathBuf, String)],
+        modules: &[(String, ModModule, PathBuf, String)],
         _entry_module_name: &str,
     ) -> FxIndexSet<String> {
-        // TODO: Implement
-        FxIndexSet::default()
+        let mut directly_imported = FxIndexSet::default();
+
+        // Check all modules for direct imports (both module-level and function-scoped)
+        for (module_name, ast, module_path, _) in modules {
+            log::debug!("Checking module '{module_name}' for direct imports");
+            let ctx = DirectImportContext {
+                current_module: module_name,
+                module_path,
+                modules,
+            };
+            for stmt in &ast.body {
+                self.collect_direct_imports(stmt, &ctx, &mut directly_imported);
+                // Also check for imports inside functions, classes, etc.
+                self.collect_direct_imports_recursive(stmt, &ctx, &mut directly_imported);
+            }
+        }
+
+        log::debug!(
+            "Found {} directly imported modules: {:?}",
+            directly_imported.len(),
+            directly_imported
+        );
+        directly_imported
+    }
+
+    /// Helper to collect direct imports from a statement
+    fn collect_direct_imports(
+        &self,
+        stmt: &Stmt,
+        ctx: &DirectImportContext<'_>,
+        directly_imported: &mut FxIndexSet<String>,
+    ) {
+        match stmt {
+            Stmt::Import(import_stmt) => {
+                for alias in &import_stmt.names {
+                    let imported_module = alias.name.as_str();
+                    // Check if this is a bundled module
+                    if ctx
+                        .modules
+                        .iter()
+                        .any(|(name, _, _, _)| name == imported_module)
+                    {
+                        directly_imported.insert(imported_module.to_string());
+
+                        // When importing a submodule, Python implicitly imports parent packages
+                        // For example, importing 'greetings.irrelevant' also imports 'greetings'
+                        if imported_module.contains('.') {
+                            self.mark_parent_packages_as_imported(
+                                imported_module,
+                                ctx.modules,
+                                directly_imported,
+                            );
+                        }
+                    }
+                }
+            }
+            Stmt::ImportFrom(import_from) => {
+                if let Some(module) = &import_from.module {
+                    let module_name = module.as_str();
+                    // Check if any imported name is actually a submodule
+                    for alias in &import_from.names {
+                        let imported_name = alias.name.as_str();
+                        let full_module_path = format!("{module_name}.{imported_name}");
+
+                        log::debug!(
+                            "Checking if '{full_module_path}' (from {module_name} import \
+                             {imported_name}) is a bundled module"
+                        );
+
+                        // Check if this full path matches a bundled module
+                        if ctx
+                            .modules
+                            .iter()
+                            .any(|(name, _, _, _)| name == &full_module_path)
+                        {
+                            // This is importing a submodule directly
+                            log::debug!(
+                                "Found submodule import: from {module_name} import \
+                                 {imported_name} -> {full_module_path}"
+                            );
+                            // Note: We don't mark this as directly imported anymore
+                            // `from models import base` should allow `models.base` to be inlined
+                            // if it has no side effects. Only `import models.base` should
+                            // force wrapping.
+                        }
+                    }
+                } else if import_from.level > 0 {
+                    // Handle relative imports (e.g., from . import greeting)
+                    self.collect_direct_relative_imports(import_from, ctx, directly_imported);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Recursively collect direct imports from nested statements
+    fn collect_direct_imports_recursive(
+        &self,
+        stmt: &Stmt,
+        ctx: &DirectImportContext<'_>,
+        directly_imported: &mut FxIndexSet<String>,
+    ) {
+        match stmt {
+            Stmt::FunctionDef(func_def) => {
+                for body_stmt in &func_def.body {
+                    self.collect_direct_imports(body_stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(body_stmt, ctx, directly_imported);
+                }
+            }
+            Stmt::ClassDef(class_def) => {
+                for body_stmt in &class_def.body {
+                    self.collect_direct_imports(body_stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(body_stmt, ctx, directly_imported);
+                }
+            }
+            Stmt::If(if_stmt) => {
+                for body_stmt in &if_stmt.body {
+                    self.collect_direct_imports(body_stmt, ctx, directly_imported);
+                    self.collect_direct_imports_recursive(body_stmt, ctx, directly_imported);
+                }
+                for clause in &if_stmt.elif_else_clauses {
+                    for body_stmt in &clause.body {
+                        self.collect_direct_imports(body_stmt, ctx, directly_imported);
+                        self.collect_direct_imports_recursive(body_stmt, ctx, directly_imported);
+                    }
+                }
+            }
+            // Add other compound statements as needed...
+            _ => {}
+        }
+    }
+
+    /// Mark parent packages as imported
+    fn mark_parent_packages_as_imported(
+        &self,
+        module_path: &str,
+        modules: &[(String, ModModule, PathBuf, String)],
+        directly_imported: &mut FxIndexSet<String>,
+    ) {
+        let parts: Vec<&str> = module_path.split('.').collect();
+        for i in 1..parts.len() {
+            let parent_path = parts[0..i].join(".");
+            if modules.iter().any(|(name, _, _, _)| name == &parent_path) {
+                directly_imported.insert(parent_path);
+            }
+        }
+    }
+
+    /// Collect direct relative imports
+    fn collect_direct_relative_imports(
+        &self,
+        _import_from: &StmtImportFrom,
+        _ctx: &DirectImportContext<'_>,
+        _directly_imported: &mut FxIndexSet<String>,
+    ) {
+        // TODO: Implement relative import collection
     }
 
     /// Find modules that are imported as namespaces
     fn find_namespace_imported_modules(
         &mut self,
-        _modules: &[(String, ModModule, PathBuf, String)],
+        modules: &[(String, ModModule, PathBuf, String)],
     ) {
-        // TODO: Implement
+        log::debug!(
+            "find_namespace_imported_modules: Checking {} modules",
+            modules.len()
+        );
+
+        // Check all modules for namespace imports
+        for (importing_module, ast, _, _) in modules {
+            log::debug!("Checking module '{importing_module}' for namespace imports");
+            for stmt in &ast.body {
+                self.collect_namespace_imports(stmt, modules, importing_module);
+            }
+        }
+
+        log::debug!(
+            "Found {} namespace imported modules: {:?}",
+            self.namespace_imported_modules.len(),
+            self.namespace_imported_modules
+        );
+    }
+
+    /// Helper to collect namespace imports from a statement
+    fn collect_namespace_imports(
+        &mut self,
+        stmt: &Stmt,
+        modules: &[(String, ModModule, PathBuf, String)],
+        importing_module: &str,
+    ) {
+        match stmt {
+            Stmt::ImportFrom(import_from) if import_from.module.is_some() => {
+                let module = import_from
+                    .module
+                    .as_ref()
+                    .expect("module was checked to be Some");
+                let module_name = module.as_str();
+                log::debug!(
+                    "  Found import from '{}' with names: {:?} in '{}'",
+                    module_name,
+                    import_from
+                        .names
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>(),
+                    importing_module
+                );
+
+                // Check if any imported name is actually a submodule
+                for alias in &import_from.names {
+                    let imported_name = alias.name.as_str();
+                    let full_module_path = format!("{module_name}.{imported_name}");
+
+                    log::debug!(
+                        "  Checking if '{full_module_path}' (from {module_name} import \
+                         {imported_name}) is a bundled module in namespace import check"
+                    );
+
+                    // Check if this full path matches a bundled module
+                    let is_namespace_import = modules.iter().any(|(name, _, _, _)| {
+                        name == &full_module_path || name.ends_with(&full_module_path)
+                    });
+
+                    if is_namespace_import {
+                        // Find the actual module name that matched
+                        let actual_module_name =
+                            Self::find_matching_module_name_namespace(modules, &full_module_path);
+
+                        // This is importing a submodule as a namespace
+                        log::debug!(
+                            "  Found namespace import: from {module_name} import {imported_name} \
+                             -> {full_module_path} (actual: {actual_module_name}) in module \
+                             {importing_module}"
+                        );
+                        self.namespace_imported_modules
+                            .entry(actual_module_name)
+                            .or_default()
+                            .insert(importing_module.to_string());
+                    }
+                }
+            }
+            // Recursively check function bodies
+            Stmt::FunctionDef(func_def) => {
+                for body_stmt in &func_def.body {
+                    self.collect_namespace_imports(body_stmt, modules, importing_module);
+                }
+            }
+            // Recursively check class bodies and methods
+            Stmt::ClassDef(class_def) => {
+                for body_stmt in &class_def.body {
+                    self.collect_namespace_imports(body_stmt, modules, importing_module);
+                }
+            }
+            // Recursively check other compound statements
+            Stmt::If(if_stmt) => {
+                for body_stmt in &if_stmt.body {
+                    self.collect_namespace_imports(body_stmt, modules, importing_module);
+                }
+                for clause in &if_stmt.elif_else_clauses {
+                    for body_stmt in &clause.body {
+                        self.collect_namespace_imports(body_stmt, modules, importing_module);
+                    }
+                }
+            }
+            Stmt::While(while_stmt) => {
+                for body_stmt in &while_stmt.body {
+                    self.collect_namespace_imports(body_stmt, modules, importing_module);
+                }
+                for body_stmt in &while_stmt.orelse {
+                    self.collect_namespace_imports(body_stmt, modules, importing_module);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                for body_stmt in &for_stmt.body {
+                    self.collect_namespace_imports(body_stmt, modules, importing_module);
+                }
+                for body_stmt in &for_stmt.orelse {
+                    self.collect_namespace_imports(body_stmt, modules, importing_module);
+                }
+            }
+            Stmt::With(with_stmt) => {
+                for body_stmt in &with_stmt.body {
+                    self.collect_namespace_imports(body_stmt, modules, importing_module);
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                for body_stmt in &try_stmt.body {
+                    self.collect_namespace_imports(body_stmt, modules, importing_module);
+                }
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(eh) = handler;
+                    for body_stmt in &eh.body {
+                        self.collect_namespace_imports(body_stmt, modules, importing_module);
+                    }
+                }
+                for body_stmt in &try_stmt.orelse {
+                    self.collect_namespace_imports(body_stmt, modules, importing_module);
+                }
+                for body_stmt in &try_stmt.finalbody {
+                    self.collect_namespace_imports(body_stmt, modules, importing_module);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Find matching module name for namespace imports
+    fn find_matching_module_name_namespace(
+        modules: &[(String, ModModule, PathBuf, String)],
+        full_module_path: &str,
+    ) -> String {
+        // Find the actual module name that matched
+        modules
+            .iter()
+            .find_map(|(name, _, _, _)| {
+                if name == full_module_path || name.ends_with(full_module_path) {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| full_module_path.to_string())
     }
 
     /// Check if an import statement should be removed based on unused imports
@@ -932,8 +2335,6 @@ impl<'a> HybridStaticBundler<'a> {
             _ => false,
         }
     }
-
-    // More methods to be moved from the original implementation...
 }
 
 /// Main entry point for bundling modules
@@ -941,6 +2342,3 @@ pub fn bundle_modules(params: BundleParams) -> Result<ModModule> {
     let mut bundler = HybridStaticBundler::new(None);
     bundler.bundle_modules(params)
 }
-
-// Additional implementation blocks and helper functions should be moved here
-// from the original code_generator.rs file

@@ -34,7 +34,7 @@ pub struct RecursiveImportTransformer<'a> {
     symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
     /// Maps import aliases to their actual module names
     /// e.g., "helper_utils" -> "utils.helpers"
-    import_aliases: FxIndexMap<String, String>,
+    pub(crate) import_aliases: FxIndexMap<String, String>,
     /// Deferred import assignments for cross-module imports
     deferred_imports: &'a mut Vec<Stmt>,
     /// Flag indicating if this is the entry module
@@ -46,12 +46,12 @@ pub struct RecursiveImportTransformer<'a> {
     /// Track local variable assignments to avoid treating them as module aliases
     local_variables: FxIndexSet<String>,
     /// Track if any importlib.import_module calls were transformed
-    importlib_transformed: bool,
+    pub(crate) importlib_transformed: bool,
     /// Track variables that were assigned from importlib.import_module() of inlined modules
     /// Maps variable name to the inlined module name
     importlib_inlined_modules: FxIndexMap<String, String>,
     /// Track if we created any types.SimpleNamespace calls
-    created_namespace_objects: bool,
+    pub(crate) created_namespace_objects: bool,
     /// Track imports from wrapper modules that need to be rewritten
     /// Maps local name to (wrapper_module, original_name)
     wrapper_module_imports: FxIndexMap<String, (String, String)>,
@@ -182,7 +182,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     }
 
     /// Transform a module recursively, handling all imports at any depth
-    fn transform_module(&mut self, module: &mut ModModule) {
+    pub(crate) fn transform_module(&mut self, module: &mut ModModule) {
         log::debug!(
             "RecursiveImportTransformer::transform_module for '{}'",
             self.module_name

@@ -16,16 +16,18 @@ pub fn transform_globals_in_expr(expr: &mut Expr) {
         Expr::Call(call) => {
             // Check if this is globals()
             if let Expr::Name(name) = &call.func.as_ref()
-                && name.id.as_str() == "globals" && call.arguments.is_empty() {
-                    // Replace globals() with _bundler_globals
-                    *expr = Expr::Name(ExprName {
-                        id: Identifier::new("_bundler_globals", name.range).into(),
-                        ctx: name.ctx,
-                        range: call.range,
-                        node_index: Default::default(),
-                    });
-                    return;
-                }
+                && name.id.as_str() == "globals"
+                && call.arguments.is_empty()
+            {
+                // Replace globals() with _bundler_globals
+                *expr = Expr::Name(ExprName {
+                    id: Identifier::new("_bundler_globals", name.range).into(),
+                    ctx: name.ctx,
+                    range: call.range,
+                    node_index: Default::default(),
+                });
+                return;
+            }
             // Process arguments
             for arg in &mut call.arguments.args {
                 transform_globals_in_expr(arg);

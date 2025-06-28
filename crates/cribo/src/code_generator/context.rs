@@ -5,7 +5,7 @@ use ruff_python_ast::{ModModule, Stmt};
 
 use crate::{
     cribo_graph::CriboGraph as DependencyGraph,
-    semantic_bundler::{ModuleGlobalInfo, SemanticBundler, SymbolRegistry},
+    semantic_bundler::{SemanticBundler, SymbolRegistry},
 };
 
 /// Represents a hard dependency between classes across modules
@@ -33,7 +33,7 @@ pub struct ModuleTransformContext<'a> {
     pub module_name: &'a str,
     pub synthetic_name: &'a str,
     pub module_path: &'a Path,
-    pub global_info: Option<ModuleGlobalInfo>,
+    pub global_info: Option<crate::semantic_bundler::ModuleGlobalInfo>,
     pub semantic_bundler: Option<&'a SemanticBundler>,
 }
 
@@ -47,6 +47,14 @@ pub struct InlineContext<'a> {
     pub import_aliases: FxIndexMap<String, String>,
     /// Deferred import assignments that need to be placed after all modules are inlined
     pub deferred_imports: &'a mut Vec<Stmt>,
+}
+
+/// Information about module globals
+#[derive(Debug, Clone, Default)]
+pub struct ModuleGlobalInfo {
+    pub function_globals: FxIndexMap<String, FxIndexSet<String>>,
+    pub class_method_globals: FxIndexMap<String, FxIndexMap<String, FxIndexSet<String>>>,
+    pub module_level_globals: FxIndexSet<String>,
 }
 
 /// Context for semantic analysis
