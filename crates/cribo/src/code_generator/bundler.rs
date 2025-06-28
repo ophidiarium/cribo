@@ -2877,6 +2877,56 @@ impl<'a> HybridStaticBundler<'a> {
         })
     }
 
+    /// Check if a symbol should be exported from a module
+    fn should_export_symbol(&self, symbol_name: &str, module_name: &str) -> bool {
+        // Don't export __all__ itself as a module attribute
+        if symbol_name == "__all__" {
+            return false;
+        }
+
+        // Check if the module has explicit __all__ exports
+        if let Some(Some(exports)) = self.module_exports.get(module_name) {
+            // Module defines __all__, only export symbols listed there
+            exports.contains(&symbol_name.to_string())
+        } else {
+            // No __all__ defined, use default Python visibility rules
+            // Export all symbols that don't start with underscore
+            !symbol_name.starts_with('_')
+        }
+    }
+
+    /// Check if an import has been hoisted
+    fn is_hoisted_import(&self, stmt: &Stmt) -> bool {
+        match stmt {
+            Stmt::ImportFrom(import_from) => {
+                if let Some(ref module) = import_from.module {
+                    let module_name = module.as_str();
+                    // Check if this is a __future__ import (always hoisted)
+                    if module_name == "__future__" {
+                        return true;
+                    }
+                    
+                    // Check if this module has been hoisted as safe stdlib
+                    if self.stdlib_import_from_map.contains_key(module_name) {
+                        return true;
+                    }
+                }
+                false
+            }
+            Stmt::Import(import_stmt) => {
+                // Check if any of the imports in this statement are hoisted
+                import_stmt.names.iter().any(|alias| {
+                    let module_name = alias.name.as_str();
+                    self.stdlib_import_statements.iter().any(|hoisted| {
+                        matches!(hoisted, Stmt::Import(hoisted_import) 
+                            if hoisted_import.names.iter().any(|h_alias| h_alias.name.as_str() == module_name))
+                    })
+                })
+            }
+            _ => false,
+        }
+    }
+
     /// Transform a module into an initialization function
     /// This wraps the module body in a function that creates and returns a module object
     pub fn transform_module_to_init_function(
