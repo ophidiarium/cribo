@@ -23,7 +23,7 @@ comment:
   layout: 'header, diff, flags, components, footer'
   behavior: default
   require_changes: false
-  require_base: true
+  require_base: false
   require_head: true
 
   # Show coverage changes in PR comments
