@@ -1166,14 +1166,201 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Sort wrapper modules by dependencies
+    /// Find which module defines a given symbol
+    fn find_symbol_module(
+        &self,
+        symbol: &str,
+        current_module: &str,
+        graph: &DependencyGraph,
+    ) -> Option<String> {
+        // First check if it's defined in the current module
+        if let Some(module_dep_graph) = graph.get_module_by_name(current_module) {
+            for item_data in module_dep_graph.items.values() {
+                match &item_data.item_type {
+                    crate::cribo_graph::ItemType::FunctionDef { name } if name == symbol => {
+                        return Some(current_module.to_string());
+                    }
+                    crate::cribo_graph::ItemType::ClassDef { name } if name == symbol => {
+                        return Some(current_module.to_string());
+                    }
+                    crate::cribo_graph::ItemType::Assignment { targets } => {
+                        if targets.contains(&symbol.to_string()) {
+                            return Some(current_module.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Check other circular modules
+        for module_name in &self.circular_modules {
+            if module_name == current_module {
+                continue;
+            }
+
+            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+                for item_data in module_dep_graph.items.values() {
+                    match &item_data.item_type {
+                        crate::cribo_graph::ItemType::FunctionDef { name } if name == symbol => {
+                            return Some(module_name.clone());
+                        }
+                        crate::cribo_graph::ItemType::ClassDef { name } if name == symbol => {
+                            return Some(module_name.clone());
+                        }
+                        crate::cribo_graph::ItemType::Assignment { targets } => {
+                            if targets.contains(&symbol.to_string()) {
+                                return Some(module_name.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     fn sort_wrapper_modules_by_dependencies(
         &self,
         wrapper_modules: &[(String, ModModule, PathBuf, String)],
-        _graph: &DependencyGraph,
+        graph: &DependencyGraph,
     ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
-        // TODO: Implement proper dependency sorting
-        // For now, just return in original order
-        Ok(wrapper_modules.to_vec())
+        use petgraph::{
+            algo::toposort,
+            graph::{DiGraph, NodeIndex},
+        };
+
+        // Build a directed graph of wrapper module dependencies
+        let mut module_graph = DiGraph::new();
+        let mut node_map: FxIndexMap<String, NodeIndex> = FxIndexMap::default();
+
+        // Create a set for quick lookup
+        let wrapper_module_names: FxIndexSet<String> = wrapper_modules
+            .iter()
+            .map(|(name, _, _, _)| name.clone())
+            .collect();
+
+        // Add nodes for all wrapper modules
+        for (module_name, _, _, _) in wrapper_modules {
+            let node = module_graph.add_node(module_name.clone());
+            node_map.insert(module_name.clone(), node);
+        }
+
+        // Add edges based on module dependencies
+        for (module_name, _, _, _) in wrapper_modules {
+            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+                // Check all items in this module for dependencies
+                for item_data in module_dep_graph.items.values() {
+                    // Look at both immediate reads (module-level) and eventual reads
+                    let all_deps = item_data
+                        .read_vars
+                        .iter()
+                        .chain(item_data.eventual_read_vars.iter());
+
+                    for dep_var in all_deps {
+                        // Find which module this dependency comes from
+                        if let Some(dep_module) =
+                            self.find_symbol_module(dep_var, module_name, graph)
+                        {
+                            // Only add edge if the dependency is also a wrapper module
+                            if wrapper_module_names.contains(&dep_module)
+                                && dep_module != *module_name
+                                && let (Some(&from_node), Some(&to_node)) =
+                                    (node_map.get(module_name), node_map.get(&dep_module))
+                            {
+                                // Edge from current module to its dependency
+                                module_graph.add_edge(from_node, to_node, ());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Perform topological sort
+        match toposort(&module_graph, None) {
+            Ok(sorted_nodes) => {
+                // Create a map for quick lookup
+                let module_map: FxIndexMap<String, (String, ModModule, PathBuf, String)> =
+                    wrapper_modules
+                        .iter()
+                        .map(|m| (m.0.clone(), m.clone()))
+                        .collect();
+
+                // Return modules in reverse topological order (dependencies first)
+                let sorted_module_names: Vec<String> = sorted_nodes
+                    .iter()
+                    .rev()
+                    .map(|&idx| module_graph[idx].clone())
+                    .collect();
+
+                log::debug!("Sorted wrapper modules by dependencies: {sorted_module_names:?}");
+
+                let sorted_modules = sorted_module_names
+                    .into_iter()
+                    .filter_map(|module_name| module_map.get(&module_name).cloned())
+                    .collect();
+
+                Ok(sorted_modules)
+            }
+            Err(cycle) => {
+                // If there's a true initialization cycle and we're using module cache,
+                // return modules in alphabetical order within the cycle
+                if self.use_module_cache_model {
+                    log::warn!(
+                        "Module-level initialization cycle detected involving module '{}'. Using \
+                         module cache approach with alphabetical ordering.",
+                        &module_graph[cycle.node_id()]
+                    );
+
+                    // Find all modules in the cycle using Tarjan's algorithm
+                    let sccs = petgraph::algo::tarjan_scc(&module_graph);
+                    let mut cyclic_modules: FxIndexSet<String> = FxIndexSet::default();
+
+                    for scc in sccs {
+                        if scc.len() > 1 {
+                            // This is a cycle
+                            for &node_idx in &scc {
+                                cyclic_modules.insert(module_graph[node_idx].clone());
+                            }
+                        }
+                    }
+
+                    log::warn!("Modules in cycle: {cyclic_modules:?}");
+
+                    // Sort all modules alphabetically
+                    let mut sorted_names: Vec<String> = wrapper_modules
+                        .iter()
+                        .map(|(name, _, _, _)| name.clone())
+                        .collect();
+                    sorted_names.sort();
+
+                    let module_map: FxIndexMap<String, (String, ModModule, PathBuf, String)> =
+                        wrapper_modules
+                            .iter()
+                            .map(|m| (m.0.clone(), m.clone()))
+                            .collect();
+
+                    let sorted_modules = sorted_names
+                        .into_iter()
+                        .filter_map(|module_name| module_map.get(&module_name).cloned())
+                        .collect();
+
+                    Ok(sorted_modules)
+                } else {
+                    // Original error for non-module-cache approach
+                    let node_in_cycle = &module_graph[cycle.node_id()];
+                    anyhow::bail!(
+                        "Module-level initialization cycle detected involving module '{}'. This \
+                         occurs when modules have mutually dependent top-level code that cannot \
+                         be resolved. Consider refactoring to break the initialization cycle.",
+                        node_in_cycle
+                    )
+                }
+            }
+        }
     }
 
     /// Build symbol dependency graph for circular modules
