@@ -1133,9 +1133,12 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
 
         // Otherwise, use standard transformation
-        // For now, return empty vector as placeholder
-        // TODO: Implement proper transformation
-        vec![]
+        // TODO: Implement proper transformation when the method is available in bundler
+        // The original code calls rewrite_import_in_stmt_multiple_with_full_context
+        // which handles both Import and ImportFrom statements, but the current
+        // bundler only has a method for Import statements.
+        // For now, return the original import unchanged
+        vec![Stmt::ImportFrom(import_from.clone())]
     }
 
     /// Transform an expression, rewriting module attribute access to direct references
