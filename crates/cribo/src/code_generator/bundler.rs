@@ -14,9 +14,10 @@ type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
-    ExprContext, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, Identifier, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef,
-    StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
-    StringLiteralValue, visitor::source_order::SourceOrderVisitor,
+    ExprContext, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, Identifier,
+    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
+    StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
+    visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -1312,11 +1313,10 @@ impl<'a> HybridStaticBundler<'a> {
     /// Resolve relative import
     pub fn resolve_relative_import(
         &self,
-        _import_from: &StmtImportFrom,
-        _current_module: &str,
+        import_from: &StmtImportFrom,
+        current_module: &str,
     ) -> Option<String> {
-        // TODO: Implementation from original file
-        None
+        self.resolve_relative_import_with_context(import_from, current_module, None)
     }
 
     /// Filter exports based on tree shaking
