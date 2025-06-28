@@ -1,35 +1,23 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
-use log::{debug, trace, warn};
 use ruff_python_ast::{
-    self as ast, Arguments, CmpOp, Expr, ExprAttribute, ExprCall, ExprCompare, ExprContext,
-    ExprDict, ExprList, ExprName, ExprStringLiteral, ExprSubscript, ExprTuple, Identifier, Int,
-    Keyword, ModModule, Stmt, StmtAnnAssign, StmtAssign, StmtClassDef, StmtExpr, StmtFunctionDef,
-    StmtIf, StmtImport, StmtImportFrom, StmtReturn, StmtWith, WithItem, visitor::Visitor,
+    Alias, Expr, ExprContext, ExprName, Identifier, ModModule, Stmt, StmtImport, StmtImportFrom,
 };
-use ruff_text_size::{Ranged, TextRange, TextSize};
-use rustc_hash::{FxHashMap, FxHashSet};
+use ruff_text_size::TextRange;
 
 use crate::{
     code_generator::{
         circular_deps::SymbolDependencyGraph,
         context::{
-            BundleParams, DirectImportContext, HardDependency, InlineContext,
-            ModuleTransformContext, ProcessGlobalsParams, SemanticContext, TransformFunctionParams,
+            BundleParams, HardDependency,
         },
-        globals::{GlobalsLifter, transform_globals_in_expr, transform_globals_in_stmt},
-        import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
     },
-    cribo_graph::CriboGraph as DependencyGraph,
-    semantic_bundler::{ModuleGlobalInfo, SemanticBundler, SymbolRegistry},
     transformation_context::TransformationContext,
-    visitors::{ImportDiscoveryVisitor, NoOpsRemovalTransformer},
 };
 
 /// This approach avoids forward reference issues while maintaining Python module semantics
-#[derive(Debug)]
 pub struct HybridStaticBundler<'a> {
     /// Track if importlib was fully transformed and should be removed
     pub(crate) importlib_fully_transformed: bool,
@@ -92,6 +80,17 @@ pub struct HybridStaticBundler<'a> {
     pub(crate) use_module_cache_model: bool,
 }
 
+impl<'a> std::fmt::Debug for HybridStaticBundler<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HybridStaticBundler")
+            .field("module_registry", &self.module_registry)
+            .field("entry_module_name", &self.entry_module_name)
+            .field("bundled_modules", &self.bundled_modules)
+            .field("inlined_modules", &self.inlined_modules)
+            .finish()
+    }
+}
+
 impl<'a> Default for HybridStaticBundler<'a> {
     fn default() -> Self {
         Self {
@@ -129,8 +128,11 @@ impl<'a> Default for HybridStaticBundler<'a> {
 // Main implementation
 impl<'a> HybridStaticBundler<'a> {
     /// Create a new bundler instance
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>) -> Self {
+        Self {
+            module_info_registry,
+            ..Self::default()
+        }
     }
 
     /// Check if a statement is a hoisted import
@@ -158,24 +160,58 @@ impl<'a> HybridStaticBundler<'a> {
     /// Resolve a relative import with context
     pub fn resolve_relative_import_with_context(
         &self,
+        import_from: &StmtImportFrom,
         current_module: &str,
-        module_path: &Path,
-        level: u32,
-        module: Option<&str>,
+        module_path: Option<&Path>,
     ) -> Option<String> {
-        // Implementation from original file
+        // TODO: Implementation from original file
         // This is a placeholder - the actual implementation is quite complex
+        None
+    }
+
+    /// Create module access expression
+    pub fn create_module_access_expr(
+        &self,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Expr {
+        // TODO: Implementation from original file
+        // For now, just return a simple name expression
+        Expr::Name(ExprName {
+            id: Identifier::new(module_name, TextRange::default()).into(),
+            ctx: ExprContext::Load,
+            range: TextRange::default(),
+            node_index: Default::default(),
+        })
+    }
+
+    /// Rewrite import with renames
+    pub fn rewrite_import_with_renames(
+        &self,
+        import_stmt: StmtImport,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> Vec<Stmt> {
+        // TODO: Implementation from original file
+        vec![Stmt::Import(import_stmt)]
+    }
+
+    /// Resolve relative import
+    pub fn resolve_relative_import(
+        &self,
+        import_from: &StmtImportFrom,
+        current_module: &str,
+    ) -> Option<String> {
+        // TODO: Implementation from original file
         None
     }
 
     /// Filter exports based on tree shaking
     pub fn filter_exports_by_tree_shaking(
         &self,
-        keep_symbols: Option<&indexmap::IndexSet<(String, String)>>,
         module_name: &str,
         exports: &[String],
     ) -> Vec<String> {
-        if let Some(keep_symbols) = keep_symbols {
+        if let Some(ref keep_symbols) = self.tree_shaking_keep_symbols {
             exports
                 .iter()
                 .filter(|symbol| {
@@ -188,27 +224,99 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
+    /// Handle imports from inlined module
+    pub fn handle_imports_from_inlined_module(
+        &self,
+        module_name: &str,
+        names: &[Alias],
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        deferred_imports: &mut Vec<Stmt>,
+        is_entry_module: bool,
+    ) -> Vec<Stmt> {
+        // TODO: Implementation from original file
+        vec![]
+    }
+
+    /// Rewrite import in statement with full context
+    pub fn rewrite_import_in_stmt_multiple_with_full_context(
+        &self,
+        import_stmt: StmtImport,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        deferred_imports: &mut Vec<Stmt>,
+        module_name: &str,
+        is_wrapper_init: bool,
+        local_variables: &FxIndexSet<String>,
+        is_entry_module: bool,
+        importlib_inlined_modules: &mut FxIndexMap<String, String>,
+        created_namespace_objects: &mut bool,
+        global_deferred_imports: Option<&FxIndexMap<(String, String), String>>,
+    ) -> Vec<Stmt> {
+        // TODO: Implementation from original file
+        vec![Stmt::Import(import_stmt)]
+    }
+
+    /// Collect future imports from an AST
+    fn collect_future_imports_from_ast(&mut self, ast: &ModModule) {
+        for stmt in &ast.body {
+            let Stmt::ImportFrom(import_from) = stmt else {
+                continue;
+            };
+
+            let Some(ref module) = import_from.module else {
+                continue;
+            };
+
+            if module.as_str() == "__future__" {
+                for alias in &import_from.names {
+                    self.future_imports.insert(alias.name.to_string());
+                }
+            }
+        }
+    }
+
+    /// Bundle multiple modules using the hybrid approach
+    pub fn bundle_modules(&mut self, params: BundleParams<'_>) -> Result<ModModule> {
+        // TODO: This is a very large method - over 1800 lines in the original implementation
+        // For now, provide a basic structure that compiles
+        // The full implementation needs to be moved piece by piece
+
+        let final_body = Vec::new();
+
+        // Store tree shaking decisions if provided
+        if let Some(shaker) = params.tree_shaker {
+            let mut kept_symbols = indexmap::IndexSet::new();
+            for (module_name, _, _, _) in &params.modules {
+                for symbol in shaker.get_used_symbols_for_module(module_name) {
+                    kept_symbols.insert((module_name.clone(), symbol));
+                }
+            }
+            self.tree_shaking_keep_symbols = Some(kept_symbols);
+        }
+
+        // Store entry module information
+        self.entry_module_name = params.entry_module_name.to_string();
+
+        // Collect future imports
+        for (_module_name, ast, _, _) in &params.modules {
+            self.collect_future_imports_from_ast(ast);
+        }
+
+        // TODO: Implement the rest of the bundling logic
+
+        Ok(ModModule {
+            body: final_body,
+            range: TextRange::default(),
+            node_index: Default::default(),
+        })
+    }
+
     // More methods to be moved from the original implementation...
 }
 
 /// Main entry point for bundling modules
 pub fn bundle_modules(params: BundleParams) -> Result<ModModule> {
-    // This function implementation is very large and should be moved from the original file
-    // For now, creating a placeholder
-    let mut bundler = HybridStaticBundler::new();
-
-    // The actual implementation involves:
-    // 1. Processing modules and collecting information
-    // 2. Handling circular dependencies
-    // 3. Generating the bundled output
-    // 4. Managing imports and exports
-
-    // Placeholder return
-    Ok(ModModule {
-        range: TextRange::default(),
-        body: vec![],
-        node_index: Default::default(),
-    })
+    let mut bundler = HybridStaticBundler::new(None);
+    bundler.bundle_modules(params)
 }
 
 // Additional implementation blocks and helper functions should be moved here

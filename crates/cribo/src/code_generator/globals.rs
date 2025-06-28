@@ -1,5 +1,5 @@
 use indexmap::IndexMap as FxIndexMap;
-use ruff_python_ast::{Expr, ExprAttribute, ExprName, Identifier, Stmt, StmtFunctionDef};
+use ruff_python_ast::{Expr, ExprName, Identifier, Stmt, StmtFunctionDef};
 use rustc_hash::FxHashSet;
 
 /// Transformer that lifts module-level globals to true global scope
@@ -15,26 +15,23 @@ pub fn transform_globals_in_expr(expr: &mut Expr) {
     match expr {
         Expr::Call(call) => {
             // Check if this is globals()
-            if let Expr::Name(name) = &call.func.as_ref() {
-                if name.id.as_str() == "globals" && call.arguments.is_empty() {
+            if let Expr::Name(name) = &call.func.as_ref()
+                && name.id.as_str() == "globals" && call.arguments.is_empty() {
                     // Replace globals() with _bundler_globals
                     *expr = Expr::Name(ExprName {
-                        id: Identifier::new("_bundler_globals", name.range),
-                        ctx: name.ctx.clone(),
+                        id: Identifier::new("_bundler_globals", name.range).into(),
+                        ctx: name.ctx,
                         range: call.range,
                         node_index: Default::default(),
                     });
                     return;
                 }
-            }
             // Process arguments
             for arg in &mut call.arguments.args {
                 transform_globals_in_expr(arg);
             }
             for kw in &mut call.arguments.keywords {
-                if let Some(arg) = &mut kw.value {
-                    transform_globals_in_expr(arg);
-                }
+                transform_globals_in_expr(&mut kw.value);
             }
             // Process the function itself
             transform_globals_in_expr(&mut call.func);
@@ -132,6 +129,12 @@ pub fn transform_globals_in_stmt(stmt: &mut Stmt) {
     }
 }
 
+impl Default for GlobalsLifter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GlobalsLifter {
     /// Create a new GlobalsLifter
     pub fn new() -> Self {
@@ -177,7 +180,7 @@ impl<'a> FunctionGlobalTransformer<'a> {
         match expr {
             Expr::Name(name) => {
                 if let Some(lifted_name) = self.lifted_names.get(name.id.as_str()) {
-                    name.id = Identifier::new(lifted_name.clone(), name.range);
+                    name.id = Identifier::new(lifted_name.clone(), name.range).into();
                 }
             }
             Expr::Attribute(attr) => {

@@ -351,6 +351,7 @@ impl ModuleSemanticAnalyzer {
 }
 
 /// Semantic information for a single module
+#[derive(Debug)]
 pub struct ModuleSemanticInfo {
     /// Symbols exported by this module (from semantic analysis)
     pub exported_symbols: FxIndexSet<String>,
