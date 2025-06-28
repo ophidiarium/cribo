@@ -173,9 +173,10 @@ This document tracks the remaining work to complete the refactoring of `code_gen
 
 ### 11. Deduplication (`bundler.rs`)
 
-- [ ] **Line 996**: Implement deduplication logic
+- [x] **Line 996**: Implement deduplication logic
   - **Original location**: `code_generator_old.rs:7362-7606`
   - **Function**: `deduplicate_deferred_imports_with_existing`
+  - **Completed**: Implemented full deduplication logic for deferred imports
 - [x] **Line 1002**: Check for duplicate imports
   - **Original location**: `code_generator_old.rs:2694-2718`
   - **Function**: `is_duplicate_import`

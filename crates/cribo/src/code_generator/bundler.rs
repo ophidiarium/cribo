@@ -2611,11 +2611,248 @@ impl<'a> HybridStaticBundler<'a> {
     /// Deduplicate deferred imports
     fn deduplicate_deferred_imports_with_existing(
         &self,
-        _imports: Vec<Stmt>,
-        _existing: &[Stmt],
+        imports: Vec<Stmt>,
+        existing_body: &[Stmt],
     ) -> Vec<Stmt> {
-        // TODO: Implement deduplication
-        _imports
+        let mut seen_init_calls: FxIndexSet<String> = FxIndexSet::default();
+        let mut seen_assignments: FxIndexSet<String> = FxIndexSet::default();
+        let mut result = Vec::new();
+
+        // First, collect all existing assignments from the body
+        for stmt in existing_body {
+            if let Stmt::Assign(assign) = stmt
+                && assign.targets.len() == 1
+            {
+                // Handle attribute assignments like schemas.user = ...
+                if let Expr::Attribute(target_attr) = &assign.targets[0] {
+                    let target_path = self.extract_attribute_path(target_attr);
+
+                    // Handle init function calls
+                    if let Expr::Call(call) = &assign.value.as_ref()
+                        && let Expr::Name(name) = &call.func.as_ref()
+                    {
+                        let func_name = name.id.as_str();
+                        if func_name.starts_with("__cribo_init_") {
+                            // Use just the target path as the key for module init assignments
+                            let key = target_path.clone();
+                            log::debug!(
+                                "Found existing module init assignment: {key} = {func_name}"
+                            );
+                            seen_assignments.insert(key);
+                        }
+                    }
+                }
+                // Handle simple name assignments
+                else if let Expr::Name(target) = &assign.targets[0] {
+                    let target_str = target.id.as_str();
+
+                    // Handle simple name assignments
+                    if let Expr::Name(value) = &assign.value.as_ref() {
+                        let key = format!("{} = {}", target_str, value.id.as_str());
+                        seen_assignments.insert(key);
+                    }
+                    // Handle attribute assignments like User = services.auth.manager.User
+                    else if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                        let attr_path = self.extract_attribute_path(attr);
+                        let key = format!("{target_str} = {attr_path}");
+                        seen_assignments.insert(key);
+                    }
+                }
+            }
+        }
+
+        log::debug!(
+            "Found {} existing assignments in body",
+            seen_assignments.len()
+        );
+        log::debug!("Deduplicating {} deferred imports", imports.len());
+
+        // Now process the deferred imports
+        for (idx, stmt) in imports.into_iter().enumerate() {
+            log::debug!("Processing deferred import {idx}: {stmt:?}");
+            match &stmt {
+                // Check for init function calls
+                Stmt::Expr(expr_stmt) => {
+                    if let Expr::Call(call) = &expr_stmt.value.as_ref() {
+                        if let Expr::Name(name) = &call.func.as_ref() {
+                            let func_name = name.id.as_str();
+                            if func_name.starts_with("__cribo_init_") {
+                                if seen_init_calls.insert(func_name.to_string()) {
+                                    result.push(stmt);
+                                } else {
+                                    log::debug!("Skipping duplicate init call: {func_name}");
+                                }
+                            } else {
+                                result.push(stmt);
+                            }
+                        } else {
+                            result.push(stmt);
+                        }
+                    } else {
+                        result.push(stmt);
+                    }
+                }
+                // Check for symbol assignments
+                Stmt::Assign(assign) => {
+                    // First check if this is an attribute assignment with an init function call
+                    // like: schemas.user = __cribo_init___cribo_f275a8_schemas_user()
+                    if assign.targets.len() == 1
+                        && let Expr::Attribute(target_attr) = &assign.targets[0]
+                    {
+                        let target_path = self.extract_attribute_path(target_attr);
+
+                        // Check if value is an init function call
+                        if let Expr::Call(call) = &assign.value.as_ref()
+                            && let Expr::Name(name) = &call.func.as_ref()
+                        {
+                            let func_name = name.id.as_str();
+                            if func_name.starts_with("__cribo_init_") {
+                                // For module init assignments, just check the target path
+                                // since the same module should only be initialized once
+                                let key = target_path.clone();
+                                log::debug!(
+                                    "Checking deferred module init assignment: {key} = {func_name}"
+                                );
+                                if seen_assignments.contains(&key) {
+                                    log::debug!(
+                                        "Skipping duplicate module init assignment: {key} = \
+                                         {func_name}"
+                                    );
+                                    continue; // Skip this statement entirely
+                                } else {
+                                    log::debug!(
+                                        "Adding new module init assignment: {key} = {func_name}"
+                                    );
+                                    seen_assignments.insert(key);
+                                    result.push(stmt);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
+                    // Check if this is an assignment like: UserSchema =
+                    // sys.modules['schemas.user'].UserSchema
+                    if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                        if let Expr::Subscript(subscript) = &attr.value.as_ref() {
+                            if let Expr::Attribute(sys_attr) = &subscript.value.as_ref() {
+                                if let Expr::Name(sys_name) = &sys_attr.value.as_ref() {
+                                    if sys_name.id.as_str() == "sys"
+                                        && sys_attr.attr.as_str() == "modules"
+                                    {
+                                        // This is a sys.modules access
+                                        if let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
+                                        {
+                                            let module_name = lit.value.to_str();
+                                            let attr_name = attr.attr.as_str();
+                                            if let Expr::Name(target) = &assign.targets[0] {
+                                                let symbol_name = target.id.as_str();
+                                                // Include the target variable name in the key to
+                                                // properly deduplicate
+                                                // assignments like User =
+                                                // services.auth.manager.User
+                                                let key = format!(
+                                                    "{symbol_name} = {module_name}.{attr_name}"
+                                                );
+                                                log::debug!("Checking assignment key: {key}");
+                                                if seen_assignments.insert(key.clone()) {
+                                                    log::debug!(
+                                                        "First occurrence of {key}, including"
+                                                    );
+                                                    result.push(stmt);
+                                                } else {
+                                                    log::debug!(
+                                                        "Skipping duplicate assignment: \
+                                                         {symbol_name} = \
+                                                         sys.modules['{module_name}'].{attr_name}"
+                                                    );
+                                                }
+                                            } else {
+                                                result.push(stmt);
+                                            }
+                                        } else {
+                                            result.push(stmt);
+                                        }
+                                    } else {
+                                        result.push(stmt);
+                                    }
+                                } else {
+                                    result.push(stmt);
+                                }
+                            } else {
+                                result.push(stmt);
+                            }
+                        } else {
+                            result.push(stmt);
+                        }
+                    } else {
+                        // Check for simple assignments like: Logger = Logger_4
+                        if assign.targets.len() == 1 {
+                            if let Expr::Name(target) = &assign.targets[0] {
+                                if let Expr::Name(value) = &assign.value.as_ref() {
+                                    // This is a simple name assignment
+                                    let target_str = target.id.as_str();
+                                    let value_str = value.id.as_str();
+                                    let key = format!("{target_str} = {value_str}");
+
+                                    // Check for self-assignment
+                                    if target_str == value_str {
+                                        log::warn!(
+                                            "Found self-assignment in deferred imports: {key}"
+                                        );
+                                        // Skip self-assignments entirely
+                                        log::debug!("Skipping self-assignment: {key}");
+                                    } else if seen_assignments.insert(key.clone()) {
+                                        log::debug!("First occurrence of simple assignment: {key}");
+                                        result.push(stmt);
+                                    } else {
+                                        log::debug!("Skipping duplicate simple assignment: {key}");
+                                    }
+                                } else {
+                                    // Not a simple name assignment, check for duplicates
+                                    // Handle attribute assignments like User =
+                                    // services.auth.manager.User
+                                    let target_str = target.id.as_str();
+
+                                    // For attribute assignments, extract the actual attribute path
+                                    let key = if let Expr::Attribute(attr) = &assign.value.as_ref()
+                                    {
+                                        // Extract the full attribute path (e.g.,
+                                        // services.auth.manager.User)
+                                        let attr_path = self.extract_attribute_path(attr);
+                                        format!("{target_str} = {attr_path}")
+                                    } else {
+                                        // Fallback to debug format for other types
+                                        let value_str = format!("{:?}", assign.value);
+                                        format!("{target_str} = {value_str}")
+                                    };
+
+                                    if seen_assignments.insert(key.clone()) {
+                                        log::debug!(
+                                            "First occurrence of attribute assignment: {key}"
+                                        );
+                                        result.push(stmt);
+                                    } else {
+                                        log::debug!(
+                                            "Skipping duplicate attribute assignment: {key}"
+                                        );
+                                    }
+                                }
+                            } else {
+                                // Target is not a simple name, include it
+                                result.push(stmt);
+                            }
+                        } else {
+                            // Multiple targets, include it
+                            result.push(stmt);
+                        }
+                    }
+                }
+                _ => result.push(stmt),
+            }
+        }
+
+        result
     }
 
     /// Check if import from is duplicate
