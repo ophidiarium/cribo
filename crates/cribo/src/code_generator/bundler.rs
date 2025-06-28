@@ -2073,12 +2073,163 @@ impl<'a> HybridStaticBundler<'a> {
     /// Transform imports from namespace packages
     fn transform_namespace_package_imports(
         &self,
-        _import_from: StmtImportFrom,
-        _module_name: &str,
-        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        import_from: StmtImportFrom,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
-        // TODO: Implementation from original file
-        vec![]
+        let mut result_stmts = Vec::new();
+
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+            let full_module_path = format!("{module_name}.{imported_name}");
+
+            if self.bundled_modules.contains(&full_module_path) {
+                if self.module_registry.contains_key(&full_module_path) {
+                    // Wrapper module - create sys.modules access
+                    result_stmts.push(Stmt::Assign(StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
+                        targets: vec![Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: local_name.into(),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: "sys".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new("modules", TextRange::default()),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            slice: Box::new(self.create_string_literal(&full_module_path)),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    }));
+                } else {
+                    // Inlined module - create a namespace object for it
+                    log::debug!(
+                        "Submodule '{imported_name}' from namespace package '{module_name}' was \
+                         inlined, creating namespace"
+                    );
+
+                    // For namespace hybrid modules, we need to create the namespace object
+                    // The inlined module's symbols are already renamed with module prefix
+                    // e.g., message -> message_greetings_greeting
+                    let _inlined_key = full_module_path.cow_replace('.', "_").into_owned();
+
+                    // Create a SimpleNamespace object manually with all the inlined symbols
+                    // Since the module was inlined, we need to map the original names to the
+                    // renamed ones
+                    result_stmts.push(Stmt::Assign(StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
+                        targets: vec![Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: local_name.into(),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(Expr::Call(ExprCall {
+                            node_index: AtomicNodeIndex::dummy(),
+                            func: Box::new(Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: "types".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            arguments: Arguments {
+                                node_index: AtomicNodeIndex::dummy(),
+                                args: Box::new([]),
+                                keywords: Box::new([]),
+                                range: TextRange::default(),
+                            },
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    }));
+
+                    // Add all the renamed symbols as attributes to the namespace
+                    // Get the symbol renames for this module if available
+                    if let Some(module_renames) = symbol_renames.get(&full_module_path) {
+                        let module_suffix = full_module_path.cow_replace('.', "_");
+                        for (original_name, renamed_name) in module_renames {
+                            // Check if this is an identity mapping (no semantic rename)
+                            let actual_renamed_name = if renamed_name == original_name {
+                                // No semantic rename, apply module suffix pattern
+
+                                self.get_unique_name_with_module_suffix(
+                                    original_name,
+                                    &module_suffix,
+                                )
+                            } else {
+                                // Use the semantic rename
+                                renamed_name.clone()
+                            };
+
+                            // base.original_name = actual_renamed_name
+                            result_stmts.push(Stmt::Assign(StmtAssign {
+                                node_index: AtomicNodeIndex::dummy(),
+                                targets: vec![Expr::Attribute(ExprAttribute {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    value: Box::new(Expr::Name(ExprName {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        id: local_name.into(),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    })),
+                                    attr: Identifier::new(original_name, TextRange::default()),
+                                    ctx: ExprContext::Store,
+                                    range: TextRange::default(),
+                                })],
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: actual_renamed_name.into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                range: TextRange::default(),
+                            }));
+                        }
+                    } else {
+                        // Fallback: try to guess the renamed symbols based on module suffix
+                        log::warn!(
+                            "No symbol renames found for inlined module '{full_module_path}', \
+                             namespace will be empty"
+                        );
+                    }
+                }
+            } else {
+                // Not a bundled submodule, keep as attribute access
+                // This might be importing a symbol from the namespace package's __init__.py
+                // But since we're here, the namespace package has no __init__.py
+                log::warn!(
+                    "Import '{imported_name}' from namespace package '{module_name}' is not a \
+                     bundled module"
+                );
+            }
+        }
+
+        if result_stmts.is_empty() {
+            // If we didn't transform anything, return the original
+            vec![Stmt::ImportFrom(import_from)]
+        } else {
+            result_stmts
+        }
     }
 
     /// Get synthetic module name using content hash
