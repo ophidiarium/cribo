@@ -9739,47 +9739,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
-    /// Create an __all__ assignment for a bundled module to make exports explicit
-    /// This should only be called for modules that originally defined __all__
-    fn create_all_assignment_for_module(&self, module_name: &str) -> Stmt {
-        let exported_symbols = self
-            .module_exports
-            .get(module_name)
-            .and_then(|opt| opt.as_ref())
-            .cloned()
-            .unwrap_or_default();
-
-        // Create string literals for each exported symbol
-        let elements: Vec<Expr> = exported_symbols
-            .iter()
-            .map(|symbol| self.create_string_literal(symbol))
-            .collect();
-
-        // Create: module.__all__ = [exported_symbols...]
-        Stmt::Assign(StmtAssign {
-            node_index: AtomicNodeIndex::dummy(),
-            targets: vec![Expr::Attribute(ExprAttribute {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: "module".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new("__all__", TextRange::default()),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::List(ExprList {
-                node_index: AtomicNodeIndex::dummy(),
-                elts: elements,
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        })
-    }
-
     /// Check if a specific module is in our hoisted stdlib imports
     fn is_import_in_hoisted_stdlib(&self, module_name: &str) -> bool {
         // Check if module is in our from imports map
@@ -9833,15 +9792,6 @@ impl<'a> HybridStaticBundler<'a> {
             }
             _ => false,
         }
-    }
-
-    /// Transform a bundled "from module import ..." statement into multiple assignments
-    fn transform_bundled_import_from_multiple(
-        &self,
-        import_from: StmtImportFrom,
-        module_name: &str,
-    ) -> Vec<Stmt> {
-        self.transform_bundled_import_from_multiple_with_context(import_from, module_name, false)
     }
 
     /// Transform a bundled "from module import ..." statement into multiple assignments with
@@ -14048,34 +13998,6 @@ impl<'a> HybridStaticBundler<'a> {
         })
     }
 
-    /// Create a module assignment, handling dotted names properly
-    fn create_module_assignment(&self, final_body: &mut Vec<Stmt>, module: &str) {
-        if module.contains('.') {
-            // For dotted module names, we need to create proper attribute assignments
-            // e.g., for "a.b.c", create: a.b.c = sys.modules['a.b.c']
-            // But this needs to be done as: parent.attr = sys.modules['a.b.c']
-            let parts: Vec<&str> = module.split('.').collect();
-            if parts.len() > 1 {
-                let parent = parts[..parts.len() - 1].join(".");
-                let attr = parts[parts.len() - 1];
-
-                // Check if this would be a redundant self-assignment
-                let full_target = format!("{parent}.{attr}");
-                if full_target == module {
-                    debug!(
-                        "Skipping redundant self-assignment in create_module_assignment: \
-                         {parent}.{attr} = {module}"
-                    );
-                } else {
-                    final_body.push(self.create_dotted_attribute_assignment(&parent, attr, module));
-                }
-            }
-        } else {
-            // Simple module name without dots
-            final_body.push(self.create_module_reference_assignment(module, module));
-        }
-    }
-
     /// Check if an assignment statement has a dotted target matching parent.attr
     fn assignment_has_dotted_target(&self, assign: &StmtAssign, parent: &str, attr: &str) -> bool {
         assign.targets.iter().any(|target| {
@@ -14085,34 +14007,6 @@ impl<'a> HybridStaticBundler<'a> {
                 false
             }
         })
-    }
-
-    /// Check if a module has already been assigned in the final body
-    fn is_module_already_assigned(&self, final_body: &[Stmt], module: &str) -> bool {
-        if module.contains('.') {
-            // For dotted names, check if there's already an attribute assignment
-            let parts: Vec<&str> = module.split('.').collect();
-            if parts.len() > 1 {
-                let parent = parts[..parts.len() - 1].join(".");
-                let attr = parts[parts.len() - 1];
-                final_body.iter().any(|stmt| {
-                    matches!(stmt, Stmt::Assign(assign) if
-                        self.assignment_has_dotted_target(assign, &parent, attr)
-                    )
-                })
-            } else {
-                false
-            }
-        } else {
-            // For simple names, check for name assignment
-            final_body.iter().any(|stmt| {
-                matches!(stmt, Stmt::Assign(assign) if
-                    assign.targets.iter().any(|target|
-                        matches!(target, Expr::Name(name) if name.id.as_str() == module)
-                    )
-                )
-            })
-        }
     }
 
     /// Check if an expression represents a dotted name chain (e.g., "a.b.c")
