@@ -1843,11 +1843,141 @@ impl<'a> HybridStaticBundler<'a> {
     /// Sort wrapped modules by dependencies
     fn sort_wrapped_modules_by_dependencies(
         &self,
-        _wrapped_modules: &[String],
-        _sorted_modules: &[(String, String)],
+        wrapped_modules: &[String],
+        all_modules: &[(String, PathBuf, Vec<String>)],
     ) -> Vec<String> {
-        // TODO: Implement proper dependency sorting
-        _wrapped_modules.to_vec()
+        // Build a dependency map for wrapped modules only
+        let mut deps_map: FxIndexMap<String, Vec<String>> = FxIndexMap::default();
+
+        for module_name in wrapped_modules {
+            deps_map.insert(module_name.clone(), Vec::new());
+
+            // Add parent modules as dependencies to ensure they're initialized first
+            // For example, "models.base" depends on "models"
+            // because Python always initializes parent packages before submodules
+            // UNLESS the parent imports from this child
+            for other_module in wrapped_modules {
+                if other_module != module_name
+                    && module_name.starts_with(other_module)
+                    && module_name[other_module.len()..].starts_with('.')
+                {
+                    // module_name is a child of other_module
+                    // Check if the parent imports from this child
+                    let parent_imports_child = if let Some((_, _, parent_deps)) =
+                        all_modules.iter().find(|(name, _, _)| name == other_module)
+                    {
+                        // Dependencies might be stored as relative imports
+                        // e.g., ".connection" for "core.database.connection"
+                        let relative_name = if module_name.starts_with(&format!("{other_module}."))
+                        {
+                            format!(".{}", &module_name[other_module.len() + 1..])
+                        } else {
+                            module_name.to_string()
+                        };
+
+                        let imports_child = parent_deps.contains(module_name)
+                            || parent_deps.contains(&relative_name);
+                        if imports_child {
+                            debug!(
+                                "    Found: parent {other_module} has dependency on child \
+                                 {module_name}"
+                            );
+                        }
+                        imports_child
+                    } else {
+                        debug!("    No dependency info found for parent {other_module}");
+                        false
+                    };
+
+                    if parent_imports_child {
+                        // Parent imports from child, so parent depends on child
+                        debug!(
+                            "  - Parent {other_module} imports from child {module_name}, \
+                             reversing dependency"
+                        );
+                        if let Some(parent_deps) = deps_map.get_mut(other_module)
+                            && !parent_deps.contains(module_name)
+                        {
+                            parent_deps.push(module_name.clone());
+                        }
+                    } else {
+                        // Normal case: child depends on parent
+                        debug!("  - {module_name} depends on parent module {other_module}");
+                        if let Some(module_deps) = deps_map.get_mut(module_name)
+                            && !module_deps.contains(other_module)
+                        {
+                            module_deps.push(other_module.clone());
+                        }
+                    }
+                }
+            }
+
+            // Find this module's dependencies from all_modules
+            if let Some((_, _, deps)) = all_modules.iter().find(|(name, _, _)| name == module_name)
+            {
+                debug!("Module {module_name} has dependencies: {deps:?}");
+                for dep in deps {
+                    // Check if this dependency or any of its submodules are wrapped
+                    for wrapped in wrapped_modules {
+                        // Check exact match or if wrapped module is a submodule of dep
+                        if wrapped == dep
+                            || (wrapped.starts_with(dep) && wrapped[dep.len()..].starts_with('.'))
+                        {
+                            debug!("  - {module_name} depends on wrapped module {wrapped}");
+                            if let Some(module_deps) = deps_map.get_mut(module_name)
+                                && !module_deps.contains(wrapped)
+                            {
+                                module_deps.push(wrapped.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Dependency map for wrapped modules: {deps_map:?}");
+
+        // Perform a simple topological sort on wrapped modules
+        let mut sorted = Vec::new();
+        let mut visited = FxIndexSet::default();
+        let mut visiting = FxIndexSet::default();
+
+        fn visit(
+            module: &str,
+            deps_map: &FxIndexMap<String, Vec<String>>,
+            visited: &mut FxIndexSet<String>,
+            visiting: &mut FxIndexSet<String>,
+            sorted: &mut Vec<String>,
+        ) -> bool {
+            if visited.contains(module) {
+                return true;
+            }
+            if visiting.contains(module) {
+                // Circular dependency among wrapped modules
+                return false;
+            }
+
+            visiting.insert(module.to_string());
+
+            if let Some(deps) = deps_map.get(module) {
+                for dep in deps {
+                    if !visit(dep, deps_map, visited, visiting, sorted) {
+                        return false;
+                    }
+                }
+            }
+
+            visiting.shift_remove(module);
+            visited.insert(module.to_string());
+            sorted.push(module.to_string());
+            true
+        }
+
+        for module in wrapped_modules {
+            visit(module, &deps_map, &mut visited, &mut visiting, &mut sorted);
+        }
+
+        sorted
     }
 
     /// Get imports from entry module
