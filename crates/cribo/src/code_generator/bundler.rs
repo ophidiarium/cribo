@@ -3280,14 +3280,14 @@ impl<'a> HybridStaticBundler<'a> {
                     range: TextRange::default(),
                 }));
 
-                // TODO: Implement generate_merge_module_attributes
-                // self.generate_merge_module_attributes(
-                //     &mut statements,
-                //     module_name,
-                //     init_result_var,
-                // );
+                // Generate the merge attributes code
+                self.generate_merge_module_attributes(
+                    &mut statements,
+                    &module_name,
+                    init_result_var,
+                );
 
-                // For now, just assign directly
+                // Assign the init result to the module variable
                 statements.push(Stmt::Assign(StmtAssign {
                     node_index: AtomicNodeIndex::dummy(),
                     targets: vec![Expr::Name(ExprName {
