@@ -14,10 +14,9 @@ type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
-    ExprContext, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, Identifier, Keyword,
-    ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom,
-    StringLiteral, StringLiteralFlags, StringLiteralValue,
-    visitor::source_order::SourceOrderVisitor,
+    ExprContext, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, Identifier, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef,
+    StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
+    StringLiteralValue, visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -1153,10 +1152,161 @@ impl<'a> HybridStaticBundler<'a> {
     pub fn rewrite_import_with_renames(
         &self,
         import_stmt: StmtImport,
-        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
-        // TODO: Implementation from original file
-        vec![Stmt::Import(import_stmt)]
+        // Check each import individually
+        let mut result_stmts = Vec::new();
+        let mut handled_all = true;
+
+        for alias in &import_stmt.names {
+            let module_name = alias.name.as_str();
+
+            // Check if this is a dotted import (e.g., greetings.greeting)
+            if module_name.contains('.') {
+                // Handle dotted imports specially
+                let parts: Vec<&str> = module_name.split('.').collect();
+
+                // Check if the full module is bundled
+                if self.bundled_modules.contains(module_name) {
+                    if self.module_registry.contains_key(module_name) {
+                        // Create all parent namespaces if needed (e.g., for a.b.c.d, create a, a.b,
+                        // a.b.c)
+                        self.create_parent_namespaces(&parts, &mut result_stmts);
+
+                        // Initialize the module at import time
+                        result_stmts
+                            .extend(self.create_module_initialization_for_import(module_name));
+
+                        let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+                        // If there's no alias, we need to handle the dotted name specially
+                        if alias.asname.is_none() && module_name.contains('.') {
+                            // Create assignments for each level of nesting
+                            self.create_dotted_assignments(&parts, &mut result_stmts);
+                        } else {
+                            // For aliased imports or non-dotted imports, just assign to the target
+                            // Skip self-assignments - the module is already initialized
+                            if target_name.as_str() != module_name {
+                                result_stmts.push(self.create_module_reference_assignment(
+                                    target_name.as_str(),
+                                    module_name,
+                                ));
+                            }
+                        }
+                    } else {
+                        // Module was inlined - create a namespace object
+                        let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+                        // For dotted imports, we need to create the parent namespaces
+                        if alias.asname.is_none() && module_name.contains('.') {
+                            // For non-aliased dotted imports like "import a.b.c"
+                            // Create all parent namespace objects AND the leaf namespace
+                            self.create_all_namespace_objects(&parts, &mut result_stmts);
+
+                            // Populate ALL namespace levels with their symbols, not just the leaf
+                            // For "import greetings.greeting", populate both "greetings" and
+                            // "greetings.greeting"
+                            for i in 1..=parts.len() {
+                                let partial_module = parts[..i].join(".");
+                                // Only populate if this module was actually bundled and has exports
+                                if self.bundled_modules.contains(&partial_module) {
+                                    self.populate_namespace_with_module_symbols_with_renames(
+                                        &partial_module,
+                                        &partial_module,
+                                        &mut result_stmts,
+                                        symbol_renames,
+                                    );
+                                }
+                            }
+                        } else {
+                            // For simple imports or aliased imports, create namespace object with
+                            // the module's exports
+
+                            // Check if namespace already exists
+                            if !self.created_namespaces.contains(target_name.as_str()) {
+                                let namespace_stmt = self.create_namespace_object_for_module(
+                                    target_name.as_str(),
+                                    module_name,
+                                );
+                                result_stmts.push(namespace_stmt);
+                            } else {
+                                log::debug!(
+                                    "Skipping namespace creation for '{}' - already created \
+                                     globally",
+                                    target_name.as_str()
+                                );
+                            }
+
+                            // Always populate the namespace with symbols
+                            self.populate_namespace_with_module_symbols_with_renames(
+                                target_name.as_str(),
+                                module_name,
+                                &mut result_stmts,
+                                symbol_renames,
+                            );
+                        }
+                    }
+                } else {
+                    handled_all = false;
+                    continue;
+                }
+            } else {
+                // Non-dotted import - handle as before
+                if !self.bundled_modules.contains(module_name) {
+                    handled_all = false;
+                    continue;
+                }
+
+                if self.module_registry.contains_key(module_name) {
+                    // Module uses wrapper approach - need to initialize it now
+                    let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+                    // First, ensure the module is initialized
+                    result_stmts.extend(self.create_module_initialization_for_import(module_name));
+
+                    // Then create assignment if needed (skip self-assignments)
+                    if target_name.as_str() != module_name {
+                        result_stmts.push(
+                            self.create_module_reference_assignment(
+                                target_name.as_str(),
+                                module_name,
+                            ),
+                        );
+                    }
+                } else {
+                    // Module was inlined - create a namespace object
+                    let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+                    // Create namespace object with the module's exports
+                    // Check if namespace already exists
+                    if !self.created_namespaces.contains(target_name.as_str()) {
+                        let namespace_stmt = self
+                            .create_namespace_object_for_module(target_name.as_str(), module_name);
+                        result_stmts.push(namespace_stmt);
+                    } else {
+                        log::debug!(
+                            "Skipping namespace creation for '{}' - already created globally",
+                            target_name.as_str()
+                        );
+                    }
+
+                    // Always populate the namespace with symbols
+                    self.populate_namespace_with_module_symbols_with_renames(
+                        target_name.as_str(),
+                        module_name,
+                        &mut result_stmts,
+                        symbol_renames,
+                    );
+                }
+            }
+        }
+
+        if handled_all {
+            result_stmts
+        } else {
+            // Keep original import for non-bundled modules
+            vec![Stmt::Import(import_stmt)]
+        }
     }
 
     /// Resolve relative import
@@ -6934,6 +7084,758 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
             }
             _ => {}
         }
+    }
+}
+
+// Helper methods for import rewriting
+impl<'a> HybridStaticBundler<'a> {
+    /// Create a module reference assignment
+    fn create_module_reference_assignment(&self, target_name: &str, module_name: &str) -> Stmt {
+        // Simply assign the module reference: target_name = module_name
+        Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: target_name.into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: module_name.into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Create module initialization statements for wrapper modules when they are imported
+    fn create_module_initialization_for_import(&self, module_name: &str) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+
+        // Check if this is a wrapper module that needs initialization
+        if let Some(synthetic_name) = self.module_registry.get(module_name) {
+            // Generate the init call
+            let init_func_name = format!("__cribo_init_{synthetic_name}");
+
+            // Call the init function and get the result
+            let init_call = Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
+                func: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: init_func_name.clone().into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            });
+
+            // Generate the appropriate assignment based on module type
+            stmts.extend(self.generate_module_assignment_from_init(module_name, init_call));
+
+            // Log the initialization for debugging
+            if module_name.contains('.') {
+                log::debug!(
+                    "Created module initialization: {} = {}()",
+                    module_name,
+                    &init_func_name
+                );
+            }
+        }
+
+        stmts
+    }
+
+    /// Generate module assignment from init function result
+    fn generate_module_assignment_from_init(
+        &self,
+        module_name: &str,
+        init_call: Expr,
+    ) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+
+        // Check if this module is a parent namespace that already exists
+        let is_parent_namespace = self
+            .module_registry
+            .iter()
+            .any(|(name, _)| name != module_name && name.starts_with(&format!("{module_name}.")));
+
+        if is_parent_namespace {
+            // Use temp variable and merge attributes for parent namespaces
+            let init_result_var = "__cribo_init_result";
+
+            // Store init result in temp variable
+            stmts.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: init_result_var.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(init_call),
+                range: TextRange::default(),
+            }));
+
+            // Merge attributes from init result into existing namespace
+            self.generate_merge_module_attributes(&mut stmts, module_name, init_result_var);
+        } else {
+            // Direct assignment for simple and dotted modules
+            let target_expr = if module_name.contains('.') {
+                // Create attribute expression for dotted modules
+                let parts: Vec<&str> = module_name.split('.').collect();
+                let mut expr = Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: parts[0].into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+
+                for part in &parts[1..parts.len() - 1] {
+                    expr = Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(expr),
+                        attr: Identifier::new(*part, TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+                }
+
+                Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(expr),
+                    attr: Identifier::new(parts[parts.len() - 1], TextRange::default()),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })
+            } else {
+                // Simple name expression
+                Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: module_name.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })
+            };
+
+            stmts.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![target_expr],
+                value: Box::new(init_call),
+                range: TextRange::default(),
+            }));
+        }
+
+        stmts
+    }
+
+    /// Create parent namespaces for dotted imports
+    fn create_parent_namespaces(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
+        for i in 1..parts.len() {
+            let parent_path = parts[..i].join(".");
+
+            if self.module_registry.contains_key(&parent_path) {
+                // Parent is a wrapper module, create reference to it
+                result_stmts
+                    .push(self.create_module_reference_assignment(&parent_path, &parent_path));
+            } else if !self.bundled_modules.contains(&parent_path) {
+                // Check if we haven't already created this namespace globally or locally
+                let already_created = self.created_namespaces.contains(&parent_path)
+                    || self.is_namespace_already_created(&parent_path, result_stmts);
+
+                if !already_created {
+                    // Parent is not a wrapper module and not an inlined module, create a simple
+                    // namespace
+                    result_stmts.extend(self.create_namespace_module(&parent_path));
+                }
+            }
+        }
+    }
+
+    /// Check if a namespace module was already created
+    fn is_namespace_already_created(&self, parent_path: &str, result_stmts: &[Stmt]) -> bool {
+        result_stmts.iter().any(|stmt| {
+            if let Stmt::Assign(assign) = stmt
+                && let Some(Expr::Name(name)) = assign.targets.first()
+            {
+                return name.id.as_str() == parent_path;
+            }
+            false
+        })
+    }
+
+    /// Create dotted attribute assignments for imports
+    fn create_dotted_assignments(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
+        // For import a.b.c.d, we need:
+        // a.b = sys.modules['a.b']
+        // a.b.c = sys.modules['a.b.c']
+        // a.b.c.d = sys.modules['a.b.c.d']
+        for i in 2..=parts.len() {
+            let parent = parts[..i - 1].join(".");
+            let attr = parts[i - 1];
+            let full_path = parts[..i].join(".");
+
+            // Check if this would be a redundant self-assignment
+            let full_target = format!("{parent}.{attr}");
+            if full_target == full_path {
+                debug!(
+                    "Skipping redundant self-assignment in create_dotted_assignments: \
+                     {parent}.{attr} = {full_path}"
+                );
+            } else {
+                result_stmts
+                    .push(self.create_dotted_attribute_assignment(&parent, attr, &full_path));
+            }
+        }
+    }
+
+    /// Create all namespace objects including the leaf for a dotted import
+    fn create_all_namespace_objects(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
+        // For "import a.b.c", we need to create namespace objects for "a", "a.b", and "a.b.c"
+        for i in 1..=parts.len() {
+            let partial_module = parts[..i].join(".");
+
+            // Skip if this module is already a wrapper module
+            if self.module_registry.contains_key(&partial_module) {
+                continue;
+            }
+
+            // Skip if this namespace was already created globally
+            if self.created_namespaces.contains(&partial_module) {
+                log::debug!(
+                    "Skipping namespace creation for '{partial_module}' - already created globally"
+                );
+                continue;
+            }
+
+            // Create empty namespace object
+            let namespace_expr = Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "types".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: vec![].into(),
+                    keywords: vec![].into(),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            });
+
+            // Assign to the first part of the name
+            if i == 1 {
+                result_stmts.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
+                    targets: vec![Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: parts[0].into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(namespace_expr),
+                    range: TextRange::default(),
+                }));
+            } else {
+                // For deeper levels, create attribute assignments
+                let mut target = Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: parts[0].into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+
+                // Build up the chain up to but not including the last part
+                for part in &parts[1..(i - 1)] {
+                    target = Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(target),
+                        attr: Identifier::new(&**part, TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+                }
+
+                result_stmts.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
+                    targets: vec![Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(target),
+                        attr: Identifier::new(parts[i - 1], TextRange::default()),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(namespace_expr),
+                    range: TextRange::default(),
+                }));
+            }
+        }
+    }
+
+    /// Populate a namespace with symbols from an inlined module using a specific target name
+    fn populate_namespace_with_module_symbols_with_renames(
+        &self,
+        target_name: &str,
+        module_name: &str,
+        result_stmts: &mut Vec<Stmt>,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) {
+        // Get the module's exports
+        if let Some(exports) = self
+            .module_exports
+            .get(module_name)
+            .and_then(|e| e.as_ref())
+        {
+            // Build the namespace access expression for the target
+            let parts: Vec<&str> = target_name.split('.').collect();
+
+            // First, add __all__ attribute to the namespace
+            // Create the target expression for __all__
+            let mut all_target = Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: parts[0].into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            });
+
+            for part in &parts[1..] {
+                all_target = Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(all_target),
+                    attr: Identifier::new(&**part, TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+            }
+
+            // Filter exports to only include symbols that survived tree-shaking
+            let filtered_exports = self.filter_exports_by_tree_shaking_with_logging(
+                exports,
+                module_name,
+                self.tree_shaking_keep_symbols.as_ref(),
+            );
+
+            // Create __all__ = [...] assignment with filtered exports
+            let all_list = Expr::List(ExprList {
+                node_index: AtomicNodeIndex::dummy(),
+                elts: filtered_exports
+                    .iter()
+                    .map(|name| {
+                        Expr::StringLiteral(ExprStringLiteral {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: StringLiteralValue::single(StringLiteral {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: name.as_str().into(),
+                                flags: StringLiteralFlags::empty(),
+                                range: TextRange::default(),
+                            }),
+                            range: TextRange::default(),
+                        })
+                    })
+                    .collect(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            });
+
+            result_stmts.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(all_target),
+                    attr: Identifier::new("__all__", TextRange::default()),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(all_list),
+                range: TextRange::default(),
+            }));
+
+            // For each exported symbol that survived tree-shaking, add it to the namespace
+            for symbol in &filtered_exports {
+                // For re-exported symbols, check if the original symbol is kept by tree-shaking
+                let should_include = if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                {
+                    // First check if this symbol is directly defined in this module
+                    if kept_symbols.contains(&(module_name.to_string(), (*symbol).clone())) {
+                        true
+                    } else {
+                        // If not, check if this is a re-exported symbol from another module
+                        // For modules with __all__, we always include symbols that are re-exported
+                        // even if they're not directly defined in the module
+                        let module_has_all_export = self
+                            .module_exports
+                            .get(module_name)
+                            .and_then(|exports| exports.as_ref())
+                            .map(|exports| exports.contains(symbol))
+                            .unwrap_or(false);
+
+                        if module_has_all_export {
+                            log::debug!(
+                                "Including re-exported symbol {symbol} from module {module_name} \
+                                 (in __all__)"
+                            );
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                } else {
+                    // No tree-shaking, include everything
+                    true
+                };
+
+                if !should_include {
+                    log::debug!(
+                        "Skipping namespace assignment for {module_name}.{symbol} - removed by \
+                         tree-shaking"
+                    );
+                    continue;
+                }
+
+                // Get the renamed symbol if it exists
+                let actual_symbol_name =
+                    if let Some(module_renames) = symbol_renames.get(module_name) {
+                        module_renames
+                            .get(*symbol)
+                            .cloned()
+                            .unwrap_or_else(|| (*symbol).clone())
+                    } else {
+                        (*symbol).clone()
+                    };
+
+                // Create the target expression
+                // For simple modules, this will be the module name directly
+                // For dotted modules (e.g., greetings.greeting), build the chain
+                let target = if parts.len() == 1 {
+                    // Simple module - use the name directly
+                    Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: parts[0].into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })
+                } else {
+                    // Dotted module - build the attribute chain
+                    let mut base = Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: parts[0].into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+
+                    for part in &parts[1..] {
+                        base = Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(base),
+                            attr: Identifier::new(&**part, TextRange::default()),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        });
+                    }
+                    base
+                };
+
+                // Now add the symbol as an attribute (e.g., greetings.greeting.get_greeting =
+                // get_greeting)
+                let attr_assignment = Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
+                    targets: vec![Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(target),
+                        attr: Identifier::new(*symbol, TextRange::default()),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: actual_symbol_name.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                });
+
+                result_stmts.push(attr_assignment);
+            }
+        }
+    }
+
+    /// Filter exports by tree shaking with logging
+    fn filter_exports_by_tree_shaking_with_logging<'b>(
+        &self,
+        exports: &'b [String],
+        module_name: &str,
+        kept_symbols: Option<&indexmap::IndexSet<(String, String)>>,
+    ) -> Vec<&'b String> {
+        if let Some(kept_symbols) = kept_symbols {
+            let result: Vec<&String> = exports
+                .iter()
+                .filter(|symbol| {
+                    // Check if this symbol is kept in this module
+                    let is_kept =
+                        kept_symbols.contains(&(module_name.to_string(), (*symbol).clone()));
+                    if !is_kept {
+                        log::debug!(
+                            "Filtering out symbol '{symbol}' from __all__ of module \
+                             '{module_name}' - removed by tree-shaking"
+                        );
+                    } else {
+                        log::debug!(
+                            "Keeping symbol '{symbol}' in __all__ of module '{module_name}' - \
+                             survived tree-shaking"
+                        );
+                    }
+                    is_kept
+                })
+                .collect();
+            log::debug!(
+                "Module '{}' __all__ filtering: {} symbols -> {} symbols",
+                module_name,
+                exports.len(),
+                result.len()
+            );
+            result
+        } else {
+            // No tree-shaking, include all exports
+            exports.iter().collect()
+        }
+    }
+
+    /// Create a namespace object for an inlined module
+    fn create_namespace_object_for_module(&self, target_name: &str, _module_name: &str) -> Stmt {
+        // For inlined modules, we need to return a vector of statements:
+        // 1. Create the namespace object
+        // 2. Add all the module's symbols to it
+
+        // We'll create a compound statement that does both
+        let _stmts: Vec<Stmt> = Vec::new();
+
+        // First, create the empty namespace
+        let namespace_expr = Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
+            func: Box::new(Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: "types".into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            arguments: Arguments {
+                node_index: AtomicNodeIndex::dummy(),
+                args: vec![].into(),
+                keywords: vec![].into(),
+                range: TextRange::default(),
+            },
+            range: TextRange::default(),
+        });
+
+        // Create assignment for the namespace
+
+        // For now, return just the namespace creation
+        // The actual symbol population needs to happen after all symbols are available
+        Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: target_name.into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(namespace_expr),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Generate code to merge module attributes from the initialization result into a namespace
+    fn generate_merge_module_attributes(
+        &self,
+        statements: &mut Vec<Stmt>,
+        namespace_name: &str,
+        source_module_name: &str,
+    ) {
+        // Generate code like:
+        // for attr in dir(source_module):
+        //     if not attr.startswith('_'):
+        //         setattr(namespace, attr, getattr(source_module, attr))
+
+        let attr_var = "attr";
+        let loop_target = Expr::Name(ExprName {
+            node_index: AtomicNodeIndex::dummy(),
+            id: attr_var.into(),
+            ctx: ExprContext::Store,
+            range: TextRange::default(),
+        });
+
+        // dir(source_module)
+        let dir_call = Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
+            func: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: "dir".into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            arguments: Arguments {
+                node_index: AtomicNodeIndex::dummy(),
+                args: Box::from([Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: source_module_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })]),
+                keywords: Box::from([]),
+                range: TextRange::default(),
+            },
+            range: TextRange::default(),
+        });
+
+        // not attr.startswith('_')
+        let condition = Expr::UnaryOp(ruff_python_ast::ExprUnaryOp {
+            node_index: AtomicNodeIndex::dummy(),
+            op: ruff_python_ast::UnaryOp::Not,
+            operand: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: attr_var.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("startswith", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: Box::from([Expr::StringLiteral(ExprStringLiteral {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: StringLiteralValue::single(StringLiteral {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: "_".into(),
+                            range: TextRange::default(),
+                            flags: StringLiteralFlags::empty(),
+                        }),
+                        range: TextRange::default(),
+                    })]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        });
+
+        // getattr(source_module, attr)
+        let getattr_call = Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
+            func: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: "getattr".into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            arguments: Arguments {
+                node_index: AtomicNodeIndex::dummy(),
+                args: Box::from([
+                    Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: source_module_name.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    }),
+                    Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: attr_var.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    }),
+                ]),
+                keywords: Box::from([]),
+                range: TextRange::default(),
+            },
+            range: TextRange::default(),
+        });
+
+        // setattr(namespace, attr, getattr(...))
+        let setattr_call = Stmt::Expr(ruff_python_ast::StmtExpr {
+            node_index: AtomicNodeIndex::dummy(),
+            value: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
+                func: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: "setattr".into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: Box::from([
+                        Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: namespace_name.into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        }),
+                        Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: attr_var.into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        }),
+                        getattr_call,
+                    ]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        });
+
+        // if not attr.startswith('_'): setattr(...)
+        let if_stmt = Stmt::If(ruff_python_ast::StmtIf {
+            node_index: AtomicNodeIndex::dummy(),
+            test: Box::new(condition),
+            body: vec![setattr_call],
+            elif_else_clauses: vec![],
+            range: TextRange::default(),
+        });
+
+        // for attr in dir(...): if ...
+        let for_loop = Stmt::For(ruff_python_ast::StmtFor {
+            node_index: AtomicNodeIndex::dummy(),
+            target: Box::new(loop_target),
+            iter: Box::new(dir_call),
+            body: vec![if_stmt],
+            orelse: vec![],
+            is_async: false,
+            range: TextRange::default(),
+        });
+
+        statements.push(for_loop);
     }
 }
 
