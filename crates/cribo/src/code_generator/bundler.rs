@@ -1365,22 +1365,26 @@ impl<'a> HybridStaticBundler<'a> {
         vec![]
     }
 
-    /// Rewrite import in statement with full context
+    /// Rewrite imports in a statement with full context including wrapper init flag
     pub fn rewrite_import_in_stmt_multiple_with_full_context(
         &self,
-        import_stmt: StmtImport,
-        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-        _deferred_imports: &mut Vec<Stmt>,
-        _module_name: &str,
-        _is_wrapper_init: bool,
-        _local_variables: &FxIndexSet<String>,
-        _is_entry_module: bool,
-        _importlib_inlined_modules: &mut FxIndexMap<String, String>,
-        _created_namespace_objects: &mut bool,
-        _global_deferred_imports: Option<&FxIndexMap<(String, String), String>>,
+        stmt: Stmt,
+        current_module: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        inside_wrapper_init: bool,
     ) -> Vec<Stmt> {
-        // TODO: Implementation from original file
-        vec![Stmt::Import(import_stmt)]
+        match stmt {
+            Stmt::ImportFrom(import_from) => self.rewrite_import_from(
+                import_from,
+                current_module,
+                symbol_renames,
+                inside_wrapper_init,
+            ),
+            Stmt::Import(import_stmt) => {
+                self.rewrite_import_with_renames(import_stmt, symbol_renames)
+            }
+            _ => vec![stmt],
+        }
     }
 
     /// Rewrite import from statement with proper handling for bundled modules
