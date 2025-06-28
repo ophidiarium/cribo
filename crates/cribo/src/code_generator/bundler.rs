@@ -100,7 +100,7 @@ pub struct HybridStaticBundler<'a> {
     /// Module/symbol pairs that should be kept after tree shaking
     pub(crate) tree_shaking_keep_symbols: Option<indexmap::IndexSet<(String, String)>>,
     /// Whether to use the module cache model for circular dependencies
-    pub(crate) use_module_cache_model: bool,
+    pub(crate) use_module_cache: bool,
 }
 
 // Implementation block for importlib detection methods
@@ -671,8 +671,8 @@ impl<'a> HybridStaticBundler<'a> {
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
-            use_module_cache_model: true, /* Enable module cache by default for circular
-                                           * dependencies */
+            use_module_cache: true, /* Enable module cache by default for circular
+                                     * dependencies */
         }
     }
 
@@ -1552,13 +1552,14 @@ impl<'a> HybridStaticBundler<'a> {
             algo::toposort,
             graph::{DiGraph, NodeIndex},
         };
+        use rustc_hash::{FxHashMap, FxHashSet};
 
         // Build a directed graph of wrapper module dependencies
         let mut module_graph = DiGraph::new();
-        let mut node_map: FxIndexMap<String, NodeIndex> = FxIndexMap::default();
+        let mut node_map: FxHashMap<String, NodeIndex> = FxHashMap::default();
 
         // Create a set for quick lookup
-        let wrapper_module_names: FxIndexSet<String> = wrapper_modules
+        let wrapper_module_names: FxHashSet<String> = wrapper_modules
             .iter()
             .map(|(name, _, _, _)| name.clone())
             .collect();
@@ -1604,7 +1605,7 @@ impl<'a> HybridStaticBundler<'a> {
         match toposort(&module_graph, None) {
             Ok(sorted_nodes) => {
                 // Create a map for quick lookup
-                let module_map: FxIndexMap<String, (String, ModModule, PathBuf, String)> =
+                let module_map: FxHashMap<String, (String, ModModule, PathBuf, String)> =
                     wrapper_modules
                         .iter()
                         .map(|m| (m.0.clone(), m.clone()))
@@ -1629,7 +1630,7 @@ impl<'a> HybridStaticBundler<'a> {
             Err(cycle) => {
                 // If there's a true initialization cycle and we're using module cache,
                 // return modules in alphabetical order within the cycle
-                if self.use_module_cache_model {
+                if self.use_module_cache {
                     log::warn!(
                         "Module-level initialization cycle detected involving module '{}'. Using \
                          module cache approach with alphabetical ordering.",
@@ -1638,7 +1639,7 @@ impl<'a> HybridStaticBundler<'a> {
 
                     // Find all modules in the cycle using Tarjan's algorithm
                     let sccs = petgraph::algo::tarjan_scc(&module_graph);
-                    let mut cyclic_modules: FxIndexSet<String> = FxIndexSet::default();
+                    let mut cyclic_modules = FxHashSet::default();
 
                     for scc in sccs {
                         if scc.len() > 1 {
@@ -1658,7 +1659,7 @@ impl<'a> HybridStaticBundler<'a> {
                         .collect();
                     sorted_names.sort();
 
-                    let module_map: FxIndexMap<String, (String, ModModule, PathBuf, String)> =
+                    let module_map: FxHashMap<String, (String, ModModule, PathBuf, String)> =
                         wrapper_modules
                             .iter()
                             .map(|m| (m.0.clone(), m.clone()))
