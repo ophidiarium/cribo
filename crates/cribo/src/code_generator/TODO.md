@@ -152,12 +152,14 @@ This document tracks the remaining work to complete the refactoring of `code_gen
 - [ ] **Line 996**: Implement deduplication logic
   - **Original location**: `code_generator_old.rs:7362-7606`
   - **Function**: `deduplicate_deferred_imports_with_existing`
-- [ ] **Line 1002**: Check for duplicate imports
+- [x] **Line 1002**: Check for duplicate imports
   - **Original location**: `code_generator_old.rs:2694-2718`
   - **Function**: `is_duplicate_import`
-- [ ] **Line 1008**: Check for duplicate statements
+  - **Completed**: In commit e05f84c
+- [x] **Line 1008**: Check for duplicate statements
   - **Original location**: `code_generator_old.rs:2669-2692`
   - **Function**: `is_duplicate_import_from`
+  - **Completed**: In commit e05f84c
 
 ## Detailed Code Mapping Summary
 
@@ -220,7 +222,7 @@ Each migrated function should:
 - [x] Phase 3: Import Resolution (3/3 tasks) ✅ - stdlib checking, entry module imports, relative imports
 - [ ] Phase 4: Final Integration (0/4 tasks)
 
-Total: 7/16 major tasks completed (with some partial implementations)
+Total: 9/16 major tasks completed (with some partial implementations)
 
 ## Migration Helpers
 

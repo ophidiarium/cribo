@@ -1218,7 +1218,7 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Generate registries and hook
     fn generate_registries_and_hook(&mut self) -> Vec<Stmt> {
-        // TODO: Implement registries and hook generation
+        // No longer needed - we don't use sys.modules or import hooks
         Vec::new()
     }
 
