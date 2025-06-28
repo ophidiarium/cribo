@@ -789,20 +789,39 @@ impl<'a> HybridStaticBundler<'a> {
     /// Check if a statement is a hoisted import
     pub fn is_hoisted_import(&self, stmt: &Stmt) -> bool {
         match stmt {
-            Stmt::Import(import) => {
-                // Check if any alias is in our stdlib imports
-                import.names.iter().any(|alias| {
-                    self.stdlib_import_from_map
-                        .contains_key(&alias.name.to_string())
-                })
-            }
-            Stmt::ImportFrom(from_import) => {
-                if let Some(module) = &from_import.module {
-                    let module_name = module.to_string();
-                    self.stdlib_import_from_map.contains_key(&module_name)
-                } else {
-                    false
+            Stmt::ImportFrom(import_from) => {
+                if let Some(ref module) = import_from.module {
+                    let module_name = module.as_str();
+                    // Check if this is a __future__ import (always hoisted)
+                    if module_name == "__future__" {
+                        return true;
+                    }
+                    // Check if this is a stdlib import that we've hoisted
+                    if self.is_safe_stdlib_module(module_name) {
+                        // Check if this exact import is in our hoisted stdlib imports
+                        return self.is_import_in_hoisted_stdlib(module_name);
+                    }
+                    // We no longer hoist third-party imports, so they should never be considered
+                    // hoisted Only stdlib and __future__ imports are hoisted
                 }
+                false
+            }
+            Stmt::Import(import_stmt) => {
+                // Check if any of the imported modules are hoisted (stdlib or third-party)
+                import_stmt.names.iter().any(|alias| {
+                    let module_name = alias.name.as_str();
+                    // Check stdlib imports
+                    if self.is_safe_stdlib_module(module_name) {
+                        self.stdlib_import_statements.iter().any(|hoisted| {
+                            matches!(hoisted, Stmt::Import(hoisted_import)
+                                if hoisted_import.names.iter().any(|h| h.name == alias.name))
+                        })
+                    }
+                    // We no longer hoist third-party imports
+                    else {
+                        false
+                    }
+                })
             }
             _ => false,
         }
@@ -2234,10 +2253,10 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Get synthetic module name using content hash
     fn get_synthetic_module_name(&self, module_name: &str, content_hash: &str) -> String {
-        // Use only the first 8 characters of the hash for readability
-        let hash_prefix = &content_hash[..8.min(content_hash.len())];
-        let safe_name = module_name.replace(['.', '-'], "_");
-        format!("{safe_name}_{hash_prefix}")
+        let module_name_escaped = Self::sanitize_module_name_for_identifier(module_name);
+        // Use first 6 characters of content hash for readability
+        let short_hash = &content_hash[..6];
+        format!("__cribo_{short_hash}_{module_name_escaped}")
     }
 
     /// Check if a string is a valid Python identifier
@@ -2372,16 +2391,16 @@ impl<'a> HybridStaticBundler<'a> {
     fn create_namespace_statements(&mut self) -> Vec<Stmt> {
         let mut statements = Vec::new();
 
-        // Sort namespaces by depth to create parent namespaces first
+        // Sort namespaces for deterministic output
         let mut sorted_namespaces: Vec<String> = self.required_namespaces.iter().cloned().collect();
-        sorted_namespaces.sort_by_key(|ns| ns.matches('.').count());
+        sorted_namespaces.sort();
 
         for namespace in sorted_namespaces {
-            if !self.created_namespaces.contains(&namespace) {
-                let stmt = self.create_namespace_object(&namespace);
-                statements.push(stmt);
-                self.created_namespaces.insert(namespace);
-            }
+            debug!("Creating namespace statement for: {namespace}");
+
+            // Use ensure_namespace_exists to handle both simple and dotted namespaces
+            let namespace_stmts = self.ensure_namespace_exists(&namespace);
+            statements.extend(namespace_stmts);
         }
 
         statements
@@ -8576,25 +8595,9 @@ impl<'a> HybridStaticBundler<'a> {
         format!("{base_name}_{module_suffix}")
     }
 
-    /// Get a unique name for a symbol
-    pub fn get_unique_name(
-        &self,
-        base_name: &str,
-        existing_symbols: &FxIndexSet<String>,
-    ) -> String {
-        if !existing_symbols.contains(base_name) {
-            return base_name.to_string();
-        }
-
-        // Find a unique name by appending numbers
-        let mut counter = 2;
-        loop {
-            let new_name = format!("{base_name}_{counter}");
-            if !existing_symbols.contains(&new_name) {
-                return new_name;
-            }
-            counter += 1;
-        }
+    /// Get a unique name for a symbol, using the same pattern as generate_unique_name
+    fn get_unique_name(&self, base_name: &str, existing_symbols: &FxIndexSet<String>) -> String {
+        self.generate_unique_name(base_name, existing_symbols)
     }
 
     /// Rewrite hard dependencies in a module's AST
