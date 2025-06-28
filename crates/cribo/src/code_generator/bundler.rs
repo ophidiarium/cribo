@@ -3583,12 +3583,119 @@ impl<'a> HybridStaticBundler<'a> {
     /// Create namespace for inlined module
     fn create_namespace_for_inlined_module_static(
         &mut self,
-        _module_name: &str,
-        _module_renames: &FxIndexMap<String, String>,
+        module_name: &str,
+        module_renames: &FxIndexMap<String, String>,
     ) -> Stmt {
-        // TODO: Implement namespace creation for inlined modules
-        Stmt::Pass(ruff_python_ast::StmtPass {
+        // Create a types.SimpleNamespace with all the module's symbols
+        let mut keywords = Vec::new();
+        let mut seen_args = FxIndexSet::default();
+
+        // Add all renamed symbols as keyword arguments, avoiding duplicates
+        for (original_name, renamed_name) in module_renames {
+            // Skip if we've already added this argument name
+            if seen_args.contains(original_name) {
+                log::debug!(
+                    "Skipping duplicate namespace argument '{original_name}' for module \
+                     '{module_name}'"
+                );
+                continue;
+            }
+
+            // Check if this symbol survived tree-shaking
+            if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                && !kept_symbols.contains(&(module_name.to_string(), original_name.clone()))
+            {
+                log::debug!(
+                    "Skipping tree-shaken symbol '{original_name}' from namespace for module \
+                     '{module_name}'"
+                );
+                continue;
+            }
+
+            seen_args.insert(original_name.clone());
+
+            keywords.push(Keyword {
+                node_index: AtomicNodeIndex::dummy(),
+                arg: Some(Identifier::new(original_name, TextRange::default())),
+                value: Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: renamed_name.clone().into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                }),
+                range: TextRange::default(),
+            });
+        }
+
+        // Also check if module has module-level variables that weren't renamed
+        if let Some(exports) = self.module_exports.get(module_name)
+            && let Some(export_list) = exports
+        {
+            for export in export_list {
+                // Check if this export was already added as a renamed symbol
+                if !module_renames.contains_key(export) && !seen_args.contains(export) {
+                    // Check if this symbol survived tree-shaking
+                    if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                        && !kept_symbols.contains(&(module_name.to_string(), export.clone()))
+                    {
+                        log::debug!(
+                            "Skipping tree-shaken export '{export}' from namespace for module \
+                             '{module_name}'"
+                        );
+                        continue;
+                    }
+
+                    // This export wasn't renamed and wasn't already added, add it directly
+                    seen_args.insert(export.clone());
+                    keywords.push(Keyword {
+                        node_index: AtomicNodeIndex::dummy(),
+                        arg: Some(Identifier::new(export, TextRange::default())),
+                        value: Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: export.clone().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        }),
+                        range: TextRange::default(),
+                    });
+                }
+            }
+        }
+
+        // Create the namespace variable name
+        let namespace_var = module_name.cow_replace('.', "_").into_owned();
+
+        // Create namespace = types.SimpleNamespace(**kwargs) assignment
+        Stmt::Assign(StmtAssign {
             node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: namespace_var.into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
+                func: Box::new(Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "types".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: Box::from([]),
+                    keywords: keywords.into_boxed_slice(),
+                    range: TextRange::default(),
+                },
+                range: TextRange::default(),
+            })),
             range: TextRange::default(),
         })
     }
