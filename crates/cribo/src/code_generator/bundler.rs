@@ -3154,6 +3154,22 @@ impl<'a> HybridStaticBundler<'a> {
         format!("__cribo_renamed_{base_name}")
     }
 
+    /// Sanitize a module name for use in a Python identifier
+    /// This is a simple character replacement - collision handling should be done by the caller
+    fn sanitize_module_name_for_identifier(name: &str) -> String {
+        name.chars()
+            .map(|c| match c {
+                // Replace common invalid characters with descriptive names
+                '-' => '_',
+                '.' => '_',
+                ' ' => '_',
+                // For other non-alphanumeric characters, replace with underscore
+                c if c.is_alphanumeric() || c == '_' => c,
+                _ => '_',
+            })
+            .collect::<String>()
+    }
+
     /// Collect unique imports from an import statement
     fn collect_unique_imports(
         &self,
@@ -3262,6 +3278,69 @@ impl<'a> HybridStaticBundler<'a> {
                 range: TextRange::default(),
             }),
         ]
+    }
+
+    /// Process a function definition in the entry module
+    fn process_entry_module_function(
+        &self,
+        func_def: &mut ruff_python_ast::StmtFunctionDef,
+        entry_module_renames: &FxIndexMap<String, String>,
+    ) -> Option<(String, String)> {
+        let func_name = func_def.name.to_string();
+        let needs_reassignment = if let Some(new_name) = entry_module_renames.get(&func_name) {
+            debug!("Renaming function '{func_name}' to '{new_name}' in entry module");
+            func_def.name = Identifier::new(new_name, TextRange::default());
+            true
+        } else {
+            false
+        };
+
+        // TODO: Add special handling for global statements in function bodies
+        if needs_reassignment {
+            Some((func_name, func_def.name.to_string()))
+        } else {
+            None
+        }
+    }
+
+    /// Process a class definition in the entry module
+    fn process_entry_module_class(
+        &self,
+        class_def: &mut StmtClassDef,
+        entry_module_renames: &FxIndexMap<String, String>,
+    ) -> Option<(String, String)> {
+        let class_name = class_def.name.to_string();
+        if let Some(new_name) = entry_module_renames.get(&class_name) {
+            debug!("Renaming class '{class_name}' to '{new_name}' in entry module");
+            class_def.name = Identifier::new(new_name, TextRange::default());
+            Some((class_name, new_name.clone()))
+        } else {
+            None
+        }
+    }
+
+    /// Rewrite aliases in a statement based on renames
+    fn rewrite_aliases_in_stmt(&self, _stmt: &mut Stmt, _renames: &FxIndexMap<String, String>) {
+        // TODO: Implement rewriting of aliases within statements
+        // This would recursively walk the statement and rename any references
+    }
+
+    /// Check if an assignment statement needs a reassignment due to renaming
+    fn check_renamed_assignment(
+        &self,
+        assign: &StmtAssign,
+        renames: &FxIndexMap<String, String>,
+    ) -> Option<(String, String)> {
+        // Check if any target was renamed
+        for target in &assign.targets {
+            if let Expr::Name(name) = target {
+                let original_name = name.id.as_str();
+                if let Some(renamed) = renames.get(original_name) {
+                    return Some((original_name.to_string(), renamed.clone()));
+                }
+            }
+        }
+        None
     }
 
     /// Transform a module into an initialization function
