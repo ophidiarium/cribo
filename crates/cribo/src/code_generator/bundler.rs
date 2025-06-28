@@ -2566,11 +2566,43 @@ impl<'a> HybridStaticBundler<'a> {
     /// Collect direct relative imports
     fn collect_direct_relative_imports(
         &self,
-        _import_from: &StmtImportFrom,
-        _ctx: &DirectImportContext<'_>,
-        _directly_imported: &mut FxIndexSet<String>,
+        import_from: &StmtImportFrom,
+        ctx: &DirectImportContext<'_>,
+        directly_imported: &mut FxIndexSet<String>,
     ) {
-        // TODO: Implement relative import collection
+        let resolved_module = self.resolve_relative_import_with_context(
+            import_from,
+            ctx.current_module,
+            Some(ctx.module_path),
+        );
+
+        let Some(base_module) = resolved_module else {
+            return;
+        };
+
+        // Check if any imported name is actually a submodule
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let full_module_path = format!("{base_module}.{imported_name}");
+
+            log::debug!(
+                "Checking if '{full_module_path}' (from . import {imported_name}) is a bundled module"
+            );
+
+            // Check if this full path matches a bundled module
+            let is_bundled_module = ctx
+                .modules
+                .iter()
+                .any(|(name, _, _, _)| name == &full_module_path);
+
+            if is_bundled_module {
+                // This is importing a submodule directly
+                log::debug!(
+                    "Found direct submodule import via relative import: from . import {imported_name} -> {full_module_path}"
+                );
+                directly_imported.insert(full_module_path);
+            }
+        }
     }
 
     /// Find modules that are imported as namespaces

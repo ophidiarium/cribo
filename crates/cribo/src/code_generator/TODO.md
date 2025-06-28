@@ -75,9 +75,10 @@ This document tracks the remaining work to complete the refactoring of `code_gen
 - [ ] **Line 788**: Implement import classification based on semantic analysis
   - **Context**: Function `collect_module_renames` needs semantic-based classification
   - **Note**: May need to integrate with `ImportType` from resolver/semantic_analysis modules
-- [ ] **Line 976**: Collect imports from entry module
+- [x] **Line 976**: Collect imports from entry module
   - **Original location**: `code_generator_old.rs:7811-7841`
   - **Function**: `get_entry_module_imports`
+  - **Completed**: In commit 6592e3c
 - [ ] **Line 2282**: Implement relative import collection
   - **Original location**: `code_generator_old.rs:10325-10394`
   - **Function**: `collect_direct_relative_imports`
@@ -214,11 +215,11 @@ Each migrated function should:
 ## Progress Tracking
 
 - [x] Phase 1: Core Infrastructure (3/3 tasks) ✅
-- [ ] Phase 2: Module Processing Pipeline (0/6 tasks)
-- [ ] Phase 3: Import Resolution (0/3 tasks)
+- [ ] Phase 2: Module Processing Pipeline (1/6 tasks) - transform_module_to_init_function stub added
+- [ ] Phase 3: Import Resolution (2/3 tasks) - stdlib checking, entry module imports
 - [ ] Phase 4: Final Integration (0/4 tasks)
 
-Total: 3/16 major tasks completed
+Total: 6/16 major tasks completed (with some partial implementations)
 
 ## Migration Helpers
 
