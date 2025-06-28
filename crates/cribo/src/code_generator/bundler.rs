@@ -6282,21 +6282,26 @@ impl<'a> HybridStaticBundler<'a> {
     /// Process a function definition in the entry module
     fn process_entry_module_function(
         &self,
-        func_def: &mut ruff_python_ast::StmtFunctionDef,
+        func_def: &mut StmtFunctionDef,
         entry_module_renames: &FxIndexMap<String, String>,
     ) -> Option<(String, String)> {
         let func_name = func_def.name.to_string();
         let needs_reassignment = if let Some(new_name) = entry_module_renames.get(&func_name) {
-            debug!("Renaming function '{func_name}' to '{new_name}' in entry module");
+            log::debug!("Renaming function '{func_name}' to '{new_name}' in entry module");
             func_def.name = Identifier::new(new_name, TextRange::default());
             true
         } else {
             false
         };
 
-        // TODO: Add special handling for global statements in function bodies
+        // For function bodies, we need special handling:
+        // - Global statements must be renamed to match module-level renames
+        // - But other references should NOT be renamed (Python resolves at runtime)
+        // Note: This functionality was removed as stdlib normalization now happens in the
+        // orchestrator
+
         if needs_reassignment {
-            Some((func_name, func_def.name.to_string()))
+            Some((func_name.clone(), entry_module_renames[&func_name].clone()))
         } else {
             None
         }
@@ -6309,10 +6314,27 @@ impl<'a> HybridStaticBundler<'a> {
         entry_module_renames: &FxIndexMap<String, String>,
     ) -> Option<(String, String)> {
         let class_name = class_def.name.to_string();
-        if let Some(new_name) = entry_module_renames.get(&class_name) {
-            debug!("Renaming class '{class_name}' to '{new_name}' in entry module");
+        let needs_reassignment = if let Some(new_name) = entry_module_renames.get(&class_name) {
+            log::debug!("Renaming class '{class_name}' to '{new_name}' in entry module");
             class_def.name = Identifier::new(new_name, TextRange::default());
-            Some((class_name, new_name.clone()))
+            true
+        } else {
+            false
+        };
+
+        // Apply renames to class body - classes don't create new scopes for globals
+        // We need to create a temporary Stmt to pass to rewrite_aliases_in_stmt
+        let mut temp_stmt = Stmt::ClassDef(class_def.clone());
+        self.rewrite_aliases_in_stmt(&mut temp_stmt, entry_module_renames);
+        if let Stmt::ClassDef(updated_class) = temp_stmt {
+            *class_def = updated_class;
+        }
+
+        if needs_reassignment {
+            Some((
+                class_name.clone(),
+                entry_module_renames[&class_name].clone(),
+            ))
         } else {
             None
         }
