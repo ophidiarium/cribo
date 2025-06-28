@@ -1,8 +1,17 @@
-use std::path::{Path, PathBuf};
+use std::{
+    hash::BuildHasherDefault,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
-use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
+use indexmap::{IndexMap, IndexSet};
 use log::debug;
+use rustc_hash::FxHasher;
+
+/// Type alias for IndexMap with FxHasher for better performance
+type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
+/// Type alias for IndexSet with FxHasher for better performance
+type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
     ExprContext, ExprName, ExprStringLiteral, ExprSubscript, Identifier, ModModule, Stmt,
@@ -109,11 +118,11 @@ impl<'a> HybridStaticBundler<'a> {
         );
 
         // Step 1: Identify all namespaces and modules that need to be created/assigned
-        let mut namespace_modules: FxIndexSet<String> = FxIndexSet::default(); // Simple namespace modules to create
+        let mut namespace_modules = FxIndexSet::default(); // Simple namespace modules to create
         let mut module_assignments = Vec::new(); // (depth, parent, attr, module_name)
 
         // First, collect ALL modules that have been initialized (both wrapper and namespace)
-        let mut all_initialized_modules: FxIndexSet<String> = FxIndexSet::default();
+        let mut all_initialized_modules = FxIndexSet::default();
 
         // Add all wrapper modules
         for (module_name, _, _) in sorted_modules {
@@ -174,7 +183,7 @@ impl<'a> HybridStaticBundler<'a> {
         }
 
         // Step 2: Create top-level namespace modules and wrapper module references
-        let mut created_namespaces: FxIndexSet<String> = FxIndexSet::default();
+        let mut created_namespaces = FxIndexSet::default();
 
         // Add all namespaces that were already created via the namespace tracking index
         for namespace in &self.required_namespaces {
@@ -2614,8 +2623,8 @@ impl<'a> HybridStaticBundler<'a> {
         imports: Vec<Stmt>,
         existing_body: &[Stmt],
     ) -> Vec<Stmt> {
-        let mut seen_init_calls: FxIndexSet<String> = FxIndexSet::default();
-        let mut seen_assignments: FxIndexSet<String> = FxIndexSet::default();
+        let mut seen_init_calls = FxIndexSet::default();
+        let mut seen_assignments = FxIndexSet::default();
         let mut result = Vec::new();
 
         // First, collect all existing assignments from the body

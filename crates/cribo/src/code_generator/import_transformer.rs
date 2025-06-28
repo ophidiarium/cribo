@@ -1,7 +1,14 @@
-use std::path::Path;
+use std::{hash::BuildHasherDefault, path::Path};
 
 use cow_utils::CowUtils;
-use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
+use indexmap::{IndexMap, IndexSet};
+use rustc_hash::FxHasher;
+
+/// Type alias for IndexMap with FxHasher for better performance
+type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
+/// Type alias for IndexSet with FxHasher for better performance
+type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
+
 use ruff_python_ast::{
     Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
     ExprFString, ExprList, ExprName, ExprStringLiteral, FString, FStringFlags, FStringValue,

@@ -1,6 +1,11 @@
-use indexmap::IndexMap as FxIndexMap;
+use std::hash::BuildHasherDefault;
+
+use indexmap::IndexMap;
 use ruff_python_ast::{Expr, ExprName, Identifier, Stmt, StmtFunctionDef};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashSet, FxHasher};
+
+/// Type alias for IndexMap with FxHasher for better performance
+type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 
 use crate::semantic_bundler::ModuleGlobalInfo;
 
