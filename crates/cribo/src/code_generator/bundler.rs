@@ -1235,11 +1235,33 @@ impl<'a> HybridStaticBundler<'a> {
     /// Get imports from entry module
     fn get_entry_module_imports(
         &self,
-        _modules: &[(String, ModModule, PathBuf, String)],
-        _entry_module_name: &str,
+        modules: &[(String, ModModule, PathBuf, String)],
+        entry_module_name: &str,
     ) -> FxIndexSet<String> {
-        // TODO: Implement entry module import collection
-        FxIndexSet::default()
+        let mut imported_modules = FxIndexSet::default();
+
+        // Find the entry module
+        for (module_name, ast, _, _) in modules {
+            if module_name == entry_module_name {
+                // Check all import statements
+                for stmt in &ast.body {
+                    if let Stmt::Import(import_stmt) = stmt {
+                        for alias in &import_stmt.names {
+                            let module_name = alias.name.as_str();
+                            // Track both dotted and non-dotted wrapper modules
+                            if self.module_registry.contains_key(module_name) {
+                                log::debug!("Entry module imports wrapper module: {module_name}");
+                                imported_modules.insert(module_name.to_string());
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        log::debug!("Entry module imported modules: {imported_modules:?}");
+        imported_modules
     }
 
     /// Generate submodule attributes with exclusions

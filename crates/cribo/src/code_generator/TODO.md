@@ -68,9 +68,10 @@ This document tracks the remaining work to complete the refactoring of `code_gen
 
 ### 6. Import Processing (`bundler.rs`)
 
-- [ ] **Line 569**: Implement proper stdlib module checking
+- [x] **Line 569**: Implement proper stdlib module checking
   - **Original location**: `code_generator_old.rs:10024-10026`
   - **Implementation**: Calls `crate::side_effects::is_safe_stdlib_module(module_name)`
+  - **Completed**: In commit 5275ee7
 - [ ] **Line 788**: Implement import classification based on semantic analysis
   - **Context**: Function `collect_module_renames` needs semantic-based classification
   - **Note**: May need to integrate with `ImportType` from resolver/semantic_analysis modules
