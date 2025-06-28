@@ -1747,11 +1747,155 @@ impl<'a> HybridStaticBundler<'a> {
     /// Generate module init call
     fn generate_module_init_call(
         &mut self,
-        _synthetic_name: &str,
-        _temp_names: &mut FxIndexSet<String>,
+        synthetic_name: &str,
+        _used_sanitized_names: &mut FxIndexSet<String>,
     ) -> Vec<Stmt> {
-        // TODO: Implement module init call generation
-        Vec::new()
+        let mut statements = Vec::new();
+
+        if let Some(init_func_name) = self.init_functions.get(synthetic_name).cloned() {
+            // Get the original module name for this synthetic name
+            let module_name = self
+                .module_registry
+                .iter()
+                .find(|(_, syn_name)| syn_name == &synthetic_name)
+                .map(|(orig_name, _)| orig_name.to_string())
+                .unwrap_or_else(|| synthetic_name.to_string());
+
+            // Check if this module is a parent namespace that already exists
+            // This happens when a module like 'services.auth' has both:
+            // 1. Its own __init__.py (wrapper module)
+            // 2. Submodules like 'services.auth.manager'
+            let is_parent_namespace = self.module_registry.iter().any(|(name, _)| {
+                name != &module_name && name.starts_with(&format!("{module_name}."))
+            });
+
+            if is_parent_namespace {
+                // For parent namespaces, we need to merge attributes instead of overwriting
+                // Generate code that calls the init function and merges its attributes
+                debug!("Module '{module_name}' is a parent namespace - generating merge code");
+
+                // First, create a variable to hold the init result
+                let init_result_var = "__cribo_init_result";
+                statements.push(Stmt::Assign(StmtAssign {
+                    node_index: self.create_node_index(),
+                    targets: vec![Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: init_result_var.into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Call(ExprCall {
+                        node_index: self.create_node_index(),
+                        func: Box::new(Expr::Name(ExprName {
+                            node_index: self.create_node_index(),
+                            id: init_func_name.as_str().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        arguments: Arguments {
+                            node_index: self.create_node_index(),
+                            args: Box::from([]),
+                            keywords: Box::from([]),
+                            range: TextRange::default(),
+                        },
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+
+                // TODO: Implement generate_merge_module_attributes
+                // self.generate_merge_module_attributes(
+                //     &mut statements,
+                //     module_name,
+                //     init_result_var,
+                // );
+
+                // For now, just assign directly
+                statements.push(Stmt::Assign(StmtAssign {
+                    node_index: self.create_node_index(),
+                    targets: vec![Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: module_name.as_str().into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: init_result_var.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+            } else {
+                // Direct assignment for modules that aren't parent namespaces
+                let target_expr = if module_name.contains('.') {
+                    // For dotted modules like models.base, create an attribute expression
+                    let parts: Vec<&str> = module_name.split('.').collect();
+                    let mut expr = Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: parts[0].into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    });
+
+                    for (i, part) in parts[1..].iter().enumerate() {
+                        let ctx = if i == parts.len() - 2 {
+                            ExprContext::Store // Last part is Store context
+                        } else {
+                            ExprContext::Load
+                        };
+                        expr = Expr::Attribute(ExprAttribute {
+                            node_index: self.create_node_index(),
+                            value: Box::new(expr),
+                            attr: Identifier::new(*part, TextRange::default()),
+                            ctx,
+                            range: TextRange::default(),
+                        });
+                    }
+                    expr
+                } else {
+                    // For simple modules, use direct name
+                    Expr::Name(ExprName {
+                        node_index: self.create_node_index(),
+                        id: module_name.as_str().into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })
+                };
+
+                // Generate: module_name = __cribo_init_synthetic_name()
+                // or: parent.child = __cribo_init_synthetic_name()
+                statements.push(Stmt::Assign(StmtAssign {
+                    node_index: self.create_node_index(),
+                    targets: vec![target_expr],
+                    value: Box::new(Expr::Call(ExprCall {
+                        node_index: self.create_node_index(),
+                        func: Box::new(Expr::Name(ExprName {
+                            node_index: self.create_node_index(),
+                            id: init_func_name.as_str().into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        arguments: Arguments {
+                            node_index: self.create_node_index(),
+                            args: Box::from([]),
+                            keywords: Box::from([]),
+                            range: TextRange::default(),
+                        },
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+            }
+        } else {
+            statements.push(Stmt::Pass(ruff_python_ast::StmtPass {
+                node_index: self.create_node_index(),
+                range: TextRange::default(),
+            }));
+        }
+
+        statements
     }
 
     /// Inline a module
