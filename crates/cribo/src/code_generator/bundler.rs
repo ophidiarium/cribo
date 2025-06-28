@@ -5143,7 +5143,7 @@ impl<'a> HybridStaticBundler<'a> {
         &self,
         body: Vec<Stmt>,
         module_name: &str,
-        module_scope_symbols: Option<&FxIndexSet<String>>,
+        module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
     ) -> Vec<Stmt> {
         let mut result = Vec::new();
 
@@ -5373,10 +5373,10 @@ impl<'a> HybridStaticBundler<'a> {
     pub fn transform_nested_function_for_module_vars(
         &self,
         func_def: &mut StmtFunctionDef,
-        module_level_vars: &FxIndexSet<String>,
+        module_level_vars: &rustc_hash::FxHashSet<String>,
     ) {
         // Collect local variables defined in this function
-        let mut local_vars = FxIndexSet::default();
+        let mut local_vars = rustc_hash::FxHashSet::default();
 
         // Add function parameters to local variables
         for param in &func_def.parameters.args {
@@ -5408,8 +5408,8 @@ impl<'a> HybridStaticBundler<'a> {
     fn transform_stmt_for_module_vars_with_locals(
         &self,
         stmt: &mut Stmt,
-        module_level_vars: &FxIndexSet<String>,
-        local_vars: &FxIndexSet<String>,
+        module_level_vars: &rustc_hash::FxHashSet<String>,
+        local_vars: &rustc_hash::FxHashSet<String>,
     ) {
         match stmt {
             Stmt::FunctionDef(nested_func) => {
@@ -5559,8 +5559,8 @@ impl<'a> HybridStaticBundler<'a> {
     /// Transform an expression with awareness of local variables
     fn transform_expr_for_module_vars_with_locals(
         expr: &mut Expr,
-        module_level_vars: &FxIndexSet<String>,
-        local_vars: &FxIndexSet<String>,
+        module_level_vars: &rustc_hash::FxHashSet<String>,
+        local_vars: &rustc_hash::FxHashSet<String>,
     ) {
         match expr {
             Expr::Name(name_expr) => {
@@ -6524,7 +6524,7 @@ impl<'a> HybridStaticBundler<'a> {
 }
 
 /// Collect local variables from statements
-fn collect_local_vars(stmts: &[Stmt], local_vars: &mut FxIndexSet<String>) {
+fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<String>) {
     for stmt in stmts {
         match stmt {
             Stmt::Assign(assign) => {

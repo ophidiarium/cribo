@@ -154,7 +154,7 @@ pub fn transform_module_to_init_function<'a>(
 
     // Now process the transformed module
     // We'll do the in-place symbol export as we process each statement
-    let module_scope_symbols_set = if let Some(semantic_bundler) = ctx.semantic_bundler {
+    let module_scope_symbols = if let Some(semantic_bundler) = ctx.semantic_bundler {
         debug!(
             "Looking up module ID for '{}' in semantic bundler",
             ctx.module_name
@@ -167,10 +167,7 @@ pub fn transform_module_to_init_function<'a>(
                     "Found module-scope symbols for '{}': {:?}",
                     ctx.module_name, module_info.module_scope_symbols
                 );
-                // Convert FxHashSet to FxIndexSet
-                let symbols: FxIndexSet<String> =
-                    module_info.module_scope_symbols.iter().cloned().collect();
-                Some(symbols)
+                Some(&module_info.module_scope_symbols)
             } else {
                 log::warn!(
                     "No semantic info found for module '{}' (module_id: {:?})",
@@ -195,11 +192,8 @@ pub fn transform_module_to_init_function<'a>(
     };
 
     // Process the body with a new recursive approach
-    let processed_body = bundler.process_body_recursive(
-        ast.body,
-        ctx.module_name,
-        module_scope_symbols_set.as_ref(),
-    );
+    let processed_body =
+        bundler.process_body_recursive(ast.body, ctx.module_name, module_scope_symbols);
 
     // Process each statement from the transformed module body
     for stmt in processed_body {
@@ -247,13 +241,9 @@ pub fn transform_module_to_init_function<'a>(
 
                 // Transform nested functions to use module attributes for module-level vars
                 if let Some(ref global_info) = ctx.global_info {
-                    // Convert semantic_bundler's FxHashSet (aliased as FxIndexSet) to our
-                    // FxIndexSet
-                    let module_vars: FxIndexSet<String> =
-                        global_info.module_level_vars.iter().cloned().collect();
                     bundler.transform_nested_function_for_module_vars(
                         &mut func_def_clone,
-                        &module_vars,
+                        &global_info.module_level_vars,
                     );
                 }
 
@@ -283,7 +273,7 @@ pub fn transform_module_to_init_function<'a>(
                     // exported ones
                     let module_level_vars = if let Some(ref global_info) = ctx.global_info {
                         let all_vars = &global_info.module_level_vars;
-                        let mut exported_vars = FxIndexSet::default();
+                        let mut exported_vars = rustc_hash::FxHashSet::default();
                         for var in all_vars {
                             if bundler.should_export_symbol(var, ctx.module_name) {
                                 exported_vars.insert(var.clone());
@@ -291,7 +281,7 @@ pub fn transform_module_to_init_function<'a>(
                         }
                         exported_vars
                     } else {
-                        FxIndexSet::default()
+                        rustc_hash::FxHashSet::default()
                     };
                     transform_expr_for_module_vars(&mut assign_clone.value, &module_level_vars);
 
@@ -381,7 +371,7 @@ pub fn transform_module_to_init_function<'a>(
                 // ones
                 let module_level_vars = if let Some(ref global_info) = ctx.global_info {
                     let all_vars = &global_info.module_level_vars;
-                    let mut exported_vars = FxIndexSet::default();
+                    let mut exported_vars = rustc_hash::FxHashSet::default();
                     for var in all_vars {
                         if bundler.should_export_symbol(var, ctx.module_name) {
                             exported_vars.insert(var.clone());
@@ -389,7 +379,7 @@ pub fn transform_module_to_init_function<'a>(
                     }
                     exported_vars
                 } else {
-                    FxIndexSet::default()
+                    rustc_hash::FxHashSet::default()
                 };
                 transform_stmt_for_module_vars(&mut stmt_clone, &module_level_vars);
                 body.push(stmt_clone);
@@ -569,7 +559,10 @@ pub fn transform_module_to_init_function<'a>(
 }
 
 /// Transform an expression to use module attributes for module-level variables
-fn transform_expr_for_module_vars(expr: &mut Expr, module_level_vars: &FxIndexSet<String>) {
+fn transform_expr_for_module_vars(
+    expr: &mut Expr,
+    module_level_vars: &rustc_hash::FxHashSet<String>,
+) {
     match expr {
         Expr::Name(name) if name.ctx == ExprContext::Load => {
             // Check if this is a reference to a module-level variable
@@ -641,7 +634,10 @@ fn transform_expr_for_module_vars(expr: &mut Expr, module_level_vars: &FxIndexSe
 }
 
 /// Transform a statement to use module attributes for module-level variables
-fn transform_stmt_for_module_vars(stmt: &mut Stmt, module_level_vars: &FxIndexSet<String>) {
+fn transform_stmt_for_module_vars(
+    stmt: &mut Stmt,
+    module_level_vars: &rustc_hash::FxHashSet<String>,
+) {
     match stmt {
         Stmt::Expr(expr_stmt) => {
             transform_expr_for_module_vars(&mut expr_stmt.value, module_level_vars);
