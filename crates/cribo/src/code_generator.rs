@@ -106,14 +106,6 @@ struct SemanticContext<'a> {
     semantic_bundler: &'a SemanticBundler,
 }
 
-/// Parameters for namespace import operations
-struct NamespaceImportParams<'a> {
-    local_name: &'a str,
-    imported_name: &'a str,
-    resolved_module: &'a str,
-    full_module_path: &'a str,
-}
-
 /// Parameters for processing module globals
 struct ProcessGlobalsParams<'a> {
     module_name: &'a str,
@@ -121,33 +113,11 @@ struct ProcessGlobalsParams<'a> {
     semantic_ctx: &'a SemanticContext<'a>,
 }
 
-/// Parameters for handling inlined module imports
-struct InlinedImportParams<'a> {
-    import_from: &'a StmtImportFrom,
-    resolved_module: &'a str,
-    ctx: &'a ModuleTransformContext<'a>,
-}
-
-/// Parameters for adding symbols to namespace
-struct AddSymbolsParams<'a> {
-    local_name: &'a str,
-    imported_name: &'a str,
-    inlined_module_key: &'a str,
-}
-
 /// Context for collecting direct imports
 struct DirectImportContext<'a> {
     current_module: &'a str,
     module_path: &'a Path,
     modules: &'a [(String, ModModule, PathBuf, String)],
-}
-
-/// Parameters for handling symbol imports from inlined modules
-struct SymbolImportParams<'a> {
-    imported_name: &'a str,
-    local_name: &'a str,
-    resolved_module: &'a str,
-    ctx: &'a ModuleTransformContext<'a>,
 }
 
 /// Parameters for transforming function body for lifted globals
@@ -9677,68 +9647,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
-    /// Add module attribute assignments for imported symbols that should be re-exported
-    fn add_imported_symbol_attributes(
-        &self,
-        stmt: &Stmt,
-        module_name: &str,
-        module_path: Option<&Path>,
-        body: &mut Vec<Stmt>,
-    ) {
-        match stmt {
-            Stmt::ImportFrom(import_from) => {
-                // First check if this is an import from an inlined module
-                let resolved_module_name = self.resolve_relative_import_with_context(
-                    import_from,
-                    module_name,
-                    module_path,
-                );
-                if let Some(ref imported_module) = resolved_module_name {
-                    // If this is an inlined module, skip module attribute assignment
-                    // The symbols will be referenced directly in the transformed import
-                    if self.bundled_modules.contains(imported_module)
-                        && !self.module_registry.contains_key(imported_module)
-                    {
-                        // This is an inlined module - skip adding module attributes
-                        return;
-                    }
-                }
-
-                // For "from module import symbol1, symbol2 as alias"
-                for alias in &import_from.names {
-                    let _imported_name = alias.name.as_str();
-                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-
-                    // Check if this imported symbol should be exported
-                    if self.should_export_symbol(local_name, module_name) {
-                        body.push(self.create_module_attr_assignment("module", local_name));
-                    }
-                }
-            }
-            Stmt::Import(import_stmt) => {
-                // For "import module" or "import module as alias"
-                for alias in &import_stmt.names {
-                    let imported_module = alias.name.as_str();
-
-                    // Skip if this is an inlined module
-                    if self.bundled_modules.contains(imported_module)
-                        && !self.module_registry.contains_key(imported_module)
-                    {
-                        continue;
-                    }
-
-                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-
-                    // Check if this imported module should be exported
-                    if self.should_export_symbol(local_name, module_name) {
-                        body.push(self.create_module_attr_assignment("module", local_name));
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
     /// Check if a specific module is in our hoisted stdlib imports
     fn is_import_in_hoisted_stdlib(&self, module_name: &str) -> bool {
         // Check if module is in our from imports map
@@ -10117,217 +10025,6 @@ impl<'a> HybridStaticBundler<'a> {
         crate::side_effects::is_safe_stdlib_module(module_name)
     }
 
-    /// Create a namespace object for an inlined module
-    fn create_namespace_for_inlined_module(
-        &self,
-        params: &NamespaceImportParams,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-        body: &mut Vec<Stmt>,
-    ) {
-        log::debug!(
-            "Creating namespace object for module '{}' imported from '{}' - module was inlined",
-            params.imported_name,
-            params.resolved_module
-        );
-
-        // Find the actual module path that was inlined
-        let inlined_module_key = if self.inlined_modules.contains(params.full_module_path) {
-            params.full_module_path.to_string()
-        } else if let Some(dot_pos) = params.resolved_module.find('.') {
-            let without_prefix = &params.resolved_module[dot_pos + 1..];
-            format!("{}.{}", without_prefix, params.imported_name)
-        } else {
-            params.full_module_path.to_string()
-        };
-
-        // Create a SimpleNamespace-like object
-        body.push(Stmt::Assign(StmtAssign {
-            node_index: AtomicNodeIndex::dummy(),
-            targets: vec![Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: params.local_name.into(),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Call(ExprCall {
-                node_index: AtomicNodeIndex::dummy(),
-                func: Box::new(Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "types".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                arguments: ruff_python_ast::Arguments {
-                    node_index: AtomicNodeIndex::dummy(),
-                    args: Box::from([]),
-                    keywords: Box::from([]),
-                    range: TextRange::default(),
-                },
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        }));
-
-        // Add symbols to the namespace
-        let add_params = AddSymbolsParams {
-            local_name: params.local_name,
-            imported_name: params.imported_name,
-            inlined_module_key: &inlined_module_key,
-        };
-        self.add_symbols_to_namespace(&add_params, symbol_renames, body);
-    }
-
-    /// Add symbols from an inlined module to a namespace object
-    fn add_symbols_to_namespace(
-        &self,
-        params: &AddSymbolsParams,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-        body: &mut Vec<Stmt>,
-    ) {
-        log::debug!(
-            "add_symbols_to_namespace: local_name='{}', imported_name='{}', \
-             inlined_module_key='{}'",
-            params.local_name,
-            params.imported_name,
-            params.inlined_module_key
-        );
-        log::debug!(
-            "Available keys in symbol_renames: {:?}",
-            symbol_renames.keys().collect::<Vec<_>>()
-        );
-
-        // Get the renames from the symbol registry
-        if let Some(module_renames) = symbol_renames.get(params.inlined_module_key).or_else(|| {
-            // Try without prefix
-            if let Some(dot_pos) = params.inlined_module_key.find('.') {
-                let without_prefix = &params.inlined_module_key[dot_pos + 1..];
-                log::debug!("Trying without prefix: '{without_prefix}'");
-                symbol_renames.get(without_prefix)
-            } else {
-                None
-            }
-        }) {
-            // Add each symbol from the module to the namespace
-            for (original_name, renamed_name) in module_renames {
-                // The renamed_name here is what was actually used when inlining the module
-                // We should use it as-is since conflict checking was already done during inlining
-                self.add_symbol_to_namespace(params.local_name, original_name, renamed_name, body);
-            }
-        } else {
-            log::warn!(
-                "No renames found for module '{}' when creating namespace '{}'",
-                params.inlined_module_key,
-                params.local_name
-            );
-        }
-    }
-
-    /// Add a single symbol to a namespace object
-    fn add_symbol_to_namespace(
-        &self,
-        namespace_name: &str,
-        original_name: &str,
-        target_name: &str,
-        body: &mut Vec<Stmt>,
-    ) {
-        body.push(Stmt::Assign(StmtAssign {
-            node_index: AtomicNodeIndex::dummy(),
-            targets: vec![Expr::Attribute(ExprAttribute {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: namespace_name.into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new(original_name, TextRange::default()),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: target_name.into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        }));
-    }
-
-    /// Handle symbol import from an inlined module
-    fn handle_symbol_import_from_inlined_module(
-        &self,
-        params: &SymbolImportParams,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-        body: &mut Vec<Stmt>,
-    ) {
-        // Look up the renamed symbol in symbol_renames
-        let module_key = if symbol_renames.contains_key(params.resolved_module) {
-            params.resolved_module.to_string()
-        } else if let Some(dot_pos) = params.resolved_module.find('.') {
-            let without_prefix = &params.resolved_module[dot_pos + 1..];
-            if symbol_renames.contains_key(without_prefix) {
-                without_prefix.to_string()
-            } else {
-                params.resolved_module.to_string()
-            }
-        } else {
-            params.resolved_module.to_string()
-        };
-
-        // Get the renamed symbol name
-        let renamed_symbol = symbol_renames
-            .get(&module_key)
-            .and_then(|renames| renames.get(params.imported_name))
-            .cloned()
-            .unwrap_or_else(|| {
-                log::warn!(
-                    "Symbol '{}' from module '{}' not found in renames, using original name",
-                    params.imported_name,
-                    module_key
-                );
-                params.imported_name.to_string()
-            });
-
-        // Only create assignment if local name differs from the symbol
-        if params.local_name != renamed_symbol {
-            body.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: params.local_name.into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: renamed_symbol.clone().into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
-        }
-
-        // Always set as module attribute
-        body.push(self.create_module_attr_assignment("module", params.local_name));
-
-        log::debug!(
-            "Import '{}' as '{}' from inlined module '{}' resolved to '{}' in wrapper '{}'",
-            params.imported_name,
-            params.local_name,
-            params.resolved_module,
-            renamed_symbol,
-            params.ctx.module_name
-        );
-    }
-
     /// Resolve a relative import to an absolute module name
     fn resolve_relative_import(
         &self,
@@ -10521,24 +10218,6 @@ impl<'a> HybridStaticBundler<'a> {
             log::debug!("Not a relative import, resolved to: {resolved:?}");
             resolved
         }
-    }
-
-    /// Find modules that have function-scoped imports (from import rewriting)
-    fn find_modules_with_function_imports(
-        &self,
-        modules: &[(String, ModModule, PathBuf, String)],
-    ) -> FxIndexSet<String> {
-        let mut modules_with_function_imports = FxIndexSet::default();
-
-        // Check each module for imports inside function bodies
-        for (module_name, ast, _, _) in modules {
-            if self.module_has_function_scoped_imports(ast) {
-                log::debug!("Module '{module_name}' has function-scoped imports");
-                modules_with_function_imports.insert(module_name.clone());
-            }
-        }
-
-        modules_with_function_imports
     }
 
     /// Check if a module has imports inside function bodies or class methods
@@ -10882,49 +10561,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
-    /// Find modules that are imported at function scope
-    fn find_function_imported_modules(
-        &self,
-        modules: &[(String, ModModule, PathBuf, String)],
-    ) -> FxIndexSet<String> {
-        let mut function_imported = FxIndexSet::default();
-
-        // Use the ImportDiscoveryVisitor to find function-scoped imports
-        for (_module_name, ast, _, _) in modules {
-            use crate::visitors::{ImportDiscoveryVisitor, ImportLocation};
-
-            let mut visitor = ImportDiscoveryVisitor::new();
-            // Visit all statements in the module
-            for stmt in &ast.body {
-                use ruff_python_ast::visitor::Visitor;
-                visitor.visit_stmt(stmt);
-            }
-
-            for import in visitor.into_imports() {
-                // Check if this import is inside a function
-                if matches!(
-                    import.location,
-                    ImportLocation::Function(_) | ImportLocation::Method { .. }
-                ) {
-                    // Get the module name from the import
-                    if let Some(module_name) = &import.module_name {
-                        // Check if this is a bundled module
-                        if modules.iter().any(|(name, _, _, _)| name == module_name) {
-                            log::debug!(
-                                "Found function-scoped import of module '{}' at {:?}",
-                                module_name,
-                                import.location
-                            );
-                            function_imported.insert(module_name.clone());
-                        }
-                    }
-                }
-            }
-        }
-
-        function_imported
-    }
-
     /// Find modules that are imported as namespaces (e.g., from models import base)
     /// Returns a map from module name to set of importing modules
     fn find_namespace_imported_modules(
@@ -11245,7 +10881,6 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Order classes by inheritance dependencies to ensure base classes are defined first
     /// Only reorders classes within the same module to preserve module boundaries
-
     /// Reorder statements to ensure module-level variables are declared before use
     fn reorder_statements_for_proper_declaration_order(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
         let mut imports = Vec::new();
