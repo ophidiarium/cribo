@@ -9423,22 +9423,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Collect a symbol from a module statement
-    fn collect_module_symbol(&self, stmt: &Stmt, symbols: &mut Vec<String>) {
-        match stmt {
-            Stmt::FunctionDef(func) => {
-                symbols.push(func.name.to_string());
-            }
-            Stmt::ClassDef(class) => {
-                symbols.push(class.name.to_string());
-            }
-            Stmt::Assign(assign) if assign.targets.len() == 1 => {
-                if let Expr::Name(name) = &assign.targets[0] {
-                    symbols.push(name.id.to_string());
-                }
-            }
-            _ => {}
-        }
-    }
 
     /// Extract __all__ exports from a module
     /// Returns (has_explicit_all, exports) where:
