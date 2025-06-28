@@ -5,6 +5,7 @@ use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
     ExprName, Identifier, ModModule, Stmt, StmtAssign, StmtImport, StmtImportFrom,
+    visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -363,8 +364,101 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Post-process AST to assign proper node indices to any nodes created with dummy indices
-    fn assign_node_indices_to_ast(&mut self, _module: &mut ModModule) {
-        // TODO: Implement visitor to assign indices
+    fn assign_node_indices_to_ast(&mut self, module: &mut ModModule) {
+        struct NodeIndexAssigner<'b, 'a> {
+            bundler: &'b mut HybridStaticBundler<'a>,
+        }
+
+        impl<'b, 'a> SourceOrderVisitor<'_> for NodeIndexAssigner<'b, 'a> {
+            fn visit_stmt(&mut self, stmt: &Stmt) {
+                // Check if this node has a dummy index (value 0)
+                let node_index = match stmt {
+                    Stmt::FunctionDef(s) => &s.node_index,
+                    Stmt::ClassDef(s) => &s.node_index,
+                    Stmt::Import(s) => &s.node_index,
+                    Stmt::ImportFrom(s) => &s.node_index,
+                    Stmt::Assign(s) => &s.node_index,
+                    Stmt::Return(s) => &s.node_index,
+                    Stmt::Delete(s) => &s.node_index,
+                    Stmt::AugAssign(s) => &s.node_index,
+                    Stmt::AnnAssign(s) => &s.node_index,
+                    Stmt::TypeAlias(s) => &s.node_index,
+                    Stmt::For(s) => &s.node_index,
+                    Stmt::While(s) => &s.node_index,
+                    Stmt::If(s) => &s.node_index,
+                    Stmt::With(s) => &s.node_index,
+                    Stmt::Match(s) => &s.node_index,
+                    Stmt::Raise(s) => &s.node_index,
+                    Stmt::Try(s) => &s.node_index,
+                    Stmt::Assert(s) => &s.node_index,
+                    Stmt::Global(s) => &s.node_index,
+                    Stmt::Nonlocal(s) => &s.node_index,
+                    Stmt::Expr(s) => &s.node_index,
+                    Stmt::Pass(s) => &s.node_index,
+                    Stmt::Break(s) => &s.node_index,
+                    Stmt::Continue(s) => &s.node_index,
+                    Stmt::IpyEscapeCommand(s) => &s.node_index,
+                };
+
+                // If it's a dummy index (0), assign a new one
+                if node_index.load().as_usize() == 0 {
+                    let new_index = self.bundler.create_node_index();
+                    node_index.set(new_index.load().as_usize() as u32);
+                }
+
+                // Continue walking
+                ruff_python_ast::visitor::source_order::walk_stmt(self, stmt);
+            }
+
+            fn visit_expr(&mut self, expr: &Expr) {
+                // Similar logic for expressions
+                let node_index = match expr {
+                    Expr::BoolOp(e) => &e.node_index,
+                    Expr::BinOp(e) => &e.node_index,
+                    Expr::UnaryOp(e) => &e.node_index,
+                    Expr::Lambda(e) => &e.node_index,
+                    Expr::If(e) => &e.node_index,
+                    Expr::Dict(e) => &e.node_index,
+                    Expr::Set(e) => &e.node_index,
+                    Expr::ListComp(e) => &e.node_index,
+                    Expr::SetComp(e) => &e.node_index,
+                    Expr::DictComp(e) => &e.node_index,
+                    Expr::Generator(e) => &e.node_index,
+                    Expr::Await(e) => &e.node_index,
+                    Expr::Yield(e) => &e.node_index,
+                    Expr::YieldFrom(e) => &e.node_index,
+                    Expr::Compare(e) => &e.node_index,
+                    Expr::Call(e) => &e.node_index,
+                    Expr::NumberLiteral(e) => &e.node_index,
+                    Expr::StringLiteral(e) => &e.node_index,
+                    Expr::FString(e) => &e.node_index,
+                    Expr::BytesLiteral(e) => &e.node_index,
+                    Expr::BooleanLiteral(e) => &e.node_index,
+                    Expr::NoneLiteral(e) => &e.node_index,
+                    Expr::EllipsisLiteral(e) => &e.node_index,
+                    Expr::Attribute(e) => &e.node_index,
+                    Expr::Subscript(e) => &e.node_index,
+                    Expr::Starred(e) => &e.node_index,
+                    Expr::Name(e) => &e.node_index,
+                    Expr::List(e) => &e.node_index,
+                    Expr::Tuple(e) => &e.node_index,
+                    Expr::Slice(e) => &e.node_index,
+                    Expr::IpyEscapeCommand(e) => &e.node_index,
+                    Expr::Named(e) => &e.node_index,
+                    Expr::TString(e) => &e.node_index,
+                };
+
+                if node_index.load().as_usize() == 0 {
+                    let new_index = self.bundler.create_node_index();
+                    node_index.set(new_index.load().as_usize() as u32);
+                }
+
+                ruff_python_ast::visitor::source_order::walk_expr(self, expr);
+            }
+        }
+
+        let mut assigner = NodeIndexAssigner { bundler: self };
+        assigner.visit_mod(&ruff_python_ast::Mod::Module(module.clone()));
     }
 
     /// Check if a statement is a hoisted import
