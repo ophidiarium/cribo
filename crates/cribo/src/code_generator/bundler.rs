@@ -1105,12 +1105,31 @@ impl<'a> HybridStaticBundler<'a> {
     /// Build symbol dependency graph for circular modules
     fn build_symbol_dependency_graph(
         &mut self,
-        _modules: &[(String, ModModule, PathBuf, String)],
-        _graph: &DependencyGraph,
+        modules: &[(String, ModModule, PathBuf, String)],
+        graph: &DependencyGraph,
         _semantic_ctx: &SemanticContext,
     ) {
-        // TODO: Implement symbol dependency graph building
-        log::debug!("Building symbol dependency graph - not yet implemented");
+        // Collect dependencies for each circular module
+        for (module_name, ast, _path, _source) in modules {
+            self.symbol_dep_graph.collect_dependencies(
+                module_name,
+                ast,
+                graph,
+                &self.circular_modules,
+            );
+        }
+
+        // Only perform topological sort if we have symbols in circular modules
+        if self
+            .symbol_dep_graph
+            .should_sort_symbols(&self.circular_modules)
+            && let Err(e) = self
+                .symbol_dep_graph
+                .topological_sort_symbols(&self.circular_modules)
+            {
+                // The error is already logged inside topological_sort_symbols
+                log::error!("Failed to sort symbols: {e}");
+            }
     }
 
     /// Detect hard dependencies in a module
