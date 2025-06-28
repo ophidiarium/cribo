@@ -3444,11 +3444,67 @@ impl<'a> HybridStaticBundler<'a> {
     fn process_entry_module_statement(
         &mut self,
         stmt: &mut Stmt,
-        _renames: &FxIndexMap<String, String>,
+        entry_module_renames: &FxIndexMap<String, String>,
         final_body: &mut Vec<Stmt>,
     ) {
-        // TODO: Implement entry module statement processing
+        // For non-import statements in the entry module, apply symbol renames
+        let mut pending_reassignment: Option<(String, String)> = None;
+
+        if !entry_module_renames.is_empty() {
+            // We need special handling for different statement types
+            match stmt {
+                Stmt::FunctionDef(func_def) => {
+                    pending_reassignment =
+                        self.process_entry_module_function(func_def, entry_module_renames);
+                }
+                Stmt::ClassDef(class_def) => {
+                    pending_reassignment =
+                        self.process_entry_module_class(class_def, entry_module_renames);
+                }
+                _ => {
+                    // For other statements, use the existing rewrite method
+                    self.rewrite_aliases_in_stmt(stmt, entry_module_renames);
+
+                    // Check if this is an assignment that was renamed
+                    if let Stmt::Assign(assign) = &stmt {
+                        pending_reassignment =
+                            self.check_renamed_assignment(assign, entry_module_renames);
+                    }
+                }
+            }
+        }
+
         final_body.push(stmt.clone());
+
+        // Add reassignment if needed, but skip if original and renamed are the same
+        // or if the reassignment already exists
+        if let Some((original, renamed)) = pending_reassignment
+            && original != renamed
+        {
+            // Check if this reassignment already exists in final_body
+            let assignment_exists = final_body.iter().any(|stmt| {
+                if let Stmt::Assign(assign) = stmt {
+                    if assign.targets.len() == 1 {
+                        if let (Expr::Name(target), Expr::Name(value)) =
+                            (&assign.targets[0], assign.value.as_ref())
+                        {
+                            target.id.as_str() == original && value.id.as_str() == renamed
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            });
+
+            if !assignment_exists {
+                let reassign = self.create_reassignment(&original, &renamed);
+                final_body.push(reassign);
+            }
+        }
     }
 
     /// Bundle multiple modules using the hybrid approach
