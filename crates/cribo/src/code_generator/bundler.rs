@@ -2,11 +2,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use indexmap::{IndexMap as FxIndexMap, IndexSet as FxIndexSet};
-use log::{debug, warn};
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
-    ExprName, ExprStringLiteral, Identifier, ModModule, Stmt, StmtAssign, StmtFunctionDef,
-    StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
+    ExprName, ExprStringLiteral, Identifier, ModModule, Stmt, StmtAssign, StmtClassDef, StmtImport,
+    StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
     visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
@@ -1124,15 +1123,6 @@ impl<'a> HybridStaticBundler<'a> {
         Vec::new()
     }
 
-    /// Generate module namespace class
-    fn generate_module_namespace_class(&mut self) -> Stmt {
-        // TODO: Implement module namespace class generation
-        Stmt::Pass(ruff_python_ast::StmtPass {
-            node_index: self.create_node_index(),
-            range: TextRange::default(),
-        })
-    }
-
     /// Generate module cache initialization
     fn generate_module_cache_init(&mut self) -> Stmt {
         // TODO: Implement module cache initialization
@@ -1285,12 +1275,16 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Check if import from is duplicate
-    fn is_duplicate_import_from(&self, import_from: &StmtImportFrom, existing_body: &[Stmt]) -> bool {
+    fn is_duplicate_import_from(
+        &self,
+        import_from: &StmtImportFrom,
+        existing_body: &[Stmt],
+    ) -> bool {
         if let Some(ref module) = import_from.module {
             let module_name = module.as_str();
             // For third-party imports, check if they're already in the body
-            if !self.is_safe_stdlib_module(module_name) 
-                && !self.is_bundled_module_or_package(module_name) 
+            if !self.is_safe_stdlib_module(module_name)
+                && !self.is_bundled_module_or_package(module_name)
             {
                 return existing_body.iter().any(|existing| {
                     if let Stmt::ImportFrom(existing_import) = existing {
@@ -1310,13 +1304,13 @@ impl<'a> HybridStaticBundler<'a> {
         import_stmt.names.iter().any(|alias| {
             let module_name = alias.name.as_str();
             // For third-party imports, check if they're already in the body
-            if !self.is_safe_stdlib_module(module_name) 
-                && !self.is_bundled_module_or_package(module_name) 
+            if !self.is_safe_stdlib_module(module_name)
+                && !self.is_bundled_module_or_package(module_name)
             {
                 existing_body.iter().any(|existing| {
                     if let Stmt::Import(existing_import) = existing {
                         existing_import.names.iter().any(|existing_alias| {
-                            existing_alias.name == alias.name 
+                            existing_alias.name == alias.name
                                 && existing_alias.asname == alias.asname
                         })
                     } else {
@@ -1330,10 +1324,7 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Check if two import name lists match
-    fn import_names_match(
-        names1: &[Alias],
-        names2: &[Alias],
-    ) -> bool {
+    fn import_names_match(names1: &[Alias], names2: &[Alias]) -> bool {
         if names1.len() != names2.len() {
             return false;
         }
@@ -2651,7 +2642,8 @@ impl<'a> HybridStaticBundler<'a> {
             let full_module_path = format!("{base_module}.{imported_name}");
 
             log::debug!(
-                "Checking if '{full_module_path}' (from . import {imported_name}) is a bundled module"
+                "Checking if '{full_module_path}' (from . import {imported_name}) is a bundled \
+                 module"
             );
 
             // Check if this full path matches a bundled module
@@ -2663,7 +2655,8 @@ impl<'a> HybridStaticBundler<'a> {
             if is_bundled_module {
                 // This is importing a submodule directly
                 log::debug!(
-                    "Found direct submodule import via relative import: from . import {imported_name} -> {full_module_path}"
+                    "Found direct submodule import via relative import: from . import \
+                     {imported_name} -> {full_module_path}"
                 );
                 directly_imported.insert(full_module_path);
             }
@@ -3041,14 +3034,132 @@ impl<'a> HybridStaticBundler<'a> {
         false
     }
 
+    /// Create a reassignment statement (original_name = renamed_name)
+    fn create_reassignment(&self, original_name: &str, renamed_name: &str) -> Stmt {
+        Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: original_name.into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: renamed_name.into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Generate module namespace class definition
+    fn generate_module_namespace_class(&mut self) -> Stmt {
+        // class _ModuleNamespace:
+        //     pass
+        let class_def = StmtClassDef {
+            node_index: self.create_node_index(),
+            decorator_list: vec![],
+            name: Identifier::new("_ModuleNamespace", TextRange::default()),
+            type_params: None,
+            arguments: None,
+            body: vec![Stmt::Pass(ruff_python_ast::StmtPass {
+                node_index: self.create_node_index(),
+                range: TextRange::default(),
+            })],
+            range: TextRange::default(),
+        };
+
+        Stmt::ClassDef(class_def)
+    }
+
+    /// Check if a name conflicts with any local definition in the module
+    fn check_local_name_conflict(&self, ast: &ModModule, name: &str) -> bool {
+        for stmt in &ast.body {
+            match stmt {
+                Stmt::ClassDef(class_def) => {
+                    if class_def.name.as_str() == name {
+                        return true;
+                    }
+                }
+                Stmt::FunctionDef(func_def) => {
+                    if func_def.name.as_str() == name {
+                        return true;
+                    }
+                }
+                Stmt::Assign(assign_stmt) => {
+                    for target in &assign_stmt.targets {
+                        if let Expr::Name(name_expr) = target
+                            && name_expr.id.as_str() == name
+                        {
+                            return true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Create a string literal expression
+    fn create_string_literal(&self, value: &str) -> Expr {
+        Expr::StringLiteral(ExprStringLiteral {
+            node_index: AtomicNodeIndex::dummy(),
+            value: StringLiteralValue::single(StringLiteral {
+                node_index: AtomicNodeIndex::dummy(),
+                value: value.to_string().into(),
+                flags: StringLiteralFlags::empty(),
+                range: TextRange::default(),
+            }),
+            range: TextRange::default(),
+        })
+    }
+
+    /// Check if a specific module is in our hoisted stdlib imports
+    fn is_import_in_hoisted_stdlib(&self, module_name: &str) -> bool {
+        // Check if module is in our from imports map
+        if self.stdlib_import_from_map.contains_key(module_name) {
+            return true;
+        }
+
+        // Check if module is in our regular import statements
+        self.stdlib_import_statements.iter().any(|hoisted| {
+            matches!(hoisted, Stmt::Import(hoisted_import)
+                if hoisted_import.names.iter().any(|alias| alias.name.as_str() == module_name))
+        })
+    }
+
+    /// Generate a unique symbol name to avoid conflicts
+    fn generate_unique_name(
+        &self,
+        base_name: &str,
+        existing_symbols: &FxIndexSet<String>,
+    ) -> String {
+        if !existing_symbols.contains(base_name) {
+            return base_name.to_string();
+        }
+
+        // Try adding numeric suffixes
+        for i in 1..1000 {
+            let candidate = format!("{base_name}_{i}");
+            if !existing_symbols.contains(&candidate) {
+                return candidate;
+            }
+        }
+
+        // Fallback with module prefix
+        format!("__cribo_renamed_{base_name}")
+    }
 
     /// Transform a module into an initialization function
     /// This wraps the module body in a function that creates and returns a module object
     pub fn transform_module_to_init_function(
         &self,
-        ctx: ModuleTransformContext,
-        mut ast: ModModule,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        _ctx: ModuleTransformContext,
+        _ast: ModModule,
+        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Result<Stmt> {
         // TODO: Implementation from original file
         // Original location: code_generator_old.rs:6076-6612
