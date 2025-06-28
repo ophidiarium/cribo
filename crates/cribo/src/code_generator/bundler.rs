@@ -1126,21 +1126,149 @@ impl<'a> HybridStaticBundler<'a> {
             && let Err(e) = self
                 .symbol_dep_graph
                 .topological_sort_symbols(&self.circular_modules)
-            {
-                // The error is already logged inside topological_sort_symbols
-                log::error!("Failed to sort symbols: {e}");
-            }
+        {
+            // The error is already logged inside topological_sort_symbols
+            log::error!("Failed to sort symbols: {e}");
+        }
     }
 
     /// Detect hard dependencies in a module
     fn detect_hard_dependencies(
         &self,
-        _module_name: &str,
-        _ast: &ModModule,
-        _import_map: &FxIndexMap<String, (String, Option<String>)>,
+        module_name: &str,
+        ast: &ModModule,
+        import_map: &FxIndexMap<String, (String, Option<String>)>,
     ) -> Vec<HardDependency> {
-        // TODO: Implement hard dependency detection
-        Vec::new()
+        let mut hard_deps = Vec::new();
+
+        // Scan for class definitions
+        for stmt in &ast.body {
+            if let Stmt::ClassDef(class_def) = stmt {
+                // Check if any base class is an imported symbol
+                if let Some(arguments) = &class_def.arguments {
+                    for arg in &arguments.args {
+                        // Check if this is an attribute access (e.g.,
+                        // requests.compat.MutableMapping)
+                        if let Expr::Attribute(attr_expr) = arg {
+                            if let Expr::Attribute(inner_attr) = &*attr_expr.value {
+                                if let Expr::Name(name_expr) = &*inner_attr.value {
+                                    let base_module = name_expr.id.as_str();
+                                    let sub_module = inner_attr.attr.as_str();
+                                    let attr_name = attr_expr.attr.as_str();
+
+                                    // Check if this module.submodule is in our import map
+                                    let full_module = format!("{base_module}.{sub_module}");
+                                    if let Some((source_module, _alias)) =
+                                        import_map.get(&full_module)
+                                    {
+                                        debug!(
+                                            "Found hard dependency: class {} in module {} \
+                                             inherits from {}.{}.{}",
+                                            class_def.name.as_str(),
+                                            module_name,
+                                            base_module,
+                                            sub_module,
+                                            attr_name
+                                        );
+
+                                        hard_deps.push(HardDependency {
+                                            module_name: module_name.to_string(),
+                                            class_name: class_def.name.as_str().to_string(),
+                                            base_class: format!(
+                                                "{base_module}.{sub_module}.{attr_name}"
+                                            ),
+                                            source_module: source_module.clone(),
+                                            imported_attr: attr_name.to_string(),
+                                            alias: None, // No alias for multi-level imports
+                                            alias_is_mandatory: false,
+                                        });
+                                    }
+                                }
+                            } else if let Expr::Name(name_expr) = &*attr_expr.value {
+                                let module = name_expr.id.as_str();
+                                let attr_name = attr_expr.attr.as_str();
+
+                                // Check if this module is in our import map
+                                if let Some((source_module, _import_info)) = import_map.get(module)
+                                {
+                                    debug!(
+                                        "Found hard dependency: class {} in module {} inherits \
+                                         from {}.{}",
+                                        class_def.name.as_str(),
+                                        module_name,
+                                        module,
+                                        attr_name
+                                    );
+
+                                    // For module.attr, we need to import the module itself
+                                    hard_deps.push(HardDependency {
+                                        module_name: module_name.to_string(),
+                                        class_name: class_def.name.as_str().to_string(),
+                                        base_class: format!("{module}.{attr_name}"),
+                                        source_module: source_module.clone(),
+                                        imported_attr: module.to_string(), /* Import the module,
+                                                                            * not the attr */
+                                        alias: None, // No alias for module.attr imports
+                                        alias_is_mandatory: false,
+                                    });
+                                }
+                            }
+                        } else if let Expr::Name(name_expr) = arg {
+                            // Direct name reference (e.g., MutableMapping)
+                            let base_name = name_expr.id.as_str();
+
+                            // Check if this name is in our import map
+                            if let Some((source_module, original_name)) = import_map.get(base_name)
+                            {
+                                debug!(
+                                    "Found hard dependency: class {} in module {} inherits from \
+                                     {} (original: {:?})",
+                                    class_def.name.as_str(),
+                                    module_name,
+                                    base_name,
+                                    original_name
+                                );
+
+                                // Use the original imported name if available (for aliased imports)
+                                let import_attr = original_name
+                                    .clone()
+                                    .unwrap_or_else(|| base_name.to_string());
+
+                                // Check if this base_name is used as an alias
+                                // If base_name != import_attr, then base_name is an alias
+                                let has_alias = base_name != import_attr;
+
+                                // Check if the alias is mandatory (i.e., the original name
+                                // conflicts with a local definition)
+                                let alias_is_mandatory = if has_alias {
+                                    // Check if there's a local class with the same name as
+                                    // import_attr
+                                    self.check_local_name_conflict(ast, &import_attr)
+                                } else {
+                                    false
+                                };
+
+                                hard_deps.push(HardDependency {
+                                    module_name: module_name.to_string(),
+                                    class_name: class_def.name.as_str().to_string(),
+                                    base_class: base_name.to_string(),
+                                    source_module: source_module.clone(),
+                                    imported_attr: import_attr,
+                                    alias: if has_alias {
+                                        Some(base_name.to_string())
+                                    } else {
+                                        None
+                                    },
+                                    alias_is_mandatory,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        hard_deps
     }
 
     /// Generate module cache initialization
