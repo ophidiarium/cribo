@@ -2406,44 +2406,6 @@ impl<'a> HybridStaticBundler<'a> {
         statements
     }
 
-    /// Create a namespace object statement
-    fn create_namespace_object(&mut self, namespace: &str) -> Stmt {
-        // Create: namespace_name = types.SimpleNamespace()
-        Stmt::Assign(StmtAssign {
-            node_index: self
-                .create_transformed_node(format!("Create namespace object for {namespace}")),
-            targets: vec![Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: namespace.into(),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Call(ExprCall {
-                node_index: AtomicNodeIndex::dummy(),
-                func: Box::new(Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "types".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                arguments: Arguments {
-                    node_index: AtomicNodeIndex::dummy(),
-                    args: Box::from([]),
-                    keywords: Box::from([]),
-                    range: TextRange::default(),
-                },
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        })
-    }
-
     /// Create namespace attribute assignment
     fn create_namespace_attribute(&mut self, parent: &str, child: &str) -> Stmt {
         // Create: parent.child = types.SimpleNamespace()
