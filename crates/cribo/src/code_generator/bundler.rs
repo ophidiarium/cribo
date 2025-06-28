@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
+use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use rustc_hash::FxHasher;
@@ -1356,13 +1357,94 @@ impl<'a> HybridStaticBundler<'a> {
     /// Handle imports from inlined modules with optional module context
     fn handle_imports_from_inlined_module_with_context(
         &self,
-        _import_from: &StmtImportFrom,
-        _module_name: &str,
-        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        import_from: &StmtImportFrom,
+        module_name: &str,
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
         _module_context: Option<&str>,
     ) -> Vec<Stmt> {
-        // TODO: Implementation from original file
-        vec![]
+        let mut result_stmts = Vec::new();
+
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+            // Check if this is likely a re-export from a package __init__.py
+            let is_package_reexport = self.is_package_init_reexport(module_name, imported_name);
+
+            let renamed_symbol = if is_package_reexport {
+                // For package re-exports, use the original symbol name
+                // This handles cases like greetings/__init__.py re-exporting from greetings.english
+                log::debug!(
+                    "Using original name '{imported_name}' for symbol imported from package \
+                     '{module_name}'"
+                );
+                imported_name.to_string()
+            } else {
+                // Not a re-export, check normal renames
+                if let Some(module_renames) = symbol_renames.get(module_name) {
+                    module_renames
+                        .get(imported_name)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            // If no rename found, use the default pattern
+                            let module_suffix = module_name.cow_replace('.', "_").into_owned();
+                            format!("{imported_name}_{module_suffix}")
+                        })
+                } else {
+                    // If no rename map, use the default pattern
+                    let module_suffix = module_name.cow_replace('.', "_").into_owned();
+                    format!("{imported_name}_{module_suffix}")
+                }
+            };
+
+            // Only create assignment if the names are different
+            if local_name != renamed_symbol {
+                result_stmts.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
+                    targets: vec![Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: local_name.into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: renamed_symbol.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+            }
+        }
+
+        result_stmts
+    }
+
+    /// Check if a symbol is likely a re-export from a package __init__.py
+    fn is_package_init_reexport(&self, module_name: &str, _symbol_name: &str) -> bool {
+        // Special handling for package __init__.py files
+        // If we're importing from "greetings" and there's a "greetings.X" module
+        // that could be the source of the symbol
+
+        // For now, check if this looks like a package (no dots) and if there are
+        // any inlined submodules
+        if !module_name.contains('.') {
+            // Check if any inlined module starts with module_name.
+            for inlined in &self.inlined_modules {
+                if inlined.starts_with(&format!("{module_name}.")) {
+                    log::debug!(
+                        "Module '{module_name}' appears to be a package with inlined submodule \
+                         '{inlined}'"
+                    );
+                    // For the specific case of greetings/__init__.py importing from
+                    // greetings.english, we assume the symbol should use its
+                    // original name
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Rewrite imports in a statement with full context including wrapper init flag
