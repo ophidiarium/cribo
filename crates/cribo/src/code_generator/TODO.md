@@ -86,9 +86,10 @@ This document tracks the remaining work to complete the refactoring of `code_gen
 
 ### 7. Statement Processing (`bundler.rs`)
 
-- [ ] **Line 1047**: Implement entry module statement processing
+- [x] **Line 1047**: Implement entry module statement processing
   - **Original location**: `code_generator_old.rs:5780-5844`
   - **Function**: `process_entry_module_statement`
+  - **Completed**: Migrated with helper functions in commit bcff172
 - [ ] **Line 2085**: Complete statement transformation implementation
   - **Context**: Tree-shaking logic for checking if imports are used by surviving code
   - **Purpose**: Determine if assignments using imports should be kept
@@ -219,11 +220,11 @@ Each migrated function should:
 ## Progress Tracking
 
 - [x] Phase 1: Core Infrastructure (3/3 tasks) ✅
-- [ ] Phase 2: Module Processing Pipeline (1/6 tasks) - transform_module_to_init_function stub added
+- [ ] Phase 2: Module Processing Pipeline (2/6 tasks) - transform_module_to_init_function stub, process_entry_module_statement
 - [x] Phase 3: Import Resolution (3/3 tasks) ✅ - stdlib checking, entry module imports, relative imports
-- [ ] Phase 4: Final Integration (0/4 tasks)
+- [ ] Phase 4: Final Integration (1/4 tasks) - namespace management functions
 
-Total: 10/16 major tasks completed (with some partial implementations)
+Total: 11/16 major tasks completed (with some partial implementations)
 
 ## Migration Helpers
 
