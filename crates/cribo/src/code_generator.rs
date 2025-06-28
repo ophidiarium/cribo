@@ -11071,7 +11071,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Rename references in an expression based on module renames
-
     /// Collect global declarations from a function body
     fn collect_function_globals(&self, body: &[Stmt]) -> FxIndexSet<String> {
         let mut function_globals = FxIndexSet::default();
@@ -11352,30 +11351,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Get the actual name for an imported symbol, handling renames
-    fn get_actual_import_name(
-        &self,
-        resolved_module: &str,
-        imported_name: &str,
-        ctx: &InlineContext,
-    ) -> String {
-        if self.inlined_modules.contains(resolved_module) {
-            // First check if we already have the rename in our context
-            if let Some(source_renames) = ctx.module_renames.get(resolved_module) {
-                source_renames
-                    .get(imported_name)
-                    .cloned()
-                    .unwrap_or_else(|| imported_name.to_string())
-            } else {
-                // The module will be inlined later, we don't know the rename yet
-                // Store as "module:symbol" format that we'll resolve later
-                format!("{resolved_module}:{imported_name}")
-            }
-        } else {
-            // For non-inlined imports, just track the mapping
-            imported_name.to_string()
-        }
-    }
-
     /// Check if a symbol should be inlined based on export rules
     fn should_inline_symbol(
         &self,
@@ -12632,37 +12607,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Check if an expression represents a dotted name chain (e.g., "a.b.c")
-    fn is_name_chain(&self, expr: &Expr, expected_chain: &str) -> bool {
-        let parts: Vec<&str> = expected_chain.split('.').collect();
-        if parts.is_empty() {
-            return false;
-        }
-
-        let mut current_expr = expr;
-        let mut index = parts.len() - 1;
-
-        loop {
-            match current_expr {
-                Expr::Attribute(attr) => {
-                    // Check if this part matches
-                    if index < parts.len() && attr.attr.as_str() != parts[index] {
-                        return false;
-                    }
-                    if index == 0 {
-                        return false; // Still have attribute but no more parts
-                    }
-                    index -= 1;
-                    current_expr = &attr.value;
-                }
-                Expr::Name(name) => {
-                    // This should be the base name
-                    return index == 0 && name.id.as_str() == parts[0];
-                }
-                _ => return false,
-            }
-        }
-    }
-
     /// Create all namespace objects including the leaf for a dotted import
     fn create_all_namespace_objects(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
         // For "import a.b.c", we need to create namespace objects for "a", "a.b", and "a.b.c"
@@ -12757,20 +12701,6 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Populate a namespace with symbols from an inlined module using a specific target name (no
     /// renames)
-    fn populate_namespace_with_module_symbols_using_target(
-        &self,
-        target_name: &str,
-        module_name: &str,
-        result_stmts: &mut Vec<Stmt>,
-    ) {
-        self.populate_namespace_with_module_symbols_with_renames(
-            target_name,
-            module_name,
-            result_stmts,
-            &FxIndexMap::default(),
-        );
-    }
-
     /// Populate a namespace with symbols from an inlined module using a specific target name
     fn populate_namespace_with_module_symbols_with_renames(
         &self,
@@ -13561,97 +13491,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create a namespace object for a direct import of an inlined module
-    fn create_namespace_object_for_direct_import(
-        &mut self,
-        module_name: &str,
-        target_name: &str,
-    ) -> Stmt {
-        // Get module exports if available
-        let exports = self
-            .module_exports
-            .get(module_name)
-            .and_then(|e| e.as_ref())
-            .cloned()
-            .unwrap_or_default();
-
-        // Check if the module has any symbols that were inlined
-        let module_has_inlined_symbols =
-            self.inlined_modules.contains(module_name) && !exports.is_empty();
-
-        // Only use types.SimpleNamespace if we have actual symbols
-        if module_has_inlined_symbols {
-            // Create a types.SimpleNamespace with the actual exported symbols
-            let mut keywords = Vec::new();
-
-            // For each exported symbol, add it as a keyword argument to the namespace
-            for export in exports {
-                // For now, just use the export name directly
-                // The symbol should already be available in the global scope after inlining
-                keywords.push(Keyword {
-                    node_index: AtomicNodeIndex::dummy(),
-                    arg: Some(Identifier::new(export.clone(), TextRange::default())),
-                    value: Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: export.into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    }),
-                    range: TextRange::default(),
-                });
-            }
-
-            // Create: target_name = types.SimpleNamespace(**kwargs)
-            Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: target_name.into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Call(ExprCall {
-                    node_index: AtomicNodeIndex::dummy(),
-                    func: Box::new(Expr::Attribute(ExprAttribute {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: Box::new(Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: "types".into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new("SimpleNamespace", TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    arguments: Arguments {
-                        node_index: AtomicNodeIndex::dummy(),
-                        args: Box::from([]),
-                        keywords: keywords.into_boxed_slice(),
-                        range: TextRange::default(),
-                    },
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            })
-        } else {
-            // No symbols to export, just assign None
-            Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: target_name.into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
-                    node_index: AtomicNodeIndex::dummy(),
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            })
-        }
-    }
-
     /// Create a namespace object for an inlined module that is imported as a namespace
     fn create_namespace_for_inlined_module_static(
         &self,
