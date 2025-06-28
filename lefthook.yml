@@ -61,7 +61,6 @@ commit-msg:
       run: uvx typos {1}
 
 pre-push:
-  files: 'git diff --name-only --cached'
   commands:
     disable-dead-code:
       glob:
