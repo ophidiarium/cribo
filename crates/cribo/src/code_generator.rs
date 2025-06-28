@@ -12664,27 +12664,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
-    /// Create namespace keywords for a module
-    fn create_namespace_keywords(&self, full_module_path: &str, inlined_key: &str) -> Vec<Keyword> {
-        let mut keywords = Vec::new();
-        if let Some(Some(exports)) = self.module_exports.get(full_module_path) {
-            for symbol in exports {
-                keywords.push(Keyword {
-                    node_index: AtomicNodeIndex::dummy(),
-                    arg: Some(Identifier::new(symbol.as_str(), TextRange::default())),
-                    value: Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: format!("{symbol}_{inlined_key}").into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    }),
-                    range: TextRange::default(),
-                });
-            }
-        }
-        keywords
-    }
-
     /// Create a simple namespace module object
     /// Generate statements to merge attributes from a wrapper module into its namespace
     /// This is used when a module is both a wrapper module and a parent namespace
@@ -13032,17 +13011,6 @@ impl<'a> HybridStaticBundler<'a> {
         })
     }
 
-    /// Check if an assignment statement has a dotted target matching parent.attr
-    fn assignment_has_dotted_target(&self, assign: &StmtAssign, parent: &str, attr: &str) -> bool {
-        assign.targets.iter().any(|target| {
-            if let Expr::Attribute(attr_expr) = target {
-                attr_expr.attr.as_str() == attr && self.is_name_chain(&attr_expr.value, parent)
-            } else {
-                false
-            }
-        })
-    }
-
     /// Check if an expression represents a dotted name chain (e.g., "a.b.c")
     fn is_name_chain(&self, expr: &Expr, expected_chain: &str) -> bool {
         let parts: Vec<&str> = expected_chain.split('.').collect();
@@ -13165,19 +13133,6 @@ impl<'a> HybridStaticBundler<'a> {
                 }));
             }
         }
-    }
-
-    /// Populate a namespace with symbols from an inlined module
-    fn populate_namespace_with_module_symbols(
-        &self,
-        module_name: &str,
-        result_stmts: &mut Vec<Stmt>,
-    ) {
-        self.populate_namespace_with_module_symbols_using_target(
-            module_name,
-            module_name,
-            result_stmts,
-        );
     }
 
     /// Populate a namespace with symbols from an inlined module using a specific target name (no
