@@ -639,20 +639,22 @@ fn transform_stmt_for_module_vars(
     module_level_vars: &rustc_hash::FxHashSet<String>,
 ) {
     match stmt {
+        Stmt::FunctionDef(nested_func) => {
+            // Recursively transform nested functions
+            transform_nested_function_for_module_vars(nested_func, module_level_vars);
+        }
+        Stmt::Assign(assign) => {
+            // Transform assignment targets and values
+            for target in &mut assign.targets {
+                transform_expr_for_module_vars(target, module_level_vars);
+            }
+            transform_expr_for_module_vars(&mut assign.value, module_level_vars);
+        }
         Stmt::Expr(expr_stmt) => {
             transform_expr_for_module_vars(&mut expr_stmt.value, module_level_vars);
         }
-        Stmt::Assign(assign) => {
-            transform_expr_for_module_vars(&mut assign.value, module_level_vars);
-            // Don't transform targets - we're only transforming loads
-        }
-        Stmt::AnnAssign(ann_assign) => {
-            if let Some(value) = &mut ann_assign.value {
-                transform_expr_for_module_vars(value, module_level_vars);
-            }
-        }
-        Stmt::Return(ret) => {
-            if let Some(value) = &mut ret.value {
+        Stmt::Return(return_stmt) => {
+            if let Some(value) = &mut return_stmt.value {
                 transform_expr_for_module_vars(value, module_level_vars);
             }
         }
@@ -662,32 +664,341 @@ fn transform_stmt_for_module_vars(
                 transform_stmt_for_module_vars(stmt, module_level_vars);
             }
             for clause in &mut if_stmt.elif_else_clauses {
-                if let Some(test) = &mut clause.test {
-                    transform_expr_for_module_vars(test, module_level_vars);
+                if let Some(condition) = &mut clause.test {
+                    transform_expr_for_module_vars(condition, module_level_vars);
                 }
                 for stmt in &mut clause.body {
                     transform_stmt_for_module_vars(stmt, module_level_vars);
                 }
             }
         }
-        Stmt::While(while_stmt) => {
-            transform_expr_for_module_vars(&mut while_stmt.test, module_level_vars);
-            for stmt in &mut while_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
-            }
-            for stmt in &mut while_stmt.orelse {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
-            }
-        }
         Stmt::For(for_stmt) => {
+            transform_expr_for_module_vars(&mut for_stmt.target, module_level_vars);
             transform_expr_for_module_vars(&mut for_stmt.iter, module_level_vars);
             for stmt in &mut for_stmt.body {
                 transform_stmt_for_module_vars(stmt, module_level_vars);
             }
-            for stmt in &mut for_stmt.orelse {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
+        }
+        _ => {
+            // Handle other statement types as needed
+        }
+    }
+}
+
+/// Transform nested function to use module attributes for module-level variables
+fn transform_nested_function_for_module_vars(
+    func_def: &mut StmtFunctionDef,
+    module_level_vars: &rustc_hash::FxHashSet<String>,
+) {
+    // Collect local variables defined in this function
+    let mut local_vars = rustc_hash::FxHashSet::default();
+
+    // Add function parameters to local variables
+    for param in &func_def.parameters.args {
+        local_vars.insert(param.parameter.name.to_string());
+    }
+    for param in &func_def.parameters.posonlyargs {
+        local_vars.insert(param.parameter.name.to_string());
+    }
+    for param in &func_def.parameters.kwonlyargs {
+        local_vars.insert(param.parameter.name.to_string());
+    }
+    if let Some(ref vararg) = func_def.parameters.vararg {
+        local_vars.insert(vararg.name.to_string());
+    }
+    if let Some(ref kwarg) = func_def.parameters.kwarg {
+        local_vars.insert(kwarg.name.to_string());
+    }
+
+    // Collect all local variables assigned in the function body
+    collect_local_vars(&func_def.body, &mut local_vars);
+
+    // Transform the function body, excluding local variables
+    for stmt in &mut func_def.body {
+        transform_stmt_for_module_vars_with_locals(stmt, module_level_vars, &local_vars);
+    }
+}
+
+/// Collect local variables defined in a list of statements
+fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<String>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Assign(assign) => {
+                // Collect assignment targets as local variables
+                for target in &assign.targets {
+                    if let Expr::Name(name) = target {
+                        local_vars.insert(name.id.to_string());
+                    }
+                }
+            }
+            Stmt::AnnAssign(ann_assign) => {
+                // Collect annotated assignment targets
+                if let Expr::Name(name) = ann_assign.target.as_ref() {
+                    local_vars.insert(name.id.to_string());
+                }
+            }
+            Stmt::For(for_stmt) => {
+                // Collect for loop targets
+                if let Expr::Name(name) = for_stmt.target.as_ref() {
+                    local_vars.insert(name.id.to_string());
+                }
+                // Recursively collect from body
+                collect_local_vars(&for_stmt.body, local_vars);
+                collect_local_vars(&for_stmt.orelse, local_vars);
+            }
+            Stmt::If(if_stmt) => {
+                // Recursively collect from branches
+                collect_local_vars(&if_stmt.body, local_vars);
+                for clause in &if_stmt.elif_else_clauses {
+                    collect_local_vars(&clause.body, local_vars);
+                }
+            }
+            Stmt::While(while_stmt) => {
+                collect_local_vars(&while_stmt.body, local_vars);
+                collect_local_vars(&while_stmt.orelse, local_vars);
+            }
+            Stmt::With(with_stmt) => {
+                // Collect with statement targets
+                for item in &with_stmt.items {
+                    if let Some(ref optional_vars) = item.optional_vars
+                        && let Expr::Name(name) = optional_vars.as_ref()
+                    {
+                        local_vars.insert(name.id.to_string());
+                    }
+                }
+                collect_local_vars(&with_stmt.body, local_vars);
+            }
+            Stmt::Try(try_stmt) => {
+                collect_local_vars(&try_stmt.body, local_vars);
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(eh) = handler;
+                    // Collect exception name if present
+                    if let Some(ref name) = eh.name {
+                        local_vars.insert(name.to_string());
+                    }
+                    collect_local_vars(&eh.body, local_vars);
+                }
+                collect_local_vars(&try_stmt.orelse, local_vars);
+                collect_local_vars(&try_stmt.finalbody, local_vars);
+            }
+            Stmt::FunctionDef(func_def) => {
+                // Function definitions create local names
+                local_vars.insert(func_def.name.to_string());
+            }
+            Stmt::ClassDef(class_def) => {
+                // Class definitions create local names
+                local_vars.insert(class_def.name.to_string());
+            }
+            _ => {
+                // Other statements don't introduce new local variables
             }
         }
-        _ => {}
+    }
+}
+
+/// Transform a statement with awareness of local variables
+fn transform_stmt_for_module_vars_with_locals(
+    stmt: &mut Stmt,
+    module_level_vars: &rustc_hash::FxHashSet<String>,
+    local_vars: &rustc_hash::FxHashSet<String>,
+) {
+    match stmt {
+        Stmt::FunctionDef(nested_func) => {
+            // Recursively transform nested functions
+            transform_nested_function_for_module_vars(nested_func, module_level_vars);
+        }
+        Stmt::Assign(assign) => {
+            // Transform assignment targets and values
+            for target in &mut assign.targets {
+                transform_expr_for_module_vars_with_locals(target, module_level_vars, local_vars);
+            }
+            transform_expr_for_module_vars_with_locals(
+                &mut assign.value,
+                module_level_vars,
+                local_vars,
+            );
+        }
+        Stmt::Expr(expr_stmt) => {
+            transform_expr_for_module_vars_with_locals(
+                &mut expr_stmt.value,
+                module_level_vars,
+                local_vars,
+            );
+        }
+        Stmt::Return(return_stmt) => {
+            if let Some(value) = &mut return_stmt.value {
+                transform_expr_for_module_vars_with_locals(value, module_level_vars, local_vars);
+            }
+        }
+        Stmt::If(if_stmt) => {
+            transform_expr_for_module_vars_with_locals(
+                &mut if_stmt.test,
+                module_level_vars,
+                local_vars,
+            );
+            for stmt in &mut if_stmt.body {
+                transform_stmt_for_module_vars_with_locals(stmt, module_level_vars, local_vars);
+            }
+            for clause in &mut if_stmt.elif_else_clauses {
+                if let Some(condition) = &mut clause.test {
+                    transform_expr_for_module_vars_with_locals(
+                        condition,
+                        module_level_vars,
+                        local_vars,
+                    );
+                }
+                for stmt in &mut clause.body {
+                    transform_stmt_for_module_vars_with_locals(stmt, module_level_vars, local_vars);
+                }
+            }
+        }
+        Stmt::For(for_stmt) => {
+            transform_expr_for_module_vars_with_locals(
+                &mut for_stmt.target,
+                module_level_vars,
+                local_vars,
+            );
+            transform_expr_for_module_vars_with_locals(
+                &mut for_stmt.iter,
+                module_level_vars,
+                local_vars,
+            );
+            for stmt in &mut for_stmt.body {
+                transform_stmt_for_module_vars_with_locals(stmt, module_level_vars, local_vars);
+            }
+        }
+        Stmt::While(while_stmt) => {
+            transform_expr_for_module_vars_with_locals(
+                &mut while_stmt.test,
+                module_level_vars,
+                local_vars,
+            );
+            for stmt in &mut while_stmt.body {
+                transform_stmt_for_module_vars_with_locals(stmt, module_level_vars, local_vars);
+            }
+        }
+        _ => {
+            // Handle other statement types as needed
+        }
+    }
+}
+
+/// Transform an expression with awareness of local variables
+fn transform_expr_for_module_vars_with_locals(
+    expr: &mut Expr,
+    module_level_vars: &rustc_hash::FxHashSet<String>,
+    local_vars: &rustc_hash::FxHashSet<String>,
+) {
+    match expr {
+        Expr::Name(name_expr) => {
+            let name_str = name_expr.id.as_str();
+
+            // Special case: transform __name__ to module.__name__
+            if name_str == "__name__" && matches!(name_expr.ctx, ExprContext::Load) {
+                // Transform __name__ -> module.__name__
+                *expr = Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "module".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("__name__", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+            }
+            // If this is a module-level variable being read AND NOT a local variable AND NOT a
+            // builtin, transform to module.var
+            else if module_level_vars.contains(name_str)
+                && !local_vars.contains(name_str)
+                && !ruff_python_stdlib::builtins::python_builtins(u8::MAX, false)
+                    .any(|b| b == name_str)
+                && matches!(name_expr.ctx, ExprContext::Load)
+            {
+                // Transform foo -> module.foo
+                *expr = Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "module".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new(name_str, TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+            }
+        }
+        Expr::Call(call) => {
+            transform_expr_for_module_vars_with_locals(
+                &mut call.func,
+                module_level_vars,
+                local_vars,
+            );
+            for arg in &mut call.arguments.args {
+                transform_expr_for_module_vars_with_locals(arg, module_level_vars, local_vars);
+            }
+            for keyword in &mut call.arguments.keywords {
+                transform_expr_for_module_vars_with_locals(
+                    &mut keyword.value,
+                    module_level_vars,
+                    local_vars,
+                );
+            }
+        }
+        Expr::BinOp(binop) => {
+            transform_expr_for_module_vars_with_locals(
+                &mut binop.left,
+                module_level_vars,
+                local_vars,
+            );
+            transform_expr_for_module_vars_with_locals(
+                &mut binop.right,
+                module_level_vars,
+                local_vars,
+            );
+        }
+        Expr::Dict(dict) => {
+            for item in &mut dict.items {
+                if let Some(key) = &mut item.key {
+                    transform_expr_for_module_vars_with_locals(key, module_level_vars, local_vars);
+                }
+                transform_expr_for_module_vars_with_locals(
+                    &mut item.value,
+                    module_level_vars,
+                    local_vars,
+                );
+            }
+        }
+        Expr::List(list_expr) => {
+            for elem in &mut list_expr.elts {
+                transform_expr_for_module_vars_with_locals(elem, module_level_vars, local_vars);
+            }
+        }
+        Expr::Attribute(attr) => {
+            transform_expr_for_module_vars_with_locals(
+                &mut attr.value,
+                module_level_vars,
+                local_vars,
+            );
+        }
+        Expr::Subscript(subscript) => {
+            transform_expr_for_module_vars_with_locals(
+                &mut subscript.value,
+                module_level_vars,
+                local_vars,
+            );
+            transform_expr_for_module_vars_with_locals(
+                &mut subscript.slice,
+                module_level_vars,
+                local_vars,
+            );
+        }
+        _ => {
+            // Handle other expression types as needed
+        }
     }
 }
