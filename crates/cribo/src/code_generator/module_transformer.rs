@@ -312,7 +312,8 @@ pub fn transform_module_to_init_function<'a>(
                                 body.push(bundler.create_module_attr_assignment("module", &name));
                             } else {
                                 // Regular assignment, use the normal export logic
-                                bundler.add_module_attr_if_exported(
+                                add_module_attr_if_exported(
+                                    bundler,
                                     assign,
                                     ctx.module_name,
                                     &mut body,
@@ -320,7 +321,12 @@ pub fn transform_module_to_init_function<'a>(
                             }
                         } else {
                             // Not a simple assignment
-                            bundler.add_module_attr_if_exported(assign, ctx.module_name, &mut body);
+                            add_module_attr_if_exported(
+                                bundler,
+                                assign,
+                                ctx.module_name,
+                                &mut body,
+                            );
                         }
                     }
                 } else {
@@ -496,7 +502,7 @@ pub fn transform_module_to_init_function<'a>(
             // For deferred imports that are assignments, also set as module attribute if
             // exported
             body.push(stmt.clone());
-            bundler.add_module_attr_if_exported(assign, ctx.module_name, &mut body);
+            add_module_attr_if_exported(bundler, assign, ctx.module_name, &mut body);
         } else {
             body.push(stmt.clone());
         }
@@ -1102,4 +1108,18 @@ pub fn transform_ast_with_lifted_globals(
     global_info: &crate::semantic_bundler::ModuleGlobalInfo,
 ) {
     bundler.transform_ast_with_lifted_globals(ast, lifted_names, global_info);
+}
+
+/// Add module attribute assignment if the symbol should be exported
+fn add_module_attr_if_exported(
+    bundler: &HybridStaticBundler,
+    assign: &StmtAssign,
+    module_name: &str,
+    body: &mut Vec<Stmt>,
+) {
+    if let Some(name) = bundler.extract_simple_assign_target(assign)
+        && bundler.should_export_symbol(&name, module_name)
+    {
+        body.push(bundler.create_module_attr_assignment("module", &name));
+    }
 }

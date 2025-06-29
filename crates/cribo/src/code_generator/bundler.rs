@@ -7667,20 +7667,6 @@ impl<'a> HybridStaticBundler<'a> {
         )
     }
 
-    /// Add module attribute assignment if the symbol should be exported
-    pub fn add_module_attr_if_exported(
-        &self,
-        assign: &StmtAssign,
-        module_name: &str,
-        body: &mut Vec<Stmt>,
-    ) {
-        if let Some(name) = self.extract_simple_assign_target(assign)
-            && self.should_export_symbol(&name, module_name)
-        {
-            body.push(self.create_module_attr_assignment("module", &name));
-        }
-    }
-
     /// Collect variables referenced in statements
     pub fn collect_referenced_vars(&self, stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
         for stmt in stmts {
