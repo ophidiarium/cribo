@@ -91,7 +91,7 @@ pub struct TransformFunctionParams<'a> {
 
 /// Parameters for bundle_modules function
 pub struct BundleParams<'a> {
-    pub modules: Vec<(String, ModModule, PathBuf, String)>, // (name, ast, path, content_hash)
+    pub modules: &'a [(String, ModModule, PathBuf, String)], // (name, ast, path, content_hash)
     pub sorted_modules: &'a [(String, PathBuf, Vec<String>)], // Module data from CriboGraph
     pub entry_module_name: &'a str,
     pub graph: &'a DependencyGraph, // Dependency graph for unused import detection

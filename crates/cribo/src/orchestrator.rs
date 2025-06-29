@@ -1676,7 +1676,7 @@ impl BundleOrchestrator {
 
         // Bundle all modules using static bundler
         let bundled_ast = static_bundler.bundle_modules(crate::code_generator::BundleParams {
-            modules: module_asts,
+            modules: &module_asts,
             sorted_modules: params.sorted_modules,
             entry_module_name: params.entry_module_name,
             graph: params.graph,

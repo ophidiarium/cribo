@@ -4250,7 +4250,7 @@ impl<'a> HybridStaticBundler<'a> {
         if let Some(shaker) = params.tree_shaker {
             // Extract all kept symbols from the tree shaker
             let mut kept_symbols = indexmap::IndexSet::new();
-            for (module_name, _, _, _) in &params.modules {
+            for (module_name, _, _, _) in params.modules {
                 for symbol in shaker.get_used_symbols_for_module(module_name) {
                     kept_symbols.insert((module_name.clone(), symbol));
                 }
@@ -4297,7 +4297,7 @@ impl<'a> HybridStaticBundler<'a> {
 
         // First pass: collect future imports from ALL modules before trimming
         // This ensures future imports are hoisted even if they appear late in the file
-        for (_module_name, ast, _, _) in &params.modules {
+        for (_module_name, ast, _, _) in params.modules {
             self.collect_future_imports_from_ast(ast);
         }
 
@@ -6240,21 +6240,22 @@ impl<'a> HybridStaticBundler<'a> {
 
     fn trim_unused_imports_from_modules(
         &mut self,
-        modules: Vec<(String, ModModule, PathBuf, String)>,
+        modules: &[(String, ModModule, PathBuf, String)],
         graph: &DependencyGraph,
         tree_shaker: Option<&crate::tree_shaking::TreeShaker>,
     ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
         let mut trimmed_modules = Vec::new();
 
-        for (module_name, mut ast, module_path, content_hash) in modules {
+        for (module_name, ast, module_path, content_hash) in modules {
             log::debug!("Trimming unused imports from module: {module_name}");
+            let mut ast = ast.clone(); // Clone here to allow mutation
 
             // Check if this is an __init__.py file
             let is_init_py =
                 module_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py");
 
             // Get unused imports from the graph
-            if let Some(module_dep_graph) = graph.get_module_by_name(&module_name) {
+            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
                 let mut unused_imports = module_dep_graph.find_unused_imports(is_init_py);
 
                 // If tree shaking is enabled, also check if imported symbols were removed
@@ -6265,7 +6266,7 @@ impl<'a> HybridStaticBundler<'a> {
                     // Only apply tree-shaking-aware import removal if tree shaking is actually
                     // enabled Get the symbols that survive tree-shaking for
                     // this module
-                    let used_symbols = shaker.get_used_symbols_for_module(&module_name);
+                    let used_symbols = shaker.get_used_symbols_for_module(module_name);
 
                     // Check each import to see if it's only used by tree-shaken code
                     let import_items = module_dep_graph.get_all_import_items();
@@ -6319,7 +6320,7 @@ impl<'a> HybridStaticBundler<'a> {
                                     // Also check if the module has side effects and uses this
                                     // import at module level
                                     if !used_by_surviving_code
-                                        && shaker.module_has_side_effects(&module_name)
+                                        && shaker.module_has_side_effects(module_name)
                                     {
                                         // Check if any module-level code uses this import
                                         for item in module_dep_graph.items.values() {
@@ -6507,7 +6508,12 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
 
-            trimmed_modules.push((module_name, ast, module_path, content_hash));
+            trimmed_modules.push((
+                module_name.clone(),
+                ast,
+                module_path.clone(),
+                content_hash.clone(),
+            ));
         }
 
         log::debug!(
