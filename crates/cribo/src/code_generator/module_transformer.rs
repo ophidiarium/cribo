@@ -7,10 +7,13 @@ use std::path::Path;
 
 use anyhow::Result;
 use log::debug;
+#[allow(unused_imports)] // These imports are used in pattern matching
 use ruff_python_ast::{
     Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
-    ExprName, ExprStringLiteral, Identifier, ModModule, Stmt, StmtAssign, StmtFunctionDef,
-    StmtGlobal, StmtReturn, StringLiteral, StringLiteralFlags, StringLiteralValue,
+    ExprName, ExprStringLiteral, Identifier, ModModule, Stmt, StmtAnnAssign, StmtAssert,
+    StmtAssign, StmtAugAssign, StmtClassDef, StmtDelete, StmtFunctionDef, StmtGlobal, StmtMatch,
+    StmtRaise, StmtReturn, StmtTry, StmtWhile, StmtWith, StringLiteral, StringLiteralFlags,
+    StringLiteralValue,
 };
 use ruff_text_size::TextRange;
 
@@ -707,9 +710,122 @@ fn transform_stmt_for_module_vars(
             for stmt in &mut for_stmt.body {
                 transform_stmt_for_module_vars(stmt, module_level_vars);
             }
+            for stmt in &mut for_stmt.orelse {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
         }
-        _ => {
-            // Handle other statement types as needed
+        Stmt::While(while_stmt) => {
+            transform_expr_for_module_vars(&mut while_stmt.test, module_level_vars);
+            for stmt in &mut while_stmt.body {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+            for stmt in &mut while_stmt.orelse {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+        }
+        Stmt::With(with_stmt) => {
+            for item in &mut with_stmt.items {
+                transform_expr_for_module_vars(&mut item.context_expr, module_level_vars);
+                if let Some(ref mut optional_vars) = item.optional_vars {
+                    transform_expr_for_module_vars(optional_vars, module_level_vars);
+                }
+            }
+            for stmt in &mut with_stmt.body {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+        }
+        Stmt::Try(try_stmt) => {
+            for stmt in &mut try_stmt.body {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+            for handler in &mut try_stmt.handlers {
+                let ExceptHandler::ExceptHandler(except_handler) = handler;
+                if let Some(ref mut type_) = except_handler.type_ {
+                    transform_expr_for_module_vars(type_, module_level_vars);
+                }
+                for stmt in &mut except_handler.body {
+                    transform_stmt_for_module_vars(stmt, module_level_vars);
+                }
+            }
+            for stmt in &mut try_stmt.orelse {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+            for stmt in &mut try_stmt.finalbody {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+        }
+        Stmt::Raise(raise_stmt) => {
+            if let Some(ref mut exc) = raise_stmt.exc {
+                transform_expr_for_module_vars(exc, module_level_vars);
+            }
+            if let Some(ref mut cause) = raise_stmt.cause {
+                transform_expr_for_module_vars(cause, module_level_vars);
+            }
+        }
+        Stmt::ClassDef(class_def) => {
+            // Transform decorators
+            for decorator in &mut class_def.decorator_list {
+                transform_expr_for_module_vars(&mut decorator.expression, module_level_vars);
+            }
+            // Transform class arguments (base classes and keyword arguments)
+            if let Some(ref mut arguments) = class_def.arguments {
+                for arg in arguments.args.iter_mut() {
+                    transform_expr_for_module_vars(arg, module_level_vars);
+                }
+                for keyword in arguments.keywords.iter_mut() {
+                    transform_expr_for_module_vars(&mut keyword.value, module_level_vars);
+                }
+            }
+            // Transform class body
+            for stmt in &mut class_def.body {
+                transform_stmt_for_module_vars(stmt, module_level_vars);
+            }
+        }
+        Stmt::AugAssign(aug_assign) => {
+            transform_expr_for_module_vars(&mut aug_assign.target, module_level_vars);
+            transform_expr_for_module_vars(&mut aug_assign.value, module_level_vars);
+        }
+        Stmt::AnnAssign(ann_assign) => {
+            transform_expr_for_module_vars(&mut ann_assign.target, module_level_vars);
+            transform_expr_for_module_vars(&mut ann_assign.annotation, module_level_vars);
+            if let Some(ref mut value) = ann_assign.value {
+                transform_expr_for_module_vars(value, module_level_vars);
+            }
+        }
+        Stmt::Delete(delete_stmt) => {
+            for target in &mut delete_stmt.targets {
+                transform_expr_for_module_vars(target, module_level_vars);
+            }
+        }
+        Stmt::Match(match_stmt) => {
+            transform_expr_for_module_vars(&mut match_stmt.subject, module_level_vars);
+            // Match cases have complex patterns that may need specialized handling
+            // For now, we'll focus on transforming the guard expressions and bodies
+            for case in &mut match_stmt.cases {
+                if let Some(ref mut guard) = case.guard {
+                    transform_expr_for_module_vars(guard, module_level_vars);
+                }
+                for stmt in &mut case.body {
+                    transform_stmt_for_module_vars(stmt, module_level_vars);
+                }
+            }
+        }
+        Stmt::Assert(assert_stmt) => {
+            transform_expr_for_module_vars(&mut assert_stmt.test, module_level_vars);
+            if let Some(ref mut msg) = assert_stmt.msg {
+                transform_expr_for_module_vars(msg, module_level_vars);
+            }
+        }
+        Stmt::TypeAlias(_)
+        | Stmt::Import(_)
+        | Stmt::ImportFrom(_)
+        | Stmt::Global(_)
+        | Stmt::Nonlocal(_)
+        | Stmt::Pass(_)
+        | Stmt::Break(_)
+        | Stmt::Continue(_)
+        | Stmt::IpyEscapeCommand(_) => {
+            // These statement types don't contain expressions that need transformation
         }
     }
 }
