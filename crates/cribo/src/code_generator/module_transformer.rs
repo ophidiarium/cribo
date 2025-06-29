@@ -47,12 +47,10 @@ pub fn transform_module_to_init_function<'a>(
             let lifted_names = globals_lifter.get_lifted_names().clone();
 
             // Transform the AST to use lifted globals
-            // Create a temporary context::ModuleGlobalInfo for compatibility
-            let context_global_info = crate::code_generator::context::ModuleGlobalInfo::default();
             bundler.transform_ast_with_lifted_globals(
                 &mut ast,
                 &lifted_names,
-                &context_global_info,
+                global_info,
             );
 
             Some(lifted_names)

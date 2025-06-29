@@ -15,9 +15,10 @@ type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
-    ExprContext, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, Identifier,
-    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
-    StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
+    ExprContext, ExprFString, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, 
+    FString, FStringFlags, FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
+    InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, 
+    StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
     visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
@@ -40,6 +41,13 @@ struct DirectImportContext<'a> {
     current_module: &'a str,
     module_path: &'a Path,
     modules: &'a [(String, ModModule, PathBuf, String)],
+}
+
+/// Parameters for transforming functions with lifted globals
+struct TransformFunctionParams<'a> {
+    lifted_names: &'a FxIndexMap<String, String>,
+    global_info: &'a crate::semantic_bundler::ModuleGlobalInfo,
+    function_globals: &'a FxIndexSet<String>,
 }
 
 /// This approach avoids forward reference issues while maintaining Python module semantics
@@ -8509,15 +8517,11 @@ impl<'a> HybridStaticBundler<'a> {
         &self,
         ast: &mut ModModule,
         lifted_names: &FxIndexMap<String, String>,
-        _global_info: &crate::code_generator::context::ModuleGlobalInfo,
+        global_info: &crate::semantic_bundler::ModuleGlobalInfo,
     ) {
-        // For now, we'll use a simplified transformation that just renames global variables
-        // This is a placeholder implementation that should be expanded based on the full
-        // requirements of global lifting
-
-        // Transform all statements in the module
+        // Transform all statements that use global declarations
         for stmt in &mut ast.body {
-            self.transform_stmt_for_lifted_globals(stmt, lifted_names);
+            self.transform_stmt_for_lifted_globals(stmt, lifted_names, global_info, None);
         }
     }
 
@@ -8526,61 +8530,165 @@ impl<'a> HybridStaticBundler<'a> {
         &self,
         stmt: &mut Stmt,
         lifted_names: &FxIndexMap<String, String>,
+        global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+        current_function_globals: Option<&FxIndexSet<String>>,
     ) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
-                // Transform function body
-                for stmt in &mut func_def.body {
-                    self.transform_stmt_for_lifted_globals(stmt, lifted_names);
+                // Check if this function uses globals
+                if global_info
+                    .functions_using_globals
+                    .contains(&func_def.name.to_string())
+                {
+                    // Collect globals declared in this function
+                    let function_globals = self.collect_function_globals(&func_def.body);
+
+                    // Create initialization statements for lifted globals
+                    let init_stmts =
+                        self.create_global_init_statements(&function_globals, lifted_names);
+
+                    // Transform the function body
+                    let params = TransformFunctionParams {
+                        lifted_names,
+                        global_info,
+                        function_globals: &function_globals,
+                    };
+                    self.transform_function_body_for_lifted_globals(func_def, &params, init_stmts);
                 }
             }
             Stmt::Assign(assign) => {
-                // Transform assignment targets and values
+                // Transform assignments to use lifted names if they're in a function with global
+                // declarations
                 for target in &mut assign.targets {
-                    self.transform_expr_for_lifted_globals(target, lifted_names);
+                    self.transform_expr_for_lifted_globals(
+                        target,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
                 }
-                self.transform_expr_for_lifted_globals(&mut assign.value, lifted_names);
+                self.transform_expr_for_lifted_globals(
+                    &mut assign.value,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
             }
             Stmt::Expr(expr_stmt) => {
-                self.transform_expr_for_lifted_globals(&mut expr_stmt.value, lifted_names);
+                self.transform_expr_for_lifted_globals(
+                    &mut expr_stmt.value,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
             }
             Stmt::If(if_stmt) => {
-                self.transform_expr_for_lifted_globals(&mut if_stmt.test, lifted_names);
+                self.transform_expr_for_lifted_globals(
+                    &mut if_stmt.test,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
                 for stmt in &mut if_stmt.body {
-                    self.transform_stmt_for_lifted_globals(stmt, lifted_names);
+                    self.transform_stmt_for_lifted_globals(
+                        stmt,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
                 }
                 for clause in &mut if_stmt.elif_else_clauses {
                     if let Some(test_expr) = &mut clause.test {
-                        self.transform_expr_for_lifted_globals(test_expr, lifted_names);
+                        self.transform_expr_for_lifted_globals(
+                            test_expr,
+                            lifted_names,
+                            global_info,
+                            current_function_globals,
+                        );
                     }
                     for stmt in &mut clause.body {
-                        self.transform_stmt_for_lifted_globals(stmt, lifted_names);
+                        self.transform_stmt_for_lifted_globals(
+                            stmt,
+                            lifted_names,
+                            global_info,
+                            current_function_globals,
+                        );
                     }
                 }
             }
             Stmt::While(while_stmt) => {
-                self.transform_expr_for_lifted_globals(&mut while_stmt.test, lifted_names);
+                self.transform_expr_for_lifted_globals(
+                    &mut while_stmt.test,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
                 for stmt in &mut while_stmt.body {
-                    self.transform_stmt_for_lifted_globals(stmt, lifted_names);
+                    self.transform_stmt_for_lifted_globals(
+                        stmt,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
                 }
             }
             Stmt::For(for_stmt) => {
-                self.transform_expr_for_lifted_globals(&mut for_stmt.target, lifted_names);
-                self.transform_expr_for_lifted_globals(&mut for_stmt.iter, lifted_names);
+                self.transform_expr_for_lifted_globals(
+                    &mut for_stmt.target,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
+                self.transform_expr_for_lifted_globals(
+                    &mut for_stmt.iter,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
                 for stmt in &mut for_stmt.body {
-                    self.transform_stmt_for_lifted_globals(stmt, lifted_names);
+                    self.transform_stmt_for_lifted_globals(
+                        stmt,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
                 }
             }
             Stmt::Return(return_stmt) => {
                 if let Some(value) = &mut return_stmt.value {
-                    self.transform_expr_for_lifted_globals(value, lifted_names);
+                    self.transform_expr_for_lifted_globals(
+                        value,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
                 }
             }
             Stmt::ClassDef(class_def) => {
-                // Transform methods in the class
+                // Transform methods in the class that use globals
                 for stmt in &mut class_def.body {
-                    self.transform_stmt_for_lifted_globals(stmt, lifted_names);
+                    self.transform_stmt_for_lifted_globals(
+                        stmt,
+                        lifted_names,
+                        global_info,
+                        current_function_globals,
+                    );
                 }
+            }
+            Stmt::AugAssign(aug_assign) => {
+                // Transform augmented assignments to use lifted names
+                self.transform_expr_for_lifted_globals(
+                    &mut aug_assign.target,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
+                self.transform_expr_for_lifted_globals(
+                    &mut aug_assign.value,
+                    lifted_names,
+                    global_info,
+                    current_function_globals,
+                );
             }
             _ => {
                 // Other statement types handled as needed
@@ -8593,56 +8701,145 @@ impl<'a> HybridStaticBundler<'a> {
         &self,
         expr: &mut Expr,
         lifted_names: &FxIndexMap<String, String>,
+        global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+        in_function_with_globals: Option<&FxIndexSet<String>>,
     ) {
         match expr {
             Expr::Name(name_expr) => {
-                // If this name has a lifted version, use it
-                if let Some(lifted_name) = lifted_names.get(name_expr.id.as_str()) {
+                // Transform if this is a lifted global and we're in a function that declares it
+                // global
+                if let Some(function_globals) = in_function_with_globals
+                    && function_globals.contains(name_expr.id.as_str())
+                    && let Some(lifted_name) = lifted_names.get(name_expr.id.as_str())
+                {
                     name_expr.id = lifted_name.clone().into();
                 }
             }
             Expr::Call(call) => {
-                self.transform_expr_for_lifted_globals(&mut call.func, lifted_names);
+                self.transform_expr_for_lifted_globals(
+                    &mut call.func,
+                    lifted_names,
+                    global_info,
+                    in_function_with_globals,
+                );
                 for arg in &mut call.arguments.args {
-                    self.transform_expr_for_lifted_globals(arg, lifted_names);
-                }
-                for keyword in &mut call.arguments.keywords {
-                    self.transform_expr_for_lifted_globals(&mut keyword.value, lifted_names);
+                    self.transform_expr_for_lifted_globals(
+                        arg,
+                        lifted_names,
+                        global_info,
+                        in_function_with_globals,
+                    );
                 }
             }
             Expr::Attribute(attr) => {
-                self.transform_expr_for_lifted_globals(&mut attr.value, lifted_names);
+                self.transform_expr_for_lifted_globals(
+                    &mut attr.value,
+                    lifted_names,
+                    global_info,
+                    in_function_with_globals,
+                );
+            }
+            Expr::FString(_) => {
+                self.transform_fstring_for_lifted_globals(
+                    expr,
+                    lifted_names,
+                    global_info,
+                    in_function_with_globals,
+                );
             }
             Expr::BinOp(binop) => {
-                self.transform_expr_for_lifted_globals(&mut binop.left, lifted_names);
-                self.transform_expr_for_lifted_globals(&mut binop.right, lifted_names);
+                self.transform_expr_for_lifted_globals(
+                    &mut binop.left,
+                    lifted_names,
+                    global_info,
+                    in_function_with_globals,
+                );
+                self.transform_expr_for_lifted_globals(
+                    &mut binop.right,
+                    lifted_names,
+                    global_info,
+                    in_function_with_globals,
+                );
             }
             Expr::UnaryOp(unaryop) => {
-                self.transform_expr_for_lifted_globals(&mut unaryop.operand, lifted_names);
+                self.transform_expr_for_lifted_globals(
+                    &mut unaryop.operand,
+                    lifted_names,
+                    global_info,
+                    in_function_with_globals,
+                );
             }
-            Expr::List(list) => {
-                for elem in &mut list.elts {
-                    self.transform_expr_for_lifted_globals(elem, lifted_names);
+            Expr::Compare(compare) => {
+                self.transform_expr_for_lifted_globals(
+                    &mut compare.left,
+                    lifted_names,
+                    global_info,
+                    in_function_with_globals,
+                );
+                for comparator in &mut compare.comparators {
+                    self.transform_expr_for_lifted_globals(
+                        comparator,
+                        lifted_names,
+                        global_info,
+                        in_function_with_globals,
+                    );
                 }
             }
-            Expr::Tuple(tuple) => {
-                for elem in &mut tuple.elts {
-                    self.transform_expr_for_lifted_globals(elem, lifted_names);
+            Expr::Subscript(subscript) => {
+                self.transform_expr_for_lifted_globals(
+                    &mut subscript.value,
+                    lifted_names,
+                    global_info,
+                    in_function_with_globals,
+                );
+                self.transform_expr_for_lifted_globals(
+                    &mut subscript.slice,
+                    lifted_names,
+                    global_info,
+                    in_function_with_globals,
+                );
+            }
+            Expr::List(list_expr) => {
+                for elem in &mut list_expr.elts {
+                    self.transform_expr_for_lifted_globals(
+                        elem,
+                        lifted_names,
+                        global_info,
+                        in_function_with_globals,
+                    );
                 }
             }
-            Expr::Dict(dict) => {
-                for item in &mut dict.items {
+            Expr::Tuple(tuple_expr) => {
+                for elem in &mut tuple_expr.elts {
+                    self.transform_expr_for_lifted_globals(
+                        elem,
+                        lifted_names,
+                        global_info,
+                        in_function_with_globals,
+                    );
+                }
+            }
+            Expr::Dict(dict_expr) => {
+                for item in &mut dict_expr.items {
                     if let Some(key) = &mut item.key {
-                        self.transform_expr_for_lifted_globals(key, lifted_names);
+                        self.transform_expr_for_lifted_globals(
+                            key,
+                            lifted_names,
+                            global_info,
+                            in_function_with_globals,
+                        );
                     }
-                    self.transform_expr_for_lifted_globals(&mut item.value, lifted_names);
+                    self.transform_expr_for_lifted_globals(
+                        &mut item.value,
+                        lifted_names,
+                        global_info,
+                        in_function_with_globals,
+                    );
                 }
             }
-            Expr::Subscript(sub) => {
-                self.transform_expr_for_lifted_globals(&mut sub.value, lifted_names);
-                self.transform_expr_for_lifted_globals(&mut sub.slice, lifted_names);
+            _ => {
+                // Other expressions handled as needed
             }
-            _ => {}
         }
     }
 
@@ -8950,28 +9147,7 @@ impl<'a> HybridStaticBundler<'a> {
         expr: &mut Expr,
         alias_to_canonical: &FxIndexMap<String, String>,
     ) {
-        match expr {
-            Expr::Name(name_expr) => {
-                let name_str = name_expr.id.as_str();
-                if let Some(canonical) = alias_to_canonical.get(name_str) {
-                    log::debug!("Rewriting alias '{name_str}' to canonical '{canonical}'");
-                    name_expr.id = canonical.clone().into();
-                }
-            }
-            Expr::Attribute(attr) => {
-                self.rewrite_aliases_in_expr(&mut attr.value, alias_to_canonical);
-            }
-            Expr::Call(call) => {
-                self.rewrite_aliases_in_expr(&mut call.func, alias_to_canonical);
-                for arg in &mut call.arguments.args {
-                    self.rewrite_aliases_in_expr(arg, alias_to_canonical);
-                }
-                for keyword in &mut call.arguments.keywords {
-                    self.rewrite_aliases_in_expr(&mut keyword.value, alias_to_canonical);
-                }
-            }
-            _ => {}
-        }
+        rewrite_aliases_in_expr_impl(expr, alias_to_canonical);
     }
 
     /// Resolve import aliases in a statement
@@ -10176,6 +10352,451 @@ impl<'a> HybridStaticBundler<'a> {
         });
 
         statements.push(for_loop);
+    }
+
+    /// Collect global declarations from a function body
+    fn collect_function_globals(&self, body: &[Stmt]) -> FxIndexSet<String> {
+        let mut function_globals = FxIndexSet::default();
+        for stmt in body {
+            if let Stmt::Global(global_stmt) = stmt {
+                for name in &global_stmt.names {
+                    function_globals.insert(name.to_string());
+                }
+            }
+        }
+        function_globals
+    }
+
+    /// Create initialization statements for lifted globals
+    fn create_global_init_statements(
+        &self,
+        _function_globals: &FxIndexSet<String>,
+        _lifted_names: &FxIndexMap<String, String>,
+    ) -> Vec<Stmt> {
+        // No initialization statements needed - global declarations mean
+        // we use the lifted names directly, not through local variables
+        Vec::new()
+    }
+
+    /// Transform function body for lifted globals
+    fn transform_function_body_for_lifted_globals(
+        &self,
+        func_def: &mut StmtFunctionDef,
+        params: &TransformFunctionParams,
+        init_stmts: Vec<Stmt>,
+    ) {
+        let mut new_body = Vec::new();
+        let mut added_init = false;
+
+        for body_stmt in &mut func_def.body {
+            match body_stmt {
+                Stmt::Global(global_stmt) => {
+                    // Rewrite global statement to use lifted names
+                    for name in &mut global_stmt.names {
+                        if let Some(lifted_name) = params.lifted_names.get(name.as_str()) {
+                            *name = Identifier::new(lifted_name, TextRange::default());
+                        }
+                    }
+                    new_body.push(body_stmt.clone());
+
+                    // Add initialization statements after global declarations
+                    if !added_init && !init_stmts.is_empty() {
+                        new_body.extend(init_stmts.clone());
+                        added_init = true;
+                    }
+                }
+                _ => {
+                    // Transform other statements recursively with function context
+                    self.transform_stmt_for_lifted_globals(
+                        body_stmt,
+                        params.lifted_names,
+                        params.global_info,
+                        Some(params.function_globals),
+                    );
+                    new_body.push(body_stmt.clone());
+
+                    // After transforming, check if we need to add synchronization
+                    self.add_global_sync_if_needed(
+                        body_stmt,
+                        params.function_globals,
+                        params.lifted_names,
+                        &mut new_body,
+                    );
+                }
+            }
+        }
+
+        // Replace function body with new body
+        func_def.body = new_body;
+    }
+
+    /// Add synchronization statements for global variable modifications
+    fn add_global_sync_if_needed(
+        &self,
+        stmt: &Stmt,
+        function_globals: &FxIndexSet<String>,
+        lifted_names: &FxIndexMap<String, String>,
+        new_body: &mut Vec<Stmt>,
+    ) {
+        match stmt {
+            Stmt::Assign(assign) => {
+                // Check if this is an assignment to a global variable
+                if let [Expr::Name(name)] = &assign.targets[..] {
+                    let var_name = name.id.as_str();
+
+                    // The variable name might already be transformed to the lifted name,
+                    // so we need to check if it's a lifted variable
+                    if let Some(original_name) = lifted_names
+                        .iter()
+                        .find(|(orig, lifted)| {
+                            lifted.as_str() == var_name && function_globals.contains(orig.as_str())
+                        })
+                        .map(|(orig, _)| orig)
+                    {
+                        log::debug!(
+                            "Adding sync for assignment to global {var_name}: {var_name} -> \
+                             module.{original_name}"
+                        );
+                        // Add: module.<original_name> = <lifted_name>
+                        new_body.push(Stmt::Assign(StmtAssign {
+                            node_index: AtomicNodeIndex::dummy(),
+                            targets: vec![Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: "module".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(original_name, TextRange::default()),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            })],
+                            value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
+                                id: var_name.into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        }));
+                    }
+                }
+            }
+            Stmt::AugAssign(aug_assign) => {
+                // Check if this is an augmented assignment to a global variable
+                if let Expr::Name(name) = aug_assign.target.as_ref() {
+                    let var_name = name.id.as_str();
+
+                    // Similar check for augmented assignments
+                    if let Some(original_name) = lifted_names
+                        .iter()
+                        .find(|(orig, lifted)| {
+                            lifted.as_str() == var_name && function_globals.contains(orig.as_str())
+                        })
+                        .map(|(orig, _)| orig)
+                    {
+                        log::debug!(
+                            "Adding sync for augmented assignment to global {var_name}: {var_name} \
+                             -> module.{original_name}"
+                        );
+                        // Add: module.<original_name> = <lifted_name>
+                        new_body.push(Stmt::Assign(StmtAssign {
+                            node_index: AtomicNodeIndex::dummy(),
+                            targets: vec![Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: "module".into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(original_name, TextRange::default()),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            })],
+                            value: Box::new(Expr::Name(ExprName {
+                                node_index: AtomicNodeIndex::dummy(),
+                                id: var_name.into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        }));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Transform f-string expressions for lifted globals
+    fn transform_fstring_for_lifted_globals(
+        &self,
+        expr: &mut Expr,
+        lifted_names: &FxIndexMap<String, String>,
+        global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+        in_function_with_globals: Option<&FxIndexSet<String>>,
+    ) {
+        if let Expr::FString(fstring) = expr {
+            let fstring_range = fstring.range;
+            let mut transformed_elements = Vec::new();
+            let mut any_transformed = false;
+
+            for element in fstring.value.elements() {
+                match element {
+                    ruff_python_ast::InterpolatedStringElement::Literal(lit_elem) => {
+                        // Literal elements stay the same
+                        transformed_elements
+                            .push(ruff_python_ast::InterpolatedStringElement::Literal(lit_elem.clone()));
+                    }
+                    ruff_python_ast::InterpolatedStringElement::Interpolation(expr_elem) => {
+                        let (new_element, was_transformed) = self.transform_fstring_expression(
+                            expr_elem,
+                            lifted_names,
+                            global_info,
+                            in_function_with_globals,
+                        );
+                        transformed_elements
+                            .push(ruff_python_ast::InterpolatedStringElement::Interpolation(new_element));
+                        if was_transformed {
+                            any_transformed = true;
+                        }
+                    }
+                }
+            }
+
+            // If any expressions were transformed, we need to rebuild the f-string
+            if any_transformed {
+                // Create a new FString with our transformed elements
+                let new_fstring = ruff_python_ast::FString {
+                    node_index: AtomicNodeIndex::dummy(),
+                    elements: ruff_python_ast::InterpolatedStringElements::from(transformed_elements),
+                    range: TextRange::default(),
+                    flags: ruff_python_ast::FStringFlags::empty(),
+                };
+
+                // Create a new FStringValue containing our FString
+                let new_value = ruff_python_ast::FStringValue::single(new_fstring);
+
+                // Replace the entire expression with the new f-string
+                *expr = Expr::FString(ruff_python_ast::ExprFString {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: new_value,
+                    range: fstring_range,
+                });
+
+                log::debug!("Transformed f-string expressions for lifted globals");
+            }
+        }
+    }
+
+    /// Transform a single f-string expression element
+    fn transform_fstring_expression(
+        &self,
+        expr_elem: &ruff_python_ast::InterpolatedElement,
+        lifted_names: &FxIndexMap<String, String>,
+        global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+        in_function_with_globals: Option<&FxIndexSet<String>>,
+    ) -> (ruff_python_ast::InterpolatedElement, bool) {
+        // Clone and transform the expression
+        let mut new_expr = (*expr_elem.expression).clone();
+        let old_expr_str = format!("{new_expr:?}");
+
+        self.transform_expr_for_lifted_globals(
+            &mut new_expr,
+            lifted_names,
+            global_info,
+            in_function_with_globals,
+        );
+
+        let new_expr_str = format!("{new_expr:?}");
+        let was_transformed = old_expr_str != new_expr_str;
+
+        // Create a new expression element with the transformed expression
+        let new_element = ruff_python_ast::InterpolatedElement {
+            node_index: AtomicNodeIndex::dummy(),
+            expression: Box::new(new_expr),
+            debug_text: expr_elem.debug_text.clone(),
+            conversion: expr_elem.conversion,
+            format_spec: expr_elem.format_spec.clone(),
+            range: expr_elem.range,
+        };
+
+        (new_element, was_transformed)
+    }
+}
+
+/// Helper function to recursively rewrite aliases in an expression
+fn rewrite_aliases_in_expr_impl(expr: &mut Expr, alias_to_canonical: &FxIndexMap<String, String>) {
+    match expr {
+        Expr::Name(name_expr) => {
+            let name_str = name_expr.id.as_str();
+            if let Some(canonical) = alias_to_canonical.get(name_str) {
+                log::debug!("Rewriting alias '{name_str}' to canonical '{canonical}'");
+                name_expr.id = canonical.clone().into();
+            }
+        }
+        Expr::Attribute(attr_expr) => {
+            // Handle cases like j.dumps -> json.dumps
+            // First check if this is a direct attribute on an aliased name
+            if let Expr::Name(name_expr) = attr_expr.value.as_ref() {
+                let name_str = name_expr.id.as_str();
+                if alias_to_canonical.contains_key(name_str) {
+                    log::debug!(
+                        "Found attribute access on alias: {}.{}",
+                        name_str,
+                        attr_expr.attr.as_str()
+                    );
+                }
+            }
+            rewrite_aliases_in_expr_impl(&mut attr_expr.value, alias_to_canonical);
+        }
+        Expr::Call(call_expr) => {
+            rewrite_aliases_in_expr_impl(&mut call_expr.func, alias_to_canonical);
+            for arg in &mut call_expr.arguments.args {
+                rewrite_aliases_in_expr_impl(arg, alias_to_canonical);
+            }
+            // Also process keyword arguments
+            for keyword in &mut call_expr.arguments.keywords {
+                rewrite_aliases_in_expr_impl(&mut keyword.value, alias_to_canonical);
+            }
+        }
+        Expr::List(list_expr) => {
+            for elem in &mut list_expr.elts {
+                rewrite_aliases_in_expr_impl(elem, alias_to_canonical);
+            }
+        }
+        Expr::Dict(dict_expr) => {
+            for item in &mut dict_expr.items {
+                if let Some(ref mut key) = item.key {
+                    rewrite_aliases_in_expr_impl(key, alias_to_canonical);
+                }
+                rewrite_aliases_in_expr_impl(&mut item.value, alias_to_canonical);
+            }
+        }
+        Expr::Tuple(tuple_expr) => {
+            for elem in &mut tuple_expr.elts {
+                rewrite_aliases_in_expr_impl(elem, alias_to_canonical);
+            }
+        }
+        Expr::Set(set_expr) => {
+            for elem in &mut set_expr.elts {
+                rewrite_aliases_in_expr_impl(elem, alias_to_canonical);
+            }
+        }
+        Expr::BinOp(binop_expr) => {
+            rewrite_aliases_in_expr_impl(&mut binop_expr.left, alias_to_canonical);
+            rewrite_aliases_in_expr_impl(&mut binop_expr.right, alias_to_canonical);
+        }
+        Expr::UnaryOp(unaryop_expr) => {
+            rewrite_aliases_in_expr_impl(&mut unaryop_expr.operand, alias_to_canonical);
+        }
+        Expr::Compare(compare_expr) => {
+            rewrite_aliases_in_expr_impl(&mut compare_expr.left, alias_to_canonical);
+            for comparator in &mut compare_expr.comparators {
+                rewrite_aliases_in_expr_impl(comparator, alias_to_canonical);
+            }
+        }
+        Expr::BoolOp(boolop_expr) => {
+            for value in &mut boolop_expr.values {
+                rewrite_aliases_in_expr_impl(value, alias_to_canonical);
+            }
+        }
+        Expr::If(if_expr) => {
+            rewrite_aliases_in_expr_impl(&mut if_expr.test, alias_to_canonical);
+            rewrite_aliases_in_expr_impl(&mut if_expr.body, alias_to_canonical);
+            rewrite_aliases_in_expr_impl(&mut if_expr.orelse, alias_to_canonical);
+        }
+        Expr::ListComp(listcomp_expr) => {
+            rewrite_aliases_in_expr_impl(&mut listcomp_expr.elt, alias_to_canonical);
+            for generator in &mut listcomp_expr.generators {
+                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
+                for if_clause in &mut generator.ifs {
+                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
+                }
+            }
+        }
+        Expr::SetComp(setcomp_expr) => {
+            rewrite_aliases_in_expr_impl(&mut setcomp_expr.elt, alias_to_canonical);
+            for generator in &mut setcomp_expr.generators {
+                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
+                for if_clause in &mut generator.ifs {
+                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
+                }
+            }
+        }
+        Expr::DictComp(dictcomp_expr) => {
+            rewrite_aliases_in_expr_impl(&mut dictcomp_expr.key, alias_to_canonical);
+            rewrite_aliases_in_expr_impl(&mut dictcomp_expr.value, alias_to_canonical);
+            for generator in &mut dictcomp_expr.generators {
+                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
+                for if_clause in &mut generator.ifs {
+                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
+                }
+            }
+        }
+        Expr::Subscript(subscript_expr) => {
+            // Rewrite the value expression (e.g., the `obj` in `obj[key]`)
+            rewrite_aliases_in_expr_impl(&mut subscript_expr.value, alias_to_canonical);
+            // Rewrite the slice - this handles type annotations like Dict[str, Any]
+            rewrite_aliases_in_expr_impl(&mut subscript_expr.slice, alias_to_canonical);
+        }
+        Expr::Slice(slice_expr) => {
+            if let Some(ref mut lower) = slice_expr.lower {
+                rewrite_aliases_in_expr_impl(lower, alias_to_canonical);
+            }
+            if let Some(ref mut upper) = slice_expr.upper {
+                rewrite_aliases_in_expr_impl(upper, alias_to_canonical);
+            }
+            if let Some(ref mut step) = slice_expr.step {
+                rewrite_aliases_in_expr_impl(step, alias_to_canonical);
+            }
+        }
+        Expr::Lambda(lambda_expr) => {
+            rewrite_aliases_in_expr_impl(&mut lambda_expr.body, alias_to_canonical);
+        }
+        Expr::Yield(yield_expr) => {
+            if let Some(ref mut value) = yield_expr.value {
+                rewrite_aliases_in_expr_impl(value, alias_to_canonical);
+            }
+        }
+        Expr::YieldFrom(yieldfrom_expr) => {
+            rewrite_aliases_in_expr_impl(&mut yieldfrom_expr.value, alias_to_canonical);
+        }
+        Expr::Await(await_expr) => {
+            rewrite_aliases_in_expr_impl(&mut await_expr.value, alias_to_canonical);
+        }
+        Expr::Starred(starred_expr) => {
+            rewrite_aliases_in_expr_impl(&mut starred_expr.value, alias_to_canonical);
+        }
+        Expr::FString(_fstring_expr) => {
+            // FString handling is complex due to its structure
+            // For now, skip FString rewriting as it's rarely used with module aliases
+            log::debug!("FString expression rewriting not yet implemented");
+        }
+        // Constant values and other literals don't need rewriting
+        Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_) => {}
+        // Generator expressions
+        Expr::Generator(gen_expr) => {
+            rewrite_aliases_in_expr_impl(&mut gen_expr.elt, alias_to_canonical);
+            for generator in &mut gen_expr.generators {
+                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
+                for if_clause in &mut generator.ifs {
+                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
+                }
+            }
+        }
+        // Named expressions (walrus operator)
+        Expr::Named(named_expr) => {
+            rewrite_aliases_in_expr_impl(&mut named_expr.value, alias_to_canonical);
+        }
+        _ => {}
     }
 }
 
