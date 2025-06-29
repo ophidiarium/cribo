@@ -44,7 +44,7 @@ pub fn transform_module_to_init_function<'a>(
             let lifted_names = globals_lifter.get_lifted_names().clone();
 
             // Transform the AST to use lifted globals
-            bundler.transform_ast_with_lifted_globals(&mut ast, &lifted_names, global_info);
+            transform_ast_with_lifted_globals(bundler, &mut ast, &lifted_names, global_info);
 
             Some(lifted_names)
         } else {
@@ -1076,4 +1076,15 @@ pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<
             range: TextRange::default(),
         }),
     ]
+}
+
+/// Transform AST to use lifted globals
+/// This is a thin wrapper around the bundler method to maintain module boundaries
+pub fn transform_ast_with_lifted_globals(
+    bundler: &HybridStaticBundler,
+    ast: &mut ModModule,
+    lifted_names: &FxIndexMap<String, String>,
+    global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+) {
+    bundler.transform_ast_with_lifted_globals(ast, lifted_names, global_info);
 }
