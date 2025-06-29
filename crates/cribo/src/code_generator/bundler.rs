@@ -2427,36 +2427,86 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Identify required namespaces from module names
     fn identify_required_namespaces(&mut self, modules: &[(String, ModModule, PathBuf, String)]) {
-        log::debug!(
+        debug!(
             "Identifying required namespaces from {} modules",
             modules.len()
         );
 
-        // Collect all module names first
-        let all_module_names: FxIndexSet<String> =
-            modules.iter().map(|(name, _, _, _)| name.clone()).collect();
+        // Don't clear if we already have namespaces identified
+        // This allows early identification to be preserved
+        if !self.required_namespaces.is_empty() {
+            debug!(
+                "Required namespaces already identified ({}), skipping re-identification",
+                self.required_namespaces.len()
+            );
+            return;
+        }
 
-        // For each module, check if it has parent namespaces
-        for module_name in &all_module_names {
-            if module_name.contains('.') {
-                let parts: Vec<&str> = module_name.split('.').collect();
-
-                // Create all parent namespaces
-                for i in 1..parts.len() {
-                    let namespace = parts[..i].join(".");
-                    // Only add as required namespace if it's not an actual module
-                    if !all_module_names.contains(&namespace) {
-                        log::debug!("Module '{module_name}' requires namespace '{namespace}'");
-                        self.required_namespaces.insert(namespace);
+        // First, collect all module names to check if parent modules exist
+        // Normalize __init__ to the actual package name if present
+        let all_module_names: FxIndexSet<String> = modules
+            .iter()
+            .map(|(name, _, _, _)| {
+                if name == "__init__" {
+                    // Find the actual package name from other modules
+                    // e.g., if we have "requests.compat", the package is "requests"
+                    if let Some((other_name, _, _, _)) =
+                        modules.iter().find(|(n, _, _, _)| n.contains('.'))
+                        && let Some(package_name) = other_name.split('.').next()
+                    {
+                        return package_name.to_string();
                     }
                 }
+                name.clone()
+            })
+            .collect();
+
+        // Scan all modules to find dotted module names
+        for (module_name, _, _, _) in modules {
+            // Skip __init__ module as it's already handled above
+            if module_name == "__init__" {
+                continue;
+            }
+
+            if !module_name.contains('.') {
+                continue;
+            }
+
+            // Split the module name and identify all parent namespaces
+            let parts: Vec<&str> = module_name.split('.').collect();
+
+            // Add all parent namespace levels
+            for i in 1..parts.len() {
+                let namespace = parts[..i].join(".");
+
+                // We need to create a namespace for ALL parent namespaces, regardless of whether
+                // they are wrapped modules or not. This is because child modules need to be
+                // assigned as attributes on their parent namespaces.
+                debug!("Identified required namespace: {namespace}");
+                self.required_namespaces.insert(namespace);
             }
         }
 
-        log::debug!(
-            "Identified {} required namespaces: {:?}",
-            self.required_namespaces.len(),
-            self.required_namespaces
+        // IMPORTANT: Also add modules that have submodules as required namespaces
+        // This ensures that parent modules like 'models' and 'services' exist as namespaces
+        // before we try to assign their submodules
+        for module_name in &all_module_names {
+            // Check if this module has any submodules
+            let has_submodules = all_module_names
+                .iter()
+                .any(|m| m != module_name && m.starts_with(&format!("{module_name}.")));
+
+            if has_submodules {
+                // Any module with submodules needs a namespace, regardless of whether it's
+                // a wrapper module or the entry module
+                debug!("Identified module with submodules as required namespace: {module_name}");
+                self.required_namespaces.insert(module_name.clone());
+            }
+        }
+
+        debug!(
+            "Total required namespaces: {}",
+            self.required_namespaces.len()
         );
     }
 
@@ -7455,42 +7505,80 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create a namespace module using types.SimpleNamespace
-    fn create_namespace_module(&self, namespace_name: &str) -> Vec<Stmt> {
-        vec![
-            // namespace = types.SimpleNamespace()
-            Stmt::Assign(StmtAssign {
+    fn create_namespace_module(&self, module_name: &str) -> Vec<Stmt> {
+        // Create: module_name = types.SimpleNamespace()
+        // Note: This should only be called with simple (non-dotted) module names
+        debug_assert!(
+            !module_name.contains('.'),
+            "create_namespace_module called with dotted name: {module_name}"
+        );
+
+        // This method is called by create_namespace_statements which already
+        // filters based on required_namespaces, so we don't need to check again
+
+        // Create the namespace
+        let mut statements = vec![Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Name(ExprName {
                 node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
+                id: module_name.into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::Call(ExprCall {
+                node_index: AtomicNodeIndex::dummy(),
+                func: Box::new(Expr::Attribute(ExprAttribute {
                     node_index: AtomicNodeIndex::dummy(),
-                    id: namespace_name.into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Call(ExprCall {
-                    node_index: AtomicNodeIndex::dummy(),
-                    func: Box::new(Expr::Attribute(ExprAttribute {
+                    value: Box::new(Expr::Name(ExprName {
                         node_index: AtomicNodeIndex::dummy(),
-                        value: Box::new(Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: "types".into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                        id: "types".into(),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
-                    arguments: Arguments {
-                        node_index: AtomicNodeIndex::dummy(),
-                        args: Box::from([]),
-                        keywords: Box::from([]),
-                        range: TextRange::default(),
-                    },
+                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                    ctx: ExprContext::Load,
                     range: TextRange::default(),
                 })),
+                arguments: Arguments {
+                    node_index: AtomicNodeIndex::dummy(),
+                    args: Box::from([]),
+                    keywords: Box::from([]),
+                    range: TextRange::default(),
+                },
                 range: TextRange::default(),
-            }),
-        ]
+            })),
+            range: TextRange::default(),
+        })];
+
+        // Set the __name__ attribute to match real module behavior
+        statements.push(Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: module_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("__name__", TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                node_index: AtomicNodeIndex::dummy(),
+                value: StringLiteralValue::single(StringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: module_name.to_string().into(),
+                    range: TextRange::default(),
+                    flags: StringLiteralFlags::empty(),
+                }),
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        }));
+
+        statements
     }
 
     /// Process a function definition in the entry module

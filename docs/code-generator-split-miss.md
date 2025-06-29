@@ -83,14 +83,51 @@ During the refactoring to split `code_generator.rs` into multiple modules, sever
 
 ## Root Cause
 
-The fundamental issue was **NOT** about missing semantic analysis results in RecursiveImportTransformer (as evidenced by the unused `global_info` field). The actual root cause was the incorrect refactoring of `add_stdlib_import`:
+The fundamental issues were:
 
-1. The original `add_stdlib_import` created proper `Stmt::Import` statements
-2. The refactored version incorrectly added empty entries to `stdlib_import_from_map`
-3. This caused `add_hoisted_imports` to generate invalid Python syntax like `from functools import` with no import names
+1. **Incorrect refactoring of `add_stdlib_import`**:
+   - The original created proper `Stmt::Import` statements
+   - The refactored version incorrectly added empty entries to `stdlib_import_from_map`
+   - This caused `add_hoisted_imports` to generate invalid Python syntax like `from functools import` with no import names
+   - **Status**: ✅ Fixed - Restored to original implementation
 
-The fix was simply restoring `add_stdlib_import` to its original implementation.
+2. **Changed implementation of `has_side_effects`**:
+   - The original delegated to `crate::side_effects::module_has_side_effects(ast)`
+   - The refactored version had its own implementation
+   - This changed which modules were classified as having side effects
+   - **Status**: ✅ Fixed - Restored to delegate to side_effects module
+
+3. **Incomplete `extract_all_exports`**:
+   - The original collected ALL top-level symbols (functions, classes, variables) when no explicit `__all__` was present
+   - The refactored version returned `None` when no `__all__` was found
+   - This caused `should_inline_symbol` to skip all symbols in modules without explicit `__all__`
+   - **Status**: ✅ Fixed - Restored to collect all top-level symbols
+
+4. **Added unnecessary two-phase processing**:
+   - The refactored code added Phase 1 to analyze ALL modules for globals
+   - The original only analyzed wrapper modules as needed
+   - This didn't fix anything and was unnecessary complexity
+   - **Status**: ✅ Fixed - Removed two-phase processing, restored original flow
+
+5. **Missing `__name__` attribute in namespace creation**:
+   - The original `identify_required_namespaces` had logic to handle `__init__` modules and modules with submodules
+   - The refactored version was missing this critical logic
+   - **Status**: ✅ Fixed - Restored complete `identify_required_namespaces` function
+
+6. **Incomplete `create_namespace_module`**:
+   - The original set `__name__` attribute on created namespaces
+   - The refactored version was missing this, causing `models.__name__ = 'models'` to be absent
+   - **Status**: ✅ Fixed - Added `__name__` attribute assignment
 
 ## Solution Summary
 
-The primary fix was restoring `add_stdlib_import` to its original implementation. The two-phase processing that was added for analyzing all modules upfront may not have been necessary for fixing the immediate issue, but it represents a different approach than the original code which only analyzed wrapper modules.
+All major discrepancies between the original and refactored code have been identified and fixed:
+
+1. Restored `add_stdlib_import` to create proper import statements
+2. Restored `has_side_effects` to delegate to the side_effects module
+3. Restored `extract_all_exports` to collect all top-level symbols when no `__all__`
+4. Removed unnecessary two-phase processing in `bundle_modules`
+5. Restored complete `identify_required_namespaces` with all original logic
+6. Fixed `create_namespace_module` to set `__name__` attribute
+
+The refactoring is now a true semantic copy of the original code, with functionality preserved while being split into logical modules.
