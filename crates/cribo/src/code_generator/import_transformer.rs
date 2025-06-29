@@ -451,8 +451,20 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
                     }
 
-                    self.bundler
-                        .rewrite_import_with_renames(import_stmt.clone(), self.symbol_renames)
+                    let result = self
+                        .bundler
+                        .rewrite_import_with_renames(import_stmt.clone(), self.symbol_renames);
+                    log::debug!(
+                        "rewrite_import_with_renames for module '{}': import {:?} -> {} statements",
+                        self.module_name,
+                        import_stmt
+                            .names
+                            .iter()
+                            .map(|a| a.name.as_str())
+                            .collect::<Vec<_>>(),
+                        result.len()
+                    );
+                    result
                 }
             }
             Stmt::ImportFrom(import_from) => {
@@ -537,14 +549,21 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             "Not tracking namespace import as alias: {local_name} \
                                              (namespace module)"
                                         );
-                                    } else {
+                                    } else if !self.is_entry_module {
                                         // This is importing a submodule as a name (inlined module)
+                                        // Don't track in entry module - namespace objects are
+                                        // created instead
                                         log::debug!(
                                             "Tracking module import alias: {local_name} -> \
                                              {full_module_path}"
                                         );
                                         self.import_aliases
                                             .insert(local_name.to_string(), full_module_path);
+                                    } else {
+                                        log::debug!(
+                                            "Not tracking module import as alias in entry module: \
+                                             {local_name} -> {full_module_path} (namespace object)"
+                                        );
                                     }
                                 } else if self.bundler.inlined_modules.contains(resolved) {
                                     // Importing from an inlined module
@@ -647,6 +666,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                 resolved_base,
                 self.module_name
             );
+
             for alias in &import_from.names {
                 let imported_name = alias.name.as_str();
                 let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
@@ -1032,11 +1052,52 @@ impl<'a> RecursiveImportTransformer<'a> {
                                  {local_name} -> {full_module_path}"
                             );
                         } else {
-                            // For entry module, handle differently
-                            log::debug!(
-                                "  Inlined submodule import in entry module: {local_name} -> \
-                                 {full_module_path}"
-                            );
+                            // For entry module, create namespace object immediately
+
+                            // Create the namespace object with symbols
+                            // This mimics what happens in non-entry modules
+
+                            // First create the empty namespace
+                            result_stmts.push(Stmt::Assign(StmtAssign {
+                                node_index: AtomicNodeIndex::dummy(),
+                                targets: vec![Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: local_name.into(),
+                                    ctx: ExprContext::Store,
+                                    range: TextRange::default(),
+                                })],
+                                value: Box::new(Expr::Call(ExprCall {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    func: Box::new(Expr::Attribute(ExprAttribute {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        value: Box::new(Expr::Name(ExprName {
+                                            node_index: AtomicNodeIndex::dummy(),
+                                            id: "types".into(),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        })),
+                                        attr: Identifier::new(
+                                            "SimpleNamespace",
+                                            TextRange::default(),
+                                        ),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    })),
+                                    arguments: Arguments {
+                                        node_index: AtomicNodeIndex::dummy(),
+                                        args: Box::from([]),
+                                        keywords: Box::from([]),
+                                        range: TextRange::default(),
+                                    },
+                                    range: TextRange::default(),
+                                })),
+                                range: TextRange::default(),
+                            }));
+
+                            // Track this as a local variable, not an import alias
+                            self.local_variables.insert(local_name.to_string());
+
+                            handled_any = true;
                         }
                     }
                 }
@@ -1053,6 +1114,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                     "  Returning {} transformed statements for import",
                     result_stmts.len()
                 );
+                log::debug!("  Statements: {result_stmts:?}");
+                // We've already handled the import completely, don't fall through to other handling
                 return result_stmts;
             }
         }
@@ -1149,7 +1212,16 @@ impl<'a> RecursiveImportTransformer<'a> {
     fn transform_expr(&mut self, expr: &mut Expr) {
         // First check if this is an attribute expression and collect the path
         let attribute_info = if matches!(expr, Expr::Attribute(_)) {
-            Some(self.collect_attribute_path(expr))
+            let info = self.collect_attribute_path(expr);
+            log::debug!(
+                "transform_expr: Found attribute expression - base: {:?}, path: {:?}, \
+                 is_entry_module: {}",
+                info.0,
+                info.1,
+                self.is_entry_module
+            );
+
+            Some(info)
         } else {
             None
         };
@@ -1246,6 +1318,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                         else if let Some(actual_module) = self.find_module_for_alias(&base)
                             && self.bundler.inlined_modules.contains(&actual_module)
                         {
+                            log::debug!(
+                                "Found module alias: {base} -> {actual_module} (is_entry_module: \
+                                 {})",
+                                self.is_entry_module
+                            );
+
                             // For a single attribute access (e.g., greetings.message or
                             // config.DEFAULT_NAME)
                             if attr_path.len() == 1 {
@@ -1657,6 +1735,13 @@ impl<'a> RecursiveImportTransformer<'a> {
 
     /// Find the actual module name for a given alias
     fn find_module_for_alias(&self, alias: &str) -> Option<String> {
+        log::debug!(
+            "find_module_for_alias: alias={}, is_entry_module={}, local_vars={:?}",
+            alias,
+            self.is_entry_module,
+            self.local_variables.contains(alias)
+        );
+
         // Don't treat local variables as module aliases
         if self.local_variables.contains(alias) {
             return None;
@@ -1673,19 +1758,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         if !self.is_entry_module && self.bundler.inlined_modules.contains(alias) {
             Some(alias.to_string())
         } else {
-            // Check common patterns like "import utils.helpers as helper_utils"
-            // where alias is "helper_utils" and module is "utils.helpers"
-            // But not in the entry module - namespace objects are used there
-            if !self.is_entry_module {
-                for module in &self.bundler.inlined_modules {
-                    if let Some(last_part) = module.split('.').next_back()
-                        && (alias == format!("{last_part}_utils")
-                            || alias == format!("{last_part}s"))
-                    {
-                        return Some(module.clone());
-                    }
-                }
-            }
             None
         }
     }
