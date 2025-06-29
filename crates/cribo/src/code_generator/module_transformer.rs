@@ -9,11 +9,13 @@ use anyhow::Result;
 use log::debug;
 #[allow(unused_imports)] // These imports are used in pattern matching
 use ruff_python_ast::{
-    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
-    ExprName, ExprSet, ExprStringLiteral, Identifier, ModModule, Stmt, StmtAnnAssign, StmtAssert,
-    StmtAssign, StmtAugAssign, StmtClassDef, StmtDelete, StmtFunctionDef, StmtGlobal, StmtMatch,
-    StmtRaise, StmtReturn, StmtTry, StmtWhile, StmtWith, StringLiteral, StringLiteralFlags,
-    StringLiteralValue,
+    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprAwait, ExprBoolOp,
+    ExprCall, ExprCompare, ExprContext, ExprDictComp, ExprFString, ExprGenerator, ExprLambda,
+    ExprListComp, ExprName, ExprNamed, ExprSet, ExprSetComp, ExprSlice, ExprStarred,
+    ExprStringLiteral, ExprYield, ExprYieldFrom, Identifier, ModModule, Stmt, StmtAnnAssign,
+    StmtAssert, StmtAssign, StmtAugAssign, StmtClassDef, StmtDelete, StmtFunctionDef, StmtGlobal,
+    StmtMatch, StmtRaise, StmtReturn, StmtTry, StmtWhile, StmtWith, StringLiteral,
+    StringLiteralFlags, StringLiteralValue,
 };
 use ruff_text_size::TextRange;
 
@@ -688,7 +690,102 @@ fn transform_expr_for_module_vars(
                 transform_expr_for_module_vars(elem, module_level_vars);
             }
         }
-        _ => {}
+        Expr::Lambda(lambda) => {
+            // Note: Lambda parameters create a new scope, so we don't transform them
+            transform_expr_for_module_vars(&mut lambda.body, module_level_vars);
+        }
+        Expr::Compare(cmp) => {
+            transform_expr_for_module_vars(&mut cmp.left, module_level_vars);
+            for comp in &mut cmp.comparators {
+                transform_expr_for_module_vars(comp, module_level_vars);
+            }
+        }
+        Expr::BoolOp(boolop) => {
+            for value in &mut boolop.values {
+                transform_expr_for_module_vars(value, module_level_vars);
+            }
+        }
+        Expr::ListComp(comp) => {
+            transform_expr_for_module_vars(&mut comp.elt, module_level_vars);
+            for generator in &mut comp.generators {
+                transform_expr_for_module_vars(&mut generator.iter, module_level_vars);
+                for if_clause in &mut generator.ifs {
+                    transform_expr_for_module_vars(if_clause, module_level_vars);
+                }
+            }
+        }
+        Expr::SetComp(comp) => {
+            transform_expr_for_module_vars(&mut comp.elt, module_level_vars);
+            for generator in &mut comp.generators {
+                transform_expr_for_module_vars(&mut generator.iter, module_level_vars);
+                for if_clause in &mut generator.ifs {
+                    transform_expr_for_module_vars(if_clause, module_level_vars);
+                }
+            }
+        }
+        Expr::DictComp(comp) => {
+            transform_expr_for_module_vars(&mut comp.key, module_level_vars);
+            transform_expr_for_module_vars(&mut comp.value, module_level_vars);
+            for generator in &mut comp.generators {
+                transform_expr_for_module_vars(&mut generator.iter, module_level_vars);
+                for if_clause in &mut generator.ifs {
+                    transform_expr_for_module_vars(if_clause, module_level_vars);
+                }
+            }
+        }
+        Expr::Generator(r#gen) => {
+            transform_expr_for_module_vars(&mut r#gen.elt, module_level_vars);
+            for generator in &mut r#gen.generators {
+                transform_expr_for_module_vars(&mut generator.iter, module_level_vars);
+                for if_clause in &mut generator.ifs {
+                    transform_expr_for_module_vars(if_clause, module_level_vars);
+                }
+            }
+        }
+        Expr::Await(await_expr) => {
+            transform_expr_for_module_vars(&mut await_expr.value, module_level_vars);
+        }
+        Expr::Yield(yield_expr) => {
+            if let Some(ref mut value) = yield_expr.value {
+                transform_expr_for_module_vars(value, module_level_vars);
+            }
+        }
+        Expr::YieldFrom(yield_from) => {
+            transform_expr_for_module_vars(&mut yield_from.value, module_level_vars);
+        }
+        Expr::Starred(starred) => {
+            transform_expr_for_module_vars(&mut starred.value, module_level_vars);
+        }
+        Expr::Named(named) => {
+            transform_expr_for_module_vars(&mut named.value, module_level_vars);
+        }
+        Expr::Slice(slice) => {
+            if let Some(ref mut lower) = slice.lower {
+                transform_expr_for_module_vars(lower, module_level_vars);
+            }
+            if let Some(ref mut upper) = slice.upper {
+                transform_expr_for_module_vars(upper, module_level_vars);
+            }
+            if let Some(ref mut step) = slice.step {
+                transform_expr_for_module_vars(step, module_level_vars);
+            }
+        }
+        Expr::FString(_fstring) => {
+            // F-strings require special handling due to their immutable structure
+            // For now, we skip transforming f-strings as they would need to be rebuilt
+            // TODO: Implement f-string transformation if needed
+        }
+        // Literals don't contain variable references
+        Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::TString(_)
+        | Expr::IpyEscapeCommand(_) => {}
+        // Name expressions that don't match the conditional pattern (e.g., Store context)
+        Expr::Name(_) => {}
     }
 }
 
