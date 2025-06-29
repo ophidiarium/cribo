@@ -3,11 +3,14 @@
 //! This module handles the complex transformation of Python module ASTs into
 //! initialization functions that can be called to create module objects.
 
+use std::path::Path;
+
 use anyhow::Result;
 use log::debug;
 use ruff_python_ast::{
-    AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier,
-    ModModule, Stmt, StmtAssign, StmtFunctionDef, StmtGlobal, StmtReturn,
+    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
+    ExprName, ExprStringLiteral, Identifier, ModModule, Stmt, StmtAssign, StmtFunctionDef,
+    StmtGlobal, StmtReturn, StringLiteral, StringLiteralFlags, StringLiteralValue,
 };
 use ruff_text_size::TextRange;
 
@@ -32,7 +35,7 @@ pub fn transform_module_to_init_function<'a>(
     let mut body = Vec::new();
 
     // Create module object (returns multiple statements)
-    body.extend(bundler.create_module_object_stmt(ctx.module_name, ctx.module_path));
+    body.extend(create_module_object_stmt(ctx.module_name, ctx.module_path));
 
     // Apply globals lifting if needed
     let lifted_names = if let Some(ref global_info) = ctx.global_info {
@@ -1005,4 +1008,72 @@ fn transform_expr_for_module_vars_with_locals(
             // Handle other expression types as needed
         }
     }
+}
+
+/// Create module object statements (types.SimpleNamespace)
+pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<Stmt> {
+    let module_call = Expr::Call(ExprCall {
+        node_index: AtomicNodeIndex::dummy(),
+        func: Box::new(Expr::Attribute(ExprAttribute {
+            node_index: AtomicNodeIndex::dummy(),
+            value: Box::new(Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: "types".into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            attr: Identifier::new("SimpleNamespace", TextRange::default()),
+            ctx: ExprContext::Load,
+            range: TextRange::default(),
+        })),
+        arguments: Arguments {
+            node_index: AtomicNodeIndex::dummy(),
+            args: Box::from([]),
+            keywords: Box::from([]),
+            range: TextRange::default(),
+        },
+        range: TextRange::default(),
+    });
+
+    vec![
+        // module = types.SimpleNamespace()
+        Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: "module".into(),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(module_call),
+            range: TextRange::default(),
+        }),
+        // module.__name__ = "module_name"
+        Stmt::Assign(StmtAssign {
+            node_index: AtomicNodeIndex::dummy(),
+            targets: vec![Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: "module".into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("__name__", TextRange::default()),
+                ctx: ExprContext::Store,
+                range: TextRange::default(),
+            })],
+            value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                node_index: AtomicNodeIndex::dummy(),
+                value: StringLiteralValue::single(StringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
+                    range: TextRange::default(),
+                    value: module_name.to_string().into_boxed_str(),
+                    flags: StringLiteralFlags::empty(),
+                }),
+                range: TextRange::default(),
+            })),
+            range: TextRange::default(),
+        }),
+    ]
 }
