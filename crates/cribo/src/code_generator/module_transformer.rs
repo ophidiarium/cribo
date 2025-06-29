@@ -10,7 +10,7 @@ use log::debug;
 #[allow(unused_imports)] // These imports are used in pattern matching
 use ruff_python_ast::{
     Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
-    ExprName, ExprStringLiteral, Identifier, ModModule, Stmt, StmtAnnAssign, StmtAssert,
+    ExprName, ExprSet, ExprStringLiteral, Identifier, ModModule, Stmt, StmtAnnAssign, StmtAssert,
     StmtAssign, StmtAugAssign, StmtClassDef, StmtDelete, StmtFunctionDef, StmtGlobal, StmtMatch,
     StmtRaise, StmtReturn, StmtTry, StmtWhile, StmtWith, StringLiteral, StringLiteralFlags,
     StringLiteralValue,
@@ -682,6 +682,11 @@ fn transform_expr_for_module_vars(
         Expr::Subscript(sub) => {
             transform_expr_for_module_vars(&mut sub.value, module_level_vars);
             transform_expr_for_module_vars(&mut sub.slice, module_level_vars);
+        }
+        Expr::Set(set) => {
+            for elem in &mut set.elts {
+                transform_expr_for_module_vars(elem, module_level_vars);
+            }
         }
         _ => {}
     }
