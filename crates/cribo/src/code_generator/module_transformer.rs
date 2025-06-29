@@ -233,7 +233,11 @@ pub fn transform_module_to_init_function<'a>(
 
                     // Check if this symbol should be exported
                     if bundler.should_export_symbol(local_name, ctx.module_name) {
-                        body.push(bundler.create_module_attr_assignment("module", local_name));
+                        body.push(
+                            crate::code_generator::module_registry::create_module_attr_assignment(
+                                "module", local_name,
+                            ),
+                        );
                     }
                 }
             }
@@ -243,7 +247,12 @@ pub fn transform_module_to_init_function<'a>(
                 // Set as module attribute only if it should be exported
                 let symbol_name = class_def.name.to_string();
                 if bundler.should_export_symbol(&symbol_name, ctx.module_name) {
-                    body.push(bundler.create_module_attr_assignment("module", &symbol_name));
+                    body.push(
+                        crate::code_generator::module_registry::create_module_attr_assignment(
+                            "module",
+                            &symbol_name,
+                        ),
+                    );
                 }
             }
             Stmt::FunctionDef(func_def) => {
@@ -264,7 +273,12 @@ pub fn transform_module_to_init_function<'a>(
                 // Set as module attribute only if it should be exported
                 let symbol_name = func_def.name.to_string();
                 if bundler.should_export_symbol(&symbol_name, ctx.module_name) {
-                    body.push(bundler.create_module_attr_assignment("module", &symbol_name));
+                    body.push(
+                        crate::code_generator::module_registry::create_module_attr_assignment(
+                            "module",
+                            &symbol_name,
+                        ),
+                    );
                 }
             }
             Stmt::Assign(assign) => {
@@ -309,12 +323,12 @@ pub fn transform_module_to_init_function<'a>(
                         if imports_from_inlined.contains(&name) {
                             // This was imported from an inlined module, export it
                             debug!("Exporting imported symbol '{name}' as module attribute");
-                            body.push(bundler.create_module_attr_assignment("module", &name));
+                            body.push(crate::code_generator::module_registry::create_module_attr_assignment("module", &name));
                         } else if let Some(name) = bundler.extract_simple_assign_target(assign) {
                             // Check if this variable is used by exported functions
                             if vars_used_by_exported_functions.contains(&name) {
                                 debug!("Exporting '{name}' as it's used by exported functions");
-                                body.push(bundler.create_module_attr_assignment("module", &name));
+                                body.push(crate::code_generator::module_registry::create_module_attr_assignment("module", &name));
                             } else {
                                 // Regular assignment, use the normal export logic
                                 add_module_attr_if_exported(
@@ -356,8 +370,11 @@ pub fn transform_module_to_init_function<'a>(
                         && let Some(name) = bundler.extract_simple_assign_target(assign)
                         && bundler.should_export_symbol(&name, ctx.module_name)
                     {
-                        additional_exports
-                            .push(bundler.create_module_attr_assignment("module", &name));
+                        additional_exports.push(
+                            crate::code_generator::module_registry::create_module_attr_assignment(
+                                "module", &name,
+                            ),
+                        );
                     }
                 }
 
@@ -370,7 +387,7 @@ pub fn transform_module_to_init_function<'a>(
                             && bundler.should_export_symbol(&name, ctx.module_name)
                         {
                             additional_exports
-                                .push(bundler.create_module_attr_assignment("module", &name));
+                                .push(crate::code_generator::module_registry::create_module_attr_assignment("module", &name));
                         }
                     }
                 }
@@ -381,8 +398,11 @@ pub fn transform_module_to_init_function<'a>(
                         && let Some(name) = bundler.extract_simple_assign_target(assign)
                         && bundler.should_export_symbol(&name, ctx.module_name)
                     {
-                        additional_exports
-                            .push(bundler.create_module_attr_assignment("module", &name));
+                        additional_exports.push(
+                            crate::code_generator::module_registry::create_module_attr_assignment(
+                                "module", &name,
+                            ),
+                        );
                     }
                 }
 
@@ -392,8 +412,11 @@ pub fn transform_module_to_init_function<'a>(
                         && let Some(name) = bundler.extract_simple_assign_target(assign)
                         && bundler.should_export_symbol(&name, ctx.module_name)
                     {
-                        additional_exports
-                            .push(bundler.create_module_attr_assignment("module", &name));
+                        additional_exports.push(
+                            crate::code_generator::module_registry::create_module_attr_assignment(
+                                "module", &name,
+                            ),
+                        );
                     }
                 }
 
@@ -554,7 +577,12 @@ pub fn transform_module_to_init_function<'a>(
             });
 
             if !already_assigned {
-                body.push(bundler.create_module_attr_assignment("module", &imported_name));
+                body.push(
+                    crate::code_generator::module_registry::create_module_attr_assignment(
+                        "module",
+                        &imported_name,
+                    ),
+                );
             }
         }
     }
@@ -1361,7 +1389,9 @@ fn add_module_attr_if_exported(
     if let Some(name) = bundler.extract_simple_assign_target(assign)
         && bundler.should_export_symbol(&name, module_name)
     {
-        body.push(bundler.create_module_attr_assignment("module", &name));
+        body.push(
+            crate::code_generator::module_registry::create_module_attr_assignment("module", &name),
+        );
     }
 }
 
