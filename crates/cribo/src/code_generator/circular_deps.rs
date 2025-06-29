@@ -246,7 +246,6 @@ impl SymbolDependencyGraph {
                                 module_name,
                                 target,
                                 item_data,
-                                module_dep_graph,
                                 graph,
                                 circular_modules,
                             );
@@ -341,7 +340,6 @@ impl SymbolDependencyGraph {
         module_name: &str,
         target_name: &str,
         item_data: &crate::cribo_graph::ItemData,
-        _module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
         graph: &crate::cribo_graph::CriboGraph,
         circular_modules: &FxIndexSet<String>,
     ) {
