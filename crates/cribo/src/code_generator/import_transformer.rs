@@ -1762,7 +1762,8 @@ impl<'a> RecursiveImportTransformer<'a> {
         if let Some(synthetic_name) = self.bundler.module_registry.get(module_name) {
             // This is a wrapper module - we need to call its init function
             // This handles modules with invalid Python identifiers like "my-module"
-            let init_func_name = format!("__cribo_init_{synthetic_name}");
+            let init_func_name =
+                crate::code_generator::module_registry::get_init_function_name(synthetic_name);
 
             // Create init function call
             Expr::Call(ExprCall {

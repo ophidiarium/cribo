@@ -22,6 +22,7 @@ use crate::{
             ProcessGlobalsParams, SemanticContext,
         },
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
+        module_registry::INIT_RESULT_VAR,
     },
     cribo_graph::CriboGraph as DependencyGraph,
     transformation_context::TransformationContext,
@@ -1557,7 +1558,9 @@ impl<'a> HybridStaticBundler<'a> {
                                 && let Expr::Attribute(attr) = &assign.targets[0]
                                 && let Expr::Call(call) = &assign.value.as_ref()
                                 && let Expr::Name(func_name) = &call.func.as_ref()
-                                && func_name.id.as_str().starts_with("__cribo_init_")
+                                && crate::code_generator::module_registry::is_init_function(
+                                    func_name.id.as_str(),
+                                )
                             {
                                 let attr_path = self.extract_attribute_path(attr);
                                 attr_path == full_module_path
@@ -1594,7 +1597,9 @@ impl<'a> HybridStaticBundler<'a> {
                                 && let Expr::Attribute(attr) = &assign.targets[0]
                                 && let Expr::Call(call) = &assign.value.as_ref()
                                 && let Expr::Name(func_name) = &call.func.as_ref()
-                                && func_name.id.as_str().starts_with("__cribo_init_")
+                                && crate::code_generator::module_registry::is_init_function(
+                                    func_name.id.as_str(),
+                                )
                             {
                                 let attr_path = self.extract_attribute_path(attr);
                                 attr_path == full_module_path
@@ -1677,7 +1682,9 @@ impl<'a> HybridStaticBundler<'a> {
                             && assign.targets.len() == 1
                             && let Expr::Call(call) = &assign.value.as_ref()
                             && let Expr::Name(func_name) = &call.func.as_ref()
-                            && func_name.id.as_str().starts_with("__cribo_init_")
+                            && crate::code_generator::module_registry::is_init_function(
+                                func_name.id.as_str(),
+                            )
                         {
                             // Check if the target matches our module
                             match &assign.targets[0] {
@@ -3435,7 +3442,7 @@ impl<'a> HybridStaticBundler<'a> {
                         && let Expr::Name(name) = &call.func.as_ref()
                     {
                         let func_name = name.id.as_str();
-                        if func_name.starts_with("__cribo_init_") {
+                        if crate::code_generator::module_registry::is_init_function(func_name) {
                             // Use just the target path as the key for module init assignments
                             let key = target_path.clone();
                             log::debug!(
@@ -3479,7 +3486,7 @@ impl<'a> HybridStaticBundler<'a> {
                     if let Expr::Call(call) = &expr_stmt.value.as_ref() {
                         if let Expr::Name(name) = &call.func.as_ref() {
                             let func_name = name.id.as_str();
-                            if func_name.starts_with("__cribo_init_") {
+                            if crate::code_generator::module_registry::is_init_function(func_name) {
                                 if seen_init_calls.insert(func_name.to_string()) {
                                     result.push(stmt);
                                 } else {
@@ -3498,7 +3505,7 @@ impl<'a> HybridStaticBundler<'a> {
                 // Check for symbol assignments
                 Stmt::Assign(assign) => {
                     // First check if this is an attribute assignment with an init function call
-                    // like: schemas.user = __cribo_init___cribo_f275a8_schemas_user()
+                    // like: schemas.user = <cribo_init_prefix>__cribo_f275a8_schemas_user()
                     if assign.targets.len() == 1
                         && let Expr::Attribute(target_attr) = &assign.targets[0]
                     {
@@ -3509,7 +3516,7 @@ impl<'a> HybridStaticBundler<'a> {
                             && let Expr::Name(name) = &call.func.as_ref()
                         {
                             let func_name = name.id.as_str();
-                            if func_name.starts_with("__cribo_init_") {
+                            if crate::code_generator::module_registry::is_init_function(func_name) {
                                 // For module init assignments, just check the target path
                                 // since the same module should only be initialized once
                                 let key = target_path.clone();
@@ -4264,17 +4271,13 @@ impl<'a> HybridStaticBundler<'a> {
                 module_exports_map.get(module_name).cloned().flatten(),
             );
 
-            // Register module with synthetic name using content hash
-            let synthetic_name = crate::code_generator::module_registry::get_synthetic_module_name(
+            // Register module with synthetic name and init function
+            crate::code_generator::module_registry::register_module(
                 module_name,
                 content_hash,
+                &mut self.module_registry,
+                &mut self.init_functions,
             );
-            self.module_registry
-                .insert(module_name.clone(), synthetic_name.clone());
-
-            // Register init function
-            let init_func_name = format!("__cribo_init_{synthetic_name}");
-            self.init_functions.insert(synthetic_name, init_func_name);
         }
 
         // Note: We'll add hoisted imports later after all transformations are done
@@ -4687,23 +4690,12 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
 
-            // Add module cache infrastructure at the beginning
-            let namespace_class = self.generate_module_namespace_class();
-            final_body.push(namespace_class);
-
-            let cache_init = crate::code_generator::module_registry::generate_module_cache_init();
-            final_body.push(cache_init);
-
-            // Populate cache with all wrapper modules
-            let cache_population =
-                crate::code_generator::module_registry::generate_module_cache_population(
+            // Initialize module cache infrastructure
+            let cache_infrastructure =
+                crate::code_generator::module_registry::initialize_module_cache_infrastructure(
                     &sorted_wrapper_modules,
                 );
-            final_body.extend(cache_population);
-
-            // Add sys.modules sync
-            let sys_sync = crate::code_generator::module_registry::generate_sys_modules_sync();
-            final_body.extend(sys_sync);
+            final_body.extend(cache_infrastructure);
         }
 
         // If there are wrapper modules needed by inlined modules, we need to define their
@@ -5221,7 +5213,9 @@ impl<'a> HybridStaticBundler<'a> {
                         && let Expr::Call(call) = &expr_stmt.value.as_ref()
                         && let Expr::Name(name) = &call.func.as_ref()
                     {
-                        return !name.id.as_str().starts_with("__cribo_init_");
+                        return !crate::code_generator::module_registry::is_init_function(
+                            name.id.as_str(),
+                        );
                     }
                     true
                 })
@@ -5450,7 +5444,9 @@ impl<'a> HybridStaticBundler<'a> {
                                     // Check if this is a module init assignment
                                     if let Expr::Call(call) = &assign.value.as_ref()
                                         && let Expr::Name(func_name) = &call.func.as_ref()
-                                        && func_name.id.as_str().starts_with("__cribo_init_")
+                                        && crate::code_generator::module_registry::is_init_function(
+                                            func_name.id.as_str(),
+                                        )
                                     {
                                         // Check in final_body for same module init
                                         final_body.iter().any(|stmt| {
@@ -5462,10 +5458,9 @@ impl<'a> HybridStaticBundler<'a> {
                                                     &existing.value.as_ref()
                                                 && let Expr::Name(existing_func) =
                                                     &existing_call.func.as_ref()
-                                                && existing_func
-                                                    .id
-                                                    .as_str()
-                                                    .starts_with("__cribo_init_")
+                                                && crate::code_generator::module_registry::is_init_function(
+                                                    existing_func.id.as_str()
+                                                )
                                             {
                                                 let existing_path =
                                                     self.extract_attribute_path(existing_attr);
@@ -5584,7 +5579,9 @@ impl<'a> HybridStaticBundler<'a> {
                             // Check if this is a module init assignment
                             if let Expr::Call(call) = &assign.value.as_ref()
                                 && let Expr::Name(func_name) = &call.func.as_ref()
-                                && func_name.id.as_str().starts_with("__cribo_init_")
+                                && crate::code_generator::module_registry::is_init_function(
+                                    func_name.id.as_str(),
+                                )
                             {
                                 // Check against existing deferred imports for same module init
                                 all_deferred_imports.iter().any(|existing| {
@@ -5596,7 +5593,9 @@ impl<'a> HybridStaticBundler<'a> {
                                             &existing_assign.value.as_ref()
                                         && let Expr::Name(existing_func) =
                                             &existing_call.func.as_ref()
-                                        && existing_func.id.as_str().starts_with("__cribo_init_")
+                                        && crate::code_generator::module_registry::is_init_function(
+                                            existing_func.id.as_str(),
+                                        )
                                     {
                                         let existing_path =
                                             self.extract_attribute_path(existing_attr);
@@ -5694,7 +5693,9 @@ impl<'a> HybridStaticBundler<'a> {
                         && let Expr::Call(call) = &expr_stmt.value.as_ref()
                         && let Expr::Name(name) = &call.func.as_ref()
                     {
-                        return !name.id.as_str().starts_with("__cribo_init_");
+                        return !crate::code_generator::module_registry::is_init_function(
+                            name.id.as_str(),
+                        );
                     }
                     true
                 })
@@ -6672,26 +6673,6 @@ impl<'a> HybridStaticBundler<'a> {
             }
         }
         false
-    }
-
-    /// Generate module namespace class definition
-    fn generate_module_namespace_class(&mut self) -> Stmt {
-        // class _ModuleNamespace:
-        //     pass
-        let class_def = StmtClassDef {
-            node_index: AtomicNodeIndex::dummy(),
-            decorator_list: vec![],
-            name: Identifier::new("_ModuleNamespace", TextRange::default()),
-            type_params: None,
-            arguments: None,
-            body: vec![Stmt::Pass(ruff_python_ast::StmtPass {
-                node_index: AtomicNodeIndex::dummy(),
-                range: TextRange::default(),
-            })],
-            range: TextRange::default(),
-        };
-
-        Stmt::ClassDef(class_def)
     }
 
     /// Create a string literal expression
@@ -8899,7 +8880,8 @@ impl<'a> HybridStaticBundler<'a> {
         // Check if this is a wrapper module that needs initialization
         if let Some(synthetic_name) = self.module_registry.get(module_name) {
             // Generate the init call
-            let init_func_name = format!("__cribo_init_{synthetic_name}");
+            let init_func_name =
+                crate::code_generator::module_registry::get_init_function_name(synthetic_name);
 
             // Call the init function and get the result
             let init_call = Expr::Call(ExprCall {
@@ -8951,14 +8933,12 @@ impl<'a> HybridStaticBundler<'a> {
 
         if is_parent_namespace {
             // Use temp variable and merge attributes for parent namespaces
-            let init_result_var = "__cribo_init_result";
-
             // Store init result in temp variable
             stmts.push(Stmt::Assign(StmtAssign {
                 node_index: AtomicNodeIndex::dummy(),
                 targets: vec![Expr::Name(ExprName {
                     node_index: AtomicNodeIndex::dummy(),
-                    id: init_result_var.into(),
+                    id: INIT_RESULT_VAR.into(),
                     ctx: ExprContext::Store,
                     range: TextRange::default(),
                 })],
@@ -8967,7 +8947,7 @@ impl<'a> HybridStaticBundler<'a> {
             }));
 
             // Merge attributes from init result into existing namespace
-            self.generate_merge_module_attributes(&mut stmts, module_name, init_result_var);
+            self.generate_merge_module_attributes(&mut stmts, module_name, INIT_RESULT_VAR);
         } else {
             // Direct assignment for simple and dotted modules
             let target_expr = if module_name.contains('.') {

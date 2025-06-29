@@ -11,8 +11,9 @@ use std::path::PathBuf;
 use log::debug;
 use ruff_python_ast::{
     Alias, AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprDict, ExprName,
-    ExprStringLiteral, ExprSubscript, Identifier, ModModule, Stmt, StmtAssign, StmtExpr,
-    StmtImport, StmtImportFrom, StmtPass, StringLiteral, StringLiteralFlags, StringLiteralValue,
+    ExprStringLiteral, ExprSubscript, Identifier, ModModule, Stmt, StmtAssign, StmtClassDef,
+    StmtExpr, StmtImport, StmtImportFrom, StmtPass, StringLiteral, StringLiteralFlags,
+    StringLiteralValue,
 };
 use ruff_text_size::TextRange;
 
@@ -185,12 +186,11 @@ pub fn generate_module_init_call(
             debug!("Module '{module_name}' is a parent namespace - generating merge code");
 
             // First, create a variable to hold the init result
-            let init_result_var = "__cribo_init_result";
             statements.push(Stmt::Assign(StmtAssign {
                 node_index: AtomicNodeIndex::dummy(),
                 targets: vec![Expr::Name(ExprName {
                     node_index: AtomicNodeIndex::dummy(),
-                    id: init_result_var.into(),
+                    id: INIT_RESULT_VAR.into(),
                     ctx: ExprContext::Store,
                     range: TextRange::default(),
                 })],
@@ -214,7 +214,7 @@ pub fn generate_module_init_call(
             }));
 
             // Generate the merge attributes code
-            generate_merge_module_attributes(&mut statements, module_name, init_result_var);
+            generate_merge_module_attributes(&mut statements, module_name, INIT_RESULT_VAR);
 
             // Assign the init result to the module variable
             statements.push(Stmt::Assign(StmtAssign {
@@ -227,7 +227,7 @@ pub fn generate_module_init_call(
                 })],
                 value: Box::new(Expr::Name(ExprName {
                     node_index: AtomicNodeIndex::dummy(),
-                    id: init_result_var.into(),
+                    id: INIT_RESULT_VAR.into(),
                     ctx: ExprContext::Load,
                     range: TextRange::default(),
                 })),
@@ -270,8 +270,8 @@ pub fn generate_module_init_call(
                 })
             };
 
-            // Generate: module_name = __cribo_init_synthetic_name()
-            // or: parent.child = __cribo_init_synthetic_name()
+            // Generate: module_name = <cribo_init_prefix>synthetic_name()
+            // or: parent.child = <cribo_init_prefix>synthetic_name()
             statements.push(Stmt::Assign(StmtAssign {
                 node_index: AtomicNodeIndex::dummy(),
                 targets: vec![target_expr],
@@ -535,4 +535,98 @@ pub fn create_assignments_for_inlined_imports(
     }
 
     assignments
+}
+
+/// Prefix for all cribo-generated init-related names
+const CRIBO_INIT_PREFIX: &str = "__cribo_init_";
+
+/// The init result variable name
+pub const INIT_RESULT_VAR: &str = "__cribo_init_result";
+
+/// Get the init function prefix
+pub fn get_init_function_prefix() -> &'static str {
+    CRIBO_INIT_PREFIX
+}
+
+/// Generate init function name from synthetic name
+pub fn get_init_function_name(synthetic_name: &str) -> String {
+    format!("{CRIBO_INIT_PREFIX}{synthetic_name}")
+}
+
+/// Check if a function name is an init function
+pub fn is_init_function(name: &str) -> bool {
+    name.starts_with(CRIBO_INIT_PREFIX)
+}
+
+/// Get init function name for a module (looks up synthetic name first)
+pub fn get_init_function_name_for_module(
+    module_name: &str,
+    module_registry: &FxIndexMap<String, String>,
+) -> Option<String> {
+    module_registry
+        .get(module_name)
+        .map(|synthetic_name| get_init_function_name(synthetic_name))
+}
+
+/// Register a module with its synthetic name and init function
+/// Returns (synthetic_name, init_func_name)
+pub fn register_module(
+    module_name: &str,
+    content_hash: &str,
+    module_registry: &mut FxIndexMap<String, String>,
+    init_functions: &mut FxIndexMap<String, String>,
+) -> (String, String) {
+    // Generate synthetic name
+    let synthetic_name = get_synthetic_module_name(module_name, content_hash);
+
+    // Register module with synthetic name
+    module_registry.insert(module_name.to_string(), synthetic_name.clone());
+
+    // Register init function
+    let init_func_name = get_init_function_name(&synthetic_name);
+    init_functions.insert(synthetic_name.clone(), init_func_name.clone());
+
+    (synthetic_name, init_func_name)
+}
+
+/// Initialize module cache infrastructure
+/// Returns all statements needed to set up the module cache
+pub fn initialize_module_cache_infrastructure(
+    sorted_wrapper_modules: &[(String, ModModule, PathBuf, String)],
+) -> Vec<Stmt> {
+    let mut statements = Vec::new();
+
+    // Add module namespace class definition
+    statements.push(generate_module_namespace_class());
+
+    // Generate module cache initialization
+    statements.push(generate_module_cache_init());
+
+    // Populate cache with all wrapper modules
+    statements.extend(generate_module_cache_population(sorted_wrapper_modules));
+
+    // Add sys.modules sync
+    statements.extend(generate_sys_modules_sync());
+
+    statements
+}
+
+/// Generate module namespace class definition
+pub fn generate_module_namespace_class() -> Stmt {
+    // class _ModuleNamespace:
+    //     pass
+    let class_def = StmtClassDef {
+        node_index: AtomicNodeIndex::dummy(),
+        decorator_list: vec![],
+        name: Identifier::new("_ModuleNamespace", TextRange::default()),
+        type_params: None,
+        arguments: None,
+        body: vec![Stmt::Pass(StmtPass {
+            node_index: AtomicNodeIndex::dummy(),
+            range: TextRange::default(),
+        })],
+        range: TextRange::default(),
+    };
+
+    Stmt::ClassDef(class_def)
 }
