@@ -373,6 +373,28 @@ pub fn transform_module_to_init_function<'a>(
                     }
                 }
 
+                // Process assignments in else clause
+                for stmt in &try_stmt.orelse {
+                    if let Stmt::Assign(assign) = stmt
+                        && let Some(name) = bundler.extract_simple_assign_target(assign)
+                        && bundler.should_export_symbol(&name, ctx.module_name)
+                    {
+                        additional_exports
+                            .push(bundler.create_module_attr_assignment("module", &name));
+                    }
+                }
+
+                // Process assignments in finally clause
+                for stmt in &try_stmt.finalbody {
+                    if let Stmt::Assign(assign) = stmt
+                        && let Some(name) = bundler.extract_simple_assign_target(assign)
+                        && bundler.should_export_symbol(&name, ctx.module_name)
+                    {
+                        additional_exports
+                            .push(bundler.create_module_attr_assignment("module", &name));
+                    }
+                }
+
                 // Add the try statement
                 body.push(Stmt::Try(try_clone));
 
