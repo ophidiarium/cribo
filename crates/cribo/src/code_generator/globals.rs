@@ -1,11 +1,14 @@
 use std::hash::BuildHasherDefault;
 
+use cow_utils::CowUtils;
 use indexmap::IndexMap;
+use log::debug;
 use ruff_python_ast::{
-    AtomicNodeIndex, Expr, ExprAttribute, ExprContext, ExprName, Identifier, Stmt, StmtFunctionDef,
+    AtomicNodeIndex, Expr, ExprAttribute, ExprContext, ExprName, ExprNoneLiteral, Identifier, 
+    Stmt, StmtAssign,
 };
 use ruff_text_size::TextRange;
-use rustc_hash::{FxHashSet, FxHasher};
+use rustc_hash::FxHasher;
 
 /// Type alias for IndexMap with FxHasher for better performance
 type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
@@ -126,191 +129,64 @@ pub fn transform_globals_in_stmt(stmt: &mut Stmt) {
     }
 }
 
-impl Default for GlobalsLifter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl GlobalsLifter {
-    /// Create a new GlobalsLifter
-    pub fn new() -> Self {
+    pub fn new(global_info: &ModuleGlobalInfo) -> Self {
+        let mut lifted_names = FxIndexMap::default();
+        let mut lifted_declarations = Vec::new();
+
+        debug!("GlobalsLifter::new for module: {}", global_info.module_name);
+        debug!("Module level vars: {:?}", global_info.module_level_vars);
+        debug!(
+            "Global declarations: {:?}",
+            global_info.global_declarations.keys().collect::<Vec<_>>()
+        );
+
+        // Generate lifted names and declarations for all module-level variables
+        // that are referenced with global statements
+        for var_name in &global_info.module_level_vars {
+            // Only lift variables that are actually used with global statements
+            if global_info.global_declarations.contains_key(var_name) {
+                let module_name_sanitized = global_info.module_name.cow_replace(".", "_");
+                let module_name_sanitized = module_name_sanitized.cow_replace("-", "_");
+                let lifted_name = format!("_cribo_{module_name_sanitized}_{var_name}");
+
+                debug!("Creating lifted declaration for {var_name} -> {lifted_name}");
+
+                lifted_names.insert(var_name.clone(), lifted_name.clone());
+
+                // Create assignment: __cribo_module_var = None (will be set by init function)
+                lifted_declarations.push(Stmt::Assign(StmtAssign {
+                    node_index: AtomicNodeIndex::dummy(),
+                    targets: vec![Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: lifted_name.into(),
+                        ctx: ExprContext::Store,
+                        range: TextRange::default(),
+                    })],
+                    value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
+                        node_index: AtomicNodeIndex::dummy(),
+                        range: TextRange::default(),
+                    })),
+                    range: TextRange::default(),
+                }));
+            }
+        }
+
+        debug!("Created {} lifted declarations", lifted_declarations.len());
+
         Self {
-            lifted_names: FxIndexMap::default(),
-            lifted_declarations: Vec::new(),
+            lifted_names,
+            lifted_declarations,
         }
     }
 
-    /// Create a new GlobalsLifter from module global info
-    pub fn new_from_global_info(global_info: &ModuleGlobalInfo) -> Self {
-        use cow_utils::CowUtils;
-        let mut lifter = Self::new();
-        // Process global declarations from the module
-        for global_name in global_info.global_declarations.keys() {
-            let lifted_name = format!(
-                "__cribo_{}_{}",
-                global_info.module_name.cow_replace('.', "_").into_owned(),
-                global_name
-            );
-            lifter.lifted_names.insert(global_name.clone(), lifted_name);
-        }
-        lifter
+    /// Get the lifted global declarations
+    pub fn get_lifted_declarations(&self) -> Vec<Stmt> {
+        self.lifted_declarations.clone()
     }
 
     /// Get the lifted names mapping
     pub fn get_lifted_names(&self) -> &FxIndexMap<String, String> {
         &self.lifted_names
-    }
-
-    /// Process a function and lift its globals
-    pub fn process_function(
-        &mut self,
-        func: &mut StmtFunctionDef,
-        module_name: &str,
-        function_globals: &FxHashSet<String>,
-    ) {
-        // Create lifted names for this function's globals
-        for global in function_globals {
-            let lifted_name = format!("_bundler_global_{}_{}_{}", module_name, &func.name, global);
-            self.lifted_names.insert(global.clone(), lifted_name);
-        }
-
-        // Transform the function body
-        let mut transformer = FunctionGlobalTransformer {
-            lifted_names: &self.lifted_names,
-        };
-        transformer.visit_body(&mut func.body);
-    }
-
-    /// Get the lifted declarations
-    pub fn get_lifted_declarations(&self) -> &[Stmt] {
-        &self.lifted_declarations
-    }
-}
-
-/// Transformer that transforms global variable references to lifted names
-struct FunctionGlobalTransformer<'a> {
-    lifted_names: &'a FxIndexMap<String, String>,
-}
-
-impl<'a> FunctionGlobalTransformer<'a> {
-    fn transform_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Name(name) => {
-                if let Some(lifted_name) = self.lifted_names.get(name.id.as_str()) {
-                    name.id = Identifier::new(lifted_name.clone(), name.range).into();
-                }
-            }
-            Expr::Attribute(attr) => {
-                self.transform_expr(&mut attr.value);
-            }
-            Expr::Call(call) => {
-                self.transform_expr(&mut call.func);
-                for arg in &mut call.arguments.args {
-                    self.transform_expr(arg);
-                }
-                for kw in &mut call.arguments.keywords {
-                    self.transform_expr(&mut kw.value);
-                }
-            }
-            Expr::BinOp(binop) => {
-                self.transform_expr(&mut binop.left);
-                self.transform_expr(&mut binop.right);
-            }
-            Expr::UnaryOp(unop) => {
-                self.transform_expr(&mut unop.operand);
-            }
-            Expr::Subscript(sub) => {
-                self.transform_expr(&mut sub.value);
-                self.transform_expr(&mut sub.slice);
-            }
-            Expr::List(list) => {
-                for elem in &mut list.elts {
-                    self.transform_expr(elem);
-                }
-            }
-            Expr::Tuple(tuple) => {
-                for elem in &mut tuple.elts {
-                    self.transform_expr(elem);
-                }
-            }
-            Expr::Dict(dict) => {
-                for item in &mut dict.items {
-                    if let Some(key) = &mut item.key {
-                        self.transform_expr(key);
-                    }
-                    self.transform_expr(&mut item.value);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn transform_stmt(&mut self, stmt: &mut Stmt) {
-        // Transform globals() calls in statements first
-        transform_globals_in_stmt(stmt);
-
-        // Then handle other transformations
-        match stmt {
-            Stmt::FunctionDef(func) => {
-                for stmt in &mut func.body {
-                    self.transform_stmt(stmt);
-                }
-            }
-            Stmt::ClassDef(class) => {
-                for stmt in &mut class.body {
-                    self.transform_stmt(stmt);
-                }
-            }
-            Stmt::If(if_stmt) => {
-                self.transform_expr(&mut if_stmt.test);
-                for stmt in &mut if_stmt.body {
-                    self.transform_stmt(stmt);
-                }
-                for clause in &mut if_stmt.elif_else_clauses {
-                    for stmt in &mut clause.body {
-                        self.transform_stmt(stmt);
-                    }
-                }
-            }
-            Stmt::While(while_stmt) => {
-                self.transform_expr(&mut while_stmt.test);
-                for stmt in &mut while_stmt.body {
-                    self.transform_stmt(stmt);
-                }
-            }
-            Stmt::For(for_stmt) => {
-                self.transform_expr(&mut for_stmt.iter);
-                for stmt in &mut for_stmt.body {
-                    self.transform_stmt(stmt);
-                }
-            }
-            Stmt::Expr(expr_stmt) => {
-                self.transform_expr(&mut expr_stmt.value);
-            }
-            Stmt::Assign(assign) => {
-                self.transform_expr(&mut assign.value);
-                for target in &mut assign.targets {
-                    self.transform_expr(target);
-                }
-            }
-            Stmt::AnnAssign(ann) => {
-                if let Some(value) = &mut ann.value {
-                    self.transform_expr(value);
-                }
-            }
-            Stmt::Return(ret) => {
-                if let Some(value) = &mut ret.value {
-                    self.transform_expr(value);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn visit_body(&mut self, body: &mut Vec<Stmt>) {
-        for stmt in body {
-            self.transform_stmt(stmt);
-        }
     }
 }

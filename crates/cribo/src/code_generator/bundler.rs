@@ -15,9 +15,7 @@ type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
-    ExprContext, ExprFString, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, 
-    FString, FStringFlags, FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
-    InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, 
+    ExprContext, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, Identifier, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, 
     StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
     visitor::source_order::SourceOrderVisitor,
 };
@@ -3156,7 +3154,7 @@ impl<'a> HybridStaticBundler<'a> {
         // Create GlobalsLifter and collect declarations
         if !global_info.global_declarations.is_empty() {
             let globals_lifter =
-                crate::code_generator::globals::GlobalsLifter::new_from_global_info(&global_info);
+                crate::code_generator::globals::GlobalsLifter::new(&global_info);
             all_lifted_declarations
                 .extend(globals_lifter.get_lifted_declarations().iter().cloned());
         }

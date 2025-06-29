@@ -43,7 +43,7 @@ pub fn transform_module_to_init_function<'a>(
     // Apply globals lifting if needed
     let lifted_names = if let Some(ref global_info) = ctx.global_info {
         if !global_info.global_declarations.is_empty() {
-            let globals_lifter = GlobalsLifter::new_from_global_info(global_info);
+            let globals_lifter = GlobalsLifter::new(global_info);
             let lifted_names = globals_lifter.get_lifted_names().clone();
 
             // Transform the AST to use lifted globals
