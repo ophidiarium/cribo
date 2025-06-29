@@ -7882,27 +7882,6 @@ impl<'a> HybridStaticBundler<'a> {
         result
     }
 
-    /// Find module ID in semantic bundler using the module registry
-    pub fn find_module_id_in_semantic_bundler(
-        &self,
-        module_name: &str,
-        _semantic_bundler: &crate::semantic_bundler::SemanticBundler,
-    ) -> Option<crate::cribo_graph::ModuleId> {
-        // Use the central module registry for fast, reliable lookup
-        if let Some(registry) = self.module_info_registry {
-            let module_id = registry.get_id_by_name(module_name);
-            if module_id.is_some() {
-                log::debug!("Found module ID for '{module_name}' using module registry");
-            } else {
-                log::debug!("Module '{module_name}' not found in module registry");
-            }
-            module_id
-        } else {
-            log::warn!("No module registry available for module ID lookup");
-            None
-        }
-    }
-
     /// Collect variable names referenced in an expression
     fn collect_vars_in_expr(expr: &Expr, vars: &mut FxIndexSet<String>) {
         match expr {

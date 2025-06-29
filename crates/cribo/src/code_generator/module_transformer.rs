@@ -150,9 +150,24 @@ pub fn transform_module_to_init_function<'a>(
             "Looking up module ID for '{}' in semantic bundler",
             ctx.module_name
         );
-        if let Some(module_id) =
-            bundler.find_module_id_in_semantic_bundler(ctx.module_name, semantic_bundler)
-        {
+        // Use the central module registry for fast, reliable lookup
+        let module_id = if let Some(registry) = bundler.module_info_registry {
+            let id = registry.get_id_by_name(ctx.module_name);
+            if id.is_some() {
+                debug!(
+                    "Found module ID for '{}' using module registry",
+                    ctx.module_name
+                );
+            } else {
+                debug!("Module '{}' not found in module registry", ctx.module_name);
+            }
+            id
+        } else {
+            log::warn!("No module registry available for module ID lookup");
+            None
+        };
+
+        if let Some(module_id) = module_id {
             if let Some(module_info) = semantic_bundler.get_module_info(&module_id) {
                 debug!(
                     "Found module-scope symbols for '{}': {:?}",
