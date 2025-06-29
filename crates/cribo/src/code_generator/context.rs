@@ -83,6 +83,7 @@ pub struct TransformFunctionParams<'a> {
 }
 
 /// Parameters for bundle_modules function
+#[derive(Debug)]
 pub struct BundleParams<'a> {
     pub modules: &'a [(String, ModModule, PathBuf, String)], // (name, ast, path, content_hash)
     pub sorted_modules: &'a [(String, PathBuf, Vec<String>)], // Module data from CriboGraph
