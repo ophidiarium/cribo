@@ -6393,7 +6393,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
-    /// Trim unused imports from all modules
     fn trim_unused_imports_from_modules(
         &mut self,
         modules: Vec<(String, ModModule, PathBuf, String)>,
@@ -6619,7 +6618,22 @@ impl<'a> HybridStaticBundler<'a> {
                                     }
                                 }
 
+                                // Extra check for normalized imports: If this is a normalized
+                                // import and no assignments using
+                                // it survived, it should be removed
+                                if import_item.is_normalized_import {
+                                    log::debug!(
+                                        "Import '{import_name}' is a normalized import \
+                                         (used_by_surviving_code: {used_by_surviving_code})"
+                                    );
+                                }
+
                                 if !used_by_surviving_code {
+                                    log::debug!(
+                                        "Import '{import_name}' from module '{module}' is not \
+                                         used by surviving code after tree-shaking (item_id: \
+                                         {item_id:?})"
+                                    );
                                     unused_imports.push(crate::cribo_graph::UnusedImportInfo {
                                         item_id,
                                         name: import_name.to_string(),
@@ -6633,13 +6647,15 @@ impl<'a> HybridStaticBundler<'a> {
                     }
                 }
 
-                // Remove unused imports from the AST
                 if !unused_imports.is_empty() {
                     log::debug!(
-                        "Removing {} unused imports from module {}",
+                        "Found {} unused imports in {}",
                         unused_imports.len(),
                         module_name
                     );
+                    // Log unused imports details
+                    Self::log_unused_imports_details(&unused_imports);
+
                     // Filter out unused imports from the AST
                     ast.body
                         .retain(|stmt| !self.should_remove_import_stmt(stmt, &unused_imports));
@@ -6649,6 +6665,10 @@ impl<'a> HybridStaticBundler<'a> {
             trimmed_modules.push((module_name, ast, module_path, content_hash));
         }
 
+        log::debug!(
+            "Successfully trimmed unused imports from {} modules",
+            trimmed_modules.len()
+        );
         Ok(trimmed_modules)
     }
 
@@ -7014,6 +7034,14 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             })
             .unwrap_or_else(|| full_module_path.to_string())
+    }
+
+    fn log_unused_imports_details(unused_imports: &[crate::cribo_graph::UnusedImportInfo]) {
+        if log::log_enabled!(log::Level::Debug) {
+            for unused in unused_imports {
+                log::debug!("  - {} from {}", unused.name, unused.module);
+            }
+        }
     }
 
     /// Check if an import statement should be removed based on unused imports
