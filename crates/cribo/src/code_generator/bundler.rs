@@ -3973,9 +3973,8 @@ impl<'a> HybridStaticBundler<'a> {
         imported_modules
     }
 
-    /// Generate submodule attributes with exclusions (moved to earlier in file)
-
-    /// Deduplicate deferred imports
+    /// Deduplicate deferred import statements
+    /// This prevents duplicate init calls and symbol assignments
     fn deduplicate_deferred_imports_with_existing(
         &self,
         imports: Vec<Stmt>,
