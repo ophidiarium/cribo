@@ -466,7 +466,8 @@ pub fn transform_module_to_init_function<'a>(
         if bundler.inlined_modules.contains(&full_name) {
             // For inlined submodules, we create a types.SimpleNamespace with the exported
             // symbols
-            let create_namespace_stmts = bundler.create_namespace_for_inlined_submodule(
+            let create_namespace_stmts = create_namespace_for_inlined_submodule(
+                bundler,
                 &full_name,
                 &relative_name,
                 symbol_renames,
@@ -1122,4 +1123,181 @@ fn add_module_attr_if_exported(
     {
         body.push(bundler.create_module_attr_assignment("module", &name));
     }
+}
+
+/// Create namespace for inlined submodule
+fn create_namespace_for_inlined_submodule(
+    bundler: &HybridStaticBundler,
+    full_module_name: &str,
+    attr_name: &str,
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+) -> Vec<Stmt> {
+    let mut stmts = Vec::new();
+
+    // Create a types.SimpleNamespace() for the inlined module
+    stmts.push(Stmt::Assign(StmtAssign {
+        node_index: AtomicNodeIndex::dummy(),
+        targets: vec![Expr::Name(ExprName {
+            node_index: AtomicNodeIndex::dummy(),
+            id: attr_name.into(),
+            ctx: ExprContext::Store,
+            range: TextRange::default(),
+        })],
+        value: Box::new(Expr::Call(ExprCall {
+            node_index: AtomicNodeIndex::dummy(),
+            func: Box::new(Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: "types".into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })),
+            arguments: Arguments {
+                node_index: AtomicNodeIndex::dummy(),
+                args: Box::from([]),
+                keywords: Box::from([]),
+                range: TextRange::default(),
+            },
+            range: TextRange::default(),
+        })),
+        range: TextRange::default(),
+    }));
+
+    // Get the module exports for this inlined module
+    let exported_symbols = bundler
+        .module_exports
+        .get(full_module_name)
+        .cloned()
+        .flatten();
+
+    // Add all exported symbols from the inlined module to the namespace
+    if let Some(exports) = exported_symbols {
+        for symbol in exports {
+            // For re-exported symbols, check if the original symbol is kept by tree-shaking
+            let should_include = if let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols {
+                // First check if this symbol is directly defined in this module
+                if kept_symbols.contains(&(full_module_name.to_string(), symbol.clone())) {
+                    true
+                } else {
+                    // If not, check if this is a re-exported symbol from another module
+                    // For modules with __all__, we always include symbols that are re-exported
+                    // even if they're not directly defined in the module
+                    let module_has_all_export = bundler
+                        .module_exports
+                        .get(full_module_name)
+                        .and_then(|exports| exports.as_ref())
+                        .map(|exports| exports.contains(&symbol))
+                        .unwrap_or(false);
+
+                    if module_has_all_export {
+                        log::debug!(
+                            "Including re-exported symbol {symbol} from module {full_module_name} \
+                             (in __all__)"
+                        );
+                        true
+                    } else {
+                        false
+                    }
+                }
+            } else {
+                // No tree-shaking, include everything
+                true
+            };
+
+            if !should_include {
+                log::debug!(
+                    "Skipping namespace assignment for {full_module_name}.{symbol} - removed by \
+                     tree-shaking"
+                );
+                continue;
+            }
+
+            // Get the renamed version of this symbol
+            let renamed_symbol = if let Some(module_renames) = symbol_renames.get(full_module_name)
+            {
+                module_renames
+                    .get(&symbol)
+                    .cloned()
+                    .unwrap_or_else(|| symbol.clone())
+            } else {
+                symbol.clone()
+            };
+
+            // Before creating the assignment, check if the renamed symbol exists after
+            // tree-shaking
+            if !renamed_symbol_exists(bundler, &renamed_symbol, symbol_renames) {
+                log::warn!(
+                    "Skipping namespace assignment {attr_name}.{symbol} = {renamed_symbol} - \
+                     renamed symbol doesn't exist after tree-shaking"
+                );
+                continue;
+            }
+
+            // attr_name.symbol = renamed_symbol
+            log::debug!("Creating namespace assignment: {attr_name}.{symbol} = {renamed_symbol}");
+            stmts.push(Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: attr_name.into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new(&symbol, TextRange::default()),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: renamed_symbol.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            }));
+        }
+    } else {
+        // If no explicit exports, we still need to check if this module defines symbols
+        // This is a fallback for modules that don't have __all__ defined
+        // For now, log a warning since we can't determine exports without module analysis
+        log::warn!(
+            "Inlined module '{full_module_name}' has no explicit exports (__all__). Namespace \
+             will be empty unless symbols are added elsewhere."
+        );
+    }
+
+    stmts
+}
+
+/// Check if a renamed symbol exists after tree-shaking
+fn renamed_symbol_exists(
+    bundler: &HybridStaticBundler,
+    renamed_symbol: &str,
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+) -> bool {
+    // If not using tree-shaking, all symbols exist
+    let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols else {
+        return true;
+    };
+
+    // Check all modules to see if any have this renamed symbol
+    for (module, renames) in symbol_renames {
+        for (original, renamed) in renames {
+            if renamed == renamed_symbol {
+                // Found the renamed symbol, check if it's kept
+                if kept_symbols.contains(&(module.clone(), original.clone())) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
