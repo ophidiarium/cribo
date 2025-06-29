@@ -2260,15 +2260,9 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Check if a string is a valid Python identifier
-    fn is_valid_python_identifier(s: &str) -> bool {
-        if s.is_empty() {
-            return false;
-        }
-        let first_char = s.chars().next().unwrap();
-        if !first_char.is_alphabetic() && first_char != '_' {
-            return false;
-        }
-        s.chars().all(|c| c.is_alphanumeric() || c == '_')
+    fn is_valid_python_identifier(name: &str) -> bool {
+        // Use ruff's identifier validation which handles Unicode and keywords
+        ruff_python_stdlib::identifiers::is_identifier(name)
     }
 
     /// Check if a module has side effects
@@ -8552,8 +8546,8 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Get a unique name for a symbol, using the module suffix pattern
-    pub fn get_unique_name_with_module_suffix(&self, base_name: &str, module_name: &str) -> String {
-        let module_suffix = module_name.replace('.', "_");
+    fn get_unique_name_with_module_suffix(&self, base_name: &str, module_name: &str) -> String {
+        let module_suffix = module_name.cow_replace('.', "_").into_owned();
         format!("{base_name}_{module_suffix}")
     }
 
