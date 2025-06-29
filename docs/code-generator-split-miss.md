@@ -25,21 +25,38 @@ During the refactoring to split `code_generator.rs` into multiple modules, sever
   - **Issue**: Only processed wrapper modules, missing inlinable modules
   - **Fix**: Rename and modify to analyze ALL modules, store results in `global_info_map`
   - **Impact**: Inlinable modules lacked semantic context needed for correct import handling
+  - **Analysis**: ✅ **Semantic copy** - The refactored version is functionally identical to the original. Both:
+    - Get module from graph by name
+    - Get module_id from the module
+    - Call semantic_bundler.analyze_module_globals() with same parameters
+    - Create GlobalsLifter when there are global declarations
+    - Extend all_lifted_declarations with the lifted declarations
+    - Store global_info (original stored in local map, refactored stores in bundler's global_info_map)
 
 - [ ] **`bundle_modules`** (lines ~4753-5800+)
   - **Issue**: Mixed analysis and transformation in single pass
   - **Fix**: Add Phase 1 to analyze all modules first, then Phase 2 for transformation
   - **Impact**: Modules were transformed without complete semantic context
+  - **Analysis**: ❌ **Not a semantic copy** - The refactored version implements two-phase processing differently:
+    - Phase 1 (lines 4787-4800): Analyzes ALL modules and populates global_info_map
+    - Original analyzed wrapper modules in two separate passes (early and late)
+    - Original did NOT analyze inlinable modules for globals
+    - Refactored version analyzes ALL modules upfront
 
-- [ ] **`add_hoisted_imports`** (lines ~6218-6229)
+- [x] **`add_hoisted_imports`** (lines ~6218-6229)
   - **Issue**: Generated invalid `from X import` statements when import map was empty
   - **Fix**: Skip modules with empty `imported_names`
   - **Impact**: Python syntax errors in generated code
+  - **Analysis**: ✅ **Semantic copy** - Now matches the original implementation exactly
+  - **Status**: ✅ Fixed - Restored to original implementation (removed unnecessary empty check)
 
 - [ ] **`inline_module`** (lines ~5235-5276)
   - **Issue**: Tried to analyze modules during inlining instead of using pre-analyzed data
   - **Fix**: Use pre-analyzed `global_info` from `global_info_map`
   - **Impact**: Missing or incorrect semantic information during transformation
+  - **Analysis**: ❌ **Not a semantic copy** - The refactored version passes `global_info` to RecursiveImportTransformer:
+    - Line 3414: `global_info: ctx.global_info.as_ref(),`
+    - Original did not pass global_info to RecursiveImportTransformer
 
 ### Struct Modifications
 

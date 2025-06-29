@@ -5211,12 +5211,13 @@ impl<'a> HybridStaticBundler<'a> {
             let mut lifted_declarations = Vec::new();
             for module_name in &wrapper_modules_needed_by_inlined {
                 if let Some(global_info) = self.global_info_map.get(module_name)
-                    && !global_info.global_declarations.is_empty() {
-                        let globals_lifter =
-                            crate::code_generator::globals::GlobalsLifter::new(global_info);
-                        lifted_declarations
-                            .extend(globals_lifter.get_lifted_declarations().iter().cloned());
-                    }
+                    && !global_info.global_declarations.is_empty()
+                {
+                    let globals_lifter =
+                        crate::code_generator::globals::GlobalsLifter::new(global_info);
+                    lifted_declarations
+                        .extend(globals_lifter.get_lifted_declarations().iter().cloned());
+                }
             }
 
             // Add lifted declarations if any
@@ -5463,12 +5464,13 @@ impl<'a> HybridStaticBundler<'a> {
                 }
 
                 if let Some(global_info) = self.global_info_map.get(module_name)
-                    && !global_info.global_declarations.is_empty() {
-                        let globals_lifter =
-                            crate::code_generator::globals::GlobalsLifter::new(global_info);
-                        all_lifted_declarations
-                            .extend(globals_lifter.get_lifted_declarations().iter().cloned());
-                    }
+                    && !global_info.global_declarations.is_empty()
+                {
+                    let globals_lifter =
+                        crate::code_generator::globals::GlobalsLifter::new(global_info);
+                    all_lifted_declarations
+                        .extend(globals_lifter.get_lifted_declarations().iter().cloned());
+                }
             }
 
             // Store all lifted declarations
@@ -6247,15 +6249,6 @@ impl<'a> HybridStaticBundler<'a> {
             // Skip importlib if it was fully transformed
             if module_name == "importlib" && self.importlib_fully_transformed {
                 log::debug!("Skipping importlib from hoisted imports as it was fully transformed");
-                continue;
-            }
-
-            // Skip modules with no imported names (these should be regular imports, not from
-            // imports)
-            if imported_names.is_empty() {
-                log::debug!(
-                    "Skipping module '{module_name}' from hoisted imports as it has no imported names"
-                );
                 continue;
             }
 

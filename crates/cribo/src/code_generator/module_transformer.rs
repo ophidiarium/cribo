@@ -47,11 +47,7 @@ pub fn transform_module_to_init_function<'a>(
             let lifted_names = globals_lifter.get_lifted_names().clone();
 
             // Transform the AST to use lifted globals
-            bundler.transform_ast_with_lifted_globals(
-                &mut ast,
-                &lifted_names,
-                global_info,
-            );
+            bundler.transform_ast_with_lifted_globals(&mut ast, &lifted_names, global_info);
 
             Some(lifted_names)
         } else {
@@ -73,6 +69,7 @@ pub fn transform_module_to_init_function<'a>(
         is_entry_module: false,        // This is not the entry module
         is_wrapper_init: true,         // This IS a wrapper init function
         global_deferred_imports: None, // No need for global deferred imports in wrapper modules
+        global_info: ctx.global_info.as_ref(),
     });
 
     // Track imports from inlined modules before transformation

@@ -4,8 +4,8 @@ use cow_utils::CowUtils;
 use indexmap::IndexMap;
 use log::debug;
 use ruff_python_ast::{
-    AtomicNodeIndex, Expr, ExprAttribute, ExprContext, ExprName, ExprNoneLiteral, Identifier, 
-    Stmt, StmtAssign,
+    AtomicNodeIndex, Expr, ExprAttribute, ExprContext, ExprName, ExprNoneLiteral, Identifier, Stmt,
+    StmtAssign,
 };
 use ruff_text_size::TextRange;
 use rustc_hash::FxHasher;

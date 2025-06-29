@@ -31,6 +31,7 @@ pub struct RecursiveImportTransformerParams<'a> {
     pub is_entry_module: bool,
     pub is_wrapper_init: bool,
     pub global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
+    pub global_info: Option<&'a crate::semantic_bundler::ModuleGlobalInfo>,
 }
 
 /// Transformer that recursively handles import statements and module references
@@ -62,6 +63,8 @@ pub struct RecursiveImportTransformer<'a> {
     /// Track imports from wrapper modules that need to be rewritten
     /// Maps local name to (wrapper_module, original_name)
     wrapper_module_imports: FxIndexMap<String, (String, String)>,
+    /// Global semantic information for the module
+    global_info: Option<&'a crate::semantic_bundler::ModuleGlobalInfo>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -82,6 +85,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             importlib_inlined_modules: FxIndexMap::default(),
             created_namespace_objects: false,
             wrapper_module_imports: FxIndexMap::default(),
+            global_info: params.global_info,
         }
     }
 
