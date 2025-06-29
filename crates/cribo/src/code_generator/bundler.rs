@@ -15,8 +15,9 @@ type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
-    ExprContext, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, Identifier, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, 
-    StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
+    ExprContext, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, Identifier,
+    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
+    StmtImportFrom, StringLiteral, StringLiteralFlags, StringLiteralValue,
     visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
@@ -80,6 +81,8 @@ pub struct HybridStaticBundler<'a> {
     /// Modules that are imported as namespaces (e.g., from package import module)
     /// Maps module name to set of importing modules
     pub(crate) namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>>,
+    /// Global semantic information for each module
+    pub(crate) global_info_map: FxIndexMap<String, crate::semantic_bundler::ModuleGlobalInfo>,
     /// Reference to the central module registry
     pub(crate) module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
     /// Modules that are part of circular dependencies
@@ -667,6 +670,7 @@ impl<'a> HybridStaticBundler<'a> {
             module_exports: FxIndexMap::default(),
             lifted_global_declarations: Vec::new(),
             namespace_imported_modules: FxIndexMap::default(),
+            global_info_map: FxIndexMap::default(),
             module_info_registry,
             circular_modules: FxIndexSet::default(),
             circular_predeclarations: FxIndexMap::default(),
@@ -2321,11 +2325,37 @@ impl<'a> HybridStaticBundler<'a> {
         (false, None)
     }
 
-    /// Add a stdlib import to be hoisted
+    /// Add a regular stdlib import (e.g., "sys", "types")
+    /// This creates an import statement and adds it to the tracked imports
     fn add_stdlib_import(&mut self, module_name: &str) {
-        self.stdlib_import_from_map
-            .entry(module_name.to_string())
-            .or_default();
+        // Check if we already have this import to avoid duplicates
+        let already_imported = self.stdlib_import_statements.iter().any(|stmt| {
+            if let Stmt::Import(import_stmt) = stmt {
+                import_stmt
+                    .names
+                    .iter()
+                    .any(|alias| alias.name.as_str() == module_name)
+            } else {
+                false
+            }
+        });
+
+        if already_imported {
+            log::debug!("Stdlib import '{module_name}' already exists, skipping");
+            return;
+        }
+
+        let import_stmt = Stmt::Import(StmtImport {
+            node_index: AtomicNodeIndex::dummy(),
+            names: vec![ruff_python_ast::Alias {
+                node_index: AtomicNodeIndex::dummy(),
+                name: Identifier::new(module_name, TextRange::default()),
+                asname: None,
+                range: TextRange::default(),
+            }],
+            range: TextRange::default(),
+        });
+        self.stdlib_import_statements.push(import_stmt);
     }
 
     /// Check if a module is a safe stdlib module
@@ -3127,11 +3157,10 @@ impl<'a> HybridStaticBundler<'a> {
         stmts
     }
 
-    /// Process wrapper module globals
-    fn process_wrapper_module_globals(
-        &self,
+    /// Analyze module globals and store in global_info_map
+    fn analyze_module_globals(
+        &mut self,
         params: &ProcessGlobalsParams,
-        module_globals: &mut FxIndexMap<String, crate::semantic_bundler::ModuleGlobalInfo>,
         all_lifted_declarations: &mut Vec<Stmt>,
     ) {
         // Get module ID from graph
@@ -3153,13 +3182,14 @@ impl<'a> HybridStaticBundler<'a> {
 
         // Create GlobalsLifter and collect declarations
         if !global_info.global_declarations.is_empty() {
-            let globals_lifter =
-                crate::code_generator::globals::GlobalsLifter::new(&global_info);
+            let globals_lifter = crate::code_generator::globals::GlobalsLifter::new(&global_info);
             all_lifted_declarations
                 .extend(globals_lifter.get_lifted_declarations().iter().cloned());
         }
 
-        module_globals.insert(params.module_name.to_string(), global_info);
+        // Store in the bundler's global info map
+        self.global_info_map
+            .insert(params.module_name.to_string(), global_info);
     }
 
     /// Transform module to cache init function
@@ -3381,6 +3411,7 @@ impl<'a> HybridStaticBundler<'a> {
             is_entry_module: false, // This is not the entry module
             is_wrapper_init: false, // Not a wrapper init
             global_deferred_imports: Some(&self.global_deferred_imports), // Pass global registry
+            global_info: ctx.global_info.as_ref(),
         });
         transformer.transform_module(&mut ast);
 
@@ -4753,6 +4784,26 @@ impl<'a> HybridStaticBundler<'a> {
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
 
+        // PHASE 1: Analyze ALL modules (both inlinable and wrapper) before any transformation
+        log::debug!("Phase 1: Analyzing globals for all modules");
+        let mut all_lifted_declarations_phase1 = Vec::new();
+
+        // Analyze all modules to populate global_info_map
+        for (module_name, ast, _path, _hash) in modules.iter() {
+            log::debug!("Analyzing module: {module_name}");
+            let analysis_params = ProcessGlobalsParams {
+                module_name,
+                ast,
+                semantic_ctx: &semantic_ctx,
+            };
+            self.analyze_module_globals(&analysis_params, &mut all_lifted_declarations_phase1);
+        }
+
+        log::debug!(
+            "Phase 1 complete: Analyzed {} modules",
+            self.global_info_map.len()
+        );
+
         // Sort wrapper modules by their dependencies
         let sorted_wrapper_modules =
             self.sort_wrapper_modules_by_dependencies(&wrapper_modules_saved, params.graph)?;
@@ -5156,23 +5207,16 @@ impl<'a> HybridStaticBundler<'a> {
                  {wrapper_modules_needed_by_inlined:?}"
             );
 
-            // Process globals for the needed wrapper modules
-            let mut module_globals = FxIndexMap::default();
+            // Collect lifted declarations for needed wrapper modules
             let mut lifted_declarations = Vec::new();
-
-            for (module_name, ast, _, _) in &sorted_wrapper_modules {
-                if wrapper_modules_needed_by_inlined.contains(module_name) {
-                    let params = ProcessGlobalsParams {
-                        module_name,
-                        ast,
-                        semantic_ctx: &semantic_ctx,
-                    };
-                    self.process_wrapper_module_globals(
-                        &params,
-                        &mut module_globals,
-                        &mut lifted_declarations,
-                    );
-                }
+            for module_name in &wrapper_modules_needed_by_inlined {
+                if let Some(global_info) = self.global_info_map.get(module_name)
+                    && !global_info.global_declarations.is_empty() {
+                        let globals_lifter =
+                            crate::code_generator::globals::GlobalsLifter::new(global_info);
+                        lifted_declarations
+                            .extend(globals_lifter.get_lifted_declarations().iter().cloned());
+                    }
             }
 
             // Add lifted declarations if any
@@ -5189,7 +5233,7 @@ impl<'a> HybridStaticBundler<'a> {
             for (module_name, ast, module_path, _) in &sorted_wrapper_modules {
                 if wrapper_modules_needed_by_inlined.contains(module_name) {
                     let synthetic_name = self.module_registry[module_name].clone();
-                    let global_info = module_globals.get(module_name).cloned();
+                    let global_info = self.global_info_map.get(module_name).cloned();
                     let ctx = ModuleTransformContext {
                         module_name,
                         synthetic_name: &synthetic_name,
@@ -5226,8 +5270,13 @@ impl<'a> HybridStaticBundler<'a> {
         let mut all_deferred_imports = Vec::new();
         for (module_name, ast, _module_path, _content_hash) in &inlinable_modules {
             log::debug!("Inlining module '{module_name}'");
+
             let mut inlined_stmts = Vec::new();
             let mut deferred_imports = Vec::new();
+
+            // Get the pre-analyzed global info for this module
+            let global_info = self.global_info_map.get(module_name).cloned();
+
             let mut inline_ctx = InlineContext {
                 module_exports_map: &module_exports_map,
                 global_symbols: &mut global_symbols,
@@ -5235,6 +5284,7 @@ impl<'a> HybridStaticBundler<'a> {
                 inlined_stmts: &mut inlined_stmts,
                 import_aliases: FxIndexMap::default(),
                 deferred_imports: &mut deferred_imports,
+                global_info,
             };
             self.inline_module(module_name, ast.clone(), _module_path, &mut inline_ctx)?;
             log::debug!(
@@ -5404,30 +5454,21 @@ impl<'a> HybridStaticBundler<'a> {
         // Now transform wrapper modules into init functions AFTER inlining
         // This way we have access to symbol_renames for proper import resolution
         if has_wrapper_modules {
-            // First pass: analyze globals in all wrapper modules
-            let mut module_globals = FxIndexMap::default();
+            // Collect all lifted declarations from wrapper modules (already analyzed in Phase 1)
             let mut all_lifted_declarations = Vec::new();
-
-            for (module_name, ast, _, _) in &sorted_wrapper_modules {
+            for (module_name, _, _, _) in &sorted_wrapper_modules {
                 // Skip modules that were already processed early
                 if wrapper_modules_needed_by_inlined.contains(module_name) {
-                    log::debug!(
-                        "Skipping globals processing for wrapper module '{module_name}' - already \
-                         processed early"
-                    );
                     continue;
                 }
 
-                let params = ProcessGlobalsParams {
-                    module_name,
-                    ast,
-                    semantic_ctx: &semantic_ctx,
-                };
-                self.process_wrapper_module_globals(
-                    &params,
-                    &mut module_globals,
-                    &mut all_lifted_declarations,
-                );
+                if let Some(global_info) = self.global_info_map.get(module_name)
+                    && !global_info.global_declarations.is_empty() {
+                        let globals_lifter =
+                            crate::code_generator::globals::GlobalsLifter::new(global_info);
+                        all_lifted_declarations
+                            .extend(globals_lifter.get_lifted_declarations().iter().cloned());
+                    }
             }
 
             // Store all lifted declarations
@@ -5455,7 +5496,7 @@ impl<'a> HybridStaticBundler<'a> {
                 }
 
                 let synthetic_name = self.module_registry[module_name].clone();
-                let global_info = module_globals.get(module_name).cloned();
+                let global_info = self.global_info_map.get(module_name).cloned();
                 let ctx = ModuleTransformContext {
                     module_name,
                     synthetic_name: &synthetic_name,
@@ -5739,6 +5780,7 @@ impl<'a> HybridStaticBundler<'a> {
                         is_entry_module: true,  // This is the entry module
                         is_wrapper_init: false, // Not a wrapper init
                         global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports for checking */
+                        global_info: self.global_info_map.get(&module_name),
                     },
                 );
 
@@ -6205,6 +6247,15 @@ impl<'a> HybridStaticBundler<'a> {
             // Skip importlib if it was fully transformed
             if module_name == "importlib" && self.importlib_fully_transformed {
                 log::debug!("Skipping importlib from hoisted imports as it was fully transformed");
+                continue;
+            }
+
+            // Skip modules with no imported names (these should be regular imports, not from
+            // imports)
+            if imported_names.is_empty() {
+                log::debug!(
+                    "Skipping module '{module_name}' from hoisted imports as it has no imported names"
+                );
                 continue;
             }
 
@@ -10495,8 +10546,8 @@ impl<'a> HybridStaticBundler<'a> {
                         .map(|(orig, _)| orig)
                     {
                         log::debug!(
-                            "Adding sync for augmented assignment to global {var_name}: {var_name} \
-                             -> module.{original_name}"
+                            "Adding sync for augmented assignment to global {var_name}: \
+                             {var_name} -> module.{original_name}"
                         );
                         // Add: module.<original_name> = <lifted_name>
                         new_body.push(Stmt::Assign(StmtAssign {
@@ -10545,8 +10596,9 @@ impl<'a> HybridStaticBundler<'a> {
                 match element {
                     ruff_python_ast::InterpolatedStringElement::Literal(lit_elem) => {
                         // Literal elements stay the same
-                        transformed_elements
-                            .push(ruff_python_ast::InterpolatedStringElement::Literal(lit_elem.clone()));
+                        transformed_elements.push(
+                            ruff_python_ast::InterpolatedStringElement::Literal(lit_elem.clone()),
+                        );
                     }
                     ruff_python_ast::InterpolatedStringElement::Interpolation(expr_elem) => {
                         let (new_element, was_transformed) = self.transform_fstring_expression(
@@ -10555,8 +10607,9 @@ impl<'a> HybridStaticBundler<'a> {
                             global_info,
                             in_function_with_globals,
                         );
-                        transformed_elements
-                            .push(ruff_python_ast::InterpolatedStringElement::Interpolation(new_element));
+                        transformed_elements.push(
+                            ruff_python_ast::InterpolatedStringElement::Interpolation(new_element),
+                        );
                         if was_transformed {
                             any_transformed = true;
                         }
@@ -10569,7 +10622,9 @@ impl<'a> HybridStaticBundler<'a> {
                 // Create a new FString with our transformed elements
                 let new_fstring = ruff_python_ast::FString {
                     node_index: AtomicNodeIndex::dummy(),
-                    elements: ruff_python_ast::InterpolatedStringElements::from(transformed_elements),
+                    elements: ruff_python_ast::InterpolatedStringElements::from(
+                        transformed_elements,
+                    ),
                     range: TextRange::default(),
                     flags: ruff_python_ast::FStringFlags::empty(),
                 };
