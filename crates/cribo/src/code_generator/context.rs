@@ -38,6 +38,7 @@ pub struct ModuleTransformContext<'a> {
 }
 
 /// Context for inlining modules
+#[derive(Debug)]
 pub struct InlineContext<'a> {
     pub module_exports_map: &'a FxIndexMap<String, Option<Vec<String>>>,
     pub global_symbols: &'a mut FxIndexSet<String>,
