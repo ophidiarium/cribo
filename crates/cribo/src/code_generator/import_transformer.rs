@@ -409,7 +409,7 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
     }
 
-    /// Transform a single statement
+    /// Transform a statement, potentially returning multiple statements
     fn transform_statement(&mut self, stmt: &mut Stmt) -> Vec<Stmt> {
         // Check if it's a hoisted import before matching
         let is_hoisted = self.bundler.is_hoisted_import(stmt);
