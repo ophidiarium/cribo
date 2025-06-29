@@ -81,8 +81,6 @@ pub struct HybridStaticBundler<'a> {
     /// Modules that are imported as namespaces (e.g., from package import module)
     /// Maps module name to set of importing modules
     pub(crate) namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>>,
-    /// Global semantic information for each module
-    pub(crate) global_info_map: FxIndexMap<String, crate::semantic_bundler::ModuleGlobalInfo>,
     /// Reference to the central module registry
     pub(crate) module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
     /// Modules that are part of circular dependencies
@@ -670,7 +668,6 @@ impl<'a> HybridStaticBundler<'a> {
             module_exports: FxIndexMap::default(),
             lifted_global_declarations: Vec::new(),
             namespace_imported_modules: FxIndexMap::default(),
-            global_info_map: FxIndexMap::default(),
             module_info_registry,
             circular_modules: FxIndexSet::default(),
             circular_predeclarations: FxIndexMap::default(),
@@ -2276,53 +2273,99 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Check if a module has side effects
-    fn has_side_effects(ast: &ModModule) -> bool {
-        ast.body.iter().any(|stmt| match stmt {
-            // Imports don't count as side effects for our purposes
-            Stmt::Import(_) | Stmt::ImportFrom(_) => false,
-            // Definitions don't count as side effects
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
-            // Annotations and type aliases don't count
-            Stmt::AnnAssign(ann) if ann.value.is_none() => false,
-            Stmt::TypeAlias(_) => false,
-            // __all__ assignment doesn't count
-            Stmt::Assign(assign) => {
-                if assign.targets.len() == 1 {
-                    if let Expr::Name(name) = &assign.targets[0] {
-                        name.id.as_str() != "__all__"
-                    } else {
-                        true
-                    }
-                } else {
-                    true
-                }
-            }
-            // Everything else is a potential side effect
-            _ => true,
-        })
+    pub fn has_side_effects(ast: &ModModule) -> bool {
+        crate::side_effects::module_has_side_effects(ast)
     }
 
     /// Extract __all__ exports from a module
+    /// Returns:
+    /// - has_explicit_all: true if __all__ is explicitly defined
+    /// - exports: Some(vec) if there are exports, None if no exports
     fn extract_all_exports(&self, ast: &ModModule) -> (bool, Option<Vec<String>>) {
+        // First, look for explicit __all__
         for stmt in &ast.body {
-            if let Stmt::Assign(assign) = stmt
-                && assign.targets.len() == 1
-                && let Expr::Name(name) = &assign.targets[0]
-                && name.id.as_str() == "__all__"
-            {
-                // Try to extract the list of exports
-                if let Expr::List(list_expr) = &assign.value.as_ref() {
-                    let mut exports = Vec::new();
-                    for elt in &list_expr.elts {
-                        if let Expr::StringLiteral(s) = elt {
-                            exports.push(s.value.to_str().to_string());
-                        }
-                    }
-                    return (true, Some(exports));
-                }
+            let Stmt::Assign(assign) = stmt else {
+                continue;
+            };
+
+            // Look for __all__ = [...]
+            if assign.targets.len() != 1 {
+                continue;
+            }
+
+            let Expr::Name(name) = &assign.targets[0] else {
+                continue;
+            };
+
+            if name.id.as_str() == "__all__" {
+                return (true, self.extract_string_list_from_expr(&assign.value));
             }
         }
-        (false, None)
+
+        // If no __all__, collect all top-level symbols (including private ones for module state)
+        let mut symbols = Vec::new();
+        for stmt in &ast.body {
+            match stmt {
+                Stmt::FunctionDef(func) => {
+                    symbols.push(func.name.to_string());
+                }
+                Stmt::ClassDef(class) => {
+                    symbols.push(class.name.to_string());
+                }
+                Stmt::Assign(assign) => {
+                    // Include ALL variable assignments (including private ones starting with _)
+                    // This ensures module state variables like _config, _logger are available
+                    for target in &assign.targets {
+                        if let Expr::Name(name) = target
+                            && name.id.as_str() != "__all__"
+                        {
+                            symbols.push(name.id.to_string());
+                        }
+                    }
+                }
+                Stmt::AnnAssign(ann_assign) => {
+                    // Include ALL annotated assignments (including private ones)
+                    if let Expr::Name(name) = ann_assign.target.as_ref() {
+                        symbols.push(name.id.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if symbols.is_empty() {
+            (false, None)
+        } else {
+            // Sort symbols for deterministic output
+            symbols.sort();
+            (false, Some(symbols))
+        }
+    }
+
+    fn extract_string_list_from_expr(&self, expr: &Expr) -> Option<Vec<String>> {
+        match expr {
+            Expr::List(list_expr) => {
+                let mut exports = Vec::new();
+                for element in &list_expr.elts {
+                    if let Expr::StringLiteral(string_lit) = element {
+                        let string_value = string_lit.value.to_str();
+                        exports.push(string_value.to_string());
+                    }
+                }
+                Some(exports)
+            }
+            Expr::Tuple(tuple_expr) => {
+                let mut exports = Vec::new();
+                for element in &tuple_expr.elts {
+                    if let Expr::StringLiteral(string_lit) = element {
+                        let string_value = string_lit.value.to_str();
+                        exports.push(string_value.to_string());
+                    }
+                }
+                Some(exports)
+            }
+            _ => None, // Other expressions like computed lists are not supported
+        }
     }
 
     /// Add a regular stdlib import (e.g., "sys", "types")
@@ -3157,10 +3200,11 @@ impl<'a> HybridStaticBundler<'a> {
         stmts
     }
 
-    /// Analyze module globals and store in global_info_map
-    fn analyze_module_globals(
-        &mut self,
+    /// Process wrapper module globals (matching original implementation)
+    fn process_wrapper_module_globals(
+        &self,
         params: &ProcessGlobalsParams,
+        module_globals: &mut FxIndexMap<String, crate::semantic_bundler::ModuleGlobalInfo>,
         all_lifted_declarations: &mut Vec<Stmt>,
     ) {
         // Get module ID from graph
@@ -3183,13 +3227,10 @@ impl<'a> HybridStaticBundler<'a> {
         // Create GlobalsLifter and collect declarations
         if !global_info.global_declarations.is_empty() {
             let globals_lifter = crate::code_generator::globals::GlobalsLifter::new(&global_info);
-            all_lifted_declarations
-                .extend(globals_lifter.get_lifted_declarations().iter().cloned());
+            all_lifted_declarations.extend(globals_lifter.get_lifted_declarations());
         }
 
-        // Store in the bundler's global info map
-        self.global_info_map
-            .insert(params.module_name.to_string(), global_info);
+        module_globals.insert(params.module_name.to_string(), global_info);
     }
 
     /// Transform module to cache init function
@@ -3411,7 +3452,6 @@ impl<'a> HybridStaticBundler<'a> {
             is_entry_module: false, // This is not the entry module
             is_wrapper_init: false, // Not a wrapper init
             global_deferred_imports: Some(&self.global_deferred_imports), // Pass global registry
-            global_info: ctx.global_info.as_ref(),
         });
         transformer.transform_module(&mut ast);
 
@@ -4784,26 +4824,6 @@ impl<'a> HybridStaticBundler<'a> {
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
 
-        // PHASE 1: Analyze ALL modules (both inlinable and wrapper) before any transformation
-        log::debug!("Phase 1: Analyzing globals for all modules");
-        let mut all_lifted_declarations_phase1 = Vec::new();
-
-        // Analyze all modules to populate global_info_map
-        for (module_name, ast, _path, _hash) in modules.iter() {
-            log::debug!("Analyzing module: {module_name}");
-            let analysis_params = ProcessGlobalsParams {
-                module_name,
-                ast,
-                semantic_ctx: &semantic_ctx,
-            };
-            self.analyze_module_globals(&analysis_params, &mut all_lifted_declarations_phase1);
-        }
-
-        log::debug!(
-            "Phase 1 complete: Analyzed {} modules",
-            self.global_info_map.len()
-        );
-
         // Sort wrapper modules by their dependencies
         let sorted_wrapper_modules =
             self.sort_wrapper_modules_by_dependencies(&wrapper_modules_saved, params.graph)?;
@@ -5208,15 +5228,22 @@ impl<'a> HybridStaticBundler<'a> {
             );
 
             // Collect lifted declarations for needed wrapper modules
+            // Process globals for the needed wrapper modules
+            let mut module_globals = FxIndexMap::default();
             let mut lifted_declarations = Vec::new();
-            for module_name in &wrapper_modules_needed_by_inlined {
-                if let Some(global_info) = self.global_info_map.get(module_name)
-                    && !global_info.global_declarations.is_empty()
-                {
-                    let globals_lifter =
-                        crate::code_generator::globals::GlobalsLifter::new(global_info);
-                    lifted_declarations
-                        .extend(globals_lifter.get_lifted_declarations().iter().cloned());
+
+            for (module_name, ast, _, _) in &sorted_wrapper_modules {
+                if wrapper_modules_needed_by_inlined.contains(module_name) {
+                    let params = ProcessGlobalsParams {
+                        module_name,
+                        ast,
+                        semantic_ctx: &semantic_ctx,
+                    };
+                    self.process_wrapper_module_globals(
+                        &params,
+                        &mut module_globals,
+                        &mut lifted_declarations,
+                    );
                 }
             }
 
@@ -5234,7 +5261,7 @@ impl<'a> HybridStaticBundler<'a> {
             for (module_name, ast, module_path, _) in &sorted_wrapper_modules {
                 if wrapper_modules_needed_by_inlined.contains(module_name) {
                     let synthetic_name = self.module_registry[module_name].clone();
-                    let global_info = self.global_info_map.get(module_name).cloned();
+                    let global_info = module_globals.get(module_name).cloned();
                     let ctx = ModuleTransformContext {
                         module_name,
                         synthetic_name: &synthetic_name,
@@ -5274,10 +5301,6 @@ impl<'a> HybridStaticBundler<'a> {
 
             let mut inlined_stmts = Vec::new();
             let mut deferred_imports = Vec::new();
-
-            // Get the pre-analyzed global info for this module
-            let global_info = self.global_info_map.get(module_name).cloned();
-
             let mut inline_ctx = InlineContext {
                 module_exports_map: &module_exports_map,
                 global_symbols: &mut global_symbols,
@@ -5285,7 +5308,6 @@ impl<'a> HybridStaticBundler<'a> {
                 inlined_stmts: &mut inlined_stmts,
                 import_aliases: FxIndexMap::default(),
                 deferred_imports: &mut deferred_imports,
-                global_info,
             };
             self.inline_module(module_name, ast.clone(), _module_path, &mut inline_ctx)?;
             log::debug!(
@@ -5455,22 +5477,20 @@ impl<'a> HybridStaticBundler<'a> {
         // Now transform wrapper modules into init functions AFTER inlining
         // This way we have access to symbol_renames for proper import resolution
         if has_wrapper_modules {
-            // Collect all lifted declarations from wrapper modules (already analyzed in Phase 1)
+            // Process all wrapper modules for globals
+            let mut module_globals = FxIndexMap::default();
             let mut all_lifted_declarations = Vec::new();
-            for (module_name, _, _, _) in &sorted_wrapper_modules {
-                // Skip modules that were already processed early
-                if wrapper_modules_needed_by_inlined.contains(module_name) {
-                    continue;
-                }
-
-                if let Some(global_info) = self.global_info_map.get(module_name)
-                    && !global_info.global_declarations.is_empty()
-                {
-                    let globals_lifter =
-                        crate::code_generator::globals::GlobalsLifter::new(global_info);
-                    all_lifted_declarations
-                        .extend(globals_lifter.get_lifted_declarations().iter().cloned());
-                }
+            for (module_name, ast, _, _) in &sorted_wrapper_modules {
+                let params = ProcessGlobalsParams {
+                    module_name,
+                    ast,
+                    semantic_ctx: &semantic_ctx,
+                };
+                self.process_wrapper_module_globals(
+                    &params,
+                    &mut module_globals,
+                    &mut all_lifted_declarations,
+                );
             }
 
             // Store all lifted declarations
@@ -5498,7 +5518,7 @@ impl<'a> HybridStaticBundler<'a> {
                 }
 
                 let synthetic_name = self.module_registry[module_name].clone();
-                let global_info = self.global_info_map.get(module_name).cloned();
+                let global_info = module_globals.get(module_name).cloned();
                 let ctx = ModuleTransformContext {
                     module_name,
                     synthetic_name: &synthetic_name,
@@ -5782,7 +5802,6 @@ impl<'a> HybridStaticBundler<'a> {
                         is_entry_module: true,  // This is the entry module
                         is_wrapper_init: false, // Not a wrapper init
                         global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports for checking */
-                        global_info: self.global_info_map.get(&module_name),
                     },
                 );
 

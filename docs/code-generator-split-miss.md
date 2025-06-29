@@ -66,27 +66,31 @@ During the refactoring to split `code_generator.rs` into multiple modules, sever
 
 ### In `crates/cribo/src/code_generator/context.rs`
 
-- [ ] **`InlineContext` struct**
+- [x] **`InlineContext` struct**
   - **Add field**: `global_info: Option<crate::semantic_bundler::ModuleGlobalInfo>`
   - **Change**: From `Option<&'a ModuleGlobalInfo>` to owned value to avoid borrowing issues
+  - **Status**: ✅ Fixed - But later removed as it was not actually used
 
 ### In `crates/cribo/src/code_generator/import_transformer.rs`
 
-- [ ] **`RecursiveImportTransformerParams` struct**
+- [x] **`RecursiveImportTransformerParams` struct**
   - **Add field**: `global_info: Option<&'a crate::semantic_bundler::ModuleGlobalInfo>`
+  - **Status**: ✅ Fixed - But later removed as it was not actually used
 
-- [ ] **`RecursiveImportTransformer` struct**
+- [x] **`RecursiveImportTransformer` struct**
   - **Add field**: `global_info: Option<&'a crate::semantic_bundler::ModuleGlobalInfo>`
+  - **Status**: ✅ Fixed - But later removed as it was not actually used
 
 ## Root Cause
 
-The fundamental issue was that the refactoring broke the assumption that all modules would have access to semantic analysis results. The original monolithic code performed analysis and transformation together, while the split version separated these concerns but failed to ensure semantic information was available where needed.
+The fundamental issue was **NOT** about missing semantic analysis results in RecursiveImportTransformer (as evidenced by the unused `global_info` field). The actual root cause was the incorrect refactoring of `add_stdlib_import`:
+
+1. The original `add_stdlib_import` created proper `Stmt::Import` statements
+2. The refactored version incorrectly added empty entries to `stdlib_import_from_map`
+3. This caused `add_hoisted_imports` to generate invalid Python syntax like `from functools import` with no import names
+
+The fix was simply restoring `add_stdlib_import` to its original implementation.
 
 ## Solution Summary
 
-Implement a two-phase processing approach:
-
-1. **Phase 1**: Analyze ALL modules (both wrapper and inlinable) and store results
-2. **Phase 2**: Transform modules using the pre-analyzed semantic information
-
-This ensures every module has access to complete semantic context during transformation, regardless of whether it's a wrapper or inlinable module.
+The primary fix was restoring `add_stdlib_import` to its original implementation. The two-phase processing that was added for analyzing all modules upfront may not have been necessary for fixing the immediate issue, but it represents a different approach than the original code which only analyzed wrapper modules.

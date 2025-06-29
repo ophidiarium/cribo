@@ -56,8 +56,6 @@ pub struct InlineContext<'a> {
     pub import_aliases: FxIndexMap<String, String>,
     /// Deferred import assignments that need to be placed after all modules are inlined
     pub deferred_imports: &'a mut Vec<Stmt>,
-    /// Global semantic information for the module being inlined
-    pub global_info: Option<crate::semantic_bundler::ModuleGlobalInfo>,
 }
 
 /// Information about module globals
