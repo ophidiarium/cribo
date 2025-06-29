@@ -1,3 +1,5 @@
+#![allow(clippy::excessive_nesting)]
+
 use std::path::Path;
 
 use cow_utils::CowUtils;

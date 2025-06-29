@@ -1,3 +1,5 @@
+#![allow(clippy::excessive_nesting)]
+
 use anyhow::Result;
 use ruff_python_ast::ModModule;
 
