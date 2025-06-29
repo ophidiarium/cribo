@@ -559,8 +559,24 @@ fn transform_expr_for_module_vars(
 ) {
     match expr {
         Expr::Name(name) if name.ctx == ExprContext::Load => {
+            // Special case: transform __name__ to module.__name__
+            if name.id.as_str() == "__name__" {
+                // Transform __name__ -> module.__name__
+                *expr = Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: "module".into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("__name__", TextRange::default()),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                });
+            }
             // Check if this is a reference to a module-level variable
-            if module_level_vars.contains(name.id.as_str()) {
+            else if module_level_vars.contains(name.id.as_str()) {
                 // Transform to module.var
                 *expr = Expr::Attribute(ExprAttribute {
                     node_index: AtomicNodeIndex::dummy(),

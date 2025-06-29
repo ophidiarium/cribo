@@ -141,3 +141,22 @@ The refactoring is now a true semantic copy of the original code, with functiona
 - The refactored version incorrectly checked if it matched an original variable name
 - This caused missing reassignments like `foo = foo_1` in the entry module
 - **Status**: ✅ Fixed - Restored to match original logic
+
+### 8. **Import alias tracking in entry module**:
+
+- The RecursiveImportTransformer was tracking namespace imports as module aliases in the entry module
+- This caused `app_utils.get_name()` to be incorrectly transformed to `get_name()`
+- In the entry module, namespace imports should create namespace objects, not simple aliases
+- **Status**: ✅ Fixed - Added is_entry_module check to prevent tracking
+
+### 9. **Module alias heuristics in entry module**:
+
+- The `find_module_for_alias` function was applying heuristic patterns in the entry module
+- This caused `app_utils` to be incorrectly matched as an alias for the "app" module
+- **Status**: ✅ Fixed - Disabled heuristic patterns in entry module
+
+### 10. **Missing `__name__` transformation**:
+
+- The simpler `transform_expr_for_module_vars` function didn't handle `__name__`
+- This caused `logging.getLogger(__name__)` to use the wrong module name in wrapper functions
+- **Status**: ✅ Fixed - Added special case for `__name__` transformation to `module.__name__`

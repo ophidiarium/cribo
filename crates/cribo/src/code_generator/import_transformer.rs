@@ -1675,11 +1675,15 @@ impl<'a> RecursiveImportTransformer<'a> {
         } else {
             // Check common patterns like "import utils.helpers as helper_utils"
             // where alias is "helper_utils" and module is "utils.helpers"
-            for module in &self.bundler.inlined_modules {
-                if let Some(last_part) = module.split('.').next_back()
-                    && (alias == format!("{last_part}_utils") || alias == format!("{last_part}s"))
-                {
-                    return Some(module.clone());
+            // But not in the entry module - namespace objects are used there
+            if !self.is_entry_module {
+                for module in &self.bundler.inlined_modules {
+                    if let Some(last_part) = module.split('.').next_back()
+                        && (alias == format!("{last_part}_utils")
+                            || alias == format!("{last_part}s"))
+                    {
+                        return Some(module.clone());
+                    }
                 }
             }
             None
