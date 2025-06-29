@@ -7833,15 +7833,22 @@ impl<'a> HybridStaticBundler<'a> {
     fn check_renamed_assignment(
         &self,
         assign: &StmtAssign,
-        renames: &FxIndexMap<String, String>,
+        entry_module_renames: &FxIndexMap<String, String>,
     ) -> Option<(String, String)> {
-        // Check if any target was renamed
-        for target in &assign.targets {
-            if let Expr::Name(name) = target {
-                let original_name = name.id.as_str();
-                if let Some(renamed) = renames.get(original_name) {
-                    return Some((original_name.to_string(), renamed.clone()));
-                }
+        if assign.targets.len() != 1 {
+            return None;
+        }
+
+        let Expr::Name(name_expr) = &assign.targets[0] else {
+            return None;
+        };
+
+        let assigned_name = name_expr.id.as_str();
+        // Check if this is a renamed variable (e.g., Logger_1)
+        for (original, renamed) in entry_module_renames {
+            if assigned_name == renamed {
+                // This is a renamed assignment, mark for reassignment
+                return Some((original.clone(), renamed.clone()));
             }
         }
         None

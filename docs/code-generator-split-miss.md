@@ -129,5 +129,15 @@ All major discrepancies between the original and refactored code have been ident
 4. Removed unnecessary two-phase processing in `bundle_modules`
 5. Restored complete `identify_required_namespaces` with all original logic
 6. Fixed `create_namespace_module` to set `__name__` attribute
+7. Fixed `check_renamed_assignment` to correctly identify renamed variables
 
 The refactoring is now a true semantic copy of the original code, with functionality preserved while being split into logical modules.
+
+## Additional Issues Fixed
+
+### 7. **Incorrect `check_renamed_assignment` logic**:
+
+- The original checked if the assigned variable name matched a renamed variable
+- The refactored version incorrectly checked if it matched an original variable name
+- This caused missing reassignments like `foo = foo_1` in the entry module
+- **Status**: ✅ Fixed - Restored to match original logic
