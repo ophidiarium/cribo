@@ -110,7 +110,7 @@ impl SymbolDependencyGraph {
     }
 
     /// Perform topological sort on symbols within circular modules
-    /// Stores symbols in reverse topological order (dependencies first)
+    /// Stores symbols in topological order (dependencies first)
     pub fn topological_sort_symbols(
         &mut self,
         circular_modules: &FxIndexSet<String>,
