@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// Represents a hard dependency between classes across modules
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HardDependency {
     /// The module where the class is defined
     pub module_name: String,
