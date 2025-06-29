@@ -1,18 +1,8 @@
-use std::{
-    hash::BuildHasherDefault,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use cow_utils::CowUtils;
-use indexmap::{IndexMap, IndexSet};
 use log::debug;
-use rustc_hash::FxHasher;
-
-/// Type alias for IndexMap with FxHasher for better performance
-type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
-/// Type alias for IndexSet with FxHasher for better performance
-type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
     ExprContext, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, Identifier,
@@ -33,6 +23,7 @@ use crate::{
     },
     cribo_graph::CriboGraph as DependencyGraph,
     transformation_context::TransformationContext,
+    types::{FxIndexMap, FxIndexSet},
 };
 
 /// Direct import collection context

@@ -3,28 +3,22 @@
 //! This module handles the complex transformation of Python module ASTs into
 //! initialization functions that can be called to create module objects.
 
-use std::hash::BuildHasherDefault;
-
 use anyhow::Result;
-use indexmap::{IndexMap, IndexSet};
 use log::debug;
-use rustc_hash::FxHasher;
-
-/// Type alias for IndexMap with FxHasher for better performance
-type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
-/// Type alias for IndexSet with FxHasher for better performance
-type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 use ruff_python_ast::{
     AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier,
     ModModule, Stmt, StmtAssign, StmtFunctionDef, StmtGlobal, StmtReturn,
 };
 use ruff_text_size::TextRange;
 
-use crate::code_generator::{
-    bundler::HybridStaticBundler,
-    context::ModuleTransformContext,
-    globals::{GlobalsLifter, transform_globals_in_stmt},
-    import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
+use crate::{
+    code_generator::{
+        bundler::HybridStaticBundler,
+        context::ModuleTransformContext,
+        globals::{GlobalsLifter, transform_globals_in_stmt},
+        import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
+    },
+    types::{FxIndexMap, FxIndexSet},
 };
 
 /// Transforms a module AST into an initialization function

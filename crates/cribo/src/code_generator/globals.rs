@@ -1,19 +1,12 @@
-use std::hash::BuildHasherDefault;
-
 use cow_utils::CowUtils;
-use indexmap::IndexMap;
 use log::debug;
 use ruff_python_ast::{
     AtomicNodeIndex, Expr, ExprAttribute, ExprContext, ExprName, ExprNoneLiteral, Identifier, Stmt,
     StmtAssign,
 };
 use ruff_text_size::TextRange;
-use rustc_hash::FxHasher;
 
-/// Type alias for IndexMap with FxHasher for better performance
-type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
-
-use crate::semantic_bundler::ModuleGlobalInfo;
+use crate::{semantic_bundler::ModuleGlobalInfo, types::FxIndexMap};
 
 /// Transformer that lifts module-level globals to true global scope
 pub struct GlobalsLifter {

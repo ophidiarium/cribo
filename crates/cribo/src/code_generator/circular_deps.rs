@@ -1,14 +1,7 @@
-use std::hash::BuildHasherDefault;
-
 use anyhow::Result;
-use indexmap::{IndexMap, IndexSet};
 use ruff_python_ast::ModModule;
-use rustc_hash::FxHasher;
 
-/// Type alias for IndexMap with FxHasher for better performance
-type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
-/// Type alias for IndexSet with FxHasher for better performance
-type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
+use crate::types::{FxIndexMap, FxIndexSet};
 
 /// Handles symbol-level circular dependency analysis and resolution
 #[derive(Debug, Default)]

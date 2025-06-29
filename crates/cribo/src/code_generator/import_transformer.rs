@@ -1,14 +1,6 @@
-use std::{hash::BuildHasherDefault, path::Path};
+use std::path::Path;
 
 use cow_utils::CowUtils;
-use indexmap::{IndexMap, IndexSet};
-use rustc_hash::FxHasher;
-
-/// Type alias for IndexMap with FxHasher for better performance
-type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
-/// Type alias for IndexSet with FxHasher for better performance
-type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
-
 use ruff_python_ast::{
     Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
     ExprFString, ExprList, ExprName, ExprStringLiteral, FString, FStringFlags, FStringValue,
@@ -18,7 +10,10 @@ use ruff_python_ast::{
 };
 use ruff_text_size::TextRange;
 
-use crate::code_generator::bundler::HybridStaticBundler;
+use crate::{
+    code_generator::bundler::HybridStaticBundler,
+    types::{FxIndexMap, FxIndexSet},
+};
 
 /// Parameters for creating a RecursiveImportTransformer
 #[derive(Debug)]

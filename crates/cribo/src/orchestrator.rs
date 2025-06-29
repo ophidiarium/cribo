@@ -1,15 +1,13 @@
 use std::{
     fs,
-    hash::BuildHasherDefault,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
 
 use anyhow::{Context, Result, anyhow};
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexSet;
 use log::{debug, info, trace, warn};
 use ruff_python_ast::{ModModule, visitor::Visitor};
-use rustc_hash::FxHasher;
 
 use crate::{
     code_generator::HybridStaticBundler,
@@ -22,12 +20,10 @@ use crate::{
     resolver::{ImportType, ModuleResolver},
     semantic_bundler::SemanticBundler,
     tree_shaking::TreeShaker,
+    types::FxIndexMap,
     util::{module_name_from_relative, normalize_line_endings},
     visitors::{ImportDiscoveryVisitor, ImportLocation, ScopeElement},
 };
-
-/// Type alias for IndexMap with FxHasher for better performance
-type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 
 /// Static empty parsed module for creating Stylist instances
 static EMPTY_PARSED_MODULE: OnceLock<ruff_python_parser::Parsed<ModModule>> = OnceLock::new();
@@ -186,7 +182,7 @@ struct ProcessedModule {
     /// Normalized imports map (alias -> canonical)
     normalized_imports: FxIndexMap<String, String>,
     /// Modules created by stdlib normalization (e.g., "abc", "collections")
-    normalized_modules: IndexSet<String, BuildHasherDefault<FxHasher>>,
+    normalized_modules: crate::types::FxIndexSet<String>,
     /// Module ID if already added to dependency graph
     module_id: Option<crate::cribo_graph::ModuleId>,
 }

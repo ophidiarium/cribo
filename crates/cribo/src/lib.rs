@@ -15,6 +15,7 @@ pub mod side_effects;
 pub mod stdlib_normalization;
 pub mod transformation_context;
 pub mod tree_shaking;
+pub mod types;
 pub mod util;
 pub mod visitors;
 

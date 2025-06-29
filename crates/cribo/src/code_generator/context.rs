@@ -1,20 +1,11 @@
-use std::{
-    hash::BuildHasherDefault,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-use indexmap::{IndexMap, IndexSet};
 use ruff_python_ast::{ModModule, Stmt};
-use rustc_hash::FxHasher;
-
-/// Type alias for IndexMap with FxHasher for better performance
-type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
-/// Type alias for IndexSet with FxHasher for better performance
-type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 
 use crate::{
     cribo_graph::CriboGraph as DependencyGraph,
     semantic_bundler::{SemanticBundler, SymbolRegistry},
+    types::{FxIndexMap, FxIndexSet},
 };
 
 /// Represents a hard dependency between classes across modules
