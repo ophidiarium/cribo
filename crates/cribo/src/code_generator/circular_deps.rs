@@ -2,9 +2,8 @@ use std::hash::BuildHasherDefault;
 
 use anyhow::Result;
 use indexmap::{IndexMap, IndexSet};
-use log::error;
 use ruff_python_ast::ModModule;
-use rustc_hash::{FxHashSet, FxHasher};
+use rustc_hash::FxHasher;
 
 /// Type alias for IndexMap with FxHasher for better performance
 type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
@@ -137,16 +136,25 @@ impl SymbolDependencyGraph {
             if circular_modules.contains(&module_symbol.0) {
                 let node = graph.add_node(module_symbol.clone());
                 node_map.insert(module_symbol.clone(), node);
+                log::debug!("Added node: {}.{}", module_symbol.0, module_symbol.1);
             }
         }
 
-        // Add edges for module-level dependencies only
-        // (dependencies within function bodies are not relevant for sorting)
-        for (symbol, deps) in &self.module_level_dependencies {
-            if let Some(&from_node) = node_map.get(symbol) {
+        // Add edges for dependencies
+        for (module_symbol, deps) in &self.module_level_dependencies {
+            if let Some(&from_node) = node_map.get(module_symbol) {
                 for dep in deps {
                     if let Some(&to_node) = node_map.get(dep) {
-                        graph.add_edge(from_node, to_node, ());
+                        // Edge from dependency to dependent (correct direction for topological
+                        // sort)
+                        log::debug!(
+                            "Adding edge: {}.{} -> {}.{} (dependency -> dependent)",
+                            dep.0,
+                            dep.1,
+                            module_symbol.0,
+                            module_symbol.1
+                        );
+                        graph.add_edge(to_node, from_node, ());
                     }
                 }
             }
@@ -154,64 +162,45 @@ impl SymbolDependencyGraph {
 
         // Perform topological sort
         match toposort(&graph, None) {
-            Ok(sorted) => {
-                // Store in reverse order (dependencies first)
-                self.sorted_symbols = sorted
-                    .into_iter()
-                    .rev()
-                    .map(|idx| graph[idx].clone())
-                    .collect();
+            Ok(sorted_nodes) => {
+                // Store in topological order (dependencies first)
+                self.sorted_symbols.clear();
+                for node_idx in sorted_nodes.into_iter() {
+                    self.sorted_symbols.push(graph[node_idx].clone());
+                }
                 Ok(())
             }
-            Err(cycle_info) => {
-                // Get the module name from the cycle
-                let module_name = &graph[cycle_info.node_id()].0;
+            Err(cycle) => {
+                // If topological sort fails, there's a symbol-level circular dependency
+                // This is a fatal error - we cannot generate correct code
+                let cycle_info = cycle.node_id();
+                let module_symbol = &graph[cycle_info];
+                log::error!(
+                    "Fatal: Circular dependency detected involving symbol '{}.{}'",
+                    module_symbol.0,
+                    module_symbol.1
+                );
 
-                // Find a cycle for better error reporting
-                let cycle_start = cycle_info.node_id();
-                let mut cycle_symbols = vec![graph[cycle_start].clone()];
+                // Find all symbols involved in the cycle
+                let mut cycle_symbols = vec![module_symbol.clone()];
+                let current = cycle_info;
 
-                // Try to reconstruct the cycle
-                let mut current = cycle_start;
-                let mut visited = FxHashSet::default();
-                visited.insert(current);
-
-                // Follow edges to find the cycle
-                'outer: loop {
-                    let mut found_next = false;
-                    for edge in graph.edges(current) {
-                        let target = edge.target();
-                        if target == cycle_start {
-                            // Found complete cycle
-                            break 'outer;
-                        }
-                        if !visited.contains(&target) {
-                            visited.insert(target);
-                            cycle_symbols.push(graph[target].clone());
-                            current = target;
-                            found_next = true;
-                            break;
-                        }
-                    }
-                    if !found_next {
-                        // No unvisited neighbors, might be a more complex cycle
+                // Walk through edges to find the cycle
+                for edge in graph.edges(current) {
+                    let target = edge.target();
+                    if target != cycle_info {
+                        cycle_symbols.push(graph[target].clone());
+                    } else {
                         break;
                     }
                 }
 
-                error!("Cannot bundle due to circular symbol dependency in module '{module_name}'");
-                error!("Circular dependency involves symbols: {cycle_symbols:?}");
-                error!("This is an unresolvable circular dependency at the symbol level.");
-                error!("Consider refactoring to break the circular dependency:");
-                error!("  - Move shared base classes to a separate module");
-                error!("  - Use protocols or abstract base classes");
-                error!("  - Restructure class inheritance hierarchy");
-
-                anyhow::bail!(
-                    "Unresolvable circular dependency detected in module '{}'. Symbols involved: \
-                     {:?}",
-                    module_name,
+                panic!(
+                    "Cannot bundle due to circular symbol dependency: {:?}",
                     cycle_symbols
+                        .iter()
+                        .map(|(m, s)| format!("{m}.{s}"))
+                        .collect::<Vec<_>>()
                 );
             }
         }
@@ -319,21 +308,37 @@ impl SymbolDependencyGraph {
     ) {
         let key = (module_name.to_string(), function_name.to_string());
         let mut all_dependencies = Vec::new();
+        let mut module_level_deps = Vec::new();
 
-        // For functions, we only care about reads that happen during execution
+        // Track what this function reads at module level (e.g., decorators, default args)
         for var in &item_data.read_vars {
+            // Check if this variable is from a circular module
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && circular_modules.contains(&dep_module)
             {
-                let dep = (dep_module, var.clone());
-                all_dependencies.push(dep);
+                let dep = (dep_module.clone(), var.clone());
+                all_dependencies.push(dep.clone());
+                // Module-level reads need pre-declaration only if from different module
+                if dep_module != module_name {
+                    module_level_deps.push(dep);
+                }
+            }
+        }
+
+        // Also check eventual reads (inside the function body) - these don't need pre-declaration
+        for var in &item_data.eventual_read_vars {
+            if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
+                && circular_modules.contains(&dep_module)
+                && dep_module != module_name
+            {
+                all_dependencies.push((dep_module, var.clone()));
+                // Note: NOT added to module_level_deps since these are lazy
             }
         }
 
         self.dependencies.insert(key.clone(), all_dependencies);
-        // Functions have no module-level dependencies (they're executed later)
         self.module_level_dependencies
-            .insert(key.clone(), Vec::new());
+            .insert(key.clone(), module_level_deps);
         self.symbol_definitions.insert(key);
     }
 
@@ -348,23 +353,28 @@ impl SymbolDependencyGraph {
         circular_modules: &FxIndexSet<String>,
     ) {
         let key = (module_name.to_string(), target_name.to_string());
-        let mut all_dependencies = Vec::new();
-        let mut module_level_deps = Vec::new();
+        let mut dependencies = Vec::new();
 
-        // For assignments, all reads are module-level dependencies
+        // Assignments are evaluated immediately - all dependencies are module-level
         for var in &item_data.read_vars {
+            // Skip self-references (e.g., initialize = initialize)
+            if var == target_name
+                && self.find_symbol_module(var, module_name, graph) == Some(module_name.to_string())
+            {
+                log::debug!("Skipping self-reference in assignment: {target_name} = {var}");
+                continue;
+            }
+
             if let Some(dep_module) = self.find_symbol_module(var, module_name, graph)
                 && circular_modules.contains(&dep_module)
             {
-                let dep = (dep_module, var.clone());
-                all_dependencies.push(dep.clone());
-                module_level_deps.push(dep);
+                dependencies.push((dep_module, var.clone()));
             }
         }
 
-        self.dependencies.insert(key.clone(), all_dependencies);
+        self.dependencies.insert(key.clone(), dependencies.clone());
         self.module_level_dependencies
-            .insert(key.clone(), module_level_deps);
+            .insert(key.clone(), dependencies); // All assignment deps are module-level
         self.symbol_definitions.insert(key);
     }
 
