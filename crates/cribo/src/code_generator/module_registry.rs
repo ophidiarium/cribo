@@ -543,11 +543,6 @@ const CRIBO_INIT_PREFIX: &str = "__cribo_init_";
 /// The init result variable name
 pub const INIT_RESULT_VAR: &str = "__cribo_init_result";
 
-/// Get the init function prefix
-pub fn get_init_function_prefix() -> &'static str {
-    CRIBO_INIT_PREFIX
-}
-
 /// Generate init function name from synthetic name
 pub fn get_init_function_name(synthetic_name: &str) -> String {
     format!("{CRIBO_INIT_PREFIX}{synthetic_name}")
