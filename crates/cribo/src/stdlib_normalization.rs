@@ -1,18 +1,11 @@
-use std::hash::BuildHasherDefault;
-
-use indexmap::{IndexMap, IndexSet};
 use log::debug;
 use ruff_python_ast::{
     ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier, ModModule, Stmt,
     StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
 };
 use ruff_text_size::TextRange;
-use rustc_hash::FxHasher;
 
-/// Type alias for IndexMap with FxHasher for better performance
-type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
-/// Type alias for IndexSet with FxHasher for better performance
-type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
+use crate::types::{FxIndexMap, FxIndexSet};
 
 /// Result of stdlib normalization
 pub struct NormalizationResult {

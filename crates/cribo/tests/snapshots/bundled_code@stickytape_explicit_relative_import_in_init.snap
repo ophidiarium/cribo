@@ -12,4 +12,4 @@ greetings.__name__ = 'greetings'
 message = "Hello"
 greetings.__all__ = ['message']
 greetings.message = message
-print(message)
+print(greetings.message)

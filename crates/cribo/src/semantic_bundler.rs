@@ -23,6 +23,7 @@ use crate::{
 };
 
 /// Semantic bundler that analyzes symbol conflicts across modules using full semantic models
+#[derive(Debug)]
 pub struct SemanticBundler {
     /// Module-specific semantic models
     module_semantics: FxIndexMap<ModuleId, ModuleSemanticInfo>,
@@ -350,6 +351,7 @@ impl ModuleSemanticAnalyzer {
 }
 
 /// Semantic information for a single module
+#[derive(Debug)]
 pub struct ModuleSemanticInfo {
     /// Symbols exported by this module (from semantic analysis)
     pub exported_symbols: FxIndexSet<String>,
@@ -365,6 +367,7 @@ pub struct ModuleSemanticInfo {
 }
 
 /// Global symbol registry across all modules with semantic information
+#[derive(Debug)]
 pub struct SymbolRegistry {
     /// Symbol name -> list of modules that define it
     pub symbols: FxIndexMap<String, Vec<ModuleId>>,

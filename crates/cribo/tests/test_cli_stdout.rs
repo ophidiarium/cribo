@@ -19,6 +19,8 @@ fn run_cribo(args: &[&str]) -> (String, String, i32) {
     let output = Command::new(cribo_exe)
         .args(args)
         .env("RUST_LOG", "off")
+        .env("CARGO_TERM_COLOR", "never")
+        .env("NO_COLOR", "1")
         .output()
         .expect("Failed to execute command");
 

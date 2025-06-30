@@ -15,4 +15,4 @@ greeting.message = message_2
 message_1 = greeting.message
 greetings.__all__ = ['message']
 greetings.message = message_1
-print(message_2)
+print(greetings.message)
