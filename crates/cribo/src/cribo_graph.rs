@@ -806,30 +806,6 @@ impl CriboGraph {
         is_cyclic_directed(&self.graph)
     }
 
-    /// Get all modules that depend on a given module
-    pub fn get_dependents(&self, module_id: ModuleId) -> Vec<ModuleId> {
-        if let Some(&node_idx) = self.node_indices.get(&module_id) {
-            // Since edges go from dependency to dependent, outgoing edges are dependents
-            self.graph
-                .neighbors_directed(node_idx, petgraph::Direction::Outgoing)
-                .map(|idx| self.graph[idx])
-                .collect()
-        } else {
-            vec![]
-        }
-    }
-
-    /// Check if a module dependency is type-checking-only
-    pub fn is_type_checking_only_dependency(&self, from: ModuleId, to: ModuleId) -> bool {
-        if let (Some(&from_idx), Some(&to_idx)) =
-            (self.node_indices.get(&from), self.node_indices.get(&to))
-            && let Some(edge) = self.graph.find_edge(to_idx, from_idx)
-            && let Some(weight) = self.graph.edge_weight(edge)
-        {
-            return weight.is_type_checking_only;
-        }
-        false
-    }
 
     /// Get all modules that a given module depends on
     pub fn get_dependencies(&self, module_id: ModuleId) -> Vec<ModuleId> {

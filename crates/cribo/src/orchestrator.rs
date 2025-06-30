@@ -95,24 +95,9 @@ impl ModuleRegistry {
         self.modules.insert(id, info);
     }
 
-    /// Get module info by ID
-    pub fn get_by_id(&self, id: &ModuleId) -> Option<&ModuleInfo> {
-        self.modules.get(id)
-    }
-
     /// Get module ID by canonical name
     pub fn get_id_by_name(&self, name: &str) -> Option<ModuleId> {
         self.name_to_id.get(name).copied()
-    }
-
-    /// Get module ID by resolved path
-    pub fn get_id_by_path(&self, path: &Path) -> Option<ModuleId> {
-        self.path_to_id.get(path).copied()
-    }
-
-    /// Iterate over all modules
-    pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModuleInfo)> {
-        self.modules.iter()
     }
 }
 
