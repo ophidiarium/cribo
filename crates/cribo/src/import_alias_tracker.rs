@@ -21,17 +21,7 @@ pub struct EnhancedFromImport {
     pub local_alias: Option<String>,
 }
 
-impl EnhancedFromImport {
-    /// Get the name used locally in the code (alias if present, otherwise original)
-    pub fn local_name(&self) -> &str {
-        self.local_alias.as_deref().unwrap_or(&self.original_name)
-    }
-
-    /// Create a qualified name for the import (module.original_name)
-    pub fn qualified_name(&self) -> String {
-        format!("{}.{}", self.module, self.original_name)
-    }
-}
+impl EnhancedFromImport {}
 
 /// Tracks import alias information across modules
 #[derive(Debug, Default)]
