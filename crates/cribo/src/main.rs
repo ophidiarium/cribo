@@ -1,9 +1,33 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use cribo::{config::Config, orchestrator::BundleOrchestrator};
 use env_logger::Env;
 use log::{debug, info};
+
+// Module declarations - keeping only what's needed for the binary
+mod ast_indexer;
+mod code_generator;
+mod combine;
+mod config;
+mod cribo_graph;
+mod dirs;
+mod graph_builder;
+mod import_alias_tracker;
+mod import_rewriter;
+mod orchestrator;
+mod resolver;
+mod semantic_analysis;
+mod semantic_bundler;
+mod side_effects;
+mod stdlib_normalization;
+mod transformation_context;
+mod tree_shaking;
+mod types;
+mod util;
+mod visitors;
+
+use config::Config;
+use orchestrator::BundleOrchestrator;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

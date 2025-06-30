@@ -8,6 +8,15 @@ name                  = "cribo"
 repository.workspace  = true
 version.workspace     = true
 
+[features]
+bench = []
+
+[lib]
+name = "cribo"
+path = "src/lib.rs"
+# Only build the library when bench feature is enabled
+required-features = ["bench"]
+
 [dependencies]
 anyhow               = { workspace = true }
 clap                 = { workspace = true }
@@ -44,15 +53,14 @@ serial_test       = { workspace = true }
 tempfile          = { workspace = true }
 
 [[bench]]
-harness = false
-name    = "bundling"
+harness           = false
+name              = "bundling"
+required-features = ["bench"]
 
 [[bench]]
-harness = false
-name    = "ecosystem"
+harness           = false
+name              = "ecosystem"
+required-features = ["bench"]
 
 [lints.rust]
 exported_private_dependencies = { level = "allow", priority = 10 }
-
-[lib]
-doctest = false

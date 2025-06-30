@@ -1,14 +1,13 @@
 #![allow(clippy::disallowed_methods)] // insta macros use unwrap internally
 
 use std::{
-    fs,
+    env, fs,
     io::Write,
     path::Path,
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use cribo::{config::Config, orchestrator::BundleOrchestrator, util::get_python_executable};
 use once_cell::sync::Lazy;
 use pretty_assertions::assert_eq;
 // Ruff linting integration for cross-validation
@@ -23,6 +22,41 @@ use serde::Serialize;
 use tempfile::TempDir;
 
 static FIXTURE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Get the Python executable to use for testing
+fn get_python_executable() -> String {
+    // Try common Python executable names
+    for cmd in &["python3", "python"] {
+        if Command::new(cmd)
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+        {
+            return cmd.to_string();
+        }
+    }
+    panic!("Could not find Python executable");
+}
+
+/// Run cribo with given arguments and return (stdout, stderr, exit_code)
+fn run_cribo(args: &[&str]) -> (String, String, i32) {
+    let cribo_exe = env!("CARGO_BIN_EXE_cribo");
+
+    let output = Command::new(cribo_exe)
+        .args(args)
+        .env("RUST_LOG", "off")
+        .env("CARGO_TERM_COLOR", "never")
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("Failed to execute cribo");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let exit_code = output.status.code().unwrap_or(-1);
+
+    (stdout, stderr, exit_code)
+}
 
 #[derive(Default)]
 struct TestSummary;
@@ -257,18 +291,23 @@ fn test_bundling_fixtures() {
         let temp_dir = TempDir::new().unwrap();
         let bundle_path = temp_dir.path().join("bundled.py");
 
-        // Configure bundler
-        let config = Config::default();
-        let mut bundler = BundleOrchestrator::new(config);
+        // Bundle the fixture with requirements generation using the cribo binary
+        let (bundle_stdout, bundle_stderr, bundle_exit_code) = run_cribo(&[
+            "--entry",
+            path.to_str().unwrap(),
+            "--output",
+            bundle_path.to_str().unwrap(),
+            "--emit-requirements",
+        ]);
 
-        // Bundle the fixture with requirements generation
-        if let Err(e) = bundler.bundle(path, &bundle_path, true) {
+        // Check if bundling failed
+        if bundle_exit_code != 0 {
             // xfail_: bundling failures are expected
             // pyfail_: bundling failures are allowed (but not required)
             if expects_bundling_failure || expects_python_failure {
                 // The fixture is expected to fail bundling (xfail_) or allowed to fail bundling
                 // (pyfail_) We'll create a simple error output for the snapshot
-                let error_msg = format!("Bundling failed as expected: {e}");
+                let error_msg = format!("Bundling failed as expected: {}", bundle_stderr.trim());
 
                 // Create error snapshot
                 insta::with_settings!({
@@ -281,7 +320,11 @@ fn test_bundling_fixtures() {
                 return;
             } else {
                 // Unexpected bundling failure
-                panic!("Bundling failed unexpectedly for {fixture_name}: {e}");
+                panic!(
+                    "Bundling failed unexpectedly for {fixture_name}:\nExit code: \
+                     {bundle_exit_code}\nStderr: {}",
+                    bundle_stderr.trim()
+                );
             }
         }
 
