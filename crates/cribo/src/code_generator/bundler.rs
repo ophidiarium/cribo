@@ -8452,25 +8452,29 @@ impl<'a> HybridStaticBundler<'a> {
         let mut class_def_clone = class_def.clone();
         class_def_clone.name = Identifier::new(renamed_name.clone(), TextRange::default());
 
+        // Precompute a combined rename map that includes renames from all modules
+        // This is used for both base classes and class body to avoid repeated allocations
+        let mut combined_renames = module_renames.clone();
+        for (_other_module, other_renames) in ctx.module_renames.iter() {
+            for (original_name, renamed_name) in other_renames {
+                // Only add if not already present (local module renames take precedence)
+                if !combined_renames.contains_key(original_name) {
+                    combined_renames.insert(original_name.clone(), renamed_name.clone());
+                }
+            }
+        }
+
         // Apply renames to base classes
+        if let Some(ref mut arguments) = class_def_clone.arguments {
+            // Apply renames to each base class using the precomputed map
+            for arg in &mut arguments.args {
+                self.rewrite_aliases_in_expr(arg, &combined_renames);
+            }
+        }
+
         // Apply renames and resolve import aliases in class body
         for body_stmt in &mut class_def_clone.body {
             Self::resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);
-
-            // Build a combined rename map that includes renames from all modules
-            // This is needed because global variables from other modules might be renamed
-            let mut combined_renames = module_renames.clone();
-
-            // Add renames from all modules to handle cross-module global variable renames
-            for (_other_module, other_renames) in ctx.module_renames.iter() {
-                for (original_name, renamed_name) in other_renames {
-                    // Only add if not already present (local module renames take precedence)
-                    if !combined_renames.contains_key(original_name) {
-                        combined_renames.insert(original_name.clone(), renamed_name.clone());
-                    }
-                }
-            }
-
             self.rewrite_aliases_in_stmt(body_stmt, &combined_renames);
         }
 
