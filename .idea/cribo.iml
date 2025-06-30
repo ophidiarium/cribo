@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="FacetManager">
+    <facet type="Python" name="Python facet">
+      <configuration sdkName="uv (cribo)" />
+    </facet>
+  </component>
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/crates/cribo/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/cribo/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/cribo/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/python" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/crates/cribo/target" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/.vscode" />
+      <excludeFolder url="file://$MODULE_DIR$/.zed" />
+      <excludeFolder url="file://$MODULE_DIR$/ecosystem/packages" />
+      <excludeFolder url="file://$MODULE_DIR$/references" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="library" name="uv (cribo) interpreter library" level="application" />
+  </component>
+</module>
