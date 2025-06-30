@@ -8,7 +8,7 @@
 use log::debug;
 use ruff_python_ast::{
     AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprName, Identifier, ModModule,
-    Stmt, StmtAssign, StmtImportFrom, StmtPass,
+    Stmt, StmtAssign, StmtImport, StmtImportFrom, StmtPass,
 };
 use ruff_text_size::TextRange;
 
@@ -224,6 +224,24 @@ pub fn check_local_name_conflict(ast: &ModModule, name: &str) -> bool {
                     if let Expr::Name(name_expr) = target
                         && name_expr.id.as_str() == name
                     {
+                        return true;
+                    }
+                }
+            }
+            Stmt::Import(StmtImport { names, .. }) => {
+                // Check import statements that remain in the module (third-party imports)
+                for alias in names {
+                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name);
+                    if local_name.as_str() == name {
+                        return true;
+                    }
+                }
+            }
+            Stmt::ImportFrom(StmtImportFrom { names, .. }) => {
+                // Check from imports that remain in the module (third-party imports)
+                for alias in names {
+                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name);
+                    if local_name.as_str() == name {
                         return true;
                     }
                 }
