@@ -90,7 +90,6 @@ impl ItemType {
     }
 }
 
-
 /// Information about a module-level dependency edge
 #[derive(Debug, Clone, Default)]
 pub struct ModuleDependencyInfo {}
@@ -496,12 +495,6 @@ pub struct CircularDependencyAnalysis {
     pub resolvable_cycles: Vec<CircularDependencyGroup>,
     /// Circular dependencies that cannot be resolved
     pub unresolvable_cycles: Vec<CircularDependencyGroup>,
-    /// Total number of cycles detected
-    pub total_cycles_detected: usize,
-    /// Size of the largest cycle
-    pub largest_cycle_size: usize,
-    /// All cycle paths found
-    pub cycle_paths: Vec<Vec<String>>,
 }
 
 /// A group of modules forming a circular dependency
@@ -509,7 +502,6 @@ pub struct CircularDependencyAnalysis {
 pub struct CircularDependencyGroup {
     pub modules: Vec<String>,
     pub cycle_type: CircularDependencyType,
-    pub import_chain: Vec<ImportEdge>,
     pub suggested_resolution: ResolutionStrategy,
 }
 
@@ -529,9 +521,9 @@ pub enum CircularDependencyType {
 /// Resolution strategy for circular dependencies
 #[derive(Debug, Clone)]
 pub enum ResolutionStrategy {
-    LazyImport { modules: Vec<String> },
-    FunctionScopedImport { import_statements: Vec<String> },
-    ModuleSplit { suggestions: Vec<String> },
+    LazyImport,
+    FunctionScopedImport,
+    ModuleSplit,
     Unresolvable { reason: String },
 }
 
@@ -540,8 +532,6 @@ pub enum ResolutionStrategy {
 pub struct ImportEdge {
     pub from_module: String,
     pub to_module: String,
-    pub import_type: ImportType,
-    pub line_number: Option<usize>,
 }
 
 /// Type of import statement
@@ -782,7 +772,6 @@ impl CriboGraph {
         is_cyclic_directed(&self.graph)
     }
 
-
     /// Get all modules that a given module depends on
     pub fn get_dependencies(&self, module_id: ModuleId) -> Vec<ModuleId> {
         if let Some(&node_idx) = self.node_indices.get(&module_id) {
@@ -965,16 +954,14 @@ impl CriboGraph {
     /// Analyze circular dependencies and classify them
     pub fn analyze_circular_dependencies(&self) -> CircularDependencyAnalysis {
         let sccs = self.find_strongly_connected_components();
-        let cycle_paths = self.find_cycle_paths().unwrap_or_default();
 
         let mut resolvable_cycles = Vec::new();
         let mut unresolvable_cycles = Vec::new();
-        let mut largest_cycle_size = 0;
-        let total_cycles_detected = sccs.len();
 
         for scc in &sccs {
-            if scc.len() > largest_cycle_size {
-                largest_cycle_size = scc.len();
+            // Skip single-node SCCs (self-cycles)
+            if scc.len() <= 1 {
+                continue;
             }
 
             let module_names: Vec<String> = scc
@@ -986,11 +973,8 @@ impl CriboGraph {
                 })
                 .collect();
 
-            // Build import chain for the SCC
-            let import_chain = self.build_import_chain_for_scc(scc);
-
             // Classify the cycle type
-            let cycle_type = self.classify_cycle_type(&module_names, &import_chain);
+            let cycle_type = self.classify_cycle_type(&module_names);
 
             // Suggest resolution strategy
             let suggested_resolution =
@@ -999,7 +983,6 @@ impl CriboGraph {
             let group = CircularDependencyGroup {
                 modules: module_names,
                 cycle_type: cycle_type.clone(),
-                import_chain,
                 suggested_resolution,
             };
 
@@ -1017,105 +1000,11 @@ impl CriboGraph {
         CircularDependencyAnalysis {
             resolvable_cycles,
             unresolvable_cycles,
-            total_cycles_detected,
-            largest_cycle_size,
-            cycle_paths,
-        }
-    }
-
-    /// Build import chain for a strongly connected component
-    fn build_import_chain_for_scc(&self, scc: &[ModuleId]) -> Vec<ImportEdge> {
-        let mut import_chain = Vec::new();
-
-        for &from_module_id in scc {
-            let Some(from_module) = self.modules.get(&from_module_id) else {
-                log::warn!("Module {from_module_id:?} not found in build_import_chain_for_scc");
-                continue;
-            };
-            let from_name = &from_module.module_name;
-
-            // Get dependencies of this module that are also in the SCC
-            let deps = self.get_dependencies(from_module_id);
-            for to_module_id in deps {
-                if !scc.contains(&to_module_id) {
-                    continue;
-                }
-
-                let Some(to_module) = self.modules.get(&to_module_id) else {
-                    log::warn!("Module {to_module_id:?} not found in build_import_chain_for_scc");
-                    continue;
-                };
-                let to_name = &to_module.module_name;
-
-                // Check module-level imports to determine import type
-                let import_type = self.determine_import_type(from_module_id, to_module_id);
-
-                import_chain.push(ImportEdge {
-                    from_module: from_name.clone(),
-                    to_module: to_name.clone(),
-                    import_type,
-                    line_number: None, // Would need AST info
-                });
-            }
-        }
-
-        import_chain
-    }
-
-    /// Determine import type between two modules
-    fn determine_import_type(&self, from_id: ModuleId, to_id: ModuleId) -> ImportType {
-        // Check the module's items for import statements
-        if let Some(from_module) = self.modules.get(&from_id) {
-            for item_data in from_module.items.values() {
-                if let Some(import_type) =
-                    self.check_item_for_import_type(&item_data.item_type, to_id)
-                {
-                    return import_type;
-                }
-            }
-        }
-        ImportType::Direct // Default
-    }
-
-    /// Check if an item contains an import that matches the target module
-    fn check_item_for_import_type(
-        &self,
-        item_type: &ItemType,
-        to_id: ModuleId,
-    ) -> Option<ImportType> {
-        match item_type {
-            ItemType::Import { module, alias } => {
-                if self.module_names.get(module) == Some(&to_id) {
-                    if alias.is_some() {
-                        Some(ImportType::AliasedImport)
-                    } else {
-                        Some(ImportType::Direct)
-                    }
-                } else {
-                    None
-                }
-            }
-            ItemType::FromImport { module, level, .. } => {
-                if self.module_names.get(module) == Some(&to_id) {
-                    Some(if *level > 0 {
-                        ImportType::RelativeImport
-                    } else {
-                        ImportType::FromImport
-                    })
-                } else {
-                    None
-                }
-            }
-            _ => None,
         }
     }
 
     /// Classify the type of circular dependency
-    fn classify_cycle_type(
-        &self,
-        module_names: &[String],
-        import_chain: &[ImportEdge],
-    ) -> CircularDependencyType {
+    fn classify_cycle_type(&self, module_names: &[String]) -> CircularDependencyType {
         // Check if this is a parent-child package cycle
         // These occur when a package imports from its subpackage (e.g., pkg/__init__.py imports
         // from pkg.submodule)
@@ -1165,9 +1054,7 @@ impl CriboGraph {
         } else if analysis_result.imports_used_in_functions_only {
             CircularDependencyType::FunctionLevel
         } else if analysis_result.has_module_level_imports
-            || import_chain.iter().any(|edge| {
-                edge.from_module.contains("__init__") || edge.to_module.contains("__init__")
-            })
+            || module_names.iter().any(|name| name.contains("__init__"))
         {
             CircularDependencyType::ImportTime
         } else {
@@ -1384,30 +1271,17 @@ impl CriboGraph {
     fn suggest_resolution_for_cycle(
         &self,
         cycle_type: &CircularDependencyType,
-        module_names: &[String],
+        _module_names: &[String],
     ) -> ResolutionStrategy {
         match cycle_type {
-            CircularDependencyType::FunctionLevel => ResolutionStrategy::FunctionScopedImport {
-                import_statements: module_names
-                    .iter()
-                    .map(|name| format!("Move 'import {name}' inside functions that use it"))
-                    .collect(),
-            },
-            CircularDependencyType::ClassLevel => ResolutionStrategy::LazyImport {
-                modules: module_names.to_vec(),
-            },
+            CircularDependencyType::FunctionLevel => ResolutionStrategy::FunctionScopedImport,
+            CircularDependencyType::ClassLevel => ResolutionStrategy::LazyImport,
             CircularDependencyType::ModuleConstants => ResolutionStrategy::Unresolvable {
                 reason: "Module-level constants create temporal paradox - consider moving to a \
                          shared configuration module"
                     .into(),
             },
-            CircularDependencyType::ImportTime => ResolutionStrategy::ModuleSplit {
-                suggestions: vec![
-                    "Extract shared interfaces to a separate module".into(),
-                    "Use dependency injection pattern".into(),
-                    "Reorganize module structure to eliminate circular dependencies".into(),
-                ],
-            },
+            CircularDependencyType::ImportTime => ResolutionStrategy::ModuleSplit,
         }
     }
 
@@ -1502,8 +1376,6 @@ mod tests {
 
         // Analyze circular dependencies
         let analysis = graph.analyze_circular_dependencies();
-        assert_eq!(analysis.total_cycles_detected, 1);
-        assert_eq!(analysis.largest_cycle_size, 3);
         assert!(!analysis.resolvable_cycles.is_empty());
     }
 
