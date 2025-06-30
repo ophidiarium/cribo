@@ -25,7 +25,21 @@ static FIXTURE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Get the Python executable to use for testing
 fn get_python_executable() -> String {
-    // Try common Python executable names
+    // First check if we're in a virtual environment (CI or local development)
+    if let Ok(virtual_env) = env::var("VIRTUAL_ENV") {
+        // Try the virtual environment's Python first
+        let venv_python = if cfg!(windows) {
+            Path::new(&virtual_env).join("Scripts").join("python.exe")
+        } else {
+            Path::new(&virtual_env).join("bin").join("python")
+        };
+
+        if venv_python.exists() {
+            return venv_python.to_string_lossy().to_string();
+        }
+    }
+
+    // Fall back to trying common Python executable names
     for cmd in &["python3", "python"] {
         if Command::new(cmd)
             .arg("--version")
@@ -216,6 +230,7 @@ fn test_bundling_fixtures() {
         let original_output = Command::new(&python_cmd)
             .arg(path)
             .current_dir(fixture_dir)
+            .env("PYTHONPATH", fixture_dir)
             .env("PYTHONIOENCODING", "utf-8")
             .env("PYTHONLEGACYWINDOWSSTDIO", "utf-8")
             .stdout(std::process::Stdio::piped())
