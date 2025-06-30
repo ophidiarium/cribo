@@ -19,18 +19,6 @@ services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
 models.base = types.SimpleNamespace()
 models.user = types.SimpleNamespace()
-class _ModuleNamespace:
-    pass
-__cribo_module_cache__ = {}
-__cribo_module_cache__['models.base'] = _ModuleNamespace()
-__cribo_module_cache__['models'] = _ModuleNamespace()
-__cribo_module_cache__['models.user'] = _ModuleNamespace()
-__cribo_module_cache__['services.auth'] = _ModuleNamespace()
-__cribo_module_cache__['services'] = _ModuleNamespace()
-__cribo_module_cache__['services.auth.manager'] = _ModuleNamespace()
-__cribo_module_cache__['core.database.connection'] = _ModuleNamespace()
-import sys
-sys.modules.update(__cribo_module_cache__)
 process_count = 0
 validate_cache = {}
 Logger_6 = str

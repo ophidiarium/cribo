@@ -22,10 +22,6 @@ pub enum ExecutionContext {
     ClassBody,
     /// Inside a class method - executes when method is called
     ClassMethod { is_init: bool },
-    /// Inside a decorator - executes at decoration time (usually module level)
-    Decorator,
-    /// Default parameter value - evaluated at function definition time
-    DefaultParameter,
     /// Type annotation context - may not execute at runtime
     TypeAnnotation,
 }
@@ -273,10 +269,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
 
         // Check execution contexts where import is used
         let requires_module_level = import.execution_contexts.iter().any(|ctx| match ctx {
-            ExecutionContext::ModuleLevel
-            | ExecutionContext::ClassBody
-            | ExecutionContext::Decorator
-            | ExecutionContext::DefaultParameter => true,
+            ExecutionContext::ModuleLevel | ExecutionContext::ClassBody => true,
             ExecutionContext::ClassMethod { is_init } => *is_init,
             ExecutionContext::FunctionBody | ExecutionContext::TypeAnnotation => false,
         });

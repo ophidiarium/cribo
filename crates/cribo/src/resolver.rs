@@ -26,150 +26,6 @@ fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
     }
 }
 
-/// A scoped guard for safely setting and cleaning up the PYTHONPATH environment variable.
-///
-/// This guard ensures that the PYTHONPATH environment variable is properly restored
-/// to its original value when the guard is dropped, even if a panic occurs during testing.
-///
-/// # Example
-///
-/// ```rust
-/// use cribo::resolver::PythonPathGuard;
-/// let _guard = PythonPathGuard::new("/tmp/test");
-/// // PYTHONPATH is now set to "/tmp/test"
-/// // When _guard goes out of scope, PYTHONPATH is restored to its original value
-/// ```
-#[must_use = "PythonPathGuard must be held in scope to ensure cleanup"]
-pub struct PythonPathGuard {
-    /// The original value of PYTHONPATH, if it was set
-    /// None if PYTHONPATH was not set originally
-    original_value: Option<String>,
-}
-
-/// A scoped guard for safely setting and cleaning up the VIRTUAL_ENV environment variable.
-///
-/// This guard ensures that the VIRTUAL_ENV environment variable is properly restored
-/// to its original value when the guard is dropped, even if a panic occurs during testing.
-///
-/// # Example
-///
-/// ```rust
-/// use cribo::resolver::VirtualEnvGuard;
-/// let _guard = VirtualEnvGuard::new("/path/to/venv");
-/// // VIRTUAL_ENV is now set to "/path/to/venv"
-/// // When _guard goes out of scope, VIRTUAL_ENV is restored to its original value
-/// ```
-#[must_use = "VirtualEnvGuard must be held in scope to ensure cleanup"]
-pub struct VirtualEnvGuard {
-    /// The original value of VIRTUAL_ENV, if it was set
-    /// None if VIRTUAL_ENV was not set originally
-    original_value: Option<String>,
-}
-
-impl PythonPathGuard {
-    /// Create a new PYTHONPATH guard with the given value.
-    ///
-    /// This will set the PYTHONPATH environment variable to the specified value
-    /// and store the original value for restoration when the guard is dropped.
-    pub fn new(new_value: &str) -> Self {
-        let original_value = std::env::var("PYTHONPATH").ok();
-
-        // SAFETY: This is safe in test contexts where we control the environment
-        // and ensure proper cleanup via the Drop trait.
-        unsafe {
-            std::env::set_var("PYTHONPATH", new_value);
-        }
-
-        Self { original_value }
-    }
-
-    /// Create a new PYTHONPATH guard that ensures PYTHONPATH is unset.
-    ///
-    /// This will remove the PYTHONPATH environment variable and store the
-    /// original value for restoration when the guard is dropped.
-    pub fn unset() -> Self {
-        let original_value = std::env::var("PYTHONPATH").ok();
-
-        // SAFETY: This is safe in test contexts where we control the environment
-        // and ensure proper cleanup via the Drop trait.
-        unsafe {
-            std::env::remove_var("PYTHONPATH");
-        }
-
-        Self { original_value }
-    }
-}
-
-impl Drop for PythonPathGuard {
-    fn drop(&mut self) {
-        // Always attempt cleanup, even during panics - that's the whole point of a scope guard!
-        // We catch and ignore any errors to prevent double panics, but we must try to clean up.
-        #[allow(clippy::disallowed_methods)]
-        // catch_unwind is necessary here to prevent double panics during cleanup
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            // SAFETY: This is safe as we're restoring the environment to its original state
-            unsafe {
-                match self.original_value.take() {
-                    Some(original) => std::env::set_var("PYTHONPATH", original),
-                    None => std::env::remove_var("PYTHONPATH"),
-                }
-            }
-        }));
-    }
-}
-
-impl VirtualEnvGuard {
-    /// Create a new VIRTUAL_ENV guard with the given value.
-    ///
-    /// This will set the VIRTUAL_ENV environment variable to the specified value
-    /// and store the original value for restoration when the guard is dropped.
-    pub fn new(new_value: &str) -> Self {
-        let original_value = std::env::var("VIRTUAL_ENV").ok();
-
-        // SAFETY: This is safe in test contexts where we control the environment
-        // and ensure proper cleanup via the Drop trait.
-        unsafe {
-            std::env::set_var("VIRTUAL_ENV", new_value);
-        }
-
-        Self { original_value }
-    }
-
-    /// Create a new VIRTUAL_ENV guard that ensures VIRTUAL_ENV is unset.
-    ///
-    /// This will remove the VIRTUAL_ENV environment variable and store the
-    /// original value for restoration when the guard is dropped.
-    pub fn unset() -> Self {
-        let original_value = std::env::var("VIRTUAL_ENV").ok();
-
-        // SAFETY: This is safe in test contexts where we control the environment
-        // and ensure proper cleanup via the Drop trait.
-        unsafe {
-            std::env::remove_var("VIRTUAL_ENV");
-        }
-
-        Self { original_value }
-    }
-}
-
-impl Drop for VirtualEnvGuard {
-    fn drop(&mut self) {
-        // Always attempt cleanup, even during panics - that's the whole point of a scope guard!
-        // We catch and ignore any errors to prevent double panics, but we must try to clean up.
-        #[allow(clippy::disallowed_methods)]
-        // catch_unwind is necessary here to prevent double panics during cleanup
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            // SAFETY: This is safe as we're restoring the environment to its original state
-            unsafe {
-                match self.original_value.take() {
-                    Some(original) => std::env::set_var("VIRTUAL_ENV", original),
-                    None => std::env::remove_var("VIRTUAL_ENV"),
-                }
-            }
-        }));
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportType {
     FirstParty,
@@ -241,16 +97,6 @@ impl ModuleResolver {
         Self::new_with_overrides(config, None, None)
     }
 
-    /// Create a new ModuleResolver with optional PYTHONPATH override for testing
-    pub fn new_with_pythonpath(config: Config, pythonpath_override: Option<&str>) -> Result<Self> {
-        Self::new_with_overrides(config, pythonpath_override, None)
-    }
-
-    /// Create a new ModuleResolver with optional VIRTUAL_ENV override for testing
-    pub fn new_with_virtualenv(config: Config, virtualenv_override: Option<&str>) -> Result<Self> {
-        Self::new_with_overrides(config, None, virtualenv_override)
-    }
-
     /// Create a new ModuleResolver with optional PYTHONPATH and VIRTUAL_ENV overrides for testing
     pub fn new_with_overrides(
         config: Config,
@@ -282,16 +128,6 @@ impl ModuleResolver {
     /// Per docs/resolution.md: Entry file's directory is always first
     pub fn get_search_directories(&self) -> Vec<PathBuf> {
         let pythonpath = self.pythonpath_override.as_deref();
-        let virtualenv = self.virtualenv_override.as_deref();
-        self.get_search_directories_with_overrides(pythonpath, virtualenv)
-    }
-
-    /// Get all directories to search for modules with optional PYTHONPATH override
-    pub fn get_search_directories_with_pythonpath(
-        &self,
-        pythonpath_override: Option<&str>,
-    ) -> Vec<PathBuf> {
-        let pythonpath = pythonpath_override.or(self.pythonpath_override.as_deref());
         let virtualenv = self.virtualenv_override.as_deref();
         self.get_search_directories_with_overrides(pythonpath, virtualenv)
     }
@@ -488,11 +324,6 @@ impl ModuleResolver {
 
     /// Resolve an ImportlibStatic import that may have invalid Python identifiers
     /// This handles cases like importlib.import_module("data-processor")
-    pub fn resolve_importlib_static(&mut self, module_name: &str) -> Result<Option<PathBuf>> {
-        self.resolve_importlib_static_with_context(module_name, None)
-            .map(|opt| opt.map(|(_, path)| path))
-    }
-
     /// Resolve ImportlibStatic imports with optional package context for relative imports
     /// Returns a tuple of (resolved_module_name, path)
     pub fn resolve_importlib_static_with_context(
@@ -889,17 +720,13 @@ impl ModuleResolver {
 
         false
     }
-
-    /// Get a reference to the configuration
-    pub fn config(&self) -> &Config {
-        &self.config
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
 
+    use anyhow::Result;
     use tempfile::TempDir;
 
     use super::*;
@@ -1062,27 +889,6 @@ mod tests {
     }
 
     #[test]
-    fn test_pythonpath_guard() {
-        // Save original value
-        let original = std::env::var("PYTHONPATH").ok();
-
-        {
-            let _guard = PythonPathGuard::new("/test/path");
-            assert_eq!(
-                std::env::var("PYTHONPATH").expect("PYTHONPATH should be set"),
-                "/test/path"
-            );
-        }
-
-        // Should be restored
-        match (original, std::env::var("PYTHONPATH").ok()) {
-            (None, None) => (), // Good - was unset, still unset
-            (Some(orig), Some(current)) => assert_eq!(orig, current),
-            _ => panic!("PYTHONPATH not properly restored"),
-        }
-    }
-
-    #[test]
     fn test_namespace_package() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let root = temp_dir.path();
@@ -1223,6 +1029,353 @@ mod tests {
         let result =
             resolver.resolve_module_path_with_context("....toomanydots", Some(&module3_path));
         assert!(result.is_err() || result.expect("result should be Ok").is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pythonpath_module_discovery() -> Result<()> {
+        // Create temporary directories for testing
+        let temp_dir = TempDir::new()?;
+        let pythonpath_dir = temp_dir.path().join("pythonpath_modules");
+        let src_dir = temp_dir.path().join("src");
+
+        // Create directory structures
+        fs::create_dir_all(&pythonpath_dir)?;
+        fs::create_dir_all(&src_dir)?;
+
+        // Create a module in PYTHONPATH directory
+        let pythonpath_module = pythonpath_dir.join("pythonpath_module.py");
+        fs::write(
+            &pythonpath_module,
+            "# This is a PYTHONPATH module\ndef hello():\n    return 'Hello from PYTHONPATH'",
+        )?;
+
+        // Create a package in PYTHONPATH directory
+        let pythonpath_pkg = pythonpath_dir.join("pythonpath_pkg");
+        fs::create_dir_all(&pythonpath_pkg)?;
+        let pythonpath_pkg_init = pythonpath_pkg.join("__init__.py");
+        fs::write(&pythonpath_pkg_init, "# PYTHONPATH package")?;
+        let pythonpath_pkg_module = pythonpath_pkg.join("submodule.py");
+        fs::write(&pythonpath_pkg_module, "# PYTHONPATH submodule")?;
+
+        // Create a module in src directory
+        let src_module = src_dir.join("src_module.py");
+        fs::write(&src_module, "# This is a src module")?;
+
+        // Set up config with src directory
+        let config = Config {
+            src: vec![src_dir.clone()],
+            ..Default::default()
+        };
+
+        // Create resolver with PYTHONPATH override
+        let pythonpath_str = pythonpath_dir.to_string_lossy();
+        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
+
+        // Test that modules can be resolved from both src and PYTHONPATH
+        assert!(
+            resolver.resolve_module_path("src_module")?.is_some(),
+            "Should resolve modules from configured src directories"
+        );
+        assert!(
+            resolver.resolve_module_path("pythonpath_module")?.is_some(),
+            "Should resolve modules from PYTHONPATH directories"
+        );
+        assert!(
+            resolver.resolve_module_path("pythonpath_pkg")?.is_some(),
+            "Should resolve packages from PYTHONPATH directories"
+        );
+        assert!(
+            resolver
+                .resolve_module_path("pythonpath_pkg.submodule")?
+                .is_some(),
+            "Should resolve submodules from PYTHONPATH packages"
+        );
+
+        // Also verify classification
+        assert_eq!(
+            resolver.classify_import("src_module"),
+            ImportType::FirstParty,
+            "Should classify src_module as first-party"
+        );
+        assert_eq!(
+            resolver.classify_import("pythonpath_module"),
+            ImportType::FirstParty,
+            "Should classify pythonpath_module as first-party"
+        );
+        assert_eq!(
+            resolver.classify_import("pythonpath_pkg"),
+            ImportType::FirstParty,
+            "Should classify pythonpath_pkg as first-party"
+        );
+        assert_eq!(
+            resolver.classify_import("pythonpath_pkg.submodule"),
+            ImportType::FirstParty,
+            "Should classify pythonpath_pkg.submodule as first-party"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pythonpath_module_classification() -> Result<()> {
+        // Create temporary directories for testing
+        let temp_dir = TempDir::new()?;
+        let pythonpath_dir = temp_dir.path().join("pythonpath_modules");
+        let src_dir = temp_dir.path().join("src");
+
+        // Create directory structures
+        fs::create_dir_all(&pythonpath_dir)?;
+        fs::create_dir_all(&src_dir)?;
+
+        // Create a module in PYTHONPATH directory
+        let pythonpath_module = pythonpath_dir.join("pythonpath_module.py");
+        fs::write(&pythonpath_module, "# This is a PYTHONPATH module")?;
+
+        // Set up config
+        let config = Config {
+            src: vec![src_dir.clone()],
+            ..Default::default()
+        };
+
+        // Create resolver with PYTHONPATH override
+        let pythonpath_str = pythonpath_dir.to_string_lossy();
+        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
+
+        // Test that PYTHONPATH modules are classified as first-party
+        assert_eq!(
+            resolver.classify_import("pythonpath_module"),
+            ImportType::FirstParty,
+            "PYTHONPATH modules should be classified as first-party"
+        );
+
+        // Test that unknown modules are still classified as third-party
+        assert_eq!(
+            resolver.classify_import("unknown_module"),
+            ImportType::ThirdParty,
+            "Unknown modules should still be classified as third-party"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pythonpath_multiple_directories() -> Result<()> {
+        // Create temporary directories for testing
+        let temp_dir = TempDir::new()?;
+        let pythonpath_dir1 = temp_dir.path().join("pythonpath1");
+        let pythonpath_dir2 = temp_dir.path().join("pythonpath2");
+        let src_dir = temp_dir.path().join("src");
+
+        // Create directory structures
+        fs::create_dir_all(&pythonpath_dir1)?;
+        fs::create_dir_all(&pythonpath_dir2)?;
+        fs::create_dir_all(&src_dir)?;
+
+        // Create modules in different PYTHONPATH directories
+        let module1 = pythonpath_dir1.join("module1.py");
+        fs::write(&module1, "# Module in pythonpath1")?;
+
+        let module2 = pythonpath_dir2.join("module2.py");
+        fs::write(&module2, "# Module in pythonpath2")?;
+
+        // Set up config
+        let config = Config {
+            src: vec![src_dir.clone()],
+            ..Default::default()
+        };
+
+        // Create resolver with PYTHONPATH override (multiple directories separated by
+        // platform-appropriate separator)
+        let separator = if cfg!(windows) { ';' } else { ':' };
+        let pythonpath_str = format!(
+            "{}{}{}",
+            pythonpath_dir1.to_string_lossy(),
+            separator,
+            pythonpath_dir2.to_string_lossy()
+        );
+        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
+
+        // Test that modules from both PYTHONPATH directories can be resolved
+        assert!(
+            resolver.resolve_module_path("module1")?.is_some(),
+            "Should resolve modules from first PYTHONPATH directory"
+        );
+        assert!(
+            resolver.resolve_module_path("module2")?.is_some(),
+            "Should resolve modules from second PYTHONPATH directory"
+        );
+
+        // Also verify classification
+        assert_eq!(
+            resolver.classify_import("module1"),
+            ImportType::FirstParty,
+            "Should classify module1 as first-party"
+        );
+        assert_eq!(
+            resolver.classify_import("module2"),
+            ImportType::FirstParty,
+            "Should classify module2 as first-party"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pythonpath_empty_or_nonexistent() -> Result<()> {
+        // Create a temporary directory for testing
+        let temp_dir = TempDir::new()?;
+        let src_dir = temp_dir.path().join("src");
+        fs::create_dir_all(&src_dir)?;
+
+        // Create a test module
+        let test_module = src_dir.join("test_module.py");
+        fs::write(&test_module, "# Test module")?;
+
+        let config = Config {
+            src: vec![src_dir.clone()],
+            ..Default::default()
+        };
+
+        // Test with empty PYTHONPATH
+        let mut resolver1 = ModuleResolver::new_with_overrides(config.clone(), Some(""), None)?;
+
+        // Should be able to resolve module from src directory
+        assert!(
+            resolver1.resolve_module_path("test_module")?.is_some(),
+            "Should resolve module from src directory with empty PYTHONPATH"
+        );
+
+        // Test with no PYTHONPATH
+        let mut resolver2 = ModuleResolver::new_with_overrides(config.clone(), None, None)?;
+
+        // Should be able to resolve module from src directory
+        assert!(
+            resolver2.resolve_module_path("test_module")?.is_some(),
+            "Should resolve module from src directory with no PYTHONPATH"
+        );
+
+        // Test with nonexistent directories in PYTHONPATH
+        let separator = if cfg!(windows) { ';' } else { ':' };
+        let nonexistent_pythonpath = format!("/nonexistent1{separator}/nonexistent2");
+        let mut resolver3 =
+            ModuleResolver::new_with_overrides(config, Some(&nonexistent_pythonpath), None)?;
+
+        // Should still be able to resolve module from src directory
+        assert!(
+            resolver3.resolve_module_path("test_module")?.is_some(),
+            "Should resolve module from src directory even with nonexistent PYTHONPATH"
+        );
+
+        // Non-existent modules should not be found
+        assert!(
+            resolver3
+                .resolve_module_path("nonexistent_module")?
+                .is_none(),
+            "Should not find nonexistent modules"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_directory_deduplication() -> Result<()> {
+        // Create temporary directories for testing
+        let temp_dir = TempDir::new()?;
+        let src_dir = temp_dir.path().join("src");
+        let other_dir = temp_dir.path().join("other");
+
+        // Create directory structures
+        fs::create_dir_all(&src_dir)?;
+        fs::create_dir_all(&other_dir)?;
+
+        // Create modules
+        let src_module = src_dir.join("src_module.py");
+        fs::write(&src_module, "# Source module")?;
+        let other_module = other_dir.join("other_module.py");
+        fs::write(&other_module, "# Other module")?;
+
+        // Set up config with src directory
+        let config = Config {
+            src: vec![src_dir.clone()],
+            ..Default::default()
+        };
+
+        // Create resolver with PYTHONPATH override that includes the same src directory plus
+        // another directory
+        let separator = if cfg!(windows) { ';' } else { ':' };
+        let pythonpath_str = format!(
+            "{}{}{}",
+            src_dir.to_string_lossy(),
+            separator,
+            other_dir.to_string_lossy()
+        );
+        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
+
+        // Test that deduplication works - both modules should be resolvable
+        assert!(
+            resolver.resolve_module_path("src_module")?.is_some(),
+            "Should resolve src_module"
+        );
+        assert!(
+            resolver.resolve_module_path("other_module")?.is_some(),
+            "Should resolve other_module"
+        );
+
+        // Both should be classified as first-party
+        assert_eq!(
+            resolver.classify_import("src_module"),
+            ImportType::FirstParty,
+            "Should classify src_module as first-party"
+        );
+        assert_eq!(
+            resolver.classify_import("other_module"),
+            ImportType::FirstParty,
+            "Should classify other_module as first-party"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_path_canonicalization() -> Result<()> {
+        // Create temporary directories for testing
+        let temp_dir = TempDir::new()?;
+        let src_dir = temp_dir.path().join("src");
+        fs::create_dir_all(&src_dir)?;
+
+        // Create a module
+        let module_file = src_dir.join("test_module.py");
+        fs::write(&module_file, "# Test module")?;
+
+        // Set up config with the src directory
+        let config = Config {
+            src: vec![src_dir.clone()],
+            ..Default::default()
+        };
+
+        // Create resolver with PYTHONPATH override using a relative path with .. components
+        // This creates a different string representation of the same directory
+        let parent_dir = src_dir
+            .parent()
+            .expect("test source directory should have a parent");
+        let relative_path = parent_dir.join("src/../src"); // This resolves to the same directory
+        let pythonpath_str = relative_path.to_string_lossy();
+        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
+
+        // Test that the module can be resolved despite path canonicalization differences
+        assert!(
+            resolver.resolve_module_path("test_module")?.is_some(),
+            "Should resolve module even with different path representations"
+        );
+
+        // Should be classified as first-party
+        assert_eq!(
+            resolver.classify_import("test_module"),
+            ImportType::FirstParty,
+            "Should classify test_module as first-party"
+        );
 
         Ok(())
     }

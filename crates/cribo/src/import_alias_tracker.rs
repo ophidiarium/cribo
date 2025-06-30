@@ -21,18 +21,6 @@ pub struct EnhancedFromImport {
     pub local_alias: Option<String>,
 }
 
-impl EnhancedFromImport {
-    /// Get the name used locally in the code (alias if present, otherwise original)
-    pub fn local_name(&self) -> &str {
-        self.local_alias.as_deref().unwrap_or(&self.original_name)
-    }
-
-    /// Create a qualified name for the import (module.original_name)
-    pub fn qualified_name(&self) -> String {
-        format!("{}.{}", self.module, self.original_name)
-    }
-}
-
 /// Tracks import alias information across modules
 #[derive(Debug, Default)]
 pub struct ImportAliasTracker {
@@ -62,29 +50,5 @@ impl ImportAliasTracker {
 
         let local_name = local_alias.unwrap_or(original_name);
         self.imports.insert((module_id, local_name), import_info);
-    }
-
-    /// Get the enhanced import information for a local name in a module
-    pub fn get_import_info(
-        &self,
-        module_id: ModuleId,
-        local_name: &str,
-    ) -> Option<&EnhancedFromImport> {
-        self.imports.get(&(module_id, local_name.to_string()))
-    }
-
-    /// Check if a local name is an import alias in the given module
-    pub fn is_import_alias(&self, module_id: ModuleId, local_name: &str) -> bool {
-        if let Some(info) = self.get_import_info(module_id, local_name) {
-            info.local_alias.is_some()
-        } else {
-            false
-        }
-    }
-
-    /// Get the original imported name for a local name (resolving aliases)
-    pub fn get_original_name(&self, module_id: ModuleId, local_name: &str) -> Option<&str> {
-        self.get_import_info(module_id, local_name)
-            .map(|info| info.original_name.as_str())
     }
 }
