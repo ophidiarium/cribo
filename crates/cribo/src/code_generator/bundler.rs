@@ -5718,13 +5718,7 @@ impl<'a> HybridStaticBundler<'a> {
         let stats = self.transformation_context.get_stats();
         log::info!("Transformation statistics:");
         log::info!("  Total transformations: {}", stats.total_transformations);
-        log::info!("  Direct copies: {}", stats.direct_copies);
-        log::info!("  Imports rewritten: {}", stats.imports_rewritten);
-        log::info!("  Globals replaced: {}", stats.globals_replaced);
-        log::info!("  Modules wrapped: {}", stats.modules_wrapped);
-        log::info!("  Dead code eliminated: {}", stats.dead_code_eliminated);
         log::info!("  New nodes created: {}", stats.new_nodes);
-        log::info!("  Nodes merged: {}", stats.nodes_merged);
 
         Ok(result)
     }
