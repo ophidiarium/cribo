@@ -21,8 +21,6 @@ pub struct EnhancedFromImport {
     pub local_alias: Option<String>,
 }
 
-impl EnhancedFromImport {}
-
 /// Tracks import alias information across modules
 #[derive(Debug, Default)]
 pub struct ImportAliasTracker {
