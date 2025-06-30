@@ -617,10 +617,6 @@ impl CriboGraph {
         let node_idx = self.graph.add_node(id);
         self.node_indices.insert(id, node_idx);
 
-        // Check if module is from stdlib
-        let root_module = name.split('.').next().unwrap_or(&name);
-        let _is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(10, root_module);
-
         log::debug!("Registered module '{name}' as primary for file {canonical_path:?}");
 
         id
