@@ -10,7 +10,7 @@ use ruff_text_size::TextRange;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-    cribo_graph::{CriboGraph, ItemType, ModuleDepGraph, ModuleId},
+    cribo_graph::{CriboGraph, ModuleId},
     semantic_bundler::SemanticBundler,
     visitors::{DiscoveredImport, ImportDiscoveryVisitor},
 };
@@ -31,8 +31,6 @@ pub struct MovableImport {
     pub target_functions: Vec<String>,
     /// The source module containing this import
     pub source_module: String,
-    /// Line number of the original import
-    pub line_number: usize,
 }
 
 /// Represents an import statement in a normalized form
@@ -62,7 +60,6 @@ impl ImportRewriter {
     pub fn new(dedup_strategy: ImportDeduplicationStrategy) -> Self {
         Self { dedup_strategy }
     }
-
 
     /// Analyze movable imports using semantic analysis for accurate context detection
     pub fn analyze_movable_imports_semantic(
@@ -197,15 +194,12 @@ impl ImportRewriter {
                     import_stmt,
                     target_functions,
                     source_module: module_name.to_string(),
-                    line_number: import_info.range.start().to_usize(), /* Use byte offset as a
-                                                                        * placeholder */
                 });
             }
         }
 
         movable
     }
-
 
     /// Check if an import is part of a circular dependency cycle
     fn is_import_in_cycle(&self, imported_module: &str, cycle_modules: &[String]) -> bool {
@@ -223,8 +217,6 @@ impl ImportRewriter {
 
         false
     }
-
-
 
     /// Rewrite a module's AST to move imports into function scope
     pub fn rewrite_module(
@@ -495,4 +487,3 @@ impl ImportRewriter {
         }
     }
 }
-

@@ -53,5 +53,4 @@ impl ImportAliasTracker {
         let local_name = local_alias.unwrap_or(original_name);
         self.imports.insert((module_id, local_name), import_info);
     }
-
 }

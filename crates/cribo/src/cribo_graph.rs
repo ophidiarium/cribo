@@ -465,20 +465,6 @@ struct TarjanState {
     components: Vec<Vec<NodeIndex>>,
 }
 
-/// Color for DFS traversal (three-color marking)
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Color {
-    White, // Not visited
-    Gray,  // Currently visiting
-    Black, // Finished visiting
-}
-
-/// State for cycle search operations
-struct CycleSearchState {
-    visited: FxHashMap<NodeIndex, Color>,
-    path: Vec<NodeIndex>,
-    cycles: Vec<Vec<NodeIndex>>,
-}
 
 /// Analysis result for cycle modules
 struct CycleAnalysisResult {
@@ -527,21 +513,6 @@ pub enum ResolutionStrategy {
     Unresolvable { reason: String },
 }
 
-/// An import edge in the dependency graph
-#[derive(Debug, Clone)]
-pub struct ImportEdge {
-    pub from_module: String,
-    pub to_module: String,
-}
-
-/// Type of import statement
-#[derive(Debug, Clone)]
-pub enum ImportType {
-    Direct,         // import module
-    FromImport,     // from module import item
-    RelativeImport, // from .module import item
-    AliasedImport,  // import module as alias
-}
 
 /// High-level dependency graph managing multiple modules
 /// Combines the best of three approaches:
@@ -879,77 +850,6 @@ impl CriboGraph {
     }
 
     /// Find cycle paths using DFS with three-color marking
-    pub fn find_cycle_paths(&self) -> Result<Vec<Vec<String>>> {
-        let mut state = CycleSearchState {
-            visited: FxHashMap::default(),
-            path: Vec::new(),
-            cycles: Vec::new(),
-        };
-
-        // Initialize all nodes as white
-        for &module_id in self.modules.keys() {
-            if let Some(&node_idx) = self.node_indices.get(&module_id) {
-                state.visited.insert(node_idx, Color::White);
-            }
-        }
-
-        // DFS from each unvisited node
-        for &module_id in self.modules.keys() {
-            if let Some(&node_idx) = self.node_indices.get(&module_id)
-                && state.visited[&node_idx] == Color::White
-            {
-                self.dfs_find_cycles(node_idx, &mut state);
-            }
-        }
-
-        // Convert cycles from NodeIndex to module names
-        let named_cycles = state
-            .cycles
-            .into_iter()
-            .map(|cycle| {
-                cycle
-                    .into_iter()
-                    .filter_map(|idx| {
-                        let module_id = self.graph[idx];
-                        self.modules
-                            .get(&module_id)
-                            .map(|module| module.module_name.clone())
-                    })
-                    .collect()
-            })
-            .collect();
-
-        Ok(named_cycles)
-    }
-
-    /// DFS helper for finding cycles
-    fn dfs_find_cycles(&self, node: NodeIndex, state: &mut CycleSearchState) {
-        state.visited.insert(node, Color::Gray);
-        state.path.push(node);
-
-        // Check all neighbors
-        for neighbor in self
-            .graph
-            .neighbors_directed(node, petgraph::Direction::Outgoing)
-        {
-            match state.visited.get(&neighbor).unwrap_or(&Color::White) {
-                Color::White => {
-                    self.dfs_find_cycles(neighbor, state);
-                }
-                Color::Gray => {
-                    // Found a cycle - extract it from the path
-                    if let Some(start_pos) = state.path.iter().position(|&n| n == neighbor) {
-                        let cycle = state.path[start_pos..].to_vec();
-                        state.cycles.push(cycle);
-                    }
-                }
-                Color::Black => {} // Already processed
-            }
-        }
-
-        state.path.pop();
-        state.visited.insert(node, Color::Black);
-    }
 
     /// Analyze circular dependencies and classify them
     pub fn analyze_circular_dependencies(&self) -> CircularDependencyAnalysis {
@@ -1310,13 +1210,6 @@ impl CriboGraph {
     pub fn get_canonical_path(&self, module_id: ModuleId) -> Option<&PathBuf> {
         self.module_canonical_paths.get(&module_id)
     }
-
-    /// Get the primary module for a given file path.
-    /// The path will be canonicalized before lookup.
-    pub fn get_primary_module_for_file(&self, path: &Path) -> Option<(String, ModuleId)> {
-        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        self.file_primary_module.get(&canonical).cloned()
-    }
 }
 
 // HashSet import moved to top
@@ -1367,12 +1260,6 @@ mod tests {
         let sccs = graph.find_strongly_connected_components();
         assert_eq!(sccs.len(), 1);
         assert_eq!(sccs[0].len(), 3);
-
-        // Find cycle paths
-        let cycle_paths = graph
-            .find_cycle_paths()
-            .expect("Cycle path detection should not fail");
-        assert!(!cycle_paths.is_empty());
 
         // Analyze circular dependencies
         let analysis = graph.analyze_circular_dependencies();

@@ -918,7 +918,6 @@ mod tests {
         Ok(())
     }
 
-
     #[test]
     fn test_namespace_package() -> Result<()> {
         let temp_dir = TempDir::new()?;

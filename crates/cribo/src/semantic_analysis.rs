@@ -1,7 +1,4 @@
-use ruff_text_size::TextRange;
-
 use crate::resolver::ImportType;
-
 
 /// Basic import information for compatibility
 #[derive(Debug, Clone)]
