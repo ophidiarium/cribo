@@ -6461,11 +6461,21 @@ impl<'a> HybridStaticBundler<'a> {
         // Check if the module has explicit __all__ exports
         if let Some(Some(exports)) = self.module_exports.get(module_name) {
             // Module defines __all__, only export symbols listed there
-            exports.contains(&symbol_name.to_string())
+            let result = exports.contains(&symbol_name.to_string());
+            log::debug!(
+                "Module '{module_name}' has explicit __all__ exports: {exports:?}, symbol \
+                 '{symbol_name}' included: {result}"
+            );
+            result
         } else {
             // No __all__ defined, use default Python visibility rules
             // Export all symbols that don't start with underscore
-            !symbol_name.starts_with('_')
+            let result = !symbol_name.starts_with('_');
+            log::debug!(
+                "Module '{module_name}' has no explicit __all__, symbol '{symbol_name}' should \
+                 export: {result}"
+            );
+            result
         }
     }
 
@@ -7068,16 +7078,28 @@ impl<'a> HybridStaticBundler<'a> {
         module_name: &str,
         module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
     ) -> Vec<Stmt> {
+        self.process_body_recursive_impl(body, module_name, module_scope_symbols, false)
+    }
+
+    /// Implementation of process_body_recursive with conditional context tracking
+    fn process_body_recursive_impl(
+        &self,
+        body: Vec<Stmt>,
+        module_name: &str,
+        module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+        in_conditional_context: bool,
+    ) -> Vec<Stmt> {
         let mut result = Vec::new();
 
         for stmt in body {
             match &stmt {
                 Stmt::If(if_stmt) => {
-                    // Process if body recursively
-                    let processed_body = self.process_body_recursive(
+                    // Process if body recursively (inside conditional context)
+                    let processed_body = self.process_body_recursive_impl(
                         if_stmt.body.clone(),
                         module_name,
                         module_scope_symbols,
+                        true,
                     );
 
                     // Process elif/else clauses
@@ -7085,10 +7107,11 @@ impl<'a> HybridStaticBundler<'a> {
                         .elif_else_clauses
                         .iter()
                         .map(|clause| {
-                            let processed_clause_body = self.process_body_recursive(
+                            let processed_clause_body = self.process_body_recursive_impl(
                                 clause.body.clone(),
                                 module_name,
                                 module_scope_symbols,
+                                true,
                             );
                             ruff_python_ast::ElifElseClause {
                                 node_index: clause.node_index.clone(),
@@ -7111,11 +7134,12 @@ impl<'a> HybridStaticBundler<'a> {
                     result.push(Stmt::If(new_if));
                 }
                 Stmt::Try(try_stmt) => {
-                    // Process try body recursively
-                    let processed_body = self.process_body_recursive(
+                    // Process try body recursively (inside conditional context)
+                    let processed_body = self.process_body_recursive_impl(
                         try_stmt.body.clone(),
                         module_name,
                         module_scope_symbols,
+                        true,
                     );
 
                     // Process handlers
@@ -7124,10 +7148,11 @@ impl<'a> HybridStaticBundler<'a> {
                         .iter()
                         .map(|handler| {
                             let ExceptHandler::ExceptHandler(handler) = handler;
-                            let processed_handler_body = self.process_body_recursive(
+                            let processed_handler_body = self.process_body_recursive_impl(
                                 handler.body.clone(),
                                 module_name,
                                 module_scope_symbols,
+                                true,
                             );
                             ExceptHandler::ExceptHandler(
                                 ruff_python_ast::ExceptHandlerExceptHandler {
@@ -7141,18 +7166,20 @@ impl<'a> HybridStaticBundler<'a> {
                         })
                         .collect();
 
-                    // Process orelse
-                    let processed_orelse = self.process_body_recursive(
+                    // Process orelse (inside conditional context)
+                    let processed_orelse = self.process_body_recursive_impl(
                         try_stmt.orelse.clone(),
                         module_name,
                         module_scope_symbols,
+                        true,
                     );
 
-                    // Process finalbody
-                    let processed_finalbody = self.process_body_recursive(
+                    // Process finalbody (inside conditional context)
+                    let processed_finalbody = self.process_body_recursive_impl(
                         try_stmt.finalbody.clone(),
                         module_name,
                         module_scope_symbols,
+                        true,
                     );
 
                     // Create new try statement
@@ -7173,24 +7200,128 @@ impl<'a> HybridStaticBundler<'a> {
                     if import_from.module.as_ref().map(|m| m.as_str()) != Some("__future__") {
                         result.push(stmt.clone());
 
-                        // Add module attribute assignments for imported symbols
-                        if let Some(symbols) = module_scope_symbols {
+                        // Add module attribute assignments for imported symbols when in conditional
+                        // context
+                        if in_conditional_context {
                             for alias in &import_from.names {
                                 let local_name =
                                     alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-                                if symbols.contains(local_name)
-                                    && self.should_export_symbol(local_name, module_name)
-                                {
+                                log::debug!(
+                                    "Checking conditional ImportFrom symbol '{local_name}' in \
+                                     module '{module_name}' for export"
+                                );
+
+                                // For conditional imports, always add module attributes for
+                                // non-private symbols regardless of
+                                // __all__ restrictions, since they can be defined at runtime
+                                if !local_name.starts_with('_') {
                                     log::debug!(
                                         "Adding module.{local_name} = {local_name} after \
-                                         conditional import"
+                                         conditional import (bypassing __all__ restrictions)"
                                     );
                                     result.push(
                                         crate::code_generator::module_registry::create_module_attr_assignment("module", local_name),
                                     );
+                                } else {
+                                    log::debug!(
+                                        "NOT exporting conditional ImportFrom symbol \
+                                         '{local_name}' in module '{module_name}' (private symbol)"
+                                    );
                                 }
                             }
+                        } else {
+                            // For non-conditional imports, use the original logic with
+                            // module_scope_symbols
+                            if let Some(symbols) = module_scope_symbols {
+                                for alias in &import_from.names {
+                                    let local_name =
+                                        alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                                    if symbols.contains(local_name)
+                                        && self.should_export_symbol(local_name, module_name)
+                                    {
+                                        log::debug!(
+                                            "Adding module.{local_name} = {local_name} after \
+                                             non-conditional import"
+                                        );
+                                        result.push(
+                                            crate::code_generator::module_registry::create_module_attr_assignment("module", local_name),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Stmt::Import(import_stmt) => {
+                    // Add the import statement itself
+                    result.push(stmt.clone());
+
+                    // Add module attribute assignments for imported modules when in conditional
+                    // context
+                    if in_conditional_context {
+                        for alias in &import_stmt.names {
+                            let imported_name = alias.name.as_str();
+                            let local_name = alias
+                                .asname
+                                .as_ref()
+                                .map(|n| n.as_str())
+                                .unwrap_or(imported_name);
+
+                            // For conditional imports, always add module attributes for non-private
+                            // symbols regardless of __all__
+                            // restrictions, since they can be defined at runtime
+                            // Only handle simple (non-dotted) names that can be valid attribute
+                            // names
+                            if !local_name.starts_with('_')
+                                && !local_name.contains('.')
+                                && !local_name.is_empty()
+                                && !local_name.as_bytes()[0].is_ascii_digit()
+                                && local_name.chars().all(|c| c.is_alphanumeric() || c == '_')
+                            {
+                                log::debug!(
+                                    "Adding module.{local_name} = {local_name} after conditional \
+                                     import (bypassing __all__ restrictions)"
+                                );
+                                result.push(
+                                    crate::code_generator::module_registry::create_module_attr_assignment(
+                                        "module",
+                                        local_name
+                                    ),
+                                );
+                            } else {
+                                log::debug!(
+                                    "NOT exporting conditional Import symbol '{local_name}' in \
+                                     module '{module_name}' (complex or invalid attribute name)"
+                                );
+                            }
+                        }
+                    }
+                }
+                Stmt::Assign(assign) => {
+                    // Add the assignment itself
+                    result.push(stmt.clone());
+
+                    // Check if this assignment should create a module attribute when in conditional
+                    // context
+                    if in_conditional_context
+                        && let Some(name) = self.extract_simple_assign_target(assign)
+                    {
+                        // For conditional assignments, always add module attributes for non-private
+                        // symbols regardless of __all__ restrictions, since
+                        // they can be defined at runtime
+                        if !name.starts_with('_') {
+                            log::debug!(
+                                "Adding module.{name} = {name} after conditional assignment \
+                                 (bypassing __all__ restrictions)"
+                            );
+                            result.push(
+                                crate::code_generator::module_registry::create_module_attr_assignment(
+                                    "module",
+                                    &name
+                                ),
+                            );
                         }
                     }
                 }

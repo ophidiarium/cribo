@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/conditional_imports/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "If/else import - JSONDecodeError: True\nIf/else import - json: True\nIf/else import - builtin_str: True\nSuccessfully caught JSONDecodeError from conditional import\nTry/except import - etree: True\nTry/except import - ETREE_VERSION: True\nSuccessfully imported etree module\n✓ JSONDecodeError is accessible\n✓ json is accessible\n✓ builtin_str is accessible\n✓ basestring is accessible\n✓ has_simplejson is accessible",
+    stderr: "",
+}
