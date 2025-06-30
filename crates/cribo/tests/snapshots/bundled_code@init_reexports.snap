@@ -13,13 +13,6 @@ mypackage = types.SimpleNamespace()
 mypackage.__name__ = 'mypackage'
 mypackage.utils = types.SimpleNamespace()
 mypackage.config = types.SimpleNamespace()
-class _ModuleNamespace:
-    pass
-__cribo_module_cache__ = {}
-__cribo_module_cache__['mypackage.config'] = _ModuleNamespace()
-__cribo_module_cache__['mypackage'] = _ModuleNamespace()
-import sys
-sys.modules.update(__cribo_module_cache__)
 """Utils subpackage with re-exports."""
 """Constants module."""
 def helper_function(data):

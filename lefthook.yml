@@ -65,7 +65,7 @@ pre-push:
     disable-dead-code:
       glob:
         - '**/*.rs'
-      run: cargo clippy --workspace -- -F dead_code
+      run: cargo clippy --workspace -- -F clippy::blanket_clippy_restriction_lints -D dead_code
 
 post-checkout:
   commands:

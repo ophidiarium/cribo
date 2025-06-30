@@ -18,12 +18,6 @@ models.__name__ = 'models'
 services = types.SimpleNamespace()
 services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
-class _ModuleNamespace:
-    pass
-__cribo_module_cache__ = {}
-__cribo_module_cache__['services.auth.manager'] = _ModuleNamespace()
-import sys
-sys.modules.update(__cribo_module_cache__)
 class BaseModel:
     """Base model class with method name conflicts"""
 

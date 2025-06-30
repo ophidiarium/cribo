@@ -3,7 +3,6 @@ use std::collections::VecDeque;
 use anyhow::Result;
 use indexmap::{IndexMap, IndexSet};
 use log::{debug, trace};
-use rustc_hash::FxHashSet;
 
 use crate::cribo_graph::{CriboGraph, ItemData, ItemType, ModuleId};
 
@@ -780,39 +779,6 @@ impl TreeShaker {
         unused
     }
 
-    /// Check if an import is required by any surviving symbol
-    pub fn is_import_required(
-        &self,
-        module_name: &str,
-        import_name: &str,
-        _import_source: &str,
-    ) -> bool {
-        // Check if any surviving symbol in this module uses this import
-        for symbol in self.get_used_symbols_for_module(module_name) {
-            if let Some(items) = self.module_items.get(module_name) {
-                for item in items {
-                    if item.defined_symbols.contains(&symbol) {
-                        // Check if this item uses the import
-                        if item.read_vars.contains(import_name)
-                            || item.eventual_read_vars.contains(import_name)
-                        {
-                            return true;
-                        }
-
-                        // Check symbol dependencies
-                        if let Some(deps) = item.symbol_dependencies.get(&symbol)
-                            && deps.contains(import_name)
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-
-        false
-    }
-
     /// Check if a module has side effects that prevent tree-shaking
     pub fn module_has_side_effects(&self, module_name: &str) -> bool {
         if let Some(items) = self.module_items.get(module_name) {
@@ -827,69 +793,6 @@ impl TreeShaker {
         } else {
             false
         }
-    }
-
-    /// Get items that should be kept for a module
-    pub fn get_items_to_keep(&self, module_name: &str) -> FxHashSet<usize> {
-        let mut items_to_keep = FxHashSet::default();
-
-        if let Some(items) = self.module_items.get(module_name) {
-            for (idx, item) in items.iter().enumerate() {
-                // Keep the item if:
-                // 1. It defines a used symbol
-                let defines_used_symbol = item
-                    .defined_symbols
-                    .iter()
-                    .any(|symbol| self.is_symbol_used(module_name, symbol));
-
-                // 2. It has side effects
-                let has_side_effects = item.has_side_effects
-                    && !matches!(
-                        item.item_type,
-                        ItemType::Import { .. } | ItemType::FromImport { .. }
-                    );
-
-                // 3. It's an import that's still needed
-                let is_needed_import = match &item.item_type {
-                    ItemType::Import { module, .. } => {
-                        // For regular imports, check if the module is used
-                        item.imported_names
-                            .iter()
-                            .any(|name| self.is_import_required(module_name, name, module))
-                    }
-                    ItemType::FromImport { module, names, .. } => {
-                        // For from imports, check both:
-                        // a) If any imported name is used by surviving symbols
-                        // b) If the imported name itself is a surviving symbol (for imports of
-                        // classes/functions)
-                        names.iter().any(|(imported_name, alias_opt)| {
-                            let local_name = alias_opt.as_ref().unwrap_or(imported_name);
-
-                            // Check if this import is required by other surviving symbols
-                            if self.is_import_required(module_name, local_name, module) {
-                                return true;
-                            }
-
-                            // Check if the imported symbol itself is marked as used
-                            // This handles cases where we import a class/function that gets removed
-                            if let Some(source_module) = self.find_defining_module(imported_name) {
-                                return self.is_symbol_used(&source_module, imported_name);
-                            }
-
-                            // For third-party imports, check if the local name is in used symbols
-                            self.is_symbol_used(module_name, local_name)
-                        })
-                    }
-                    _ => false,
-                };
-
-                if defines_used_symbol || has_side_effects || is_needed_import {
-                    items_to_keep.insert(idx);
-                }
-            }
-        }
-
-        items_to_keep
     }
 
     /// Mark symbols defined in __all__ as used for star imports
@@ -942,7 +845,7 @@ impl TreeShaker {
 
 #[cfg(test)]
 mod tests {
-    use rustc_hash::FxHashMap;
+    use rustc_hash::{FxHashMap, FxHashSet};
 
     use super::*;
 
@@ -972,7 +875,6 @@ mod tests {
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
-            span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
@@ -992,7 +894,6 @@ mod tests {
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
-            span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),
@@ -1017,7 +918,6 @@ mod tests {
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: true,
-            span: None,
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
             symbol_dependencies: FxHashMap::default(),

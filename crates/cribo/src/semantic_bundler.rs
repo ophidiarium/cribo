@@ -6,7 +6,6 @@
 use std::path::Path;
 
 use anyhow::Result;
-use log;
 use ruff_linter::source_kind::SourceKind;
 use ruff_python_ast::{Expr, ModModule, PySourceType, Stmt};
 use ruff_python_parser::parse_unchecked_source;
@@ -23,6 +22,7 @@ use crate::{
 };
 
 /// Semantic bundler that analyzes symbol conflicts across modules using full semantic models
+#[derive(Debug)]
 pub struct SemanticBundler {
     /// Module-specific semantic models
     module_semantics: FxIndexMap<ModuleId, ModuleSemanticInfo>,
@@ -333,58 +333,25 @@ impl<'a> SemanticModelBuilder<'a> {
 }
 
 /// Module semantic analyzer that provides static methods for symbol extraction
-pub struct ModuleSemanticAnalyzer;
-
-impl ModuleSemanticAnalyzer {
-    /// Extract symbols from a module using semantic analysis
-    pub fn extract_symbols_from_module(
-        source: &str,
-        path: &Path,
-        ast: &ModModule,
-    ) -> Result<(FxIndexSet<String>, Vec<EnhancedFromImport>)> {
-        let (semantic, from_imports) =
-            SemanticModelBuilder::build_semantic_model(source, path, ast)?;
-        let symbols = SemanticModelBuilder::extract_symbols_from_semantic_model(&semantic)?;
-        Ok((symbols, from_imports))
-    }
-}
-
 /// Semantic information for a single module
+#[derive(Debug)]
 pub struct ModuleSemanticInfo {
     /// Symbols exported by this module (from semantic analysis)
     pub exported_symbols: FxIndexSet<String>,
     /// Symbol conflicts detected in this module
     pub conflicts: Vec<String>,
-    /// Source code for re-analysis if needed
-    pub source: String,
-    /// File path for this module
-    pub file_path: std::path::PathBuf,
     /// All module-scope symbols that need to be exposed in the module namespace
     /// This includes symbols defined in conditional blocks (if/else, try/except)
     pub module_scope_symbols: FxIndexSet<String>,
 }
 
 /// Global symbol registry across all modules with semantic information
+#[derive(Debug)]
 pub struct SymbolRegistry {
     /// Symbol name -> list of modules that define it
     pub symbols: FxIndexMap<String, Vec<ModuleId>>,
     /// Renames: (ModuleId, OriginalName) -> NewName
     pub renames: FxIndexMap<(ModuleId, String), String>,
-    /// Symbol binding information for scope analysis
-    pub symbol_bindings: FxIndexMap<(ModuleId, String), SymbolBindingInfo>,
-}
-
-/// Information about a symbol binding from semantic analysis
-#[derive(Debug, Clone)]
-pub struct SymbolBindingInfo {
-    /// The binding kind (class, function, assignment, etc.)
-    pub binding_kind: String, // Simplified from BindingKind for storage
-    /// Whether this symbol is at module level
-    pub is_module_level: bool,
-    /// Whether this symbol is private
-    pub is_private: bool,
-    /// Scope level where this symbol is defined
-    pub scope_level: usize,
 }
 
 impl Default for SymbolRegistry {
@@ -399,24 +366,7 @@ impl SymbolRegistry {
         Self {
             symbols: FxIndexMap::default(),
             renames: FxIndexMap::default(),
-            symbol_bindings: FxIndexMap::default(),
         }
-    }
-
-    /// Register a symbol from a module with semantic information
-    pub fn register_symbol_with_binding(
-        &mut self,
-        symbol: String,
-        module_id: ModuleId,
-        binding_info: SymbolBindingInfo,
-    ) {
-        self.symbols
-            .entry(symbol.clone())
-            .or_default()
-            .push(module_id);
-
-        self.symbol_bindings
-            .insert((module_id, symbol), binding_info);
     }
 
     /// Register a symbol from a module (legacy interface)
@@ -459,28 +409,6 @@ impl SymbolRegistry {
             .get(&(*module_id, original.to_string()))
             .map(|s| s.as_str())
     }
-
-    /// Check if a symbol has conflicts
-    pub fn has_conflict(&self, symbol: &str) -> bool {
-        self.symbols
-            .get(symbol)
-            .is_some_and(|modules| modules.len() > 1)
-    }
-
-    /// Get binding information for a symbol in a module
-    pub fn get_symbol_binding(
-        &self,
-        module_id: &ModuleId,
-        symbol: &str,
-    ) -> Option<&SymbolBindingInfo> {
-        self.symbol_bindings.get(&(*module_id, symbol.to_string()))
-    }
-
-    /// Check if a symbol is module-level in a specific module
-    pub fn is_module_level_symbol(&self, module_id: &ModuleId, symbol: &str) -> bool {
-        self.get_symbol_binding(module_id, symbol)
-            .is_some_and(|info| info.is_module_level)
-    }
 }
 
 /// Represents a symbol conflict across modules
@@ -497,9 +425,6 @@ pub struct ModuleGlobalInfo {
 
     /// Variables declared with 'global' keyword in functions
     pub global_declarations: FxIndexMap<String, Vec<TextRange>>,
-
-    /// Locations where globals are read
-    pub global_reads: FxIndexMap<String, Vec<TextRange>>,
 
     /// Locations where globals are written
     pub global_writes: FxIndexMap<String, Vec<TextRange>>,
@@ -584,8 +509,6 @@ impl SemanticBundler {
             ModuleSemanticInfo {
                 exported_symbols,
                 conflicts: Vec::new(), // Will be populated later
-                source: source.to_string(),
-                file_path: path.to_path_buf(),
                 module_scope_symbols,
             },
         );
@@ -625,16 +548,6 @@ impl SemanticBundler {
     /// Get symbol registry
     pub fn symbol_registry(&self) -> &SymbolRegistry {
         &self.global_symbols
-    }
-
-    /// Get semantic information for a module (for scope analysis during code generation)
-    pub fn get_module_semantic_info(&self, module_id: &ModuleId) -> Option<&ModuleSemanticInfo> {
-        self.module_semantics.get(module_id)
-    }
-
-    /// Get the import alias tracker
-    pub fn import_alias_tracker(&self) -> &ImportAliasTracker {
-        &self.import_alias_tracker
     }
 
     /// Analyze global variable usage in a module

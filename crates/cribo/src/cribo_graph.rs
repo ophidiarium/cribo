@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// CriboGraph: Advanced dependency graph implementation for Python bundling
 ///
@@ -90,34 +90,9 @@ impl ItemType {
     }
 }
 
-/// Dependency type between items
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DepType {
-    /// Always needed (e.g., direct function call)
-    Strong,
-    /// Only needed if target is included (e.g., conditional import)
-    Weak,
-}
-
-/// A single dependency relationship
-#[derive(Debug, Clone)]
-pub struct Dep {
-    pub target: ItemId,
-    pub dep_type: DepType,
-}
-
-/// Information about a module-level dependency edge
-#[derive(Debug, Clone, Default)]
-pub struct ModuleDependencyInfo {
-    /// Whether this dependency is only used in TYPE_CHECKING blocks
-    pub is_type_checking_only: bool,
-}
-
 /// Variable state tracking
 #[derive(Debug, Clone)]
 pub struct VarState {
-    /// The item that declares this variable
-    pub declarator: Option<ItemId>,
     /// Items that write to this variable
     pub writers: Vec<ItemId>,
     /// Items that read this variable
@@ -127,14 +102,10 @@ pub struct VarState {
 /// Information about an unused import
 #[derive(Debug, Clone)]
 pub struct UnusedImportInfo {
-    /// The item ID of the import statement
-    pub item_id: ItemId,
     /// The imported name that is unused
     pub name: String,
     /// The module it was imported from
     pub module: String,
-    /// Whether this is an explicit re-export
-    pub is_reexport: bool,
 }
 
 /// Context for checking if an import is unused
@@ -162,8 +133,6 @@ pub struct ItemData {
     pub eventual_write_vars: FxHashSet<String>,
     /// Whether this item has side effects
     pub has_side_effects: bool,
-    /// Source span for error reporting
-    pub span: Option<(usize, usize)>, // (start_line, end_line)
     /// For imports: the local names introduced by this import
     pub imported_names: FxHashSet<String>,
     /// For re-exports: names that are explicitly re-exported
@@ -188,8 +157,6 @@ pub struct ModuleDepGraph {
     pub module_name: String,
     /// All items in this module
     pub items: FxHashMap<ItemId, ItemData>,
-    /// Dependencies between items
-    pub deps: FxHashMap<ItemId, Vec<Dep>>,
     /// Items that are executed for side effects (in order)
     pub side_effect_items: Vec<ItemId>,
     /// Variable state tracking
@@ -205,7 +172,6 @@ impl ModuleDepGraph {
             module_id,
             module_name,
             items: FxHashMap::default(),
-            deps: FxHashMap::default(),
             side_effect_items: Vec::new(),
             var_states: FxHashMap::default(),
             next_item_id: 0,
@@ -224,7 +190,6 @@ impl ModuleDepGraph {
             module_name,
             // Clone all the data from the source graph to share the same items
             items: source_graph.items.clone(),
-            deps: source_graph.deps.clone(),
             side_effect_items: source_graph.side_effect_items.clone(),
             var_states: source_graph.var_states.clone(),
             next_item_id: source_graph.next_item_id,
@@ -241,7 +206,6 @@ impl ModuleDepGraph {
             self.var_states
                 .entry(imported_name.clone())
                 .or_insert_with(|| VarState {
-                    declarator: Some(id),
                     writers: Vec::new(),
                     readers: Vec::new(),
                 });
@@ -252,7 +216,6 @@ impl ModuleDepGraph {
             self.var_states
                 .entry(var.clone())
                 .or_insert_with(|| VarState {
-                    declarator: Some(id),
                     writers: Vec::new(),
                     readers: Vec::new(),
                 });
@@ -279,29 +242,6 @@ impl ModuleDepGraph {
 
         self.items.insert(id, data);
         id
-    }
-
-    /// Add a dependency between items
-    pub fn add_dependency(&mut self, from: ItemId, to: ItemId, dep_type: DepType) {
-        self.deps.entry(from).or_default().push(Dep {
-            target: to,
-            dep_type,
-        });
-    }
-
-    /// Get all items that an item depends on (transitively)
-    pub fn get_transitive_deps(&self, item: ItemId) -> FxHashSet<ItemId> {
-        let mut visited = FxHashSet::default();
-        let mut stack = vec![item];
-
-        while let Some(current) = stack.pop() {
-            if visited.insert(current) {
-                self.add_dependencies_to_stack(&current, &mut stack);
-            }
-        }
-
-        visited.remove(&item); // Don't include the starting item
-        visited
     }
 
     /// Find unused imports in the module
@@ -338,10 +278,8 @@ impl ModuleDepGraph {
                     };
 
                     unused_imports.push(UnusedImportInfo {
-                        item_id: import_id,
                         name: imported_name.clone(),
                         module: module_name,
-                        is_reexport: import_data.reexported_names.contains(imported_name),
                     });
                 }
             }
@@ -496,88 +434,6 @@ impl ModuleDepGraph {
         }
         false
     }
-
-    /// Helper method to add dependencies to stack
-    fn add_dependencies_to_stack(&self, current: &ItemId, stack: &mut Vec<ItemId>) {
-        if let Some(deps) = self.deps.get(current) {
-            for dep in deps {
-                stack.push(dep.target);
-            }
-        }
-    }
-
-    /// Find all items needed for a set of used symbols
-    pub fn tree_shake(&self, used_symbols: &IndexSet<String>) -> FxHashSet<ItemId> {
-        let mut required_items = FxHashSet::default();
-
-        // Start with items that define used symbols
-        for (item_id, data) in &self.items {
-            let defines_used_symbol = match &data.item_type {
-                ItemType::FunctionDef { name } | ItemType::ClassDef { name } => {
-                    used_symbols.contains(name.as_str())
-                }
-                ItemType::Assignment { targets } => {
-                    targets.iter().any(|t| used_symbols.contains(t.as_str()))
-                }
-                _ => false,
-            };
-
-            if defines_used_symbol {
-                self.collect_required_items(*item_id, &mut required_items);
-            }
-        }
-
-        // Always include side effects in order
-        for &item in &self.side_effect_items {
-            required_items.insert(item);
-        }
-
-        required_items
-    }
-
-    /// Recursively collect all items required by a given item
-    fn collect_required_items(&self, item: ItemId, required: &mut FxHashSet<ItemId>) {
-        if !required.insert(item) {
-            return; // Already processed
-        }
-
-        // Add all dependencies
-        if let Some(deps) = self.deps.get(&item) {
-            self.process_item_dependencies(deps, required);
-        }
-    }
-
-    /// Process dependencies for an item
-    fn process_item_dependencies(&self, deps: &[Dep], required: &mut FxHashSet<ItemId>) {
-        for dep in deps {
-            match dep.dep_type {
-                DepType::Strong => {
-                    self.collect_required_items(dep.target, required);
-                }
-                DepType::Weak => {
-                    // Only include if target is already required
-                    if required.contains(&dep.target) {
-                        self.collect_required_items(dep.target, required);
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Module metadata for optimization
-#[derive(Debug, Clone)]
-pub struct ModuleMetadata {
-    /// Whether module has side effects
-    pub has_side_effects: bool,
-    /// Whether module is an entry point
-    pub is_entry: bool,
-    /// Whether module is from the standard library
-    pub is_stdlib: bool,
-    /// Size in bytes (for chunking decisions)
-    pub size: usize,
-    /// Hash of module content (for caching)
-    pub content_hash: Option<u64>,
 }
 
 /// State for Tarjan's strongly connected components algorithm
@@ -588,21 +444,6 @@ struct TarjanState {
     lowlinks: FxHashMap<NodeIndex, usize>,
     on_stack: FxHashMap<NodeIndex, bool>,
     components: Vec<Vec<NodeIndex>>,
-}
-
-/// Color for DFS traversal (three-color marking)
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Color {
-    White, // Not visited
-    Gray,  // Currently visiting
-    Black, // Finished visiting
-}
-
-/// State for cycle search operations
-struct CycleSearchState {
-    visited: FxHashMap<NodeIndex, Color>,
-    path: Vec<NodeIndex>,
-    cycles: Vec<Vec<NodeIndex>>,
 }
 
 /// Analysis result for cycle modules
@@ -620,12 +461,6 @@ pub struct CircularDependencyAnalysis {
     pub resolvable_cycles: Vec<CircularDependencyGroup>,
     /// Circular dependencies that cannot be resolved
     pub unresolvable_cycles: Vec<CircularDependencyGroup>,
-    /// Total number of cycles detected
-    pub total_cycles_detected: usize,
-    /// Size of the largest cycle
-    pub largest_cycle_size: usize,
-    /// All cycle paths found
-    pub cycle_paths: Vec<Vec<String>>,
 }
 
 /// A group of modules forming a circular dependency
@@ -633,7 +468,6 @@ pub struct CircularDependencyAnalysis {
 pub struct CircularDependencyGroup {
     pub modules: Vec<String>,
     pub cycle_type: CircularDependencyType,
-    pub import_chain: Vec<ImportEdge>,
     pub suggested_resolution: ResolutionStrategy,
 }
 
@@ -653,28 +487,10 @@ pub enum CircularDependencyType {
 /// Resolution strategy for circular dependencies
 #[derive(Debug, Clone)]
 pub enum ResolutionStrategy {
-    LazyImport { modules: Vec<String> },
-    FunctionScopedImport { import_statements: Vec<String> },
-    ModuleSplit { suggestions: Vec<String> },
+    LazyImport,
+    FunctionScopedImport,
+    ModuleSplit,
     Unresolvable { reason: String },
-}
-
-/// An import edge in the dependency graph
-#[derive(Debug, Clone)]
-pub struct ImportEdge {
-    pub from_module: String,
-    pub to_module: String,
-    pub import_type: ImportType,
-    pub line_number: Option<usize>,
-}
-
-/// Type of import statement
-#[derive(Debug, Clone)]
-pub enum ImportType {
-    Direct,         // import module
-    FromImport,     // from module import item
-    RelativeImport, // from .module import item
-    AliasedImport,  // import module as alias
 }
 
 /// High-level dependency graph managing multiple modules
@@ -690,10 +506,8 @@ pub struct CriboGraph {
     pub module_names: FxHashMap<String, ModuleId>,
     /// Module path to ID mapping
     pub module_paths: FxHashMap<PathBuf, ModuleId>,
-    /// Module metadata
-    pub module_metadata: FxHashMap<ModuleId, ModuleMetadata>,
     /// Petgraph for efficient algorithms (inspired by Mako)
-    graph: DiGraph<ModuleId, ModuleDependencyInfo>,
+    graph: DiGraph<ModuleId, ()>,
     /// Node index mapping
     node_indices: FxHashMap<ModuleId, NodeIndex>,
     /// Next module ID to allocate
@@ -711,35 +525,12 @@ pub struct CriboGraph {
 }
 
 impl CriboGraph {
-    /// Check if a stdlib module has side effects that make it unsafe to hoist
-    fn is_stdlib_with_side_effects(module_name: &str) -> bool {
-        matches!(
-            module_name,
-            // Modules that modify global state - DO NOT HOIST
-            "antigravity" // Opens web browser to xkcd comic
-            | "this"    // Prints "The Zen of Python" to stdout
-            | "__hello__"   // Prints "Hello world!" to stdout
-            | "__phello__"  // Frozen version of __hello__ that prints to stdout
-            | "site"    // Modifies sys.path and sets up site packages
-            | "sitecustomize"   // User-specific site customization
-            | "usercustomize"   // User-specific customization
-            | "readline"    // Initializes readline library and terminal settings
-            | "rlcompleter"  // Configures readline tab completion
-            | "turtle"        // Initializes Tk graphics window
-            | "tkinter"       // Initializes Tk GUI framework
-            | "webbrowser"    // May launch web browser
-            | "platform"     // May execute external commands for system info
-            | "locale" // Modifies global locale settings
-        )
-    }
-
     /// Create a new cribo dependency graph
     pub fn new() -> Self {
         Self {
             modules: FxHashMap::default(),
             module_names: FxHashMap::default(),
             module_paths: FxHashMap::default(),
-            module_metadata: FxHashMap::default(),
             graph: DiGraph::new(),
             node_indices: FxHashMap::default(),
             next_module_id: 0,
@@ -805,11 +596,6 @@ impl CriboGraph {
             let node_idx = self.graph.add_node(id);
             self.node_indices.insert(id, node_idx);
 
-            // Copy metadata from primary module
-            if let Some(primary_metadata) = self.module_metadata.get(primary_id) {
-                self.module_metadata.insert(id, primary_metadata.clone());
-            }
-
             return id;
         }
 
@@ -830,22 +616,6 @@ impl CriboGraph {
         // Add to petgraph
         let node_idx = self.graph.add_node(id);
         self.node_indices.insert(id, node_idx);
-
-        // Check if module is from stdlib
-        let root_module = name.split('.').next().unwrap_or(&name);
-        let is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(10, root_module);
-
-        // Initialize metadata
-        self.module_metadata.insert(
-            id,
-            ModuleMetadata {
-                has_side_effects: is_stdlib && Self::is_stdlib_with_side_effects(&name),
-                is_entry: false,
-                is_stdlib,
-                size: 0,
-                content_hash: None,
-            },
-        );
 
         log::debug!("Registered module '{name}' as primary for file {canonical_path:?}");
 
@@ -870,16 +640,11 @@ impl CriboGraph {
 
     /// Add a dependency between modules (from depends on to)
     pub fn add_module_dependency(&mut self, from: ModuleId, to: ModuleId) {
-        self.add_module_dependency_with_info(from, to, ModuleDependencyInfo::default());
+        self.add_module_dependency_with_info(from, to, ());
     }
 
     /// Add a dependency between modules with additional information
-    pub fn add_module_dependency_with_info(
-        &mut self,
-        from: ModuleId,
-        to: ModuleId,
-        info: ModuleDependencyInfo,
-    ) {
+    pub fn add_module_dependency_with_info(&mut self, from: ModuleId, to: ModuleId, info: ()) {
         if let (Some(&from_idx), Some(&to_idx)) =
             (self.node_indices.get(&from), self.node_indices.get(&to))
         {
@@ -904,31 +669,6 @@ impl CriboGraph {
     /// Check if the graph has cycles
     pub fn has_cycles(&self) -> bool {
         is_cyclic_directed(&self.graph)
-    }
-
-    /// Get all modules that depend on a given module
-    pub fn get_dependents(&self, module_id: ModuleId) -> Vec<ModuleId> {
-        if let Some(&node_idx) = self.node_indices.get(&module_id) {
-            // Since edges go from dependency to dependent, outgoing edges are dependents
-            self.graph
-                .neighbors_directed(node_idx, petgraph::Direction::Outgoing)
-                .map(|idx| self.graph[idx])
-                .collect()
-        } else {
-            vec![]
-        }
-    }
-
-    /// Check if a module dependency is type-checking-only
-    pub fn is_type_checking_only_dependency(&self, from: ModuleId, to: ModuleId) -> bool {
-        if let (Some(&from_idx), Some(&to_idx)) =
-            (self.node_indices.get(&from), self.node_indices.get(&to))
-            && let Some(edge) = self.graph.find_edge(to_idx, from_idx)
-            && let Some(weight) = self.graph.edge_weight(edge)
-        {
-            return weight.is_type_checking_only;
-        }
-        false
     }
 
     /// Get all modules that a given module depends on
@@ -1022,107 +762,18 @@ impl CriboGraph {
         component
     }
 
-    /// Find all strongly connected components (circular dependencies) - alias for compatibility
-    pub fn find_cycles(&self) -> Vec<Vec<ModuleId>> {
-        self.find_strongly_connected_components()
-    }
-
-    /// Get module metadata
-    pub fn get_metadata(&self, module_id: ModuleId) -> Option<&ModuleMetadata> {
-        self.module_metadata.get(&module_id)
-    }
-
-    /// Update module metadata
-    pub fn update_metadata(&mut self, module_id: ModuleId, metadata: ModuleMetadata) {
-        self.module_metadata.insert(module_id, metadata);
-    }
-
     /// Find cycle paths using DFS with three-color marking
-    pub fn find_cycle_paths(&self) -> Result<Vec<Vec<String>>> {
-        let mut state = CycleSearchState {
-            visited: FxHashMap::default(),
-            path: Vec::new(),
-            cycles: Vec::new(),
-        };
-
-        // Initialize all nodes as white
-        for &module_id in self.modules.keys() {
-            if let Some(&node_idx) = self.node_indices.get(&module_id) {
-                state.visited.insert(node_idx, Color::White);
-            }
-        }
-
-        // DFS from each unvisited node
-        for &module_id in self.modules.keys() {
-            if let Some(&node_idx) = self.node_indices.get(&module_id)
-                && state.visited[&node_idx] == Color::White
-            {
-                self.dfs_find_cycles(node_idx, &mut state);
-            }
-        }
-
-        // Convert cycles from NodeIndex to module names
-        let named_cycles = state
-            .cycles
-            .into_iter()
-            .map(|cycle| {
-                cycle
-                    .into_iter()
-                    .filter_map(|idx| {
-                        let module_id = self.graph[idx];
-                        self.modules
-                            .get(&module_id)
-                            .map(|module| module.module_name.clone())
-                    })
-                    .collect()
-            })
-            .collect();
-
-        Ok(named_cycles)
-    }
-
-    /// DFS helper for finding cycles
-    fn dfs_find_cycles(&self, node: NodeIndex, state: &mut CycleSearchState) {
-        state.visited.insert(node, Color::Gray);
-        state.path.push(node);
-
-        // Check all neighbors
-        for neighbor in self
-            .graph
-            .neighbors_directed(node, petgraph::Direction::Outgoing)
-        {
-            match state.visited.get(&neighbor).unwrap_or(&Color::White) {
-                Color::White => {
-                    self.dfs_find_cycles(neighbor, state);
-                }
-                Color::Gray => {
-                    // Found a cycle - extract it from the path
-                    if let Some(start_pos) = state.path.iter().position(|&n| n == neighbor) {
-                        let cycle = state.path[start_pos..].to_vec();
-                        state.cycles.push(cycle);
-                    }
-                }
-                Color::Black => {} // Already processed
-            }
-        }
-
-        state.path.pop();
-        state.visited.insert(node, Color::Black);
-    }
-
     /// Analyze circular dependencies and classify them
     pub fn analyze_circular_dependencies(&self) -> CircularDependencyAnalysis {
         let sccs = self.find_strongly_connected_components();
-        let cycle_paths = self.find_cycle_paths().unwrap_or_default();
 
         let mut resolvable_cycles = Vec::new();
         let mut unresolvable_cycles = Vec::new();
-        let mut largest_cycle_size = 0;
-        let total_cycles_detected = sccs.len();
 
         for scc in &sccs {
-            if scc.len() > largest_cycle_size {
-                largest_cycle_size = scc.len();
+            // Skip single-node SCCs (self-cycles)
+            if scc.len() <= 1 {
+                continue;
             }
 
             let module_names: Vec<String> = scc
@@ -1134,11 +785,8 @@ impl CriboGraph {
                 })
                 .collect();
 
-            // Build import chain for the SCC
-            let import_chain = self.build_import_chain_for_scc(scc);
-
             // Classify the cycle type
-            let cycle_type = self.classify_cycle_type(&module_names, &import_chain);
+            let cycle_type = self.classify_cycle_type(&module_names);
 
             // Suggest resolution strategy
             let suggested_resolution =
@@ -1147,7 +795,6 @@ impl CriboGraph {
             let group = CircularDependencyGroup {
                 modules: module_names,
                 cycle_type: cycle_type.clone(),
-                import_chain,
                 suggested_resolution,
             };
 
@@ -1165,105 +812,11 @@ impl CriboGraph {
         CircularDependencyAnalysis {
             resolvable_cycles,
             unresolvable_cycles,
-            total_cycles_detected,
-            largest_cycle_size,
-            cycle_paths,
-        }
-    }
-
-    /// Build import chain for a strongly connected component
-    fn build_import_chain_for_scc(&self, scc: &[ModuleId]) -> Vec<ImportEdge> {
-        let mut import_chain = Vec::new();
-
-        for &from_module_id in scc {
-            let Some(from_module) = self.modules.get(&from_module_id) else {
-                log::warn!("Module {from_module_id:?} not found in build_import_chain_for_scc");
-                continue;
-            };
-            let from_name = &from_module.module_name;
-
-            // Get dependencies of this module that are also in the SCC
-            let deps = self.get_dependencies(from_module_id);
-            for to_module_id in deps {
-                if !scc.contains(&to_module_id) {
-                    continue;
-                }
-
-                let Some(to_module) = self.modules.get(&to_module_id) else {
-                    log::warn!("Module {to_module_id:?} not found in build_import_chain_for_scc");
-                    continue;
-                };
-                let to_name = &to_module.module_name;
-
-                // Check module-level imports to determine import type
-                let import_type = self.determine_import_type(from_module_id, to_module_id);
-
-                import_chain.push(ImportEdge {
-                    from_module: from_name.clone(),
-                    to_module: to_name.clone(),
-                    import_type,
-                    line_number: None, // Would need AST info
-                });
-            }
-        }
-
-        import_chain
-    }
-
-    /// Determine import type between two modules
-    fn determine_import_type(&self, from_id: ModuleId, to_id: ModuleId) -> ImportType {
-        // Check the module's items for import statements
-        if let Some(from_module) = self.modules.get(&from_id) {
-            for item_data in from_module.items.values() {
-                if let Some(import_type) =
-                    self.check_item_for_import_type(&item_data.item_type, to_id)
-                {
-                    return import_type;
-                }
-            }
-        }
-        ImportType::Direct // Default
-    }
-
-    /// Check if an item contains an import that matches the target module
-    fn check_item_for_import_type(
-        &self,
-        item_type: &ItemType,
-        to_id: ModuleId,
-    ) -> Option<ImportType> {
-        match item_type {
-            ItemType::Import { module, alias } => {
-                if self.module_names.get(module) == Some(&to_id) {
-                    if alias.is_some() {
-                        Some(ImportType::AliasedImport)
-                    } else {
-                        Some(ImportType::Direct)
-                    }
-                } else {
-                    None
-                }
-            }
-            ItemType::FromImport { module, level, .. } => {
-                if self.module_names.get(module) == Some(&to_id) {
-                    Some(if *level > 0 {
-                        ImportType::RelativeImport
-                    } else {
-                        ImportType::FromImport
-                    })
-                } else {
-                    None
-                }
-            }
-            _ => None,
         }
     }
 
     /// Classify the type of circular dependency
-    fn classify_cycle_type(
-        &self,
-        module_names: &[String],
-        import_chain: &[ImportEdge],
-    ) -> CircularDependencyType {
+    fn classify_cycle_type(&self, module_names: &[String]) -> CircularDependencyType {
         // Check if this is a parent-child package cycle
         // These occur when a package imports from its subpackage (e.g., pkg/__init__.py imports
         // from pkg.submodule)
@@ -1313,9 +866,7 @@ impl CriboGraph {
         } else if analysis_result.imports_used_in_functions_only {
             CircularDependencyType::FunctionLevel
         } else if analysis_result.has_module_level_imports
-            || import_chain.iter().any(|edge| {
-                edge.from_module.contains("__init__") || edge.to_module.contains("__init__")
-            })
+            || module_names.iter().any(|name| name.contains("__init__"))
         {
             CircularDependencyType::ImportTime
         } else {
@@ -1532,64 +1083,18 @@ impl CriboGraph {
     fn suggest_resolution_for_cycle(
         &self,
         cycle_type: &CircularDependencyType,
-        module_names: &[String],
+        _module_names: &[String],
     ) -> ResolutionStrategy {
         match cycle_type {
-            CircularDependencyType::FunctionLevel => ResolutionStrategy::FunctionScopedImport {
-                import_statements: module_names
-                    .iter()
-                    .map(|name| format!("Move 'import {name}' inside functions that use it"))
-                    .collect(),
-            },
-            CircularDependencyType::ClassLevel => ResolutionStrategy::LazyImport {
-                modules: module_names.to_vec(),
-            },
+            CircularDependencyType::FunctionLevel => ResolutionStrategy::FunctionScopedImport,
+            CircularDependencyType::ClassLevel => ResolutionStrategy::LazyImport,
             CircularDependencyType::ModuleConstants => ResolutionStrategy::Unresolvable {
                 reason: "Module-level constants create temporal paradox - consider moving to a \
                          shared configuration module"
                     .into(),
             },
-            CircularDependencyType::ImportTime => ResolutionStrategy::ModuleSplit {
-                suggestions: vec![
-                    "Extract shared interfaces to a separate module".into(),
-                    "Use dependency injection pattern".into(),
-                    "Reorganize module structure to eliminate circular dependencies".into(),
-                ],
-            },
+            CircularDependencyType::ImportTime => ResolutionStrategy::ModuleSplit,
         }
-    }
-
-    /// Get all import names that resolve to the same file as the given module
-    pub fn get_file_import_names(&self, module_id: ModuleId) -> Vec<String> {
-        if let Some(canonical_path) = self.module_canonical_paths.get(&module_id)
-            && let Some(names) = self.file_to_import_names.get(canonical_path)
-        {
-            return names.iter().cloned().collect();
-        }
-        vec![]
-    }
-
-    /// Check if two modules refer to the same file
-    pub fn same_file(&self, module_id1: ModuleId, module_id2: ModuleId) -> bool {
-        if let (Some(path1), Some(path2)) = (
-            self.module_canonical_paths.get(&module_id1),
-            self.module_canonical_paths.get(&module_id2),
-        ) {
-            return path1 == path2;
-        }
-        false
-    }
-
-    /// Get the canonical path for a module
-    pub fn get_canonical_path(&self, module_id: ModuleId) -> Option<&PathBuf> {
-        self.module_canonical_paths.get(&module_id)
-    }
-
-    /// Get the primary module for a given file path.
-    /// The path will be canonicalized before lookup.
-    pub fn get_primary_module_for_file(&self, path: &Path) -> Option<(String, ModuleId)> {
-        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        self.file_primary_module.get(&canonical).cloned()
     }
 }
 
@@ -1622,56 +1127,6 @@ mod tests {
     }
 
     #[test]
-    fn test_item_dependencies() {
-        let mut module = ModuleDepGraph::new(ModuleId::new(0), "test".to_string());
-
-        // Add a function definition
-        let func_item = module.add_item(ItemData {
-            item_type: ItemType::FunctionDef {
-                name: "test_func".into(),
-            },
-            var_decls: ["test_func".into()].into_iter().collect(),
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
-            has_side_effects: false,
-            span: Some((1, 3)),
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: ["test_func".into()].into_iter().collect(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
-        });
-
-        // Add a call to the function
-        let call_item = module.add_item(ItemData {
-            item_type: ItemType::Expression,
-            var_decls: FxHashSet::default(),
-            read_vars: ["test_func".into()].into_iter().collect(),
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
-            has_side_effects: true,
-            span: Some((5, 5)),
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
-        });
-
-        // Add dependency
-        module.add_dependency(call_item, func_item, DepType::Strong);
-
-        // Test transitive dependencies
-        let deps = module.get_transitive_deps(call_item);
-        assert!(deps.contains(&func_item));
-    }
-
-    #[test]
     fn test_circular_dependency_detection() {
         let mut graph = CriboGraph::new();
 
@@ -1692,16 +1147,8 @@ mod tests {
         assert_eq!(sccs.len(), 1);
         assert_eq!(sccs[0].len(), 3);
 
-        // Find cycle paths
-        let cycle_paths = graph
-            .find_cycle_paths()
-            .expect("Cycle path detection should not fail");
-        assert!(!cycle_paths.is_empty());
-
         // Analyze circular dependencies
         let analysis = graph.analyze_circular_dependencies();
-        assert_eq!(analysis.total_cycles_detected, 1);
-        assert_eq!(analysis.largest_cycle_size, 3);
         assert!(!analysis.resolvable_cycles.is_empty());
     }
 
@@ -1758,7 +1205,6 @@ mod tests {
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
-            span: Some((1, 3)),
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
             defined_symbols: ["helper".into()].into_iter().collect(),
@@ -1814,7 +1260,6 @@ mod tests {
                 write_vars: FxHashSet::default(),
                 eventual_write_vars: FxHashSet::default(),
                 has_side_effects: false,
-                span: Some((4, 6)),
                 imported_names: FxHashSet::default(),
                 reexported_names: FxHashSet::default(),
                 defined_symbols: ["new_helper".into()].into_iter().collect(),

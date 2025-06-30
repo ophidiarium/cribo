@@ -1,15 +1,13 @@
 use std::{
     fs,
-    hash::BuildHasherDefault,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
 
 use anyhow::{Context, Result, anyhow};
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexSet;
 use log::{debug, info, trace, warn};
 use ruff_python_ast::{ModModule, visitor::Visitor};
-use rustc_hash::FxHasher;
 
 use crate::{
     code_generator::HybridStaticBundler,
@@ -22,12 +20,10 @@ use crate::{
     resolver::{ImportType, ModuleResolver},
     semantic_bundler::SemanticBundler,
     tree_shaking::TreeShaker,
+    types::FxIndexMap,
     util::{module_name_from_relative, normalize_line_endings},
     visitors::{ImportDiscoveryVisitor, ImportLocation, ScopeElement},
 };
-
-/// Type alias for IndexMap with FxHasher for better performance
-type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 
 /// Static empty parsed module for creating Stylist instances
 static EMPTY_PARSED_MODULE: OnceLock<ruff_python_parser::Parsed<ModModule>> = OnceLock::new();
@@ -41,12 +37,6 @@ pub struct ModuleInfo {
     pub canonical_name: String,
     /// The resolved filesystem path
     pub resolved_path: PathBuf,
-    /// The original source code
-    pub original_source: String,
-    /// The original parsed AST
-    pub original_ast: ModModule,
-    /// Whether this is a wrapper module (has side effects)
-    pub is_wrapper: bool,
 }
 
 /// Central registry for module information
@@ -99,24 +89,9 @@ impl ModuleRegistry {
         self.modules.insert(id, info);
     }
 
-    /// Get module info by ID
-    pub fn get_by_id(&self, id: &ModuleId) -> Option<&ModuleInfo> {
-        self.modules.get(id)
-    }
-
     /// Get module ID by canonical name
     pub fn get_id_by_name(&self, name: &str) -> Option<ModuleId> {
         self.name_to_id.get(name).copied()
-    }
-
-    /// Get module ID by resolved path
-    pub fn get_id_by_path(&self, path: &Path) -> Option<ModuleId> {
-        self.path_to_id.get(path).copied()
-    }
-
-    /// Iterate over all modules
-    pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModuleInfo)> {
-        self.modules.iter()
     }
 }
 
@@ -186,7 +161,7 @@ struct ProcessedModule {
     /// Normalized imports map (alias -> canonical)
     normalized_imports: FxIndexMap<String, String>,
     /// Modules created by stdlib normalization (e.g., "abc", "collections")
-    normalized_modules: IndexSet<String, BuildHasherDefault<FxHasher>>,
+    normalized_modules: crate::types::FxIndexSet<String>,
     /// Module ID if already added to dependency graph
     module_id: Option<crate::cribo_graph::ModuleId>,
 }
@@ -262,9 +237,6 @@ impl BundleOrchestrator {
                         id: module_id,
                         canonical_name: module_name.to_string(),
                         resolved_path: canonical_path.clone(),
-                        original_source: cached.source.clone(),
-                        original_ast: cached.ast.clone(),
-                        is_wrapper: false, // Will be determined later during bundling
                     };
                     self.module_registry.add_module(module_info);
 
@@ -309,9 +281,6 @@ impl BundleOrchestrator {
                 id: module_id,
                 canonical_name: module_name.to_string(),
                 resolved_path: canonical_path.clone(),
-                original_source: source.clone(),
-                original_ast: ast.clone(),
-                is_wrapper: false, // Will be determined later during bundling
             };
             self.module_registry.add_module(module_info);
 
@@ -1680,7 +1649,7 @@ impl BundleOrchestrator {
 
         // Bundle all modules using static bundler
         let bundled_ast = static_bundler.bundle_modules(crate::code_generator::BundleParams {
-            modules: module_asts,
+            modules: &module_asts,
             sorted_modules: params.sorted_modules,
             entry_module_name: params.entry_module_name,
             graph: params.graph,
