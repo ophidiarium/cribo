@@ -90,10 +90,6 @@ impl ItemType {
     }
 }
 
-/// Information about a module-level dependency edge
-#[derive(Debug, Clone, Default)]
-pub struct ModuleDependencyInfo {}
-
 /// Variable state tracking
 #[derive(Debug, Clone)]
 pub struct VarState {
@@ -511,7 +507,7 @@ pub struct CriboGraph {
     /// Module path to ID mapping
     pub module_paths: FxHashMap<PathBuf, ModuleId>,
     /// Petgraph for efficient algorithms (inspired by Mako)
-    graph: DiGraph<ModuleId, ModuleDependencyInfo>,
+    graph: DiGraph<ModuleId, ()>,
     /// Node index mapping
     node_indices: FxHashMap<ModuleId, NodeIndex>,
     /// Next module ID to allocate
@@ -648,16 +644,11 @@ impl CriboGraph {
 
     /// Add a dependency between modules (from depends on to)
     pub fn add_module_dependency(&mut self, from: ModuleId, to: ModuleId) {
-        self.add_module_dependency_with_info(from, to, ModuleDependencyInfo::default());
+        self.add_module_dependency_with_info(from, to, ());
     }
 
     /// Add a dependency between modules with additional information
-    pub fn add_module_dependency_with_info(
-        &mut self,
-        from: ModuleId,
-        to: ModuleId,
-        info: ModuleDependencyInfo,
-    ) {
+    pub fn add_module_dependency_with_info(&mut self, from: ModuleId, to: ModuleId, info: ()) {
         if let (Some(&from_idx), Some(&to_idx)) =
             (self.node_indices.get(&from), self.node_indices.get(&to))
         {
