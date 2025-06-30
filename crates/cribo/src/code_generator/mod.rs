@@ -16,6 +16,4 @@ pub mod module_transformer;
 
 // Re-export the main bundler and key types
 pub use bundler::HybridStaticBundler;
-// Re-export for backward compatibility
-pub use bundler::bundle_modules;
-pub use context::{BundleParams, HardDependency};
+pub use context::BundleParams;

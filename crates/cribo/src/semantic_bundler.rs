@@ -6,7 +6,6 @@
 use std::path::Path;
 
 use anyhow::Result;
-use log;
 use ruff_linter::source_kind::SourceKind;
 use ruff_python_ast::{Expr, ModModule, PySourceType, Stmt};
 use ruff_python_parser::parse_unchecked_source;
