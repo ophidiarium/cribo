@@ -7276,6 +7276,8 @@ impl<'a> HybridStaticBundler<'a> {
                             // names
                             if !local_name.starts_with('_')
                                 && !local_name.contains('.')
+                                && !local_name.is_empty()
+                                && !local_name.as_bytes()[0].is_ascii_digit()
                                 && local_name.chars().all(|c| c.is_alphanumeric() || c == '_')
                             {
                                 log::debug!(
