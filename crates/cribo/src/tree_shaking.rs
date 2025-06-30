@@ -380,6 +380,17 @@ impl TreeShaker {
         // Start with all symbols referenced by the entry module
         if let Some(items) = self.module_items.get(entry_module) {
             for item in items {
+                // Mark classes and functions defined in the entry module as used
+                // This ensures that classes/functions defined in the entry module
+                // (even inside try blocks) are kept along with their dependencies
+                match &item.item_type {
+                    ItemType::ClassDef { name } | ItemType::FunctionDef { name } => {
+                        debug!("Marking entry module class/function '{name}' as used");
+                        worklist.push_back((entry_module.to_string(), name.clone()));
+                    }
+                    _ => {}
+                }
+
                 // Add symbols from read_vars
                 for var in &item.read_vars {
                     // Check if this var is an imported alias first

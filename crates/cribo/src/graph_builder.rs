@@ -385,9 +385,10 @@ impl<'a> GraphBuilder<'a> {
             // Note: This is for generic classes
         }
 
+        let mut attribute_accesses = FxHashMap::default();
         if let Some(arguments) = &class_def.arguments {
             for arg in &arguments.args {
-                self.collect_vars_in_expr(arg, &mut read_vars);
+                self.collect_vars_in_expr_with_attrs(arg, &mut read_vars, &mut attribute_accesses);
             }
         }
 
@@ -431,6 +432,14 @@ impl<'a> GraphBuilder<'a> {
                     &mut method_attribute_accesses,
                 );
             }
+        }
+
+        // Merge attribute accesses from base classes and methods
+        for (key, values) in attribute_accesses {
+            method_attribute_accesses
+                .entry(key)
+                .or_default()
+                .extend(values);
         }
 
         let item_data = ItemData {

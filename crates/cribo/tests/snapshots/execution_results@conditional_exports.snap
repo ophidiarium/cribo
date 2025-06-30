@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/conditional_exports/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "compat_module has JSONDecodeError: True\n✓ Can access compat_module.JSONDecodeError\n✓ Successfully created class inheriting from compat_module.JSONDecodeError\n✓ json is accessible\n✓ JSONDecodeError is accessible\n✓ builtin_str is accessible\n✓ is_py3 is accessible\n✓ chardet is accessible",
+    stderr: "",
+}
