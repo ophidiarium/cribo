@@ -88,7 +88,8 @@
         "**/.DS_Store": true,
         "**/Thumbs.db": true,
         "**/__pycache__": true,
-        "**/.zed": true
+        "**/.zed": true,
+        "**/.idea": true
     },
     "sonarlint.connectedMode.project": {
         "connectionId": "ophidiarium",
