@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.3](https://github.com/ophidiarium/cribo/compare/v0.5.2...v0.5.3) (2025-06-30)
+
+
+### Features
+
+* ecosystem tests foundation ([#163](https://github.com/ophidiarium/cribo/issues/163)) ([db530c2](https://github.com/ophidiarium/cribo/commit/db530c2a195c4e0578c7869387939d66b5f58c77))
+
+
+### Bug Fixes
+
+* ecosystem testing testing advances ([#165](https://github.com/ophidiarium/cribo/issues/165)) ([96b0bcc](https://github.com/ophidiarium/cribo/commit/96b0bcc4e3a2771e687b47f2fcb457510d693cfd))
+
 ## [0.5.2](https://github.com/ophidiarium/cribo/compare/v0.5.1...v0.5.2) (2025-06-24)
 
 
