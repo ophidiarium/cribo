@@ -72,6 +72,7 @@ class Logger_1:
         return f"base_logger_process: {log_data}"
 Logger_1.__module__ = 'models.base'
 Logger_1.__name__ = 'Logger'
+Logger_1.__qualname__ = 'Logger'
 result_2 = "base_result"
 """\nBase model functionality with relative import conflicts\n"""
 result_3 = {"model": "user"}
@@ -95,6 +96,7 @@ class Logger_2:
         return len(entry) > 0
 Logger_2.__module__ = 'models.user'
 Logger_2.__name__ = 'Logger'
+Logger_2.__qualname__ = 'Logger'
 class User_2:
     """Model User class - major conflict with other User classes"""
 
@@ -145,6 +147,7 @@ class User_2:
         return connection_3
 User_2.__module__ = 'models.user'
 User_2.__name__ = 'User'
+User_2.__qualname__ = 'User'
 def process_user(data: typing.Any) -> str:
     """Module function with naming conflicts"""
     global result_3
@@ -191,6 +194,7 @@ class Logger_4:
         return f"logger_process: {data}"
 Logger_4.__module__ = 'core.utils.helpers'
 Logger_4.__name__ = 'Logger'
+Logger_4.__qualname__ = 'Logger'
 def process_6(data: typing.Any) -> str:
     """Utility process function - major conflict with other process functions"""
     global result_6
@@ -238,6 +242,7 @@ class Connection_6:
         return f"Connected to {self.host}:{self.port}"
 Connection_6.__module__ = 'core.database.connection'
 Connection_6.__name__ = 'Connection'
+Connection_6.__qualname__ = 'Connection'
 def process_7(data):
     """Database process function - conflicts with other process functions"""
     global result_8

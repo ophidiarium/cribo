@@ -8534,6 +8534,35 @@ impl<'a> HybridStaticBundler<'a> {
                 range: TextRange::default(),
             });
             ctx.inlined_stmts.push(name_attr_stmt);
+
+            // Set __qualname__ to match __name__ for proper repr()
+            let qualname_attr_stmt = Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Attribute(ExprAttribute {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: Box::new(Expr::Name(ExprName {
+                        node_index: AtomicNodeIndex::dummy(),
+                        id: renamed_name.clone().into(),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    attr: Identifier::new("__qualname__", TextRange::default()),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::StringLiteral(ExprStringLiteral {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: StringLiteralValue::single(StringLiteral {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: class_name.to_string().into(),
+                        range: TextRange::default(),
+                        flags: StringLiteralFlags::empty(),
+                    }),
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            });
+            ctx.inlined_stmts.push(qualname_attr_stmt);
         }
     }
 

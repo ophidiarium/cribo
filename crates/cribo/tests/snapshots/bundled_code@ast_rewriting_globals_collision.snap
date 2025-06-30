@@ -48,6 +48,7 @@ class Logger_6:
         return f"utils_logger_{self.name}"
 Logger_6.__module__ = 'core.utils.helpers'
 Logger_6.__name__ = 'Logger'
+Logger_6.__qualname__ = 'Logger'
 def sanitize(text):
     """Utility function without conflicts"""
     return text.strip().lower()
