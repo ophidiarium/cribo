@@ -25,6 +25,148 @@ fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
         false
     }
 }
+
+/// A scoped guard for safely setting and cleaning up the PYTHONPATH environment variable.
+///
+/// This guard ensures that the PYTHONPATH environment variable is properly restored
+/// to its original value when the guard is dropped, even if a panic occurs during testing.
+///
+/// # Example
+///
+/// ```rust
+/// use cribo::resolver::PythonPathGuard;
+/// let _guard = PythonPathGuard::new("/tmp/test");
+/// // PYTHONPATH is now set to "/tmp/test"
+/// // When _guard goes out of scope, PYTHONPATH is restored to its original value
+/// ```
+#[must_use = "PythonPathGuard must be held in scope to ensure cleanup"]
+pub struct PythonPathGuard {
+    /// The original value of PYTHONPATH, if it was set
+    /// None if PYTHONPATH was not set originally
+    original_value: Option<String>,
+}
+
+/// A scoped guard for safely setting and cleaning up the VIRTUAL_ENV environment variable.
+///
+/// This guard ensures that the VIRTUAL_ENV environment variable is properly restored
+/// to its original value when the guard is dropped, even if a panic occurs during testing.
+///
+/// # Example
+///
+/// ```rust
+/// use cribo::resolver::VirtualEnvGuard;
+/// let _guard = VirtualEnvGuard::new("/path/to/venv");
+/// // VIRTUAL_ENV is now set to "/path/to/venv"
+/// // When _guard goes out of scope, VIRTUAL_ENV is restored to its original value
+/// ```
+#[must_use = "VirtualEnvGuard must be held in scope to ensure cleanup"]
+pub struct VirtualEnvGuard {
+    /// The original value of VIRTUAL_ENV, if it was set
+    /// None if VIRTUAL_ENV was not set originally
+    original_value: Option<String>,
+}
+
+impl PythonPathGuard {
+    /// Create a new PYTHONPATH guard with the given value.
+    ///
+    /// This will set the PYTHONPATH environment variable to the specified value
+    /// and store the original value for restoration when the guard is dropped.
+    pub fn new(new_value: &str) -> Self {
+        let original_value = std::env::var("PYTHONPATH").ok();
+
+        // SAFETY: This is safe in test contexts where we control the environment
+        // and ensure proper cleanup via the Drop trait.
+        unsafe {
+            std::env::set_var("PYTHONPATH", new_value);
+        }
+
+        Self { original_value }
+    }
+
+    /// Create a new PYTHONPATH guard that ensures PYTHONPATH is unset.
+    ///
+    /// This will remove the PYTHONPATH environment variable and store the
+    /// original value for restoration when the guard is dropped.
+    pub fn unset() -> Self {
+        let original_value = std::env::var("PYTHONPATH").ok();
+
+        // SAFETY: This is safe in test contexts where we control the environment
+        // and ensure proper cleanup via the Drop trait.
+        unsafe {
+            std::env::remove_var("PYTHONPATH");
+        }
+
+        Self { original_value }
+    }
+}
+
+impl Drop for PythonPathGuard {
+    fn drop(&mut self) {
+        // Always attempt cleanup, even during panics - that's the whole point of a scope guard!
+        // We catch and ignore any errors to prevent double panics, but we must try to clean up.
+        #[allow(clippy::disallowed_methods)]
+        // catch_unwind is necessary here to prevent double panics during cleanup
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // SAFETY: This is safe as we're restoring the environment to its original state
+            unsafe {
+                match self.original_value.take() {
+                    Some(original) => std::env::set_var("PYTHONPATH", original),
+                    None => std::env::remove_var("PYTHONPATH"),
+                }
+            }
+        }));
+    }
+}
+
+impl VirtualEnvGuard {
+    /// Create a new VIRTUAL_ENV guard with the given value.
+    ///
+    /// This will set the VIRTUAL_ENV environment variable to the specified value
+    /// and store the original value for restoration when the guard is dropped.
+    pub fn new(new_value: &str) -> Self {
+        let original_value = std::env::var("VIRTUAL_ENV").ok();
+
+        // SAFETY: This is safe in test contexts where we control the environment
+        // and ensure proper cleanup via the Drop trait.
+        unsafe {
+            std::env::set_var("VIRTUAL_ENV", new_value);
+        }
+
+        Self { original_value }
+    }
+
+    /// Create a new VIRTUAL_ENV guard that ensures VIRTUAL_ENV is unset.
+    ///
+    /// This will remove the VIRTUAL_ENV environment variable and store the
+    /// original value for restoration when the guard is dropped.
+    pub fn unset() -> Self {
+        let original_value = std::env::var("VIRTUAL_ENV").ok();
+
+        // SAFETY: This is safe in test contexts where we control the environment
+        // and ensure proper cleanup via the Drop trait.
+        unsafe {
+            std::env::remove_var("VIRTUAL_ENV");
+        }
+
+        Self { original_value }
+    }
+}
+
+impl Drop for VirtualEnvGuard {
+    fn drop(&mut self) {
+        // Always attempt cleanup, even during panics - that's the whole point of a scope guard!
+        // We catch and ignore any errors to prevent double panics, but we must try to clean up.
+        #[allow(clippy::disallowed_methods)]
+        // catch_unwind is necessary here to prevent double panics during cleanup
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // SAFETY: This is safe as we're restoring the environment to its original state
+            unsafe {
+                match self.original_value.take() {
+                    Some(original) => std::env::set_var("VIRTUAL_ENV", original),
+                    None => std::env::remove_var("VIRTUAL_ENV"),
+                }
+            }
+        }));
     }
 }
 
@@ -920,6 +1062,26 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_pythonpath_guard() {
+        // Save original value
+        let original = std::env::var("PYTHONPATH").ok();
+
+        {
+            let _guard = PythonPathGuard::new("/test/path");
+            assert_eq!(
+                std::env::var("PYTHONPATH").expect("PYTHONPATH should be set"),
+                "/test/path"
+            );
+        }
+
+        // Should be restored
+        match (original, std::env::var("PYTHONPATH").ok()) {
+            (None, None) => (), // Good - was unset, still unset
+            (Some(orig), Some(current)) => assert_eq!(orig, current),
+            _ => panic!("PYTHONPATH not properly restored"),
+        }
+    }
 
     #[test]
     fn test_namespace_package() -> Result<()> {
