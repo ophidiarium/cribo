@@ -65,13 +65,6 @@ pub fn from_import_has_side_effects(import_from: &StmtImportFrom) -> bool {
     }
 }
 
-/// Check if a regular import statement would have side effects
-pub fn regular_import_has_side_effects(import_stmt: &StmtImport) -> bool {
-    import_stmt.names.iter().any(|alias| {
-        let module_name = alias.name.as_str();
-        import_has_side_effects(module_name)
-    })
-}
 
 /// Check if a module AST has side effects that prevent optimization
 ///

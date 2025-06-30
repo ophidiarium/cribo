@@ -553,15 +553,6 @@ pub fn is_init_function(name: &str) -> bool {
     name.starts_with(CRIBO_INIT_PREFIX)
 }
 
-/// Get init function name for a module (looks up synthetic name first)
-pub fn get_init_function_name_for_module(
-    module_name: &str,
-    module_registry: &FxIndexMap<String, String>,
-) -> Option<String> {
-    module_registry
-        .get(module_name)
-        .map(|synthetic_name| get_init_function_name(synthetic_name))
-}
 
 /// Register a module with its synthetic name and init function
 /// Returns (synthetic_name, init_func_name)

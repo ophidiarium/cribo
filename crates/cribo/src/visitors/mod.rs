@@ -4,7 +4,6 @@
 //! enabling comprehensive import discovery and AST transformations.
 
 mod import_discovery;
-mod no_ops_removal;
 mod side_effect_detector;
 
 pub use import_discovery::{
