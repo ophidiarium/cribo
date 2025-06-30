@@ -4,7 +4,7 @@ use ruff_python_ast::{ModModule, Stmt};
 
 use crate::{
     cribo_graph::CriboGraph as DependencyGraph,
-    semantic_bundler::{ModuleGlobalInfo, SemanticBundler, SymbolRegistry},
+    semantic_bundler::{SemanticBundler, SymbolRegistry},
     types::{FxIndexMap, FxIndexSet},
 };
 

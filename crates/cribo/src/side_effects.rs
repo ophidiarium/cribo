@@ -4,7 +4,7 @@
 //! Python modules, imports, or AST nodes have side effects that would
 //! prevent optimization techniques like hoisting or inlining.
 
-use ruff_python_ast::{ModModule, StmtImport, StmtImportFrom};
+use ruff_python_ast::{ModModule, StmtImportFrom};
 
 use crate::visitors::SideEffectDetector;
 
@@ -64,7 +64,6 @@ pub fn from_import_has_side_effects(import_from: &StmtImportFrom) -> bool {
         is_star
     }
 }
-
 
 /// Check if a module AST has side effects that prevent optimization
 ///

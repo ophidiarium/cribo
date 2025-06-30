@@ -292,7 +292,7 @@ fn test_bundling_fixtures() {
         let bundle_path = temp_dir.path().join("bundled.py");
 
         // Bundle the fixture with requirements generation using the cribo binary
-        let (bundle_stdout, bundle_stderr, bundle_exit_code) = run_cribo(&[
+        let (_bundle_stdout, bundle_stderr, bundle_exit_code) = run_cribo(&[
             "--entry",
             path.to_str().unwrap(),
             "--output",

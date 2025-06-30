@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use cow_utils::CowUtils;
 
@@ -32,7 +32,6 @@ pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
     Some(parts.join("."))
 }
 
-
 /// Normalize line endings to LF (\n) for cross-platform consistency
 /// This ensures reproducible builds regardless of the platform where bundling occurs
 pub fn normalize_line_endings(content: String) -> String {
@@ -43,8 +42,5 @@ pub fn normalize_line_endings(content: String) -> String {
         .into_owned()
 }
 
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-}
+mod tests {}

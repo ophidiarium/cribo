@@ -90,20 +90,10 @@ impl ItemType {
     }
 }
 
-/// Dependency type between items
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DepType {
-    /// Always needed (e.g., direct function call)
-    Strong,
-    /// Only needed if target is included (e.g., conditional import)
-    Weak,
-}
-
 /// A single dependency relationship
 #[derive(Debug, Clone)]
 pub struct Dep {
     pub target: ItemId,
-    pub dep_type: DepType,
 }
 
 /// Information about a module-level dependency edge
@@ -282,11 +272,8 @@ impl ModuleDepGraph {
     }
 
     /// Add a dependency between items
-    pub fn add_dependency(&mut self, from: ItemId, to: ItemId, dep_type: DepType) {
-        self.deps.entry(from).or_default().push(Dep {
-            target: to,
-            dep_type,
-        });
+    pub fn add_dependency(&mut self, from: ItemId, to: ItemId) {
+        self.deps.entry(from).or_default().push(Dep { target: to });
     }
 
     /// Get all items that an item depends on (transitively)
@@ -550,17 +537,8 @@ impl ModuleDepGraph {
     /// Process dependencies for an item
     fn process_item_dependencies(&self, deps: &[Dep], required: &mut FxHashSet<ItemId>) {
         for dep in deps {
-            match dep.dep_type {
-                DepType::Strong => {
-                    self.collect_required_items(dep.target, required);
-                }
-                DepType::Weak => {
-                    // Only include if target is already required
-                    if required.contains(&dep.target) {
-                        self.collect_required_items(dep.target, required);
-                    }
-                }
-            }
+            // All dependencies are strong now
+            self.collect_required_items(dep.target, required);
         }
     }
 }
@@ -1664,7 +1642,7 @@ mod tests {
         });
 
         // Add dependency
-        module.add_dependency(call_item, func_item, DepType::Strong);
+        module.add_dependency(call_item, func_item);
 
         // Test transitive dependencies
         let deps = module.get_transitive_deps(call_item);
