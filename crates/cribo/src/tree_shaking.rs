@@ -847,7 +847,7 @@ impl TreeShaker {
 
 #[cfg(test)]
 mod tests {
-    use rustc_hash::FxHashMap;
+    use rustc_hash::{FxHashMap, FxHashSet};
 
     use super::*;
 
