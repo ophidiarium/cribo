@@ -8453,6 +8453,25 @@ impl<'a> HybridStaticBundler<'a> {
         class_def_clone.name = Identifier::new(renamed_name.clone(), TextRange::default());
 
         // Apply renames to base classes
+        if let Some(ref mut arguments) = class_def_clone.arguments {
+            // Build a combined rename map for base classes
+            let mut combined_renames = module_renames.clone();
+
+            // Add renames from all modules to handle cross-module base class renames
+            for (_other_module, other_renames) in ctx.module_renames.iter() {
+                for (original_name, renamed_name) in other_renames {
+                    if !combined_renames.contains_key(original_name) {
+                        combined_renames.insert(original_name.clone(), renamed_name.clone());
+                    }
+                }
+            }
+
+            // Apply renames to each base class
+            for arg in &mut arguments.args {
+                self.rewrite_aliases_in_expr(arg, &combined_renames);
+            }
+        }
+
         // Apply renames and resolve import aliases in class body
         for body_stmt in &mut class_def_clone.body {
             Self::resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);

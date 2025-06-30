@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/symbol_collision_inheritance/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Created HTTPProxyAuth: <HTTPProxyAuth user=user>\nHTTPProxyAuth.__bases__: (<class 'auth_module.HTTPBasicAuth'>,)\nFactory created auth: <HTTPProxyAuth user=user2>\n✓ All tests passed",
+    stderr: "",
+}
