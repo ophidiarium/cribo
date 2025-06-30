@@ -87,6 +87,23 @@ impl<'a> RecursiveImportTransformer<'a> {
         self.created_namespace_objects
     }
 
+    /// Extract base class name from an expression
+    /// Returns None if the expression type is not supported
+    fn extract_base_class_name(base: &Expr) -> Option<String> {
+        match base {
+            Expr::Name(name) => Some(name.id.as_str().to_string()),
+            Expr::Attribute(attr) => {
+                if let Expr::Name(name) = &*attr.value {
+                    Some(format!("{}.{}", name.id.as_str(), attr.attr.as_str()))
+                } else {
+                    // Complex attribute chains not supported
+                    None
+                }
+            }
+            _ => None, // Other expression types not supported
+        }
+    }
+
     /// Check if this is an importlib.import_module() call
     fn is_importlib_import_module_call(&self, call: &ExprCall) -> bool {
         match &call.func.as_ref() {
@@ -254,20 +271,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 if has_hard_deps {
                                     // For classes with hard dependencies, check if this base is a
                                     // hard dep
-                                    let base_str = if let Expr::Name(name) = base {
-                                        name.id.as_str().to_string()
-                                    } else if let Expr::Attribute(attr) = base {
-                                        if let Expr::Name(name) = &*attr.value {
-                                            format!("{}.{}", name.id.as_str(), attr.attr.as_str())
-                                        } else {
-                                            String::new()
-                                        }
-                                    } else {
-                                        String::new()
-                                    };
+                                    let base_str =
+                                        Self::extract_base_class_name(base).unwrap_or_default();
 
                                     // Check if this specific base is a hard dependency
-                                    let is_hard_dep_base =
+                                    let is_hard_dep_base = if !base_str.is_empty() {
                                         self.bundler.hard_dependencies.iter().any(|dep| {
                                             dep.module_name == self.module_name
                                                 && dep.class_name == class_name
@@ -275,7 +283,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                     || dep
                                                         .base_class
                                                         .ends_with(&format!(".{base_str}")))
-                                        });
+                                        })
+                                    } else {
+                                        // If we can't extract the base class name, skip
+                                        // transformation to be safe
+                                        true
+                                    };
 
                                     if !is_hard_dep_base {
                                         // Not a hard dependency base, transform normally
@@ -283,7 +296,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     } else {
                                         log::debug!(
                                             "Skipping transformation of hard dependency base \
-                                             class {base_str} for class {class_name}"
+                                             class {} for class {class_name}",
+                                            if base_str.is_empty() {
+                                                "<complex expression>"
+                                            } else {
+                                                &base_str
+                                            }
                                         );
                                     }
                                 } else {
