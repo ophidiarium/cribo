@@ -24,6 +24,7 @@ pub fn transform_globals_in_expr(expr: &mut Expr) {
             if let Expr::Name(name_expr) = &*call_expr.func
                 && name_expr.id.as_str() == "globals"
                 && call_expr.arguments.args.is_empty()
+                && call_expr.arguments.keywords.is_empty()
             {
                 // Replace the entire expression with module.__dict__
                 *expr = Expr::Attribute(ExprAttribute {
