@@ -4832,6 +4832,10 @@ impl<'a> HybridStaticBundler<'a> {
                     let namespace_stmt = self
                         .create_namespace_for_inlined_module_static(module_name, module_rename_map);
                     final_body.push(namespace_stmt);
+
+                    // Track the created namespace to prevent duplicate creation later
+                    let namespace_var = module_name.cow_replace('.', "_").into_owned();
+                    self.created_namespaces.insert(namespace_var);
                 }
             }
         }
