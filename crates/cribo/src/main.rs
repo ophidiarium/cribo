@@ -16,7 +16,6 @@ mod import_alias_tracker;
 mod import_rewriter;
 mod orchestrator;
 mod resolver;
-mod semantic_analysis;
 mod semantic_bundler;
 mod side_effects;
 mod stdlib_normalization;

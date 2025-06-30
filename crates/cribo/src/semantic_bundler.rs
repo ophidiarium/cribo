@@ -333,21 +333,6 @@ impl<'a> SemanticModelBuilder<'a> {
 }
 
 /// Module semantic analyzer that provides static methods for symbol extraction
-pub struct ModuleSemanticAnalyzer;
-
-impl ModuleSemanticAnalyzer {
-    /// Extract symbols from a module using semantic analysis
-    pub fn extract_symbols_from_module(
-        source: &str,
-        path: &Path,
-        ast: &ModModule,
-    ) -> Result<(FxIndexSet<String>, Vec<EnhancedFromImport>)> {
-        let (semantic, from_imports) =
-            SemanticModelBuilder::build_semantic_model(source, path, ast)?;
-        let symbols = SemanticModelBuilder::extract_symbols_from_semantic_model(&semantic)?;
-        Ok((symbols, from_imports))
-    }
-}
 
 /// Semantic information for a single module
 #[derive(Debug)]
@@ -477,12 +462,6 @@ impl SymbolRegistry {
     ) -> Option<&SymbolBindingInfo> {
         self.symbol_bindings.get(&(*module_id, symbol.to_string()))
     }
-
-    /// Check if a symbol is module-level in a specific module
-    pub fn is_module_level_symbol(&self, module_id: &ModuleId, symbol: &str) -> bool {
-        self.get_symbol_binding(module_id, symbol)
-            .is_some_and(|info| info.is_module_level)
-    }
 }
 
 /// Represents a symbol conflict across modules
@@ -499,9 +478,6 @@ pub struct ModuleGlobalInfo {
 
     /// Variables declared with 'global' keyword in functions
     pub global_declarations: FxIndexMap<String, Vec<TextRange>>,
-
-    /// Locations where globals are read
-    pub global_reads: FxIndexMap<String, Vec<TextRange>>,
 
     /// Locations where globals are written
     pub global_writes: FxIndexMap<String, Vec<TextRange>>,

@@ -13,7 +13,6 @@ pub mod dirs;
 pub mod graph_builder;
 pub mod orchestrator;
 pub mod resolver;
-pub mod semantic_analysis;
 pub mod transformation_context;
 pub mod tree_shaking;
 pub mod util;

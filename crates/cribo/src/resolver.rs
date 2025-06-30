@@ -97,15 +97,6 @@ impl ModuleResolver {
         Self::new_with_overrides(config, None, None)
     }
 
-    /// Create a new ModuleResolver with optional PYTHONPATH override for testing
-    pub fn new_with_pythonpath(config: Config, pythonpath_override: Option<&str>) -> Result<Self> {
-        Self::new_with_overrides(config, pythonpath_override, None)
-    }
-
-    /// Create a new ModuleResolver with optional VIRTUAL_ENV override for testing
-    pub fn new_with_virtualenv(config: Config, virtualenv_override: Option<&str>) -> Result<Self> {
-        Self::new_with_overrides(config, None, virtualenv_override)
-    }
 
     /// Create a new ModuleResolver with optional PYTHONPATH and VIRTUAL_ENV overrides for testing
     pub fn new_with_overrides(
@@ -746,10 +737,6 @@ impl ModuleResolver {
         false
     }
 
-    /// Get a reference to the configuration
-    pub fn config(&self) -> &Config {
-        &self.config
-    }
 }
 
 #[cfg(test)]
@@ -1101,7 +1088,7 @@ mod tests {
 
         // Create resolver with PYTHONPATH override
         let pythonpath_str = pythonpath_dir.to_string_lossy();
-        let mut resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str))?;
+        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
 
         // Test that modules can be resolved from both src and PYTHONPATH
         assert!(
@@ -1171,7 +1158,7 @@ mod tests {
 
         // Create resolver with PYTHONPATH override
         let pythonpath_str = pythonpath_dir.to_string_lossy();
-        let mut resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str))?;
+        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
 
         // Test that PYTHONPATH modules are classified as first-party
         assert_eq!(
@@ -1225,7 +1212,7 @@ mod tests {
             separator,
             pythonpath_dir2.to_string_lossy()
         );
-        let mut resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str))?;
+        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
 
         // Test that modules from both PYTHONPATH directories can be resolved
         assert!(
@@ -1269,7 +1256,7 @@ mod tests {
         };
 
         // Test with empty PYTHONPATH
-        let mut resolver1 = ModuleResolver::new_with_pythonpath(config.clone(), Some(""))?;
+        let mut resolver1 = ModuleResolver::new_with_overrides(config.clone(), Some(""), None)?;
 
         // Should be able to resolve module from src directory
         assert!(
@@ -1278,7 +1265,7 @@ mod tests {
         );
 
         // Test with no PYTHONPATH
-        let mut resolver2 = ModuleResolver::new_with_pythonpath(config.clone(), None)?;
+        let mut resolver2 = ModuleResolver::new_with_overrides(config.clone(), None, None)?;
 
         // Should be able to resolve module from src directory
         assert!(
@@ -1290,7 +1277,7 @@ mod tests {
         let separator = if cfg!(windows) { ';' } else { ':' };
         let nonexistent_pythonpath = format!("/nonexistent1{separator}/nonexistent2");
         let mut resolver3 =
-            ModuleResolver::new_with_pythonpath(config, Some(&nonexistent_pythonpath))?;
+            ModuleResolver::new_with_overrides(config, Some(&nonexistent_pythonpath), None)?;
 
         // Should still be able to resolve module from src directory
         assert!(
@@ -1341,7 +1328,7 @@ mod tests {
             separator,
             other_dir.to_string_lossy()
         );
-        let mut resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str))?;
+        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
 
         // Test that deduplication works - both modules should be resolvable
         assert!(
@@ -1390,7 +1377,7 @@ mod tests {
         let parent_dir = src_dir.parent().unwrap();
         let relative_path = parent_dir.join("src/../src"); // This resolves to the same directory
         let pythonpath_str = relative_path.to_string_lossy();
-        let mut resolver = ModuleResolver::new_with_pythonpath(config, Some(&pythonpath_str))?;
+        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
 
         // Test that the module can be resolved despite path canonicalization differences
         assert!(
