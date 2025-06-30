@@ -553,7 +553,6 @@ pub fn is_init_function(name: &str) -> bool {
     name.starts_with(CRIBO_INIT_PREFIX)
 }
 
-
 /// Register a module with its synthetic name and init function
 /// Returns (synthetic_name, init_func_name)
 pub fn register_module(

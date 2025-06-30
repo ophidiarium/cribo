@@ -1311,28 +1311,6 @@ impl<'a> HybridStaticBundler<'a> {
         false
     }
 
-    /// Rewrite imports in a statement with full context including wrapper init flag
-    pub fn rewrite_import_in_stmt_multiple_with_full_context(
-        &self,
-        stmt: Stmt,
-        current_module: &str,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-        inside_wrapper_init: bool,
-    ) -> Vec<Stmt> {
-        match stmt {
-            Stmt::ImportFrom(import_from) => self.rewrite_import_from(
-                import_from,
-                current_module,
-                symbol_renames,
-                inside_wrapper_init,
-            ),
-            Stmt::Import(import_stmt) => {
-                self.rewrite_import_with_renames(import_stmt, symbol_renames)
-            }
-            _ => vec![stmt],
-        }
-    }
-
     /// Rewrite import from statement with proper handling for bundled modules
     pub fn rewrite_import_from(
         &self,
@@ -7153,23 +7131,6 @@ impl<'a> HybridStaticBundler<'a> {
             }
         }
         None
-    }
-
-    /// Transform a module into an initialization function
-    /// This wraps the module body in a function that creates and returns a module object
-    pub fn transform_module_to_init_function(
-        &self,
-        ctx: ModuleTransformContext,
-        ast: ModModule,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-    ) -> Result<Stmt> {
-        // Delegate to the module_transformer module to keep bundler.rs manageable
-        crate::code_generator::module_transformer::transform_module_to_init_function(
-            self,
-            ctx,
-            ast,
-            symbol_renames,
-        )
     }
 
     /// Collect variables referenced in statements

@@ -82,7 +82,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
     }
 
-
     /// Get whether any types.SimpleNamespace objects were created
     pub fn created_namespace_objects(&self) -> bool {
         self.created_namespace_objects

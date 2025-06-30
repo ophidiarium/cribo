@@ -271,26 +271,6 @@ impl ModuleDepGraph {
         id
     }
 
-    /// Add a dependency between items
-    pub fn add_dependency(&mut self, from: ItemId, to: ItemId) {
-        self.deps.entry(from).or_default().push(Dep { target: to });
-    }
-
-    /// Get all items that an item depends on (transitively)
-    pub fn get_transitive_deps(&self, item: ItemId) -> FxHashSet<ItemId> {
-        let mut visited = FxHashSet::default();
-        let mut stack = vec![item];
-
-        while let Some(current) = stack.pop() {
-            if visited.insert(current) {
-                self.add_dependencies_to_stack(&current, &mut stack);
-            }
-        }
-
-        visited.remove(&item); // Don't include the starting item
-        visited
-    }
-
     /// Find unused imports in the module
     pub fn find_unused_imports(&self, is_init_py: bool) -> Vec<UnusedImportInfo> {
         let mut unused_imports = Vec::new();
@@ -482,64 +462,6 @@ impl ModuleDepGraph {
             }
         }
         false
-    }
-
-    /// Helper method to add dependencies to stack
-    fn add_dependencies_to_stack(&self, current: &ItemId, stack: &mut Vec<ItemId>) {
-        if let Some(deps) = self.deps.get(current) {
-            for dep in deps {
-                stack.push(dep.target);
-            }
-        }
-    }
-
-    /// Find all items needed for a set of used symbols
-    pub fn tree_shake(&self, used_symbols: &IndexSet<String>) -> FxHashSet<ItemId> {
-        let mut required_items = FxHashSet::default();
-
-        // Start with items that define used symbols
-        for (item_id, data) in &self.items {
-            let defines_used_symbol = match &data.item_type {
-                ItemType::FunctionDef { name } | ItemType::ClassDef { name } => {
-                    used_symbols.contains(name.as_str())
-                }
-                ItemType::Assignment { targets } => {
-                    targets.iter().any(|t| used_symbols.contains(t.as_str()))
-                }
-                _ => false,
-            };
-
-            if defines_used_symbol {
-                self.collect_required_items(*item_id, &mut required_items);
-            }
-        }
-
-        // Always include side effects in order
-        for &item in &self.side_effect_items {
-            required_items.insert(item);
-        }
-
-        required_items
-    }
-
-    /// Recursively collect all items required by a given item
-    fn collect_required_items(&self, item: ItemId, required: &mut FxHashSet<ItemId>) {
-        if !required.insert(item) {
-            return; // Already processed
-        }
-
-        // Add all dependencies
-        if let Some(deps) = self.deps.get(&item) {
-            self.process_item_dependencies(deps, required);
-        }
-    }
-
-    /// Process dependencies for an item
-    fn process_item_dependencies(&self, deps: &[Dep], required: &mut FxHashSet<ItemId>) {
-        for dep in deps {
-            // All dependencies are strong now
-            self.collect_required_items(dep.target, required);
-        }
     }
 }
 
@@ -1597,56 +1519,6 @@ mod tests {
             .expect("Topological sort should succeed for acyclic graph");
         // Since main depends on utils, utils should come first in topological order
         assert_eq!(sorted, vec![utils_id, main_id]);
-    }
-
-    #[test]
-    fn test_item_dependencies() {
-        let mut module = ModuleDepGraph::new(ModuleId::new(0), "test".to_string());
-
-        // Add a function definition
-        let func_item = module.add_item(ItemData {
-            item_type: ItemType::FunctionDef {
-                name: "test_func".into(),
-            },
-            var_decls: ["test_func".into()].into_iter().collect(),
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
-            has_side_effects: false,
-            span: Some((1, 3)),
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: ["test_func".into()].into_iter().collect(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
-        });
-
-        // Add a call to the function
-        let call_item = module.add_item(ItemData {
-            item_type: ItemType::Expression,
-            var_decls: FxHashSet::default(),
-            read_vars: ["test_func".into()].into_iter().collect(),
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
-            has_side_effects: true,
-            span: Some((5, 5)),
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
-            is_normalized_import: false,
-        });
-
-        // Add dependency
-        module.add_dependency(call_item, func_item);
-
-        // Test transitive dependencies
-        let deps = module.get_transitive_deps(call_item);
-        assert!(deps.contains(&func_item));
     }
 
     #[test]
