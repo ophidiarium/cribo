@@ -440,7 +440,6 @@ impl ModuleDepGraph {
     }
 }
 
-
 /// State for Tarjan's strongly connected components algorithm
 struct TarjanState {
     index_counter: usize,
@@ -450,7 +449,6 @@ struct TarjanState {
     on_stack: FxHashMap<NodeIndex, bool>,
     components: Vec<Vec<NodeIndex>>,
 }
-
 
 /// Analysis result for cycle modules
 struct CycleAnalysisResult {
@@ -499,7 +497,6 @@ pub enum ResolutionStrategy {
     Unresolvable { reason: String },
 }
 
-
 /// High-level dependency graph managing multiple modules
 /// Combines the best of three approaches:
 /// - Turbopack's fine-grained tracking
@@ -532,7 +529,6 @@ pub struct CriboGraph {
 }
 
 impl CriboGraph {
-
     /// Create a new cribo dependency graph
     pub fn new() -> Self {
         Self {
@@ -604,7 +600,6 @@ impl CriboGraph {
             let node_idx = self.graph.add_node(id);
             self.node_indices.insert(id, node_idx);
 
-
             return id;
         }
 
@@ -629,7 +624,6 @@ impl CriboGraph {
         // Check if module is from stdlib
         let root_module = name.split('.').next().unwrap_or(&name);
         let _is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(10, root_module);
-
 
         log::debug!("Registered module '{name}' as primary for file {canonical_path:?}");
 
@@ -1115,9 +1109,6 @@ impl CriboGraph {
             CircularDependencyType::ImportTime => ResolutionStrategy::ModuleSplit,
         }
     }
-
-
-
 }
 
 // HashSet import moved to top

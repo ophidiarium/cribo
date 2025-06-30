@@ -779,7 +779,6 @@ impl TreeShaker {
         unused
     }
 
-
     /// Check if a module has side effects that prevent tree-shaking
     pub fn module_has_side_effects(&self, module_name: &str) -> bool {
         if let Some(items) = self.module_items.get(module_name) {
@@ -795,7 +794,6 @@ impl TreeShaker {
             false
         }
     }
-
 
     /// Mark symbols defined in __all__ as used for star imports
     fn mark_all_defined_symbols_as_used(

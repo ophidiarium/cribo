@@ -97,7 +97,6 @@ impl ModuleResolver {
         Self::new_with_overrides(config, None, None)
     }
 
-
     /// Create a new ModuleResolver with optional PYTHONPATH and VIRTUAL_ENV overrides for testing
     pub fn new_with_overrides(
         config: Config,
@@ -721,7 +720,6 @@ impl ModuleResolver {
 
         false
     }
-
 }
 
 #[cfg(test)]
@@ -1359,7 +1357,9 @@ mod tests {
 
         // Create resolver with PYTHONPATH override using a relative path with .. components
         // This creates a different string representation of the same directory
-        let parent_dir = src_dir.parent().unwrap();
+        let parent_dir = src_dir
+            .parent()
+            .expect("test source directory should have a parent");
         let relative_path = parent_dir.join("src/../src"); // This resolves to the same directory
         let pythonpath_str = relative_path.to_string_lossy();
         let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;

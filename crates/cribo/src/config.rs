@@ -325,21 +325,51 @@ mod tests {
         // Test default behavior (should be "py310")
         let default_config = Config::default();
         assert_eq!(default_config.target_version, "py310");
-        assert_eq!(default_config.python_version().unwrap(), 10);
+        assert_eq!(
+            default_config
+                .python_version()
+                .expect("default config should have valid python version"),
+            10
+        );
 
         // Test setting target version programmatically
         let mut config = Config::default();
-        config.set_target_version("py311".to_string()).unwrap();
+        config
+            .set_target_version("py311".to_string())
+            .expect("py311 should be a valid target version");
         assert_eq!(config.target_version, "py311");
-        assert_eq!(config.python_version().unwrap(), 11);
+        assert_eq!(
+            config
+                .python_version()
+                .expect("config should have valid python version after setting"),
+            11
+        );
 
         // Test parsing various valid versions
-        assert_eq!(Config::parse_target_version("py38").unwrap(), 8);
-        assert_eq!(Config::parse_target_version("py39").unwrap(), 9);
-        assert_eq!(Config::parse_target_version("py310").unwrap(), 10);
-        assert_eq!(Config::parse_target_version("py311").unwrap(), 11);
-        assert_eq!(Config::parse_target_version("py312").unwrap(), 12);
-        assert_eq!(Config::parse_target_version("py313").unwrap(), 13);
+        assert_eq!(
+            Config::parse_target_version("py38").expect("py38 should parse to version 8"),
+            8
+        );
+        assert_eq!(
+            Config::parse_target_version("py39").expect("py39 should parse to version 9"),
+            9
+        );
+        assert_eq!(
+            Config::parse_target_version("py310").expect("py310 should parse to version 10"),
+            10
+        );
+        assert_eq!(
+            Config::parse_target_version("py311").expect("py311 should parse to version 11"),
+            11
+        );
+        assert_eq!(
+            Config::parse_target_version("py312").expect("py312 should parse to version 12"),
+            12
+        );
+        assert_eq!(
+            Config::parse_target_version("py313").expect("py313 should parse to version 13"),
+            13
+        );
 
         // Test invalid version strings
         assert!(Config::parse_target_version("invalid").is_err());
@@ -357,12 +387,21 @@ preserve_comments = false
 src = ["src", "lib"]
         "#;
 
-        let mut temp_file = NamedTempFile::new().unwrap();
-        temp_file.write_all(toml_content.as_bytes()).unwrap();
+        let mut temp_file =
+            NamedTempFile::new().expect("should be able to create temp file for test");
+        temp_file
+            .write_all(toml_content.as_bytes())
+            .expect("should be able to write test config to temp file");
 
-        let config = Config::load(Some(temp_file.path())).unwrap();
+        let config = Config::load(Some(temp_file.path()))
+            .expect("should be able to load valid config from temp file");
         assert_eq!(config.target_version, "py312");
-        assert_eq!(config.python_version().unwrap(), 12);
+        assert_eq!(
+            config
+                .python_version()
+                .expect("loaded config should have valid python version"),
+            12
+        );
         assert!(!config.preserve_comments);
     }
 
@@ -373,8 +412,11 @@ src = ["src", "lib"]
         target-version = "invalid_version"
         "#;
 
-        let mut temp_file = NamedTempFile::new().unwrap();
-        temp_file.write_all(toml_content.as_bytes()).unwrap();
+        let mut temp_file = NamedTempFile::new()
+            .expect("should be able to create temp file for invalid config test");
+        temp_file
+            .write_all(toml_content.as_bytes())
+            .expect("should be able to write invalid test config to temp file");
 
         let result = Config::load(Some(temp_file.path()));
         assert!(result.is_err());

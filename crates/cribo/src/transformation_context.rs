@@ -50,7 +50,6 @@ impl TransformationContext {
         AtomicNodeIndex::from(index)
     }
 
-
     /// Create a completely new node
     pub fn create_new_node(&mut self, reason: String) -> AtomicNodeIndex {
         let node_index = self.create_node_index();
@@ -60,7 +59,6 @@ impl TransformationContext {
 
         node_index
     }
-
 
     /// Get statistics about transformations
     pub fn get_stats(&self) -> TransformationStats {

@@ -354,7 +354,6 @@ pub struct SymbolRegistry {
     pub renames: FxIndexMap<(ModuleId, String), String>,
 }
 
-
 impl Default for SymbolRegistry {
     fn default() -> Self {
         Self::new()
@@ -369,7 +368,6 @@ impl SymbolRegistry {
             renames: FxIndexMap::default(),
         }
     }
-
 
     /// Register a symbol from a module (legacy interface)
     pub fn register_symbol(&mut self, symbol: String, module_id: ModuleId) {
@@ -411,8 +409,6 @@ impl SymbolRegistry {
             .get(&(*module_id, original.to_string()))
             .map(|s| s.as_str())
     }
-
-
 }
 
 /// Represents a symbol conflict across modules
@@ -553,8 +549,6 @@ impl SemanticBundler {
     pub fn symbol_registry(&self) -> &SymbolRegistry {
         &self.global_symbols
     }
-
-
 
     /// Analyze global variable usage in a module
     pub fn analyze_module_globals(
