@@ -1832,7 +1832,7 @@ impl<'a> HybridStaticBundler<'a> {
 
             if self.bundled_modules.contains(&full_module_path) {
                 if self.module_registry.contains_key(&full_module_path) {
-                    // Wrapper module - create sys.modules access
+                    // Wrapper module - create direct module reference
                     result_stmts.push(Stmt::Assign(StmtAssign {
                         node_index: AtomicNodeIndex::dummy(),
                         targets: vec![Expr::Name(ExprName {
@@ -1841,21 +1841,9 @@ impl<'a> HybridStaticBundler<'a> {
                             ctx: ExprContext::Store,
                             range: TextRange::default(),
                         })],
-                        value: Box::new(Expr::Subscript(ruff_python_ast::ExprSubscript {
+                        value: Box::new(Expr::Name(ExprName {
                             node_index: AtomicNodeIndex::dummy(),
-                            value: Box::new(Expr::Attribute(ExprAttribute {
-                                node_index: AtomicNodeIndex::dummy(),
-                                value: Box::new(Expr::Name(ExprName {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    id: "sys".into(),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                attr: Identifier::new("modules", TextRange::default()),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            slice: Box::new(self.create_string_literal(&full_module_path)),
+                            id: full_module_path.into(),
                             ctx: ExprContext::Load,
                             range: TextRange::default(),
                         })),
@@ -3519,121 +3507,58 @@ impl<'a> HybridStaticBundler<'a> {
                         }
                     }
 
-                    // Check if this is an assignment like: UserSchema =
-                    // sys.modules['schemas.user'].UserSchema
-                    if let Expr::Attribute(attr) = &assign.value.as_ref() {
-                        if let Expr::Subscript(subscript) = &attr.value.as_ref() {
-                            if let Expr::Attribute(sys_attr) = &subscript.value.as_ref() {
-                                if let Expr::Name(sys_name) = &sys_attr.value.as_ref() {
-                                    if sys_name.id.as_str() == "sys"
-                                        && sys_attr.attr.as_str() == "modules"
-                                    {
-                                        // This is a sys.modules access
-                                        if let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
-                                        {
-                                            let module_name = lit.value.to_str();
-                                            let attr_name = attr.attr.as_str();
-                                            if let Expr::Name(target) = &assign.targets[0] {
-                                                let symbol_name = target.id.as_str();
-                                                // Include the target variable name in the key to
-                                                // properly deduplicate
-                                                // assignments like User =
-                                                // services.auth.manager.User
-                                                let key = format!(
-                                                    "{symbol_name} = {module_name}.{attr_name}"
-                                                );
-                                                log::debug!("Checking assignment key: {key}");
-                                                if seen_assignments.insert(key.clone()) {
-                                                    log::debug!(
-                                                        "First occurrence of {key}, including"
-                                                    );
-                                                    result.push(stmt);
-                                                } else {
-                                                    log::debug!(
-                                                        "Skipping duplicate assignment: \
-                                                         {symbol_name} = \
-                                                         sys.modules['{module_name}'].{attr_name}"
-                                                    );
-                                                }
-                                            } else {
-                                                result.push(stmt);
-                                            }
-                                        } else {
-                                            result.push(stmt);
-                                        }
-                                    } else {
-                                        result.push(stmt);
-                                    }
-                                } else {
+                    // Check for simple assignments like: Logger = Logger_4
+                    if assign.targets.len() == 1 {
+                        if let Expr::Name(target) = &assign.targets[0] {
+                            if let Expr::Name(value) = &assign.value.as_ref() {
+                                // This is a simple name assignment
+                                let target_str = target.id.as_str();
+                                let value_str = value.id.as_str();
+                                let key = format!("{target_str} = {value_str}");
+
+                                // Check for self-assignment
+                                if target_str == value_str {
+                                    log::warn!("Found self-assignment in deferred imports: {key}");
+                                    // Skip self-assignments entirely
+                                    log::debug!("Skipping self-assignment: {key}");
+                                } else if seen_assignments.insert(key.clone()) {
+                                    log::debug!("First occurrence of simple assignment: {key}");
                                     result.push(stmt);
+                                } else {
+                                    log::debug!("Skipping duplicate simple assignment: {key}");
                                 }
                             } else {
-                                result.push(stmt);
+                                // Not a simple name assignment, check for duplicates
+                                // Handle attribute assignments like User =
+                                // services.auth.manager.User
+                                let target_str = target.id.as_str();
+
+                                // For attribute assignments, extract the actual attribute path
+                                let key = if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                                    // Extract the full attribute path (e.g.,
+                                    // services.auth.manager.User)
+                                    let attr_path = self.extract_attribute_path(attr);
+                                    format!("{target_str} = {attr_path}")
+                                } else {
+                                    // Fallback to debug format for other types
+                                    let value_str = format!("{:?}", assign.value);
+                                    format!("{target_str} = {value_str}")
+                                };
+
+                                if seen_assignments.insert(key.clone()) {
+                                    log::debug!("First occurrence of attribute assignment: {key}");
+                                    result.push(stmt);
+                                } else {
+                                    log::debug!("Skipping duplicate attribute assignment: {key}");
+                                }
                             }
                         } else {
+                            // Target is not a simple name, include it
                             result.push(stmt);
                         }
                     } else {
-                        // Check for simple assignments like: Logger = Logger_4
-                        if assign.targets.len() == 1 {
-                            if let Expr::Name(target) = &assign.targets[0] {
-                                if let Expr::Name(value) = &assign.value.as_ref() {
-                                    // This is a simple name assignment
-                                    let target_str = target.id.as_str();
-                                    let value_str = value.id.as_str();
-                                    let key = format!("{target_str} = {value_str}");
-
-                                    // Check for self-assignment
-                                    if target_str == value_str {
-                                        log::warn!(
-                                            "Found self-assignment in deferred imports: {key}"
-                                        );
-                                        // Skip self-assignments entirely
-                                        log::debug!("Skipping self-assignment: {key}");
-                                    } else if seen_assignments.insert(key.clone()) {
-                                        log::debug!("First occurrence of simple assignment: {key}");
-                                        result.push(stmt);
-                                    } else {
-                                        log::debug!("Skipping duplicate simple assignment: {key}");
-                                    }
-                                } else {
-                                    // Not a simple name assignment, check for duplicates
-                                    // Handle attribute assignments like User =
-                                    // services.auth.manager.User
-                                    let target_str = target.id.as_str();
-
-                                    // For attribute assignments, extract the actual attribute path
-                                    let key = if let Expr::Attribute(attr) = &assign.value.as_ref()
-                                    {
-                                        // Extract the full attribute path (e.g.,
-                                        // services.auth.manager.User)
-                                        let attr_path = self.extract_attribute_path(attr);
-                                        format!("{target_str} = {attr_path}")
-                                    } else {
-                                        // Fallback to debug format for other types
-                                        let value_str = format!("{:?}", assign.value);
-                                        format!("{target_str} = {value_str}")
-                                    };
-
-                                    if seen_assignments.insert(key.clone()) {
-                                        log::debug!(
-                                            "First occurrence of attribute assignment: {key}"
-                                        );
-                                        result.push(stmt);
-                                    } else {
-                                        log::debug!(
-                                            "Skipping duplicate attribute assignment: {key}"
-                                        );
-                                    }
-                                }
-                            } else {
-                                // Target is not a simple name, include it
-                                result.push(stmt);
-                            }
-                        } else {
-                            // Multiple targets, include it
-                            result.push(stmt);
-                        }
+                        // Multiple targets, include it
+                        result.push(stmt);
                     }
                 }
                 _ => result.push(stmt),
@@ -4668,12 +4593,7 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
 
-            // Initialize module cache infrastructure
-            let cache_infrastructure =
-                crate::code_generator::module_registry::initialize_module_cache_infrastructure(
-                    &sorted_wrapper_modules,
-                );
-            final_body.extend(cache_infrastructure);
+            // Note: Module cache infrastructure removed - we don't use sys.modules anymore
         }
 
         // If there are wrapper modules needed by inlined modules, we need to define their
@@ -4784,31 +4704,7 @@ impl<'a> HybridStaticBundler<'a> {
                 module_name
             );
             final_body.extend(inlined_stmts);
-            // Track deferred imports globally
-            for stmt in &deferred_imports {
-                if let Stmt::Assign(assign) = stmt {
-                    // Check for pattern: symbol = sys.modules['module'].symbol
-                    if let Expr::Attribute(attr) = &assign.value.as_ref()
-                        && let Expr::Subscript(subscript) = &attr.value.as_ref()
-                        && let Expr::Attribute(sys_attr) = &subscript.value.as_ref()
-                        && let Expr::Name(sys_name) = &sys_attr.value.as_ref()
-                        && sys_name.id.as_str() == "sys"
-                        && sys_attr.attr.as_str() == "modules"
-                        && let Expr::StringLiteral(lit) = &subscript.slice.as_ref()
-                    {
-                        let import_module = lit.value.to_str();
-                        let attr_name = attr.attr.as_str();
-                        log::debug!(
-                            "Registering deferred import: {attr_name} from {import_module} \
-                             (deferred by {module_name})"
-                        );
-                        self.global_deferred_imports.insert(
-                            (import_module.to_string(), attr_name.to_string()),
-                            module_name.to_string(),
-                        );
-                    }
-                }
-            }
+            // Note: We don't track deferred imports globally anymore since we don't use sys.modules
 
             // Filter deferred imports to avoid conflicts
             // If an inlined module imports a symbol but doesn't export it,
@@ -6639,20 +6535,6 @@ impl<'a> HybridStaticBundler<'a> {
             }
         }
         false
-    }
-
-    /// Create a string literal expression
-    fn create_string_literal(&self, value: &str) -> Expr {
-        Expr::StringLiteral(ExprStringLiteral {
-            node_index: AtomicNodeIndex::dummy(),
-            value: StringLiteralValue::single(StringLiteral {
-                node_index: AtomicNodeIndex::dummy(),
-                value: value.to_string().into(),
-                flags: StringLiteralFlags::empty(),
-                range: TextRange::default(),
-            }),
-            range: TextRange::default(),
-        })
     }
 
     /// Check if a specific module is in our hoisted stdlib imports
@@ -8985,9 +8867,9 @@ impl<'a> HybridStaticBundler<'a> {
     /// Create dotted attribute assignments for imports
     fn create_dotted_assignments(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
         // For import a.b.c.d, we need:
-        // a.b = sys.modules['a.b']
-        // a.b.c = sys.modules['a.b.c']
-        // a.b.c.d = sys.modules['a.b.c.d']
+        // a.b = <module a.b>
+        // a.b.c = <module a.b.c>
+        // a.b.c.d = <module a.b.c.d>
         for i in 2..=parts.len() {
             let parent = parts[..i - 1].join(".");
             let attr = parts[i - 1];

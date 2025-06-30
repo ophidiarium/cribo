@@ -721,8 +721,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     } else {
                         // This is importing an inlined submodule
                         // We need to handle this specially when the current module is being inlined
-                        // (i.e., not the entry module and not a wrapper module that will be in
-                        // sys.modules)
+                        // (i.e., not the entry module and not a wrapper module)
                         let current_module_is_inlined =
                             self.bundler.inlined_modules.contains(self.module_name);
                         let current_module_is_wrapper =
@@ -1053,7 +1052,6 @@ impl<'a> RecursiveImportTransformer<'a> {
                             handled_any = true;
                         } else if !self.is_entry_module {
                             // This is a wrapper module importing an inlined module
-                            // The wrapper will exist in sys.modules, so we can defer the import
                             log::debug!(
                                 "  Deferring inlined submodule import in wrapper module: \
                                  {local_name} -> {full_module_path}"

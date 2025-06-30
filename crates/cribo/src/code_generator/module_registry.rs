@@ -1,159 +1,18 @@
 //! Module registry management for code bundling
 //!
 //! This module handles:
-//! - Module cache initialization and population
 //! - Module naming and identifier generation
 //! - Module attribute assignments
-//! - Registry and sys.modules synchronization
-
-use std::path::PathBuf;
+//! - Module initialization functions
 
 use log::debug;
 use ruff_python_ast::{
-    Alias, AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprDict, ExprName,
-    ExprStringLiteral, ExprSubscript, Identifier, ModModule, Stmt, StmtAssign, StmtClassDef,
-    StmtExpr, StmtImport, StmtImportFrom, StmtPass, StringLiteral, StringLiteralFlags,
-    StringLiteralValue,
+    AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprName, Identifier, ModModule,
+    Stmt, StmtAssign, StmtImportFrom, StmtPass,
 };
 use ruff_text_size::TextRange;
 
 use crate::types::{FxIndexMap, FxIndexSet};
-
-/// Generate module cache initialization
-pub fn generate_module_cache_init() -> Stmt {
-    // __cribo_module_cache__ = {}
-    let assign = StmtAssign {
-        node_index: AtomicNodeIndex::dummy(),
-        targets: vec![Expr::Name(ExprName {
-            node_index: AtomicNodeIndex::dummy(),
-            id: "__cribo_module_cache__".into(),
-            ctx: ExprContext::Store,
-            range: TextRange::default(),
-        })],
-        value: Box::new(Expr::Dict(ExprDict {
-            node_index: AtomicNodeIndex::dummy(),
-            items: vec![],
-            range: TextRange::default(),
-        })),
-        range: TextRange::default(),
-    };
-
-    Stmt::Assign(assign)
-}
-
-/// Generate module cache population
-pub fn generate_module_cache_population(
-    modules: &[(String, ModModule, PathBuf, String)],
-) -> Vec<Stmt> {
-    let mut stmts = Vec::new();
-
-    // For each module, add: __cribo_module_cache__["module.name"] = _ModuleNamespace()
-    for (module_name, _, _, _) in modules {
-        let assign = StmtAssign {
-            node_index: AtomicNodeIndex::dummy(),
-            targets: vec![Expr::Subscript(ExprSubscript {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: "__cribo_module_cache__".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                slice: Box::new(Expr::StringLiteral(ExprStringLiteral {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: StringLiteralValue::single(StringLiteral {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: module_name.clone().into_boxed_str(),
-                        flags: StringLiteralFlags::empty(),
-                        range: TextRange::default(),
-                    }),
-                    range: TextRange::default(),
-                })),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::Call(ExprCall {
-                node_index: AtomicNodeIndex::dummy(),
-                func: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: "_ModuleNamespace".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                arguments: ruff_python_ast::Arguments {
-                    node_index: AtomicNodeIndex::dummy(),
-                    args: Box::from([]),
-                    keywords: Box::from([]),
-                    range: TextRange::default(),
-                },
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        };
-        stmts.push(Stmt::Assign(assign));
-    }
-
-    stmts
-}
-
-/// Generate sys.modules sync
-pub fn generate_sys_modules_sync() -> Vec<Stmt> {
-    let mut stmts = Vec::new();
-
-    // import sys
-    stmts.push(Stmt::Import(StmtImport {
-        node_index: AtomicNodeIndex::dummy(),
-        names: vec![Alias {
-            node_index: AtomicNodeIndex::dummy(),
-            name: Identifier::new("sys", TextRange::default()),
-            asname: None,
-            range: TextRange::default(),
-        }],
-        range: TextRange::default(),
-    }));
-
-    // sys.modules.update(__cribo_module_cache__)
-    let update_call = Stmt::Expr(StmtExpr {
-        node_index: AtomicNodeIndex::dummy(),
-        value: Box::new(Expr::Call(ExprCall {
-            node_index: AtomicNodeIndex::dummy(),
-            func: Box::new(Expr::Attribute(ExprAttribute {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "sys".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("modules", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new("update", TextRange::default()),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            arguments: ruff_python_ast::Arguments {
-                node_index: AtomicNodeIndex::dummy(),
-                args: Box::from([Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: "__cribo_module_cache__".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })]),
-                keywords: Box::from([]),
-                range: TextRange::default(),
-            },
-            range: TextRange::default(),
-        })),
-        range: TextRange::default(),
-    });
-    stmts.push(update_call);
-
-    stmts
-}
 
 /// Generate registries and hook
 pub fn generate_registries_and_hook() -> Vec<Stmt> {
@@ -445,10 +304,8 @@ pub fn create_assignments_for_inlined_imports(
         // Check if this is a module import
         // First check if it's a wrapped module
         if module_registry.contains_key(&full_module_path) {
-            // For pure static approach, we don't use sys.modules
-            // Instead, we'll handle this as a deferred import
+            // Skip wrapped modules - they will be handled as deferred imports
             log::debug!("Module '{full_module_path}' is a wrapped module, deferring import");
-            // Skip this - it will be handled differently
             continue;
         } else if inlined_modules.contains(&full_module_path)
             || bundled_modules.contains(&full_module_path)
@@ -572,46 +429,4 @@ pub fn register_module(
     init_functions.insert(synthetic_name.clone(), init_func_name.clone());
 
     (synthetic_name, init_func_name)
-}
-
-/// Initialize module cache infrastructure
-/// Returns all statements needed to set up the module cache
-pub fn initialize_module_cache_infrastructure(
-    sorted_wrapper_modules: &[(String, ModModule, PathBuf, String)],
-) -> Vec<Stmt> {
-    let mut statements = Vec::new();
-
-    // Add module namespace class definition
-    statements.push(generate_module_namespace_class());
-
-    // Generate module cache initialization
-    statements.push(generate_module_cache_init());
-
-    // Populate cache with all wrapper modules
-    statements.extend(generate_module_cache_population(sorted_wrapper_modules));
-
-    // Add sys.modules sync
-    statements.extend(generate_sys_modules_sync());
-
-    statements
-}
-
-/// Generate module namespace class definition
-pub fn generate_module_namespace_class() -> Stmt {
-    // class _ModuleNamespace:
-    //     pass
-    let class_def = StmtClassDef {
-        node_index: AtomicNodeIndex::dummy(),
-        decorator_list: vec![],
-        name: Identifier::new("_ModuleNamespace", TextRange::default()),
-        type_params: None,
-        arguments: None,
-        body: vec![Stmt::Pass(StmtPass {
-            node_index: AtomicNodeIndex::dummy(),
-            range: TextRange::default(),
-        })],
-        range: TextRange::default(),
-    };
-
-    Stmt::ClassDef(class_def)
 }
