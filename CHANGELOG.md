@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/ophidiarium/cribo/compare/v0.5.3...v0.5.4) (2025-06-30)
+
+
+### Bug Fixes
+
+* **bundler:** handle conditional imports in if/else and try/except blocks ([#184](https://github.com/ophidiarium/cribo/issues/184)) ([f1b1914](https://github.com/ophidiarium/cribo/commit/f1b1914c798e895f8622c1b22508e287a93b5551))
+
 ## [0.5.3](https://github.com/ophidiarium/cribo/compare/v0.5.2...v0.5.3) (2025-06-30)
 
 
