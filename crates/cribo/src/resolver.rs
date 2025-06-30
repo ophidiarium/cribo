@@ -134,8 +134,6 @@ impl ModuleResolver {
     }
 
     /// Get all directories to search for modules with optional PYTHONPATH override
-
-    /// Get all directories to search for modules with optional PYTHONPATH override
     /// Returns deduplicated, canonicalized paths
     fn get_search_directories_with_overrides(
         &self,
@@ -327,7 +325,6 @@ impl ModuleResolver {
 
     /// Resolve an ImportlibStatic import that may have invalid Python identifiers
     /// This handles cases like importlib.import_module("data-processor")
-
     /// Resolve ImportlibStatic imports with optional package context for relative imports
     /// Returns a tuple of (resolved_module_name, path)
     pub fn resolve_importlib_static_with_context(

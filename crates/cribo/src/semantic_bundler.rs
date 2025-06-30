@@ -333,7 +333,6 @@ impl<'a> SemanticModelBuilder<'a> {
 }
 
 /// Module semantic analyzer that provides static methods for symbol extraction
-
 /// Semantic information for a single module
 #[derive(Debug)]
 pub struct ModuleSemanticInfo {

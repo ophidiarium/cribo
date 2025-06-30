@@ -781,10 +781,7 @@ impl CriboGraph {
         component
     }
 
-
-
     /// Find cycle paths using DFS with three-color marking
-
     /// Analyze circular dependencies and classify them
     pub fn analyze_circular_dependencies(&self) -> CircularDependencyAnalysis {
         let sccs = self.find_strongly_connected_components();
