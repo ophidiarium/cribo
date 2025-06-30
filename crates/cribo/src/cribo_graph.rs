@@ -781,10 +781,6 @@ impl CriboGraph {
         component
     }
 
-    /// Find all strongly connected components (circular dependencies) - alias for compatibility
-    pub fn find_cycles(&self) -> Vec<Vec<ModuleId>> {
-        self.find_strongly_connected_components()
-    }
 
 
     /// Find cycle paths using DFS with three-color marking
@@ -1123,31 +1119,8 @@ impl CriboGraph {
         }
     }
 
-    /// Get all import names that resolve to the same file as the given module
-    pub fn get_file_import_names(&self, module_id: ModuleId) -> Vec<String> {
-        if let Some(canonical_path) = self.module_canonical_paths.get(&module_id)
-            && let Some(names) = self.file_to_import_names.get(canonical_path)
-        {
-            return names.iter().cloned().collect();
-        }
-        vec![]
-    }
 
-    /// Check if two modules refer to the same file
-    pub fn same_file(&self, module_id1: ModuleId, module_id2: ModuleId) -> bool {
-        if let (Some(path1), Some(path2)) = (
-            self.module_canonical_paths.get(&module_id1),
-            self.module_canonical_paths.get(&module_id2),
-        ) {
-            return path1 == path2;
-        }
-        false
-    }
 
-    /// Get the canonical path for a module
-    pub fn get_canonical_path(&self, module_id: ModuleId) -> Option<&PathBuf> {
-        self.module_canonical_paths.get(&module_id)
-    }
 }
 
 // HashSet import moved to top

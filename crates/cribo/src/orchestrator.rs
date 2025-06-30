@@ -37,12 +37,6 @@ pub struct ModuleInfo {
     pub canonical_name: String,
     /// The resolved filesystem path
     pub resolved_path: PathBuf,
-    /// The original source code
-    pub original_source: String,
-    /// The original parsed AST
-    pub original_ast: ModModule,
-    /// Whether this is a wrapper module (has side effects)
-    pub is_wrapper: bool,
 }
 
 /// Central registry for module information
@@ -243,9 +237,6 @@ impl BundleOrchestrator {
                         id: module_id,
                         canonical_name: module_name.to_string(),
                         resolved_path: canonical_path.clone(),
-                        original_source: cached.source.clone(),
-                        original_ast: cached.ast.clone(),
-                        is_wrapper: false, // Will be determined later during bundling
                     };
                     self.module_registry.add_module(module_info);
 
@@ -290,9 +281,6 @@ impl BundleOrchestrator {
                 id: module_id,
                 canonical_name: module_name.to_string(),
                 resolved_path: canonical_path.clone(),
-                original_source: source.clone(),
-                original_ast: ast.clone(),
-                is_wrapper: false, // Will be determined later during bundling
             };
             self.module_registry.add_module(module_info);
 
