@@ -16,6 +16,7 @@ def __cribo_init___cribo_a6eb08_test_import():
     print("Starting test_import.py")
     try:
         import pandera.polars as pa
+        module.pa = pa
         print("Successfully imported pandera.polars")
         print(f"pandera.polars module: {pa.__name__}")
     except ImportError as e:
@@ -24,6 +25,7 @@ def __cribo_init___cribo_a6eb08_test_import():
         print(f"AttributeError: {e}")
     try:
         pandera = __cribo_init___cribo_2b5490_pandera()
+        module.pandera = pandera
         print("\nImported pandera successfully")
         print(f"pandera.__version__: {pandera.__version__}")
         if hasattr(pandera, "local_function"):
@@ -32,7 +34,6 @@ def __cribo_init___cribo_a6eb08_test_import():
             print("This is the third-party pandera package")
     except ImportError as e:
         print(f"\nFailed to import pandera: {e}")
-    module.pandera = pandera
     return module
 @functools.cache
 def __cribo_init___cribo_2b5490_pandera():

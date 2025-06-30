@@ -72,9 +72,11 @@ def __cribo_init___cribo_563ea2_models():
     module.get_model_version = get_model_version
     if sys.version_info >= (3, 9):
         from typing import TypeAlias
+        module.TypeAlias = TypeAlias
         ModelID: TypeAlias = str
     else:
         ModelID = str
+        module.ModelID = ModelID
     _base_model = None
 
     def get_base_model():
@@ -88,13 +90,15 @@ def __cribo_init___cribo_563ea2_models():
     module.DEFAULT_MODEL_CONFIG = DEFAULT_MODEL_CONFIG
     try:
         from models.advanced import AdvancedModel
+        module.AdvancedModel = AdvancedModel
         HAS_ADVANCED = True
+        module.HAS_ADVANCED = HAS_ADVANCED
         DEFAULT_MODEL_CONFIG["features"].append("advanced_model")
     except ImportError:
         HAS_ADVANCED = False
+        module.HAS_ADVANCED = HAS_ADVANCED
         AdvancedModel = None
-    module.HAS_ADVANCED = HAS_ADVANCED
-    module.HAS_ADVANCED = HAS_ADVANCED
+        module.AdvancedModel = AdvancedModel
     if HAS_ADVANCED:
         __all__.append("AdvancedModel")
     global _cribo_models__base_model
