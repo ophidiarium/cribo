@@ -60,13 +60,13 @@ jobs:
         id: bench
         run: |
           # Run benchmarks and save results
-          cargo bench --bench ecosystem -- --save-baseline pr-${{ github.event.pull_request.number || 'main' }}
+          cargo bench --bench ecosystem --features bench -- --save-baseline pr-${{ github.event.pull_request.number || 'main' }}
 
           # If this is a PR, compare against main
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             # Try to load main baseline for comparison
-            if cargo bench --bench ecosystem -- --load-baseline main &>/dev/null; then
-              cargo bench --bench ecosystem -- --baseline main > benchmark_results.txt 2>&1 || true
+            if cargo bench --bench ecosystem --features bench -- --load-baseline main &>/dev/null; then
+              cargo bench --bench ecosystem --features bench -- --baseline main > benchmark_results.txt 2>&1 || true
             else
               echo "No main baseline found for comparison" > benchmark_results.txt
             fi
