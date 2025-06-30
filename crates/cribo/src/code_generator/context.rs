@@ -66,22 +66,6 @@ pub struct ProcessGlobalsParams<'a> {
     pub semantic_ctx: &'a SemanticContext<'a>,
 }
 
-/// Context for handling direct imports
-#[derive(Debug)]
-pub struct DirectImportContext<'a> {
-    pub current_module: &'a str,
-    pub module_path: &'a Path,
-    pub modules: &'a [(String, ModModule, PathBuf, String)],
-}
-
-/// Parameters for transforming functions with globals
-#[derive(Debug)]
-pub struct TransformFunctionParams<'a> {
-    pub lifted_names: &'a FxIndexMap<String, String>,
-    pub global_info: &'a ModuleGlobalInfo,
-    pub function_globals: &'a FxIndexSet<String>,
-}
-
 /// Parameters for bundle_modules function
 #[derive(Debug)]
 pub struct BundleParams<'a> {

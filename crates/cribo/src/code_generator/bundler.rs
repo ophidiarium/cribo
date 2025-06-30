@@ -10061,9 +10061,3 @@ fn expr_to_dotted_name(expr: &Expr) -> String {
         _ => String::new(),
     }
 }
-
-/// Main entry point for bundling modules
-pub fn bundle_modules(params: BundleParams) -> Result<ModModule> {
-    let mut bundler = HybridStaticBundler::new(None);
-    bundler.bundle_modules(params)
-}

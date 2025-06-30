@@ -13,13 +13,9 @@ use std::{
 
 use ruff_python_ast::{AtomicNodeIndex, NodeIndex};
 
-use crate::ast_indexer::NodeIndexMap;
-
 /// Context for tracking transformations during bundling
 #[derive(Debug)]
 pub struct TransformationContext {
-    /// Mapping between original and transformed nodes
-    pub node_mappings: NodeIndexMap,
     /// Counter for assigning new node indices
     next_index: AtomicU32,
     /// Track which transformations were applied
@@ -63,7 +59,6 @@ impl TransformationContext {
     /// Create a new transformation context
     pub fn new() -> Self {
         Self {
-            node_mappings: NodeIndexMap::new(),
             next_index: AtomicU32::new(0),
             transformations: Vec::new(),
         }
@@ -90,12 +85,6 @@ impl TransformationContext {
         let transformed_index = AtomicNodeIndex::from(self.next_node_index()).load();
         transformed_node.set(transformed_index.as_usize() as u32);
 
-        self.node_mappings.add_mapping(
-            Arc::clone(&original_module),
-            original_node,
-            transformed_index,
-        );
-
         self.transformations.push(TransformationRecord {
             original: Some((original_module, original_node)),
             transformed: transformed_index,
@@ -114,11 +103,6 @@ impl TransformationContext {
     ) -> NodeIndex {
         let transformed_index = AtomicNodeIndex::from(self.next_node_index()).load();
         transformed_node.set(transformed_index.as_usize() as u32);
-
-        if let Some((module, orig_idx)) = &original {
-            self.node_mappings
-                .add_mapping(Arc::clone(module), *orig_idx, transformed_index);
-        }
 
         self.transformations.push(TransformationRecord {
             original,
@@ -189,6 +173,3 @@ pub struct TransformationStats {
     pub new_nodes: usize,
     pub nodes_merged: usize,
 }
-
-#[cfg(test)]
-mod tests;

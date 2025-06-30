@@ -19,15 +19,6 @@ pub struct SymbolDependencyGraph {
 }
 
 impl SymbolDependencyGraph {
-    pub fn new() -> Self {
-        Self {
-            dependencies: FxIndexMap::default(),
-            symbol_definitions: FxIndexSet::default(),
-            module_level_dependencies: FxIndexMap::default(),
-            sorted_symbols: Vec::new(),
-        }
-    }
-
     /// Get symbols for a specific module in dependency order
     pub fn get_module_symbols_ordered(&self, module_name: &str) -> Vec<String> {
         use petgraph::{
@@ -402,16 +393,6 @@ impl SymbolDependencyGraph {
         circular_modules
             .iter()
             .any(|module| self.symbol_definitions.iter().any(|(m, _)| m == module))
-    }
-
-    /// Get sorted symbols for circular modules
-    pub fn get_sorted_symbols(&self) -> &[(String, String)] {
-        &self.sorted_symbols
-    }
-
-    /// Add a hard dependency (for tracking only, not used in sorting)
-    pub fn add_hard_dependency(&mut self, from: (String, String), to: (String, String)) {
-        self.dependencies.entry(from).or_default().push(to);
     }
 }
 

@@ -7,7 +7,7 @@
 //! - Foundation for source map generation
 //! - Memory-efficient AST management
 
-use std::{cell::RefCell, path::Path, sync::Arc};
+use std::cell::RefCell;
 
 use ruff_python_ast::{
     Alias, Arguments, AtomicNodeIndex, Comprehension, Decorator, ExceptHandler, Expr, Keyword,
@@ -18,41 +18,15 @@ use ruff_python_ast::{
         walk_parameters, walk_pattern, walk_stmt, walk_type_param, walk_with_item,
     },
 };
-use rustc_hash::FxHashMap;
 
 /// Number of indices reserved per module (1 million)
 pub const MODULE_INDEX_RANGE: u32 = 1_000_000;
-
-/// Extract the module ID from a node index
-pub fn get_module_id_from_index(index: NodeIndex) -> u32 {
-    (index.as_usize() as u32) / MODULE_INDEX_RANGE
-}
-
-/// Extract the relative index within a module from a node index
-pub fn get_relative_index(index: NodeIndex) -> u32 {
-    (index.as_usize() as u32) % MODULE_INDEX_RANGE
-}
 
 /// Result of indexing an AST module
 #[derive(Debug)]
 pub struct IndexedAst {
     /// The total number of nodes indexed
     pub node_count: u32,
-    /// Optional mapping of node indices to their semantic meaning
-    pub node_registry: NodeRegistry,
-}
-
-/// Registry tracking important nodes by their indices
-#[derive(Debug, Default)]
-pub struct NodeRegistry {
-    /// Map from exported names to their node indices
-    pub exports: FxHashMap<String, NodeIndex>,
-    /// Map from imported module names to their import statement indices
-    pub imports: FxHashMap<String, Vec<NodeIndex>>,
-    /// Indices of all function definitions
-    pub functions: Vec<(String, NodeIndex)>,
-    /// Indices of all class definitions
-    pub classes: Vec<(String, NodeIndex)>,
 }
 
 /// Visitor that assigns indices to all AST nodes
@@ -61,8 +35,6 @@ struct IndexingVisitor {
     current_index: RefCell<u32>,
     /// Base index for this module (e.g., 0, 1_000_000, 2_000_000)
     base_index: u32,
-    /// Registry for tracking important nodes (using RefCell for interior mutability)
-    registry: RefCell<NodeRegistry>,
 }
 
 impl IndexingVisitor {
@@ -70,7 +42,6 @@ impl IndexingVisitor {
         Self {
             current_index: RefCell::new(base_index),
             base_index,
-            registry: RefCell::new(NodeRegistry::default()),
         }
     }
 
@@ -102,61 +73,11 @@ impl Transformer for IndexingVisitor {
 
     fn visit_stmt(&self, stmt: &mut Stmt) {
         let _node_index = match stmt {
-            Stmt::FunctionDef(func) => {
-                let idx = self.assign_index(&func.node_index);
-                self.registry
-                    .borrow_mut()
-                    .functions
-                    .push((func.name.to_string(), idx));
-                idx
-            }
-            Stmt::ClassDef(class) => {
-                let idx = self.assign_index(&class.node_index);
-                self.registry
-                    .borrow_mut()
-                    .classes
-                    .push((class.name.to_string(), idx));
-                idx
-            }
-            Stmt::Import(import) => {
-                let idx = self.assign_index(&import.node_index);
-                for alias in &import.names {
-                    let module_name = alias.name.to_string();
-                    self.registry
-                        .borrow_mut()
-                        .imports
-                        .entry(module_name)
-                        .or_default()
-                        .push(idx);
-                }
-                idx
-            }
-            Stmt::ImportFrom(import) => {
-                let idx = self.assign_index(&import.node_index);
-                if let Some(module) = &import.module {
-                    self.registry
-                        .borrow_mut()
-                        .imports
-                        .entry(module.to_string())
-                        .or_default()
-                        .push(idx);
-                }
-                idx
-            }
-            Stmt::Assign(assign) => {
-                let idx = self.assign_index(&assign.node_index);
-                // Track __all__ assignments for exports
-                if assign.targets.len() == 1
-                    && let Expr::Name(name) = &assign.targets[0]
-                    && name.id.as_str() == "__all__"
-                {
-                    self.registry
-                        .borrow_mut()
-                        .exports
-                        .insert("__all__".to_string(), idx);
-                }
-                idx
-            }
+            Stmt::FunctionDef(func) => self.assign_index(&func.node_index),
+            Stmt::ClassDef(class) => self.assign_index(&class.node_index),
+            Stmt::Import(import) => self.assign_index(&import.node_index),
+            Stmt::ImportFrom(import) => self.assign_index(&import.node_index),
+            Stmt::Assign(assign) => self.assign_index(&assign.node_index),
             // Assign indices to all other statement types
             Stmt::Return(s) => self.assign_index(&s.node_index),
             Stmt::Delete(s) => self.assign_index(&s.node_index),
@@ -327,54 +248,5 @@ pub fn index_module_with_id(module: &mut ModModule, module_id: u32) -> IndexedAs
     let current_index = *visitor.current_index.borrow();
     IndexedAst {
         node_count: current_index - visitor.base_index,
-        node_registry: visitor.registry.into_inner(),
     }
 }
-
-/// Index all nodes in a module AST (defaults to module ID 0)
-pub fn index_module(module: &mut ModModule) -> IndexedAst {
-    index_module_with_id(module, 0)
-}
-
-/// Mapping between original and transformed nodes
-#[derive(Debug, Default)]
-pub struct NodeIndexMap {
-    /// Map from (original_module, original_index) to transformed_index
-    mappings: FxHashMap<(Arc<Path>, NodeIndex), NodeIndex>,
-    /// Reverse mapping for debugging
-    reverse_mappings: FxHashMap<NodeIndex, (Arc<Path>, NodeIndex)>,
-}
-
-impl NodeIndexMap {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Record a mapping between original and transformed node
-    pub fn add_mapping(
-        &mut self,
-        original_module: Arc<Path>,
-        original_index: NodeIndex,
-        transformed_index: NodeIndex,
-    ) {
-        self.mappings.insert(
-            (Arc::clone(&original_module), original_index),
-            transformed_index,
-        );
-        self.reverse_mappings
-            .insert(transformed_index, (original_module, original_index));
-    }
-
-    /// Get the transformed index for an original node
-    pub fn get_transformed(&self, module: &Arc<Path>, original: NodeIndex) -> Option<NodeIndex> {
-        self.mappings.get(&(Arc::clone(module), original)).copied()
-    }
-
-    /// Get the original location for a transformed node
-    pub fn get_original(&self, transformed: NodeIndex) -> Option<&(Arc<Path>, NodeIndex)> {
-        self.reverse_mappings.get(&transformed)
-    }
-}
-
-#[cfg(test)]
-mod tests;
