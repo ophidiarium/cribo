@@ -1824,11 +1824,11 @@ impl<'a> RecursiveImportTransformer<'a> {
         // Add all renamed symbols as keyword arguments, avoiding duplicates
         if let Some(renames) = module_renames {
             for (original_name, renamed_name) in renames {
-                // Skip if we've already added this argument name
-                if seen_args.contains(original_name) {
+                // Check if the renamed name was already added
+                if seen_args.contains(renamed_name) {
                     log::debug!(
-                        "Skipping duplicate namespace argument '{original_name}' for module \
-                         '{module_name}'"
+                        "Skipping duplicate namespace argument '{renamed_name}' (from \
+                         '{original_name}') for module '{module_name}'"
                     );
                     continue;
                 }
@@ -1844,7 +1844,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     continue;
                 }
 
-                seen_args.insert(original_name.clone());
+                seen_args.insert(renamed_name.clone());
 
                 keywords.push(Keyword {
                     node_index: AtomicNodeIndex::dummy(),
