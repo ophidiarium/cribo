@@ -90,24 +90,14 @@ impl ItemType {
     }
 }
 
-/// A single dependency relationship
-#[derive(Debug, Clone)]
-pub struct Dep {
-    pub target: ItemId,
-}
 
 /// Information about a module-level dependency edge
 #[derive(Debug, Clone, Default)]
-pub struct ModuleDependencyInfo {
-    /// Whether this dependency is only used in TYPE_CHECKING blocks
-    pub is_type_checking_only: bool,
-}
+pub struct ModuleDependencyInfo {}
 
 /// Variable state tracking
 #[derive(Debug, Clone)]
 pub struct VarState {
-    /// The item that declares this variable
-    pub declarator: Option<ItemId>,
     /// Items that write to this variable
     pub writers: Vec<ItemId>,
     /// Items that read this variable
@@ -117,14 +107,10 @@ pub struct VarState {
 /// Information about an unused import
 #[derive(Debug, Clone)]
 pub struct UnusedImportInfo {
-    /// The item ID of the import statement
-    pub item_id: ItemId,
     /// The imported name that is unused
     pub name: String,
     /// The module it was imported from
     pub module: String,
-    /// Whether this is an explicit re-export
-    pub is_reexport: bool,
 }
 
 /// Context for checking if an import is unused
@@ -152,8 +138,6 @@ pub struct ItemData {
     pub eventual_write_vars: FxHashSet<String>,
     /// Whether this item has side effects
     pub has_side_effects: bool,
-    /// Source span for error reporting
-    pub span: Option<(usize, usize)>, // (start_line, end_line)
     /// For imports: the local names introduced by this import
     pub imported_names: FxHashSet<String>,
     /// For re-exports: names that are explicitly re-exported
@@ -178,8 +162,6 @@ pub struct ModuleDepGraph {
     pub module_name: String,
     /// All items in this module
     pub items: FxHashMap<ItemId, ItemData>,
-    /// Dependencies between items
-    pub deps: FxHashMap<ItemId, Vec<Dep>>,
     /// Items that are executed for side effects (in order)
     pub side_effect_items: Vec<ItemId>,
     /// Variable state tracking
@@ -195,7 +177,6 @@ impl ModuleDepGraph {
             module_id,
             module_name,
             items: FxHashMap::default(),
-            deps: FxHashMap::default(),
             side_effect_items: Vec::new(),
             var_states: FxHashMap::default(),
             next_item_id: 0,
@@ -214,7 +195,6 @@ impl ModuleDepGraph {
             module_name,
             // Clone all the data from the source graph to share the same items
             items: source_graph.items.clone(),
-            deps: source_graph.deps.clone(),
             side_effect_items: source_graph.side_effect_items.clone(),
             var_states: source_graph.var_states.clone(),
             next_item_id: source_graph.next_item_id,
@@ -231,7 +211,6 @@ impl ModuleDepGraph {
             self.var_states
                 .entry(imported_name.clone())
                 .or_insert_with(|| VarState {
-                    declarator: Some(id),
                     writers: Vec::new(),
                     readers: Vec::new(),
                 });
@@ -242,7 +221,6 @@ impl ModuleDepGraph {
             self.var_states
                 .entry(var.clone())
                 .or_insert_with(|| VarState {
-                    declarator: Some(id),
                     writers: Vec::new(),
                     readers: Vec::new(),
                 });
@@ -305,10 +283,8 @@ impl ModuleDepGraph {
                     };
 
                     unused_imports.push(UnusedImportInfo {
-                        item_id: import_id,
                         name: imported_name.clone(),
                         module: module_name,
-                        is_reexport: import_data.reexported_names.contains(imported_name),
                     });
                 }
             }
@@ -1584,7 +1560,6 @@ mod tests {
             write_vars: FxHashSet::default(),
             eventual_write_vars: FxHashSet::default(),
             has_side_effects: false,
-            span: Some((1, 3)),
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
             defined_symbols: ["helper".into()].into_iter().collect(),
@@ -1640,7 +1615,6 @@ mod tests {
                 write_vars: FxHashSet::default(),
                 eventual_write_vars: FxHashSet::default(),
                 has_side_effects: false,
-                span: Some((4, 6)),
                 imported_names: FxHashSet::default(),
                 reexported_names: FxHashSet::default(),
                 defined_symbols: ["new_helper".into()].into_iter().collect(),

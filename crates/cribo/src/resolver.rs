@@ -25,8 +25,6 @@ fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
         false
     }
 }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportType {

@@ -5958,12 +5958,8 @@ impl<'a> HybridStaticBundler<'a> {
                                              used by surviving code after tree-shaking"
                                         );
                                         unused_imports.push(crate::cribo_graph::UnusedImportInfo {
-                                            item_id,
                                             name: local_name.clone(),
                                             module: from_module.clone(),
-                                            is_reexport: import_item
-                                                .reexported_names
-                                                .contains(local_name),
                                         });
                                     }
                                 }
@@ -6091,10 +6087,8 @@ impl<'a> HybridStaticBundler<'a> {
                                          {item_id:?})"
                                     );
                                     unused_imports.push(crate::cribo_graph::UnusedImportInfo {
-                                        item_id,
                                         name: import_name.to_string(),
                                         module: module.clone(),
-                                        is_reexport: false,
                                     });
                                 }
                             }
