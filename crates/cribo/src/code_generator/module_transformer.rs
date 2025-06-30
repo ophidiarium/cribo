@@ -359,72 +359,10 @@ pub fn transform_module_to_init_function<'a>(
                     );
                 }
             }
-            Stmt::Try(try_stmt) => {
-                // Clone the try statement
-                let try_clone = try_stmt.clone();
-
-                // Process assignments in try body
-                let mut additional_exports = Vec::new();
-                for stmt in &try_stmt.body {
-                    if let Stmt::Assign(assign) = stmt
-                        && let Some(name) = bundler.extract_simple_assign_target(assign)
-                        && bundler.should_export_symbol(&name, ctx.module_name)
-                    {
-                        additional_exports.push(
-                            crate::code_generator::module_registry::create_module_attr_assignment(
-                                "module", &name,
-                            ),
-                        );
-                    }
-                }
-
-                // Process assignments in except handlers
-                for handler in &try_stmt.handlers {
-                    let ExceptHandler::ExceptHandler(eh) = handler;
-                    for stmt in &eh.body {
-                        if let Stmt::Assign(assign) = stmt
-                            && let Some(name) = bundler.extract_simple_assign_target(assign)
-                            && bundler.should_export_symbol(&name, ctx.module_name)
-                        {
-                            additional_exports
-                                .push(crate::code_generator::module_registry::create_module_attr_assignment("module", &name));
-                        }
-                    }
-                }
-
-                // Process assignments in else clause
-                for stmt in &try_stmt.orelse {
-                    if let Stmt::Assign(assign) = stmt
-                        && let Some(name) = bundler.extract_simple_assign_target(assign)
-                        && bundler.should_export_symbol(&name, ctx.module_name)
-                    {
-                        additional_exports.push(
-                            crate::code_generator::module_registry::create_module_attr_assignment(
-                                "module", &name,
-                            ),
-                        );
-                    }
-                }
-
-                // Process assignments in finally clause
-                for stmt in &try_stmt.finalbody {
-                    if let Stmt::Assign(assign) = stmt
-                        && let Some(name) = bundler.extract_simple_assign_target(assign)
-                        && bundler.should_export_symbol(&name, ctx.module_name)
-                    {
-                        additional_exports.push(
-                            crate::code_generator::module_registry::create_module_attr_assignment(
-                                "module", &name,
-                            ),
-                        );
-                    }
-                }
-
-                // Add the try statement
-                body.push(Stmt::Try(try_clone));
-
-                // Add any module attribute assignments after the try block
-                body.extend(additional_exports);
+            Stmt::Try(_try_stmt) => {
+                // Let the new conditional logic in bundler.rs handle try/except processing
+                // This avoids duplicate module attribute assignments
+                body.push(stmt.clone());
             }
             _ => {
                 // Clone and transform other statements to handle __name__ references

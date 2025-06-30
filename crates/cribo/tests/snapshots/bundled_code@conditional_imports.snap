@@ -34,7 +34,6 @@ def __cribo_init___cribo_17f1ec_try_except_module():
             module.etree = etree
             ETREE_VERSION = None
             module.ETREE_VERSION = ETREE_VERSION
-    module.ETREE_VERSION = ETREE_VERSION
     parser_backend = None
     module.parser_backend = parser_backend
     try:
@@ -53,7 +52,6 @@ def __cribo_init___cribo_17f1ec_try_except_module():
             module.ET = ET
             parser_backend = None
             module.parser_backend = parser_backend
-    module.parser_backend = parser_backend
 
     def parse_xml(xml_string):
         """Parse XML using available parser."""
@@ -80,7 +78,6 @@ def __cribo_init___cribo_e43fad_conditional_module():
     except ImportError:
         import json
         module.json = json
-    module.has_simplejson = has_simplejson
     if module.has_simplejson:
         from simplejson import JSONDecodeError
         module.JSONDecodeError = JSONDecodeError

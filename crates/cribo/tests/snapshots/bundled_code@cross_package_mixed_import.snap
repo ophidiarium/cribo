@@ -99,8 +99,6 @@ def __cribo_init___cribo_563ea2_models():
         module.HAS_ADVANCED = HAS_ADVANCED
         AdvancedModel = None
         module.AdvancedModel = AdvancedModel
-    module.HAS_ADVANCED = HAS_ADVANCED
-    module.HAS_ADVANCED = HAS_ADVANCED
     if HAS_ADVANCED:
         __all__.append("AdvancedModel")
     global _cribo_models__base_model

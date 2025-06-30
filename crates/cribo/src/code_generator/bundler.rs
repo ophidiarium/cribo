@@ -7286,7 +7286,7 @@ impl<'a> HybridStaticBundler<'a> {
                                 );
                                 result.push(
                                     crate::code_generator::module_registry::create_module_attr_assignment(
-                                        "module", 
+                                        "module",
                                         local_name
                                     ),
                                 );
@@ -7318,7 +7318,7 @@ impl<'a> HybridStaticBundler<'a> {
                             );
                             result.push(
                                 crate::code_generator::module_registry::create_module_attr_assignment(
-                                    "module", 
+                                    "module",
                                     &name
                                 ),
                             );

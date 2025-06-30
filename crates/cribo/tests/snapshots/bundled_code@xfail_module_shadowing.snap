@@ -34,7 +34,6 @@ def __cribo_init___cribo_2a6a8f_test_import():
             print("This is the third-party pandera module")
     except ImportError as e:
         print(f"\nFailed to import pandera: {e}")
-    module.pandera = pandera
     return module
 @functools.cache
 def __cribo_init___cribo_b061eb_pandera():
