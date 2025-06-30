@@ -341,10 +341,6 @@ pub struct ModuleSemanticInfo {
     pub exported_symbols: FxIndexSet<String>,
     /// Symbol conflicts detected in this module
     pub conflicts: Vec<String>,
-    /// Source code for re-analysis if needed
-    pub source: String,
-    /// File path for this module
-    pub file_path: std::path::PathBuf,
     /// All module-scope symbols that need to be exposed in the module namespace
     /// This includes symbols defined in conditional blocks (if/else, try/except)
     pub module_scope_symbols: FxIndexSet<String>,
@@ -357,22 +353,8 @@ pub struct SymbolRegistry {
     pub symbols: FxIndexMap<String, Vec<ModuleId>>,
     /// Renames: (ModuleId, OriginalName) -> NewName
     pub renames: FxIndexMap<(ModuleId, String), String>,
-    /// Symbol binding information for scope analysis
-    pub symbol_bindings: FxIndexMap<(ModuleId, String), SymbolBindingInfo>,
 }
 
-/// Information about a symbol binding from semantic analysis
-#[derive(Debug, Clone)]
-pub struct SymbolBindingInfo {
-    /// The binding kind (class, function, assignment, etc.)
-    pub binding_kind: String, // Simplified from BindingKind for storage
-    /// Whether this symbol is at module level
-    pub is_module_level: bool,
-    /// Whether this symbol is private
-    pub is_private: bool,
-    /// Scope level where this symbol is defined
-    pub scope_level: usize,
-}
 
 impl Default for SymbolRegistry {
     fn default() -> Self {
@@ -386,25 +368,9 @@ impl SymbolRegistry {
         Self {
             symbols: FxIndexMap::default(),
             renames: FxIndexMap::default(),
-            symbol_bindings: FxIndexMap::default(),
         }
     }
 
-    /// Register a symbol from a module with semantic information
-    pub fn register_symbol_with_binding(
-        &mut self,
-        symbol: String,
-        module_id: ModuleId,
-        binding_info: SymbolBindingInfo,
-    ) {
-        self.symbols
-            .entry(symbol.clone())
-            .or_default()
-            .push(module_id);
-
-        self.symbol_bindings
-            .insert((module_id, symbol), binding_info);
-    }
 
     /// Register a symbol from a module (legacy interface)
     pub fn register_symbol(&mut self, symbol: String, module_id: ModuleId) {
@@ -447,21 +413,7 @@ impl SymbolRegistry {
             .map(|s| s.as_str())
     }
 
-    /// Check if a symbol has conflicts
-    pub fn has_conflict(&self, symbol: &str) -> bool {
-        self.symbols
-            .get(symbol)
-            .is_some_and(|modules| modules.len() > 1)
-    }
 
-    /// Get binding information for a symbol in a module
-    pub fn get_symbol_binding(
-        &self,
-        module_id: &ModuleId,
-        symbol: &str,
-    ) -> Option<&SymbolBindingInfo> {
-        self.symbol_bindings.get(&(*module_id, symbol.to_string()))
-    }
 }
 
 /// Represents a symbol conflict across modules
@@ -562,8 +514,6 @@ impl SemanticBundler {
             ModuleSemanticInfo {
                 exported_symbols,
                 conflicts: Vec::new(), // Will be populated later
-                source: source.to_string(),
-                file_path: path.to_path_buf(),
                 module_scope_symbols,
             },
         );
@@ -605,15 +555,7 @@ impl SemanticBundler {
         &self.global_symbols
     }
 
-    /// Get semantic information for a module (for scope analysis during code generation)
-    pub fn get_module_semantic_info(&self, module_id: &ModuleId) -> Option<&ModuleSemanticInfo> {
-        self.module_semantics.get(module_id)
-    }
 
-    /// Get the import alias tracker
-    pub fn import_alias_tracker(&self) -> &ImportAliasTracker {
-        &self.import_alias_tracker
-    }
 
     /// Analyze global variable usage in a module
     pub fn analyze_module_globals(

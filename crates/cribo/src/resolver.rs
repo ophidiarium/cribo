@@ -134,14 +134,6 @@ impl ModuleResolver {
     }
 
     /// Get all directories to search for modules with optional PYTHONPATH override
-    pub fn get_search_directories_with_pythonpath(
-        &self,
-        pythonpath_override: Option<&str>,
-    ) -> Vec<PathBuf> {
-        let pythonpath = pythonpath_override.or(self.pythonpath_override.as_deref());
-        let virtualenv = self.virtualenv_override.as_deref();
-        self.get_search_directories_with_overrides(pythonpath, virtualenv)
-    }
 
     /// Get all directories to search for modules with optional PYTHONPATH override
     /// Returns deduplicated, canonicalized paths
@@ -335,10 +327,6 @@ impl ModuleResolver {
 
     /// Resolve an ImportlibStatic import that may have invalid Python identifiers
     /// This handles cases like importlib.import_module("data-processor")
-    pub fn resolve_importlib_static(&mut self, module_name: &str) -> Result<Option<PathBuf>> {
-        self.resolve_importlib_static_with_context(module_name, None)
-            .map(|opt| opt.map(|(_, path)| path))
-    }
 
     /// Resolve ImportlibStatic imports with optional package context for relative imports
     /// Returns a tuple of (resolved_module_name, path)
