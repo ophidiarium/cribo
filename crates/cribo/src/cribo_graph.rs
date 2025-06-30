@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// CriboGraph: Advanced dependency graph implementation for Python bundling
 ///
@@ -440,20 +440,6 @@ impl ModuleDepGraph {
     }
 }
 
-/// Module metadata for optimization
-#[derive(Debug, Clone)]
-pub struct ModuleMetadata {
-    /// Whether module has side effects
-    pub has_side_effects: bool,
-    /// Whether module is an entry point
-    pub is_entry: bool,
-    /// Whether module is from the standard library
-    pub is_stdlib: bool,
-    /// Size in bytes (for chunking decisions)
-    pub size: usize,
-    /// Hash of module content (for caching)
-    pub content_hash: Option<u64>,
-}
 
 /// State for Tarjan's strongly connected components algorithm
 struct TarjanState {
@@ -527,8 +513,6 @@ pub struct CriboGraph {
     pub module_names: FxHashMap<String, ModuleId>,
     /// Module path to ID mapping
     pub module_paths: FxHashMap<PathBuf, ModuleId>,
-    /// Module metadata
-    pub module_metadata: FxHashMap<ModuleId, ModuleMetadata>,
     /// Petgraph for efficient algorithms (inspired by Mako)
     graph: DiGraph<ModuleId, ModuleDependencyInfo>,
     /// Node index mapping
@@ -548,27 +532,6 @@ pub struct CriboGraph {
 }
 
 impl CriboGraph {
-    /// Check if a stdlib module has side effects that make it unsafe to hoist
-    fn is_stdlib_with_side_effects(module_name: &str) -> bool {
-        matches!(
-            module_name,
-            // Modules that modify global state - DO NOT HOIST
-            "antigravity" // Opens web browser to xkcd comic
-            | "this"    // Prints "The Zen of Python" to stdout
-            | "__hello__"   // Prints "Hello world!" to stdout
-            | "__phello__"  // Frozen version of __hello__ that prints to stdout
-            | "site"    // Modifies sys.path and sets up site packages
-            | "sitecustomize"   // User-specific site customization
-            | "usercustomize"   // User-specific customization
-            | "readline"    // Initializes readline library and terminal settings
-            | "rlcompleter"  // Configures readline tab completion
-            | "turtle"        // Initializes Tk graphics window
-            | "tkinter"       // Initializes Tk GUI framework
-            | "webbrowser"    // May launch web browser
-            | "platform"     // May execute external commands for system info
-            | "locale" // Modifies global locale settings
-        )
-    }
 
     /// Create a new cribo dependency graph
     pub fn new() -> Self {
@@ -576,7 +539,6 @@ impl CriboGraph {
             modules: FxHashMap::default(),
             module_names: FxHashMap::default(),
             module_paths: FxHashMap::default(),
-            module_metadata: FxHashMap::default(),
             graph: DiGraph::new(),
             node_indices: FxHashMap::default(),
             next_module_id: 0,
@@ -642,10 +604,6 @@ impl CriboGraph {
             let node_idx = self.graph.add_node(id);
             self.node_indices.insert(id, node_idx);
 
-            // Copy metadata from primary module
-            if let Some(primary_metadata) = self.module_metadata.get(primary_id) {
-                self.module_metadata.insert(id, primary_metadata.clone());
-            }
 
             return id;
         }
@@ -670,19 +628,8 @@ impl CriboGraph {
 
         // Check if module is from stdlib
         let root_module = name.split('.').next().unwrap_or(&name);
-        let is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(10, root_module);
+        let _is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(10, root_module);
 
-        // Initialize metadata
-        self.module_metadata.insert(
-            id,
-            ModuleMetadata {
-                has_side_effects: is_stdlib && Self::is_stdlib_with_side_effects(&name),
-                is_entry: false,
-                is_stdlib,
-                size: 0,
-                content_hash: None,
-            },
-        );
 
         log::debug!("Registered module '{name}' as primary for file {canonical_path:?}");
 
@@ -839,15 +786,6 @@ impl CriboGraph {
         self.find_strongly_connected_components()
     }
 
-    /// Get module metadata
-    pub fn get_metadata(&self, module_id: ModuleId) -> Option<&ModuleMetadata> {
-        self.module_metadata.get(&module_id)
-    }
-
-    /// Update module metadata
-    pub fn update_metadata(&mut self, module_id: ModuleId, metadata: ModuleMetadata) {
-        self.module_metadata.insert(module_id, metadata);
-    }
 
     /// Find cycle paths using DFS with three-color marking
 
