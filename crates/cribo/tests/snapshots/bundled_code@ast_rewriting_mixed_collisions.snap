@@ -42,10 +42,10 @@ class BaseModel:
 
     def initialize(self) -> str:
         """Initialize with name conflicts"""
-        global result_1
+        global result_2
         self.initialized = True
-        result_1 = f"base_initialized_{self.model_type}"
-        return result_1
+        result_2 = f"base_initialized_{self.model_type}"
+        return result_2
 BaseModel.__module__ = 'models.base'
 def initialize() -> str:
     """Module initialization function"""
@@ -127,15 +127,15 @@ class User_2:
 
     def authenticate(self, password: str) -> typing.Dict[str, typing.Any]:
         """Method with complex internal conflicts"""
-        validate_1 = self.validate
-        process_1 = self.process
+        validate_4 = self.validate
+        process_4 = self.process
         Logger_2 = self.Logger
         result_3 = {}
-        name_valid = validate_1("name", self.name)
-        email_valid = validate_1("email", self.email)
+        name_valid = validate_4("name", self.name)
+        email_valid = validate_4("email", self.email)
         password_valid = len(password) >= 4
         auth_data = {"name": self.name, "email": self.email, "password_length": len(password)}
-        process_result = process_1(auth_data)
+        process_result = process_4(auth_data)
         Logger_2.validate(f"auth_{self.name}")
         result_3 = {"user": self.name, "valid": name_valid and email_valid and password_valid, "process_result": process_result, "logger_context": Logger_2.context}
         return result_3
