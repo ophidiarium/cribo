@@ -1131,12 +1131,64 @@ impl<'a> RecursiveImportTransformer<'a> {
                 // Check if this is a circular module with pre-declarations
                 if self.bundler.circular_modules.contains(resolved) {
                     log::debug!("  Module '{resolved}' is a circular module with pre-declarations");
-                    // Return import assignments immediately - symbols are pre-declared
-                    return self.bundler.handle_imports_from_inlined_module(
-                        import_from,
-                        resolved,
-                        self.symbol_renames,
-                    );
+                    // Special handling for imports between circular inlined modules
+                    // If the current module is also a circular inlined module, we need to defer or
+                    // transform differently
+                    if self.bundler.circular_modules.contains(self.module_name)
+                        && self.bundler.inlined_modules.contains(self.module_name)
+                    {
+                        log::debug!(
+                            "  Both modules are circular and inlined - transforming to direct \
+                             assignments"
+                        );
+                        // Generate direct assignments since both modules will be in the same scope
+                        let mut assignments = Vec::new();
+                        for alias in &import_from.names {
+                            let imported_name = alias.name.as_str();
+                            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                            // Check if the symbol was renamed during bundling
+                            let actual_name =
+                                if let Some(renames) = self.symbol_renames.get(resolved) {
+                                    renames
+                                        .get(imported_name)
+                                        .map(|s| s.as_str())
+                                        .unwrap_or(imported_name)
+                                } else {
+                                    imported_name
+                                };
+
+                            // Create assignment: local_name = actual_name
+                            if local_name != actual_name {
+                                let assign = Stmt::Assign(StmtAssign {
+                                    targets: vec![Expr::Name(ExprName {
+                                        id: local_name.into(),
+                                        ctx: ExprContext::Store,
+                                        range: TextRange::default(),
+                                        node_index: AtomicNodeIndex::dummy(),
+                                    })],
+                                    value: Box::new(Expr::Name(ExprName {
+                                        id: actual_name.into(),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                        node_index: AtomicNodeIndex::dummy(),
+                                    })),
+                                    range: TextRange::default(),
+                                    node_index: AtomicNodeIndex::dummy(),
+                                });
+                                assignments.push(assign);
+                            }
+                        }
+                        return assignments;
+                    } else {
+                        // Original behavior for non-circular modules importing from circular
+                        // modules
+                        return self.bundler.handle_imports_from_inlined_module(
+                            import_from,
+                            resolved,
+                            self.symbol_renames,
+                        );
+                    }
                 } else {
                     log::debug!("  Module '{resolved}' is inlined, handling import assignments");
                     // For the entry module, we should not defer these imports

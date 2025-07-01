@@ -348,6 +348,13 @@ fn test_bundling_fixtures() {
         // Read the bundled code
         let bundled_code = fs::read_to_string(&bundle_path).unwrap();
 
+        // Debug: print the bundled code for this specific fixture
+        if fixture_name == "forward_reference_import_before_init" {
+            eprintln!("=== BUNDLED CODE FOR {fixture_name} ===");
+            eprintln!("{bundled_code}");
+            eprintln!("=== END BUNDLED CODE ===");
+        }
+
         // Read and parse the requirements.txt if it was generated
         let requirements_path = temp_dir.path().join("requirements.txt");
         let requirements_data = if requirements_path.exists() {

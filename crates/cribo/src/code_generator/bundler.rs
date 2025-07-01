@@ -112,6 +112,12 @@ pub struct HybridStaticBundler<'a> {
     pub(crate) tree_shaking_keep_symbols: Option<indexmap::IndexSet<(String, String)>>,
     /// Whether to use the module cache model for circular dependencies
     pub(crate) use_module_cache: bool,
+    /// Track namespaces that were created with initial symbols
+    /// These don't need symbol population via populate_namespace_with_module_symbols_with_renames
+    pub(crate) namespaces_with_initial_symbols: FxIndexSet<String>,
+    /// Track namespace assignments that have already been made to avoid duplicates
+    /// Format: (namespace_name, attribute_name)
+    pub(crate) namespace_assignments_made: FxIndexSet<(String, String)>,
 }
 
 // Implementation block for importlib detection methods
@@ -684,6 +690,8 @@ impl<'a> HybridStaticBundler<'a> {
             tree_shaking_keep_symbols: None,
             use_module_cache: true, /* Enable module cache by default for circular
                                      * dependencies */
+            namespaces_with_initial_symbols: FxIndexSet::default(),
+            namespace_assignments_made: FxIndexSet::default(),
         }
     }
 
@@ -4565,84 +4573,6 @@ impl<'a> HybridStaticBundler<'a> {
 
         // If we're using module cache, add the infrastructure early
         if use_module_cache_for_wrappers {
-            // First, hoist hard dependencies before the module cache
-            if !self.hard_dependencies.is_empty() {
-                log::info!("Hoisting hard dependencies before module cache");
-
-                // Clone hard dependencies to avoid borrowing issues
-                let hard_deps = self.hard_dependencies.clone();
-
-                // Group hard dependencies by source module
-                let mut deps_by_source: FxIndexMap<String, Vec<&HardDependency>> =
-                    FxIndexMap::default();
-                for dep in &hard_deps {
-                    deps_by_source
-                        .entry(dep.source_module.clone())
-                        .or_default()
-                        .push(dep);
-                }
-
-                // Generate hoisted imports
-                for (source_module, deps) in deps_by_source {
-                    // Check if we need to import the whole module or specific attributes
-                    let first_dep = deps.first().expect("hard_deps should not be empty");
-
-                    if source_module == "http.cookiejar" && first_dep.imported_attr == "cookielib" {
-                        // Special case: import http.cookiejar as cookielib
-                        let import_stmt = StmtImport {
-                            node_index: self.create_node_index(),
-                            names: vec![ruff_python_ast::Alias {
-                                node_index: self.create_node_index(),
-                                name: Identifier::new("http.cookiejar", TextRange::default()),
-                                asname: Some(Identifier::new("cookielib", TextRange::default())),
-                                range: TextRange::default(),
-                            }],
-                            range: TextRange::default(),
-                        };
-                        final_body.push(Stmt::Import(import_stmt));
-                        log::debug!("Hoisted import http.cookiejar as cookielib");
-                    } else {
-                        // Collect unique imports with their aliases
-                        let mut imports_to_make: FxIndexMap<String, Option<String>> =
-                            FxIndexMap::default();
-                        for dep in deps {
-                            // If this dependency has a mandatory alias, use it
-                            if dep.alias_is_mandatory && dep.alias.is_some() {
-                                imports_to_make
-                                    .insert(dep.imported_attr.clone(), dep.alias.clone());
-                            } else {
-                                // Only insert if we haven't already added this import
-                                imports_to_make
-                                    .entry(dep.imported_attr.clone())
-                                    .or_insert(None);
-                            }
-                        }
-
-                        // Generate: from source_module import attr1, attr2 as alias2, ...
-                        let mut names = Vec::new();
-                        for (import_name, alias) in imports_to_make {
-                            names.push(ruff_python_ast::Alias {
-                                node_index: self.create_node_index(),
-                                name: Identifier::new(&import_name, TextRange::default()),
-                                asname: alias.map(|a| Identifier::new(&a, TextRange::default())),
-                                range: TextRange::default(),
-                            });
-                        }
-
-                        let import_from = StmtImportFrom {
-                            node_index: self.create_node_index(),
-                            module: Some(Identifier::new(&source_module, TextRange::default())),
-                            names,
-                            level: 0,
-                            range: TextRange::default(),
-                        };
-
-                        final_body.push(Stmt::ImportFrom(import_from));
-                        log::debug!("Hoisted imports from {source_module} for hard dependencies");
-                    }
-                }
-            }
-
             // Note: Module cache infrastructure removed - we don't use sys.modules anymore
         }
 
@@ -4724,8 +4654,230 @@ impl<'a> HybridStaticBundler<'a> {
                                 },
                             );
                         final_body.extend(init_stmts);
+                    } else {
+                        // For module cache mode, initialization happens later in dependency order
+                        // But if this wrapper module is a source of hard dependencies, generate
+                        // assignments now
+                        let is_hard_dep_source = self
+                            .hard_dependencies
+                            .iter()
+                            .any(|dep| dep.source_module == *module_name);
+                        if is_hard_dep_source {
+                            let hard_deps = self.hard_dependencies.clone();
+
+                            // Generate a call to initialize this module immediately
+                            let init_func_name = self.init_functions[&synthetic_name].clone();
+                            let init_call = Stmt::Assign(StmtAssign {
+                                node_index: self.create_node_index(),
+                                targets: vec![Expr::Name(ExprName {
+                                    node_index: self.create_node_index(),
+                                    id: INIT_RESULT_VAR.into(),
+                                    ctx: ExprContext::Store,
+                                    range: TextRange::default(),
+                                })],
+                                value: Box::new(Expr::Call(ExprCall {
+                                    node_index: self.create_node_index(),
+                                    func: Box::new(Expr::Name(ExprName {
+                                        node_index: self.create_node_index(),
+                                        id: init_func_name.into(),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    })),
+                                    arguments: Arguments {
+                                        node_index: self.create_node_index(),
+                                        args: Box::from([]),
+                                        keywords: Box::from([]),
+                                        range: TextRange::default(),
+                                    },
+                                    range: TextRange::default(),
+                                })),
+                                range: TextRange::default(),
+                            });
+                            final_body.push(init_call);
+
+                            // Generate the merge
+                            self.generate_merge_module_attributes(
+                                &mut final_body,
+                                module_name,
+                                INIT_RESULT_VAR,
+                            );
+
+                            // Now generate assignments for hard dependencies from this module
+                            for dep in &hard_deps {
+                                if dep.source_module == *module_name {
+                                    // Use the same logic as hard dependency rewriting
+                                    let target_name =
+                                        if dep.alias_is_mandatory && dep.alias.is_some() {
+                                            dep.alias.as_ref().unwrap()
+                                        } else {
+                                            &dep.imported_attr
+                                        };
+
+                                    // Generate: target_name = module_name.imported_attr
+                                    let assign_stmt = Stmt::Assign(StmtAssign {
+                                        node_index: self.create_node_index(),
+                                        targets: vec![Expr::Name(ExprName {
+                                            node_index: self.create_node_index(),
+                                            id: target_name.clone().into(),
+                                            ctx: ExprContext::Store,
+                                            range: TextRange::default(),
+                                        })],
+                                        value: Box::new(Expr::Attribute(ExprAttribute {
+                                            node_index: self.create_node_index(),
+                                            value: Box::new({
+                                                // Create module reference expression
+                                                let parts: Vec<&str> =
+                                                    module_name.split('.').collect();
+                                                if parts.len() == 1 {
+                                                    // Simple module reference
+                                                    Expr::Name(ExprName {
+                                                        node_index: self.create_node_index(),
+                                                        id: module_name.to_string().into(),
+                                                        ctx: ExprContext::Load,
+                                                        range: TextRange::default(),
+                                                    })
+                                                } else {
+                                                    // Dotted module reference (e.g., mypkg.compat)
+                                                    let mut expr = Expr::Name(ExprName {
+                                                        node_index: self.create_node_index(),
+                                                        id: parts[0].to_string().into(),
+                                                        ctx: ExprContext::Load,
+                                                        range: TextRange::default(),
+                                                    });
+
+                                                    for part in &parts[1..] {
+                                                        expr = Expr::Attribute(ExprAttribute {
+                                                            node_index: self.create_node_index(),
+                                                            value: Box::new(expr),
+                                                            attr: Identifier::new(
+                                                                *part,
+                                                                TextRange::default(),
+                                                            ),
+                                                            ctx: ExprContext::Load,
+                                                            range: TextRange::default(),
+                                                        });
+                                                    }
+                                                    expr
+                                                }
+                                            }),
+                                            attr: Identifier::new(
+                                                &dep.imported_attr,
+                                                TextRange::default(),
+                                            ),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        })),
+                                        range: TextRange::default(),
+                                    });
+
+                                    final_body.push(assign_stmt);
+                                    log::debug!(
+                                        "Generated early assignment: {} = {}.{}",
+                                        target_name,
+                                        module_name,
+                                        dep.imported_attr
+                                    );
+                                }
+                            }
+                        }
                     }
-                    // For module cache mode, initialization happens later in dependency order
+                    // Module is now initialized and assignments made
+                }
+            }
+        }
+
+        // Now that wrapper modules needed by inlined modules are initialized,
+        // we can hoist hard dependencies
+        if !self.hard_dependencies.is_empty() {
+            log::info!("Hoisting hard dependencies after wrapper module initialization");
+
+            // Clone hard dependencies to avoid borrowing issues
+            let hard_deps = self.hard_dependencies.clone();
+
+            // Group hard dependencies by source module
+            let mut deps_by_source: FxIndexMap<String, Vec<&HardDependency>> =
+                FxIndexMap::default();
+            for dep in &hard_deps {
+                deps_by_source
+                    .entry(dep.source_module.clone())
+                    .or_default()
+                    .push(dep);
+            }
+
+            // Generate hoisted imports
+            for (source_module, deps) in deps_by_source {
+                // Check if we need to import the whole module or specific attributes
+                let first_dep = deps.first().expect("hard_deps should not be empty");
+
+                if source_module == "http.cookiejar" && first_dep.imported_attr == "cookielib" {
+                    // Special case: import http.cookiejar as cookielib
+                    let import_stmt = StmtImport {
+                        node_index: self.create_node_index(),
+                        names: vec![ruff_python_ast::Alias {
+                            node_index: self.create_node_index(),
+                            name: Identifier::new("http.cookiejar", TextRange::default()),
+                            asname: Some(Identifier::new("cookielib", TextRange::default())),
+                            range: TextRange::default(),
+                        }],
+                        range: TextRange::default(),
+                    };
+                    final_body.push(Stmt::Import(import_stmt));
+                    log::debug!("Hoisted import http.cookiejar as cookielib");
+                } else {
+                    // Check if the source module is a bundled wrapper module
+                    let is_bundled_wrapper = wrapper_modules_saved
+                        .iter()
+                        .any(|(name, _, _, _)| name == &source_module);
+
+                    if is_bundled_wrapper && use_module_cache_for_wrappers {
+                        // The source module is a bundled wrapper module that will be initialized
+                        // later We can't use a regular import, so we'll
+                        // defer this until after module initialization
+                        log::debug!(
+                            "Deferring hard dependency imports from bundled wrapper module \
+                             {source_module}"
+                        );
+                        // We'll handle these later after all modules are initialized
+                    } else {
+                        // Regular external module - generate normal import
+                        // Collect unique imports with their aliases
+                        let mut imports_to_make: FxIndexMap<String, Option<String>> =
+                            FxIndexMap::default();
+                        for dep in deps {
+                            // If this dependency has a mandatory alias, use it
+                            if dep.alias_is_mandatory && dep.alias.is_some() {
+                                imports_to_make
+                                    .insert(dep.imported_attr.clone(), dep.alias.clone());
+                            } else {
+                                // Only insert if we haven't already added this import
+                                imports_to_make
+                                    .entry(dep.imported_attr.clone())
+                                    .or_insert(None);
+                            }
+                        }
+
+                        // Generate: from source_module import attr1, attr2 as alias2, ...
+                        let mut names = Vec::new();
+                        for (import_name, alias) in imports_to_make {
+                            names.push(ruff_python_ast::Alias {
+                                node_index: self.create_node_index(),
+                                name: Identifier::new(&import_name, TextRange::default()),
+                                asname: alias.map(|a| Identifier::new(&a, TextRange::default())),
+                                range: TextRange::default(),
+                            });
+                        }
+
+                        let import_from = StmtImportFrom {
+                            node_index: self.create_node_index(),
+                            module: Some(Identifier::new(&source_module, TextRange::default())),
+                            names,
+                            level: 0,
+                            range: TextRange::default(),
+                        };
+
+                        final_body.push(Stmt::ImportFrom(import_from));
+                        log::debug!("Hoisted imports from {source_module} for hard dependencies");
+                    }
                 }
             }
         }
@@ -4881,16 +5033,320 @@ impl<'a> HybridStaticBundler<'a> {
         final_body.extend(reordered_inlined_stmts);
 
         // Create namespace objects for inlined modules that are imported as namespaces
+        log::debug!(
+            "Checking namespace imports for {} inlinable modules",
+            inlinable_modules.len()
+        );
+        log::debug!(
+            "namespace_imported_modules: {:?}",
+            self.namespace_imported_modules
+        );
+
+        // Also need to handle direct imports (like `import mypkg`) for modules with re-exports
+        let directly_imported_modules =
+            self.find_directly_imported_modules(params.modules, params.entry_module_name);
+        log::debug!("directly_imported_modules: {directly_imported_modules:?}");
+
         for (module_name, _, _, _) in &inlinable_modules {
-            if self.namespace_imported_modules.contains_key(module_name) {
-                log::debug!("Creating namespace for inlined module '{module_name}'");
+            log::debug!(
+                "Checking if module '{module_name}' needs namespace object"
+            );
+
+            // Skip the entry module - it doesn't need namespace assignments
+            if module_name == params.entry_module_name {
+                log::debug!(
+                    "Skipping namespace creation for entry module '{module_name}'"
+                );
+                continue;
+            }
+
+            let needs_namespace = self.namespace_imported_modules.contains_key(module_name)
+                || (directly_imported_modules.contains(module_name)
+                    && self
+                        .module_exports
+                        .get(module_name)
+                        .is_some_and(|exports| exports.is_some()));
+
+            if needs_namespace {
+                // Check if this namespace was already created
+                let namespace_var = module_name.cow_replace('.', "_").into_owned();
+                let namespace_already_exists = self.created_namespaces.contains(&namespace_var);
+
+                log::debug!(
+                    "Namespace for inlined module '{module_name}' already exists: {namespace_already_exists}"
+                );
 
                 // Get the symbols that were inlined from this module
                 if let Some(module_rename_map) = symbol_renames.get(module_name) {
-                    // Create a SimpleNamespace for this module
-                    let namespace_stmt = self
-                        .create_namespace_for_inlined_module_static(module_name, module_rename_map);
-                    final_body.push(namespace_stmt);
+                    log::debug!(
+                        "Module '{}' has {} symbols in rename map: {:?}",
+                        module_name,
+                        module_rename_map.len(),
+                        module_rename_map.keys().collect::<Vec<_>>()
+                    );
+                    if !namespace_already_exists {
+                        // Create a SimpleNamespace for this module only if it doesn't exist
+                        let namespace_stmt = self.create_namespace_for_inlined_module_static(
+                            module_name,
+                            module_rename_map,
+                        );
+                        final_body.push(namespace_stmt);
+
+                        // Track that this namespace was created with initial symbols
+                        self.namespaces_with_initial_symbols
+                            .insert(module_name.to_string());
+                    } else {
+                        // Namespace already exists, we need to add symbols to it instead
+                        log::debug!(
+                            "Namespace '{namespace_var}' already exists, adding symbols to it"
+                        );
+
+                        // Add all renamed symbols as attributes to the existing namespace
+                        for (original_name, renamed_name) in module_rename_map {
+                            // Check if this symbol survived tree-shaking
+                            if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                                && !kept_symbols
+                                    .contains(&(module_name.to_string(), original_name.clone()))
+                            {
+                                log::debug!(
+                                    "Skipping tree-shaken symbol '{original_name}' from namespace for module \
+                                     '{module_name}'"
+                                );
+                                continue;
+                            }
+
+                            // Check if this namespace assignment has already been made
+                            let assignment_key = (namespace_var.clone(), original_name.clone());
+                            if self.namespace_assignments_made.contains(&assignment_key) {
+                                log::debug!(
+                                    "Skipping duplicate namespace assignment: {namespace_var}.{original_name} = {renamed_name} (already \
+                                     assigned)"
+                                );
+                                continue;
+                            }
+
+                            // Skip symbols that are re-exported from child modules
+                            // These will be handled later by
+                            // populate_namespace_with_module_symbols_with_renames
+                            // Check if this symbol is in the exports list - if so, it's likely a
+                            // re-export
+                            let is_reexport = if module_name.contains('.') {
+                                // For sub-packages, symbols are likely defined locally
+                                false
+                            } else if let Some(exports) = self.module_exports.get(module_name)
+                                && let Some(export_list) = exports
+                                && export_list.contains(original_name)
+                            {
+                                log::debug!(
+                                    "Checking if '{original_name}' in module '{module_name}' is a re-export from child \
+                                     modules"
+                                );
+
+                                // Check if symbol is actually defined in a child module
+                                // by examining ASTs of child modules
+                                let result = if let Some(module_asts) = &self.module_asts {
+                                    module_asts.iter().any(|(inlined_module_name, ast, _, _)| {
+                                        let is_child = inlined_module_name != module_name
+                                            && inlined_module_name
+                                                .starts_with(&format!("{module_name}."));
+                                        if is_child {
+                                            // Check if this module defines the symbol (as a class,
+                                            // function, or variable)
+                                            let defines_symbol =
+                                                ast.body.iter().any(|stmt| match stmt {
+                                                    Stmt::ClassDef(class_def) => {
+                                                        class_def.name.id.as_str() == original_name
+                                                    }
+                                                    Stmt::FunctionDef(func_def) => {
+                                                        func_def.name.id.as_str() == original_name
+                                                    }
+                                                    Stmt::Assign(assign) => {
+                                                        assign.targets.iter().any(|target| {
+                                                            if let Expr::Name(name) = target {
+                                                                name.id.as_str() == original_name
+                                                            } else {
+                                                                false
+                                                            }
+                                                        })
+                                                    }
+                                                    _ => false,
+                                                });
+                                            if defines_symbol {
+                                                log::debug!(
+                                                    "  Child module '{inlined_module_name}' defines symbol '{original_name}' \
+                                                     directly"
+                                                );
+                                            }
+                                            defines_symbol
+                                        } else {
+                                            false
+                                        }
+                                    })
+                                } else {
+                                    // Fallback to checking rename maps if ASTs not available
+                                    inlinable_modules.iter().any(
+                                        |(inlined_module_name, _, _, _)| {
+                                            let is_child = inlined_module_name != module_name
+                                                && inlined_module_name
+                                                    .starts_with(&format!("{module_name}."));
+                                            if is_child {
+                                                let has_symbol = symbol_renames
+                                                    .get(inlined_module_name)
+                                                    .is_some_and(|child_renames| {
+                                                        child_renames.contains_key(original_name)
+                                                    });
+                                                log::debug!(
+                                                    "  Child module '{inlined_module_name}' has symbol '{original_name}' in \
+                                                     rename map: {has_symbol}"
+                                                );
+                                                has_symbol
+                                            } else {
+                                                false
+                                            }
+                                        },
+                                    )
+                                };
+                                log::debug!("  Result: is_reexport = {result}");
+                                result
+                            } else {
+                                false
+                            };
+
+                            if is_reexport {
+                                log::debug!(
+                                    "Skipping namespace assignment for re-exported symbol {namespace_var}.{original_name} = \
+                                     {renamed_name} - will be handled by \
+                                     populate_namespace_with_module_symbols_with_renames"
+                                );
+                                continue;
+                            }
+
+                            // Create assignment: namespace.original_name = renamed_name
+                            let assign_stmt = Stmt::Assign(StmtAssign {
+                                node_index: self.create_node_index(),
+                                targets: vec![Expr::Attribute(ExprAttribute {
+                                    node_index: self.create_node_index(),
+                                    value: Box::new(Expr::Name(ExprName {
+                                        node_index: self.create_node_index(),
+                                        id: namespace_var.clone().into(),
+                                        ctx: ExprContext::Load,
+                                        range: TextRange::default(),
+                                    })),
+                                    attr: Identifier::new(original_name, TextRange::default()),
+                                    ctx: ExprContext::Store,
+                                    range: TextRange::default(),
+                                })],
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: self.create_node_index(),
+                                    id: renamed_name.clone().into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                range: TextRange::default(),
+                            });
+                            final_body.push(assign_stmt);
+
+                            // Track that we've made this assignment
+                            self.namespace_assignments_made.insert(assignment_key);
+                        }
+
+                        // Also check for module-level variables that weren't renamed
+                        // Skip this for the entry module to avoid duplicate assignments
+                        if module_name != params.entry_module_name
+                            && let Some(exports) = self.module_exports.get(module_name).cloned()
+                            && let Some(export_list) = exports
+                        {
+                            log::debug!(
+                                "Module '{module_name}' has __all__ exports: {export_list:?}"
+                            );
+                            log::debug!(
+                                "Module rename map keys: {:?}",
+                                module_rename_map.keys().collect::<Vec<_>>()
+                            );
+
+                            for export in export_list {
+                                // Check if this export was already added as a renamed symbol
+                                if !module_rename_map.contains_key(&export) {
+                                    log::debug!(
+                                        "Export '{export}' not in module_rename_map, will add to \
+                                         namespace"
+                                    );
+                                    // Check if this symbol survived tree-shaking
+                                    if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                                        && !kept_symbols
+                                            .contains(&(module_name.to_string(), export.clone()))
+                                    {
+                                        log::debug!(
+                                            "Skipping tree-shaken export '{export}' from namespace for \
+                                             module '{module_name}'"
+                                        );
+                                        continue;
+                                    }
+
+                                    // Check if this namespace assignment has already been made
+                                    let assignment_key = (namespace_var.clone(), export.clone());
+                                    if self.namespace_assignments_made.contains(&assignment_key) {
+                                        log::debug!(
+                                            "Skipping duplicate namespace assignment: {namespace_var}.{export} = {export} \
+                                             (already assigned)"
+                                        );
+                                        continue;
+                                    }
+
+                                    // Also check if this assignment already exists in final_body
+                                    // This handles cases where the assignment was created elsewhere
+                                    let assignment_exists_in_body = final_body.iter().any(|stmt| {
+                                        if let Stmt::Assign(assign) = stmt
+                                            && assign.targets.len() == 1
+                                            && let Expr::Attribute(attr) = &assign.targets[0]
+                                            && let Expr::Name(base) = attr.value.as_ref() {
+                                                return base.id.as_str() == namespace_var
+                                                    && attr.attr.as_str() == export;
+                                            }
+                                        false
+                                    });
+
+                                    if assignment_exists_in_body {
+                                        log::debug!(
+                                            "Skipping namespace assignment {namespace_var}.{export} = {export} - already \
+                                             exists in final_body"
+                                        );
+                                        // Track it so we don't create it again elsewhere
+                                        self.namespace_assignments_made.insert(assignment_key);
+                                        continue;
+                                    }
+
+                                    // This export wasn't renamed, add it directly
+                                    let assign_stmt = Stmt::Assign(StmtAssign {
+                                        node_index: self.create_node_index(),
+                                        targets: vec![Expr::Attribute(ExprAttribute {
+                                            node_index: self.create_node_index(),
+                                            value: Box::new(Expr::Name(ExprName {
+                                                node_index: self.create_node_index(),
+                                                id: namespace_var.clone().into(),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            })),
+                                            attr: Identifier::new(&export, TextRange::default()),
+                                            ctx: ExprContext::Store,
+                                            range: TextRange::default(),
+                                        })],
+                                        value: Box::new(Expr::Name(ExprName {
+                                            node_index: self.create_node_index(),
+                                            id: export.clone().into(),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        })),
+                                        range: TextRange::default(),
+                                    });
+                                    final_body.push(assign_stmt);
+
+                                    // Track that we've made this assignment
+                                    self.namespace_assignments_made.insert(assignment_key);
+                                }
+                            }
+                        }
+                    }
 
                     // Track the created namespace to prevent duplicate creation later
                     let namespace_var = module_name.cow_replace('.', "_").into_owned();
@@ -5091,6 +5547,147 @@ impl<'a> HybridStaticBundler<'a> {
                     } else {
                         // Simple modules are already assigned during init via direct assignment
                         debug!("Module '{module_name}' already assigned during init");
+                    }
+                }
+            }
+
+            // Track which hard dependencies we've already processed
+            let mut processed_hard_deps: FxIndexSet<(String, String)> = FxIndexSet::default();
+
+            // Mark the ones we processed earlier as already handled
+            for module_name in &wrapper_modules_needed_by_inlined {
+                if self
+                    .hard_dependencies
+                    .iter()
+                    .any(|dep| dep.source_module == *module_name)
+                {
+                    for dep in &self.hard_dependencies {
+                        if dep.source_module == *module_name {
+                            let target_name = if dep.alias_is_mandatory && dep.alias.is_some() {
+                                dep.alias.as_ref().unwrap()
+                            } else {
+                                &dep.imported_attr
+                            };
+                            processed_hard_deps
+                                .insert((dep.source_module.clone(), target_name.clone()));
+                        }
+                    }
+                }
+            }
+
+            // Now handle deferred hard dependencies from bundled wrapper modules
+            if !self.hard_dependencies.is_empty() && use_module_cache_for_wrappers {
+                log::debug!("Processing deferred hard dependencies from bundled wrapper modules");
+
+                // Clone hard dependencies to avoid borrowing issues
+                let hard_deps = self.hard_dependencies.clone();
+
+                // Group hard dependencies by source module again
+                let mut deps_by_source: FxIndexMap<String, Vec<&HardDependency>> =
+                    FxIndexMap::default();
+                for dep in &hard_deps {
+                    // Only process dependencies from bundled wrapper modules
+                    if wrapper_modules_saved
+                        .iter()
+                        .any(|(name, _, _, _)| name == &dep.source_module)
+                    {
+                        let target_name = if dep.alias_is_mandatory && dep.alias.is_some() {
+                            dep.alias.as_ref().unwrap()
+                        } else {
+                            &dep.imported_attr
+                        };
+
+                        // Skip if we already processed this dependency
+                        if processed_hard_deps
+                            .contains(&(dep.source_module.clone(), target_name.clone()))
+                        {
+                            log::debug!(
+                                "Skipping already processed hard dependency: {} from {}",
+                                target_name,
+                                dep.source_module
+                            );
+                            continue;
+                        }
+
+                        deps_by_source
+                            .entry(dep.source_module.clone())
+                            .or_default()
+                            .push(dep);
+                    }
+                }
+
+                // Generate attribute assignments for bundled wrapper module dependencies
+                for (source_module, deps) in deps_by_source {
+                    log::debug!(
+                        "Generating assignments for hard dependencies from bundled module \
+                         {source_module}"
+                    );
+
+                    for dep in deps {
+                        // Use the same logic as hard dependency rewriting
+                        let target_name = if dep.alias_is_mandatory && dep.alias.is_some() {
+                            dep.alias.as_ref().unwrap()
+                        } else {
+                            &dep.imported_attr
+                        };
+
+                        // Generate: target_name = source_module.imported_attr
+                        let assign_stmt = Stmt::Assign(StmtAssign {
+                            node_index: self.create_node_index(),
+                            targets: vec![Expr::Name(ExprName {
+                                node_index: self.create_node_index(),
+                                id: target_name.clone().into(),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            })],
+                            value: Box::new(Expr::Attribute(ExprAttribute {
+                                node_index: self.create_node_index(),
+                                value: Box::new({
+                                    // Create module reference expression
+                                    let parts: Vec<&str> = source_module.split('.').collect();
+                                    if parts.len() == 1 {
+                                        // Simple module reference
+                                        Expr::Name(ExprName {
+                                            node_index: self.create_node_index(),
+                                            id: source_module.clone().into(),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        })
+                                    } else {
+                                        // Dotted module reference (e.g., mypkg.compat)
+                                        let mut expr = Expr::Name(ExprName {
+                                            node_index: self.create_node_index(),
+                                            id: parts[0].to_string().into(),
+                                            ctx: ExprContext::Load,
+                                            range: TextRange::default(),
+                                        });
+
+                                        for part in &parts[1..] {
+                                            expr = Expr::Attribute(ExprAttribute {
+                                                node_index: self.create_node_index(),
+                                                value: Box::new(expr),
+                                                attr: Identifier::new(*part, TextRange::default()),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            });
+                                        }
+                                        expr
+                                    }
+                                }),
+                                attr: Identifier::new(&dep.imported_attr, TextRange::default()),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        });
+
+                        final_body.push(assign_stmt);
+                        log::debug!(
+                            "Generated assignment: {} = {}.{}",
+                            target_name,
+                            source_module,
+                            dep.imported_attr
+                        );
                     }
                 }
             }
@@ -6090,7 +6687,7 @@ impl<'a> HybridStaticBundler<'a> {
     fn find_directly_imported_modules(
         &self,
         modules: &[(String, ModModule, PathBuf, String)],
-        _entry_module_name: &str,
+        entry_module_name: &str,
     ) -> FxIndexSet<String> {
         let mut directly_imported = FxIndexSet::default();
 
@@ -6105,6 +6702,24 @@ impl<'a> HybridStaticBundler<'a> {
             for stmt in &ast.body {
                 self.collect_direct_imports(stmt, &ctx, &mut directly_imported);
                 // Also check for imports inside functions, classes, etc.
+                self.collect_direct_imports_recursive(stmt, &ctx, &mut directly_imported);
+            }
+        }
+
+        // Also check the entry module if it has an AST
+        if let Some(entry_ast) = self.module_asts.as_ref().and_then(|asts| {
+            asts.iter()
+                .find(|(name, _, _, _)| name == entry_module_name)
+                .map(|(_, ast, _, _)| ast)
+        }) {
+            log::debug!("Checking entry module '{entry_module_name}' for direct imports");
+            let ctx = DirectImportContext {
+                current_module: entry_module_name,
+                module_path: &PathBuf::new(), // Entry module path doesn't matter for this
+                modules,
+            };
+            for stmt in &entry_ast.body {
+                self.collect_direct_imports(stmt, &ctx, &mut directly_imported);
                 self.collect_direct_imports_recursive(stmt, &ctx, &mut directly_imported);
             }
         }
@@ -9265,29 +9880,46 @@ impl<'a> HybridStaticBundler<'a> {
                 continue;
             }
 
-            // Create empty namespace object
-            let namespace_expr = Expr::Call(ExprCall {
-                node_index: AtomicNodeIndex::dummy(),
-                func: Box::new(Expr::Attribute(ExprAttribute {
+            // Check if we should use a flattened namespace instead of creating an empty one
+            let flattened_name = partial_module.replace('.', "_");
+            let should_use_flattened = self.inlined_modules.contains(&partial_module)
+                && self
+                    .namespaces_with_initial_symbols
+                    .contains(&partial_module);
+
+            let namespace_expr = if should_use_flattened {
+                // Use the flattened namespace variable
+                Expr::Name(ExprName {
                     node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
+                    id: flattened_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })
+            } else {
+                // Create empty namespace object
+                Expr::Call(ExprCall {
+                    node_index: AtomicNodeIndex::dummy(),
+                    func: Box::new(Expr::Attribute(ExprAttribute {
                         node_index: AtomicNodeIndex::dummy(),
-                        id: "types".into(),
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: "types".into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new("SimpleNamespace", TextRange::default()),
                         ctx: ExprContext::Load,
                         range: TextRange::default(),
                     })),
-                    attr: Identifier::new("SimpleNamespace", TextRange::default()),
-                    ctx: ExprContext::Load,
+                    arguments: Arguments {
+                        node_index: AtomicNodeIndex::dummy(),
+                        args: vec![].into(),
+                        keywords: vec![].into(),
+                        range: TextRange::default(),
+                    },
                     range: TextRange::default(),
-                })),
-                arguments: Arguments {
-                    node_index: AtomicNodeIndex::dummy(),
-                    args: vec![].into(),
-                    keywords: vec![].into(),
-                    range: TextRange::default(),
-                },
-                range: TextRange::default(),
-            });
+                })
+            };
 
             // Assign to the first part of the name
             if i == 1 {
@@ -9416,8 +10048,22 @@ impl<'a> HybridStaticBundler<'a> {
                 range: TextRange::default(),
             }));
 
+            log::info!(
+                "Created __all__ assignment for namespace '{target_name}' with exports: {filtered_exports:?}"
+            );
+
+            // Skip individual symbol assignments if this namespace was already created with initial
+            // symbols
+            if self.namespaces_with_initial_symbols.contains(module_name) {
+                log::debug!(
+                    "Skipping individual symbol assignments for '{module_name}' - namespace created with \
+                     initial symbols"
+                );
+                return;
+            }
+
             // For each exported symbol that survived tree-shaking, add it to the namespace
-            for symbol in &filtered_exports {
+            'symbol_loop: for symbol in &filtered_exports {
                 // For re-exported symbols, check if the original symbol is kept by tree-shaking
                 let should_include = if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
                 {
@@ -9501,27 +10147,195 @@ impl<'a> HybridStaticBundler<'a> {
                     base
                 };
 
-                // Now add the symbol as an attribute (e.g., greetings.greeting.get_greeting =
-                // get_greeting)
-                let attr_assignment = Stmt::Assign(StmtAssign {
-                    node_index: AtomicNodeIndex::dummy(),
-                    targets: vec![Expr::Attribute(ExprAttribute {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: Box::new(target),
-                        attr: Identifier::new(*symbol, TextRange::default()),
-                        ctx: ExprContext::Store,
-                        range: TextRange::default(),
-                    })],
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: actual_symbol_name.into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    range: TextRange::default(),
+                // Check if this assignment already exists in result_stmts
+                let assignment_exists = result_stmts.iter().any(|stmt| {
+                    if let Stmt::Assign(assign) = stmt
+                        && assign.targets.len() == 1
+                        && let Expr::Attribute(attr) = &assign.targets[0]
+                    {
+                        // Check if this is the same assignment target
+                        if let Expr::Name(base) = attr.value.as_ref() {
+                            return base.id.as_str() == target_name
+                                && attr.attr.as_str() == *symbol;
+                        }
+                    }
+                    false
                 });
 
-                result_stmts.push(attr_assignment);
+                if assignment_exists {
+                    log::debug!(
+                        "Skipping duplicate namespace assignment: {target_name}.{symbol} = \
+                         {actual_symbol_name}"
+                    );
+                    continue;
+                }
+
+                // Also check if this is a parent module assignment that might already exist
+                // For example, if we're processing mypkg.exceptions and the symbol CustomJSONError
+                // is in mypkg's __all__, check if mypkg.CustomJSONError = CustomJSONError already
+                // exists
+                if module_name.contains('.') {
+                    let parent_module = module_name
+                        .rsplit_once('.')
+                        .map(|(parent, _)| parent)
+                        .unwrap_or("");
+                    if !parent_module.is_empty()
+                        && let Some(Some(parent_exports)) = self.module_exports.get(parent_module)
+                            && parent_exports.contains(symbol) {
+                                // This symbol is re-exported by the parent module
+                                // Check if the parent assignment already exists
+                                let parent_assignment_exists = result_stmts.iter().any(|stmt| {
+                                    if let Stmt::Assign(assign) = stmt
+                                        && assign.targets.len() == 1
+                                        && let Expr::Attribute(attr) = &assign.targets[0]
+                                        && let Expr::Name(base) = attr.value.as_ref() {
+                                            return base.id.as_str() == parent_module
+                                                && attr.attr.as_str() == *symbol;
+                                        }
+                                    false
+                                });
+
+                                if parent_assignment_exists {
+                                    log::debug!(
+                                        "Skipping namespace assignment for '{symbol}' - parent module \
+                                         '{parent_module}' already has assignment for re-exported symbol"
+                                    );
+                                    continue;
+                                }
+                            }
+                }
+
+                // Also check if this assignment was already made by deferred imports
+                // This handles the case where imports create namespace assignments that
+                // would be duplicated by __all__ processing
+                if !self.global_deferred_imports.is_empty() {
+                    // Check if this symbol was deferred by the same module (intra-module imports)
+                    let key = (module_name.to_string(), symbol.to_string());
+                    if self.global_deferred_imports.contains_key(&key) {
+                        log::debug!(
+                            "Skipping namespace assignment for '{symbol}' - already created by deferred \
+                             import from module '{module_name}'"
+                        );
+                        continue;
+                    }
+                }
+
+                // For wrapper modules, check if the symbol is imported from an inlined submodule
+                // These symbols are already added via module attribute assignments
+                if self.module_registry.contains_key(module_name) {
+                    log::debug!(
+                        "Module '{module_name}' is a wrapper module, checking if symbol '{symbol}' is imported \
+                         from inlined submodule"
+                    );
+                    // This is a wrapper module - check if symbol is re-exported from inlined
+                    // submodule
+                    if let Some(module_asts) = self.module_asts.as_ref() {
+                        // Find the module's AST to check its imports
+                        if let Some((_, ast, _, _)) = module_asts
+                            .iter()
+                            .find(|(name, _, _, _)| name == module_name)
+                        {
+                            // Check if this symbol is imported from an inlined submodule
+                            for stmt in &ast.body {
+                                if let Stmt::ImportFrom(import_from) = stmt {
+                                    let resolved_module =
+                                        self.resolve_relative_import(import_from, module_name);
+                                    if let Some(ref resolved) = resolved_module {
+                                        // Check if the resolved module is inlined
+                                        if self.inlined_modules.contains(resolved) {
+                                            // Check if our symbol is in this import
+                                            for alias in &import_from.names {
+                                                if alias.name.as_str() == *symbol {
+                                                    log::debug!(
+                                                        "Skipping namespace assignment for '{symbol}' - \
+                                                         already imported from inlined module \
+                                                         '{resolved}' and added as module attribute"
+                                                    );
+                                                    // Skip this symbol - it's already added via
+                                                    // module attributes
+                                                    continue 'symbol_loop;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Check if we're about to create a parent module assignment when processing a child
+                // module For example, when processing mypkg.exceptions, we
+                // shouldn't create mypkg.CustomJSONError if it's already been
+                // created elsewhere
+                let should_skip_parent_assignment =
+                    if module_name != target_name && module_name.contains('.') {
+                        // We're processing a child module but creating an assignment on a different
+                        // namespace This happens when the target_name is
+                        // the parent module
+                        let parent_module = module_name
+                            .rsplit_once('.')
+                            .map(|(parent, _)| parent)
+                            .unwrap_or("");
+                        if parent_module == target_name {
+                            // We're creating an assignment on the parent module from a child module
+                            // Check if this assignment already exists in result_stmts
+                            let parent_assignment_exists = result_stmts.iter().any(|stmt| {
+                                if let Stmt::Assign(assign) = stmt
+                                    && assign.targets.len() == 1
+                                    && let Expr::Attribute(attr) = &assign.targets[0]
+                                    && let Expr::Name(base) = attr.value.as_ref() {
+                                        return base.id.as_str() == target_name
+                                            && attr.attr.as_str() == *symbol;
+                                    }
+                                false
+                            });
+
+                            if parent_assignment_exists {
+                                log::debug!(
+                                    "Skipping parent module assignment {target_name}.{symbol} = {actual_symbol_name} - already \
+                                     exists in result_stmts"
+                                );
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                if !should_skip_parent_assignment {
+                    // Log when creating namespace assignments
+                    log::info!(
+                        "Creating namespace assignment: {target_name}.{symbol} = {actual_symbol_name} (in \
+                         populate_namespace_with_module_symbols_with_renames)"
+                    );
+
+                    // Now add the symbol as an attribute (e.g., greetings.greeting.get_greeting =
+                    // get_greeting)
+                    let attr_assignment = Stmt::Assign(StmtAssign {
+                        node_index: AtomicNodeIndex::dummy(),
+                        targets: vec![Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(target),
+                            attr: Identifier::new(*symbol, TextRange::default()),
+                            ctx: ExprContext::Store,
+                            range: TextRange::default(),
+                        })],
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: actual_symbol_name.into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        range: TextRange::default(),
+                    });
+
+                    result_stmts.push(attr_assignment);
+                }
             }
         }
     }
@@ -9568,7 +10382,32 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create a namespace object for an inlined module
-    fn create_namespace_object_for_module(&self, target_name: &str, _module_name: &str) -> Stmt {
+    fn create_namespace_object_for_module(&self, target_name: &str, module_name: &str) -> Stmt {
+        // Check if we should use a flattened namespace instead of creating an empty one
+        let flattened_name = module_name.replace('.', "_");
+        let should_use_flattened = self.inlined_modules.contains(module_name)
+            && self.namespaces_with_initial_symbols.contains(module_name);
+
+        if should_use_flattened {
+            // Create assignment: target_name = flattened_name
+            return Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: target_name.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: flattened_name.into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            });
+        }
+
         // For inlined modules, we need to return a vector of statements:
         // 1. Create the namespace object
         // 2. Add all the module's symbols to it

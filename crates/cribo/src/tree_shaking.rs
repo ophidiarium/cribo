@@ -429,6 +429,11 @@ impl TreeShaker {
                 // Process attribute accesses - if we access `greetings.message`,
                 // we need the `message` symbol from the `greetings` module
                 for (base_var, accessed_attrs) in &item.attribute_accesses {
+                    debug!(
+                        "Processing attribute access: base_var={base_var}, \
+                         attrs={accessed_attrs:?}"
+                    );
+
                     // First, check if base_var is an imported module alias (e.g., import x.y as z)
                     if let Some(source_module) =
                         self.resolve_module_import_alias(entry_module, base_var)
@@ -469,14 +474,69 @@ impl TreeShaker {
                             debug!("Found direct module attribute access: {base_var}.{attr}");
                             worklist.push_back((base_var.clone(), attr.clone()));
                         }
+                    } else {
+                        // Check if base_var is a namespace package
+                        // For namespace packages, we need to find the symbol in submodules
+                        let is_namespace = self
+                            .module_items
+                            .keys()
+                            .any(|key| key.starts_with(&format!("{base_var}.")));
+                        if is_namespace {
+                            debug!("Found namespace package access: {base_var}");
+                            for attr in accessed_attrs {
+                                debug!("Looking for {attr} in submodules of {base_var}");
+                                // Find which submodule defines this attribute
+                                let mut found = false;
+                                for (module_name, items) in &self.module_items {
+                                    if module_name.starts_with(&format!("{base_var}.")) {
+                                        for item in items {
+                                            if item.defined_symbols.contains(attr) {
+                                                debug!("Found {attr} defined in {module_name}");
+                                                worklist
+                                                    .push_back((module_name.clone(), attr.clone()));
+                                                found = true;
+                                                break;
+                                            }
+                                        }
+                                        if found {
+                                            break;
+                                        }
+                                    }
+                                }
+                                if !found {
+                                    debug!(
+                                        "Warning: Could not find {attr} in any submodule of \
+                                         {base_var}"
+                                    );
+                                }
+                            }
+                        } else {
+                            debug!("Unknown base variable for attribute access: {base_var}");
+                        }
                     }
                 }
             }
         }
 
-        // For directly imported modules, we don't automatically mark any symbols as used
-        // They will be marked as used only if actually accessed (e.g., module.symbol)
-        // The only exception would be `from module import *` which isn't handled here
+        // For directly imported modules, preserve __all__ exports if the module has them
+        // This is necessary because attribute access (e.g., module.symbol) might not be
+        // properly tracked in all AST contexts (like inside raise statements)
+        for module_name in &directly_imported_modules {
+            if let Some(items) = self.module_items.get(module_name) {
+                // Check if the module has __all__ defined
+                let has_all = items
+                    .iter()
+                    .any(|item| item.defined_symbols.contains("__all__"));
+
+                if has_all {
+                    debug!(
+                        "Directly imported module '{module_name}' has __all__, preserving its exports"
+                    );
+                    // Mark symbols defined in __all__ as used
+                    self.mark_all_defined_symbols_as_used(items, module_name, &mut worklist);
+                }
+            }
+        }
 
         // Process all modules with side effects - their module-level code will run
         for (module_name, items) in &self.module_items {
@@ -753,6 +813,47 @@ impl TreeShaker {
                          {base_var}.{attr}"
                     );
                     worklist.push_back((base_var.clone(), attr.clone()));
+                }
+            } else {
+                // Check if base_var is a namespace package
+                // For namespace packages, we need to find the symbol in submodules
+                let is_namespace = self
+                    .module_items
+                    .keys()
+                    .any(|key| key.starts_with(&format!("{base_var}.")));
+                if is_namespace {
+                    debug!("Found namespace package access in {current_module}: {base_var}");
+                    for attr in accessed_attrs {
+                        debug!("Looking for {attr} in submodules of {base_var}");
+                        // Find which submodule defines this attribute
+                        let mut found = false;
+                        for (module_name, items) in &self.module_items {
+                            if module_name.starts_with(&format!("{base_var}.")) {
+                                for item in items {
+                                    if item.defined_symbols.contains(attr) {
+                                        debug!("Found {attr} defined in {module_name}");
+                                        worklist.push_back((module_name.clone(), attr.clone()));
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if found {
+                                    break;
+                                }
+                            }
+                        }
+                        if !found {
+                            debug!(
+                                "Warning: Could not find {attr} in any submodule of {base_var} \
+                                 from {current_module}"
+                            );
+                        }
+                    }
+                } else {
+                    debug!(
+                        "Unknown base variable for attribute access in {current_module}: \
+                         {base_var}"
+                    );
                 }
             }
         }

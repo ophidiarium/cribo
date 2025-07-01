@@ -33,15 +33,13 @@ class UtilityClass:
 """Configuration module for testing regular import aliases."""
 UtilityClass.__module__ = 'utils.helpers'
 """Utility module for testing regular import aliases."""
+utils_config = types.SimpleNamespace(DEFAULT_CONFIG=DEFAULT_CONFIG, get_config=get_config)
+utils_helpers = types.SimpleNamespace(helper_function=helper_function, UtilityClass=UtilityClass)
 '''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
-helper_utils = types.SimpleNamespace()
+helper_utils = utils_helpers
 helper_utils.__all__ = ['UtilityClass', 'helper_function']
-helper_utils.UtilityClass = UtilityClass
-helper_utils.helper_function = helper_function
-config_module = types.SimpleNamespace()
+config_module = utils_config
 config_module.__all__ = ['DEFAULT_CONFIG', 'get_config']
-config_module.DEFAULT_CONFIG = DEFAULT_CONFIG
-config_module.get_config = get_config
 def main():
     """Test function that uses the imported modules with aliases."""
     print("Current working directory: /test/working/directory")

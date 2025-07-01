@@ -13,9 +13,9 @@ def get_greeting(name):
     return f"Hello, {name}!"
 """Greetings package"""
 """Greeting module"""
+greetings_greeting = types.SimpleNamespace(get_greeting=get_greeting)
 """Test nested namespace imports"""
-greetings.greeting = types.SimpleNamespace()
+greetings.greeting = greetings_greeting
 greetings.greeting.__all__ = ['get_greeting']
-greetings.greeting.get_greeting = get_greeting
 message = greetings.greeting.get_greeting("Python")
 print(message)

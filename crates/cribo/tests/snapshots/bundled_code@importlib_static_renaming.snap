@@ -9,8 +9,13 @@ input_file: crates/cribo/tests/fixtures/importlib_static_renaming/main.py
 import importlib
 import types
 VERSION = "1.0.0"
+MESSAGE = "This is foo module"
 def process(data):
     return f"Processed: {data}"
+def greet(name):
+    return f"Hello, {name}!"
+def get_value():
+    return 42
 class Calculator:
 
     def add(self, a, b):
@@ -19,11 +24,6 @@ class Calculator:
     def multiply(self, a, b):
         return a * b
 Calculator.__module__ = 'bar'
-MESSAGE = "This is foo module"
-def greet(name):
-    return f"Hello, {name}!"
-def get_value():
-    return 42
 im = importlib.import_module
 foo = types.SimpleNamespace(MESSAGE=MESSAGE, greet=greet, get_value=get_value)
 bar_module = types.SimpleNamespace(VERSION=VERSION, process=process, Calculator=Calculator)

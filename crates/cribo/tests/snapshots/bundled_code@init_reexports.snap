@@ -13,21 +13,21 @@ mypackage = types.SimpleNamespace()
 mypackage.__name__ = 'mypackage'
 mypackage.utils = types.SimpleNamespace()
 mypackage.config = types.SimpleNamespace()
-"""Utils subpackage with re-exports."""
-"""Constants module."""
 def helper_function(data):
     """Helper function for processing data."""
     return f"Helped: {data}"
-"""Helper utilities."""
 def format_data(data):
     """Format the processed data."""
     return f"Formatted: {data}"
-"""Data formatting module."""
 def process_data(data):
     """Process the input data."""
     processed = data.copy()
     processed["processed"] = True
     return processed
+"""Utils subpackage with re-exports."""
+"""Constants module."""
+"""Helper utilities."""
+"""Data formatting module."""
 """Data processing module."""
 @functools.cache
 def __cribo_init___cribo_de6c46_mypackage_config():
