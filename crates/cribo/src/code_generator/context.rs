@@ -48,6 +48,8 @@ pub struct InlineContext<'a> {
     pub import_aliases: FxIndexMap<String, String>,
     /// Deferred import assignments that need to be placed after all modules are inlined
     pub deferred_imports: &'a mut Vec<Stmt>,
+    /// Maps imported symbols to their source modules (local_name -> source_module)
+    pub import_sources: FxIndexMap<String, String>,
 }
 
 /// Context for semantic analysis
