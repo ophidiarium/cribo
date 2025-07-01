@@ -43,6 +43,14 @@ struct TransformFunctionParams<'a> {
     function_globals: &'a FxIndexSet<String>,
 }
 
+/// A class definition with its immediately following attributes
+#[derive(Debug, Clone)]
+struct ClassBlock {
+    class_stmt: Stmt,
+    attributes: Vec<Stmt>,
+    class_name: String,
+}
+
 /// This approach avoids forward reference issues while maintaining Python module semantics
 pub struct HybridStaticBundler<'a> {
     /// Track if importlib was fully transformed and should be removed
@@ -2938,6 +2946,9 @@ impl<'a> HybridStaticBundler<'a> {
             self.rewrite_hard_dependencies_in_module(&mut ast, module_name);
         }
 
+        // Build a map of imported symbols to their source modules BEFORE transformation
+        ctx.import_sources = self.build_import_source_map(&ast.body, module_name);
+
         // Then apply recursive import transformation to the module
         let mut transformer = RecursiveImportTransformer::new(RecursiveImportTransformerParams {
             bundler: self,
@@ -2962,9 +2973,13 @@ impl<'a> HybridStaticBundler<'a> {
             // before functions that might use them
             self.reorder_statements_for_proper_declaration_order(ast.body)
         };
-
-        // Build a map of imported symbols to their source modules
-        ctx.import_sources = self.build_import_source_map(&statements, module_name);
+        if !ctx.import_sources.is_empty() {
+            log::debug!(
+                "Module '{}' import sources: {:?}",
+                module_name,
+                ctx.import_sources
+            );
+        }
 
         // Process each statement in the module
         for stmt in statements {
@@ -5645,6 +5660,12 @@ impl<'a> HybridStaticBundler<'a> {
         hoisted_imports.extend(final_body);
         final_body = hoisted_imports;
 
+        // Post-process: Fix forward reference issues in cross-module inheritance
+        // Only apply reordering if we detect actual inheritance-based forward references
+        if self.has_cross_module_inheritance_forward_refs(&final_body) {
+            final_body = self.fix_forward_references_in_statements(final_body);
+        }
+
         let mut result = ModModule {
             node_index: self.create_transformed_node("Bundled module root".to_string()),
             range: TextRange::default(),
@@ -8305,7 +8326,8 @@ impl<'a> HybridStaticBundler<'a> {
         let mut imports = Vec::new();
         let mut assignments = Vec::new();
         let mut self_assignments = Vec::new();
-        let mut functions_and_classes = Vec::new();
+        let mut functions = Vec::new();
+        let mut classes = Vec::new();
         let mut other_stmts = Vec::new();
 
         // Categorize statements
@@ -8340,9 +8362,11 @@ impl<'a> HybridStaticBundler<'a> {
                     // Annotated assignments are regular variable declarations
                     assignments.push(stmt);
                 }
-                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
-                    // Functions and classes that might reference module-level variables
-                    functions_and_classes.push(stmt);
+                Stmt::FunctionDef(_) => {
+                    functions.push(stmt);
+                }
+                Stmt::ClassDef(_) => {
+                    classes.push(stmt);
                 }
                 _ => {
                     other_stmts.push(stmt);
@@ -8350,24 +8374,444 @@ impl<'a> HybridStaticBundler<'a> {
             }
         }
 
-        // Don't reorder classes - Python supports forward references in type annotations
-        // and reordering can break other dependencies we're not tracking
-        let ordered_functions_and_classes = functions_and_classes;
+        // Order classes based on inheritance dependencies
+        let ordered_classes = self.order_classes_by_inheritance(&classes);
 
         // Build the reordered list:
         // 1. Imports first
         // 2. Module-level assignments (variables) - but not self-assignments
-        // 3. Functions and classes (ordered by inheritance)
-        // 4. Self-assignments (after functions are defined)
-        // 5. Other statements
+        // 3. Functions (before classes that might use them in decorators/defaults)
+        // 4. Classes (ordered by inheritance)
+        // 5. Self-assignments (after functions are defined)
+        // 6. Other statements
         let mut reordered = Vec::new();
         reordered.extend(imports);
         reordered.extend(assignments);
-        reordered.extend(ordered_functions_and_classes);
+        reordered.extend(functions);
+        reordered.extend(ordered_classes);
         reordered.extend(self_assignments);
         reordered.extend(other_stmts);
 
         reordered
+    }
+
+    /// Sort modules by their import dependencies to ensure proper definition order
+    #[allow(dead_code)]
+    fn sort_modules_by_import_dependencies(
+        &self,
+        modules: &[(String, ModModule, PathBuf, String)],
+        _graph: &DependencyGraph,
+    ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
+        use petgraph::{algo::toposort, graph::DiGraph};
+
+        // Build a graph of module dependencies
+        let mut dep_graph = DiGraph::new();
+        let mut module_indices = FxIndexMap::default();
+
+        // First pass: Create nodes for each module
+        for (idx, (module_name, _, _, _)) in modules.iter().enumerate() {
+            let node_idx = dep_graph.add_node(idx);
+            module_indices.insert(module_name.clone(), node_idx);
+        }
+
+        // Second pass: Add edges based on imports
+        for (module_name, ast, _, _) in modules {
+            let module_node = module_indices[module_name];
+
+            // Check imports in the module
+            for stmt in &ast.body {
+                if let Stmt::ImportFrom(import_from) = stmt
+                    && let Some(ref imported_module) = import_from.module
+                {
+                    let imported_name = imported_module.as_str();
+
+                    // Only add edge if the imported module is in our set
+                    if let Some(&imported_node) = module_indices.get(imported_name) {
+                        // Add edge from imported to importer (imported must come before
+                        // importer)
+                        dep_graph.add_edge(imported_node, module_node, ());
+                        log::debug!(
+                            "Added module dependency edge: {imported_name} -> {module_name}"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Perform topological sort
+        match toposort(&dep_graph, None) {
+            Ok(sorted_nodes) => {
+                // Convert back to modules in sorted order
+                let mut ordered = Vec::new();
+                for node in sorted_nodes {
+                    let idx = dep_graph[node];
+                    ordered.push(modules[idx].clone());
+                }
+                log::info!(
+                    "Sorted {} modules by import dependencies: {:?}",
+                    ordered.len(),
+                    ordered
+                        .iter()
+                        .map(|(name, _, _, _)| name)
+                        .collect::<Vec<_>>()
+                );
+                Ok(ordered)
+            }
+            Err(_) => {
+                // Circular imports detected - fall back to original order
+                log::warn!("Circular imports detected between modules, using original order");
+                Ok(modules.to_vec())
+            }
+        }
+    }
+
+    /// Check if there are cross-module inheritance forward references
+    fn has_cross_module_inheritance_forward_refs(&self, statements: &[Stmt]) -> bool {
+        // Look for classes with renamed base classes (e.g., HTTPBasicAuth_2)
+        // that might indicate cross-module inheritance issues
+        for stmt in statements {
+            if let Stmt::ClassDef(class_def) = stmt
+                && let Some(arguments) = &class_def.arguments
+            {
+                for base in &arguments.args {
+                    if let Expr::Name(name_expr) = base {
+                        let base_name = name_expr.id.as_str();
+                        // Check if this looks like a renamed class (ends with _<number>)
+                        if base_name.chars().any(|c| c == '_')
+                            && let Some(last_part) = base_name.split('_').next_back()
+                            && last_part.chars().all(|c| c.is_ascii_digit())
+                        {
+                            // This is likely a renamed class, check if it causes
+                            // forward ref
+                            let class_name = class_def.name.to_string();
+                            // Find positions of both classes
+                            let mut derived_pos = None;
+                            let mut base_pos = None;
+
+                            for (idx, s) in statements.iter().enumerate() {
+                                if let Stmt::ClassDef(cd) = s {
+                                    if cd.name.as_str() == class_name {
+                                        derived_pos = Some(idx);
+                                    } else if cd.name.as_str() == base_name {
+                                        base_pos = Some(idx);
+                                    }
+                                }
+                            }
+
+                            if let (Some(d_pos), Some(b_pos)) = (derived_pos, base_pos)
+                                && b_pos > d_pos
+                            {
+                                log::debug!(
+                                    "Found cross-module inheritance forward reference: \
+                                     {class_name} inherits from {base_name} which appears later"
+                                );
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Fix forward reference issues by reordering statements
+    fn fix_forward_references_in_statements(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
+        // Quick check: if there are no classes, no need to reorder
+        let has_classes = statements.iter().any(|s| matches!(s, Stmt::ClassDef(_)));
+        if !has_classes {
+            return statements;
+        }
+
+        // Check if there are any inheritance relationships that could cause forward references
+        let mut has_inheritance_forward_ref = false;
+        let mut class_names = FxIndexSet::default();
+        let mut inheritance_map = FxIndexMap::default();
+
+        // First pass: collect all class names and their base classes
+        for stmt in &statements {
+            if let Stmt::ClassDef(class_def) = stmt {
+                let class_name = class_def.name.to_string();
+                class_names.insert(class_name.clone());
+
+                if let Some(arguments) = &class_def.arguments {
+                    let mut bases = Vec::new();
+                    for base in &arguments.args {
+                        if let Expr::Name(name_expr) = base {
+                            bases.push(name_expr.id.to_string());
+                        }
+                    }
+                    if !bases.is_empty() {
+                        inheritance_map.insert(class_name, bases);
+                    }
+                }
+            }
+        }
+
+        // Second pass: check if any base class appears after its derived class
+        let mut class_positions = FxIndexMap::default();
+        for (idx, stmt) in statements.iter().enumerate() {
+            if let Stmt::ClassDef(class_def) = stmt {
+                class_positions.insert(class_def.name.to_string(), idx);
+            }
+        }
+
+        for (derived_class, base_classes) in &inheritance_map {
+            if let Some(&derived_pos) = class_positions.get(derived_class) {
+                for base_class in base_classes {
+                    if let Some(&base_pos) = class_positions.get(base_class)
+                        && base_pos > derived_pos
+                    {
+                        // Found a forward reference issue
+                        has_inheritance_forward_ref = true;
+                        log::debug!(
+                            "Found forward reference: class '{derived_class}' at position \
+                             {derived_pos} inherits from '{base_class}' at position {base_pos}"
+                        );
+                        break;
+                    }
+                }
+            }
+            if has_inheritance_forward_ref {
+                break;
+            }
+        }
+
+        // Only reorder if there's an actual forward reference issue
+        if !has_inheritance_forward_ref {
+            return statements;
+        }
+
+        // First pass: find where the first class appears
+        let first_class_position = statements
+            .iter()
+            .position(|s| matches!(s, Stmt::ClassDef(_)));
+
+        let mut class_blocks = Vec::new();
+        let mut other_statements = Vec::new();
+        let mut pre_class_statements = Vec::new();
+        let mut current_class: Option<ClassBlock> = None;
+        let mut seen_first_class = false;
+
+        for (idx, stmt) in statements.into_iter().enumerate() {
+            if let Some(first_pos) = first_class_position
+                && idx < first_pos
+                && !seen_first_class
+            {
+                pre_class_statements.push(stmt);
+                continue;
+            }
+
+            match stmt {
+                Stmt::ClassDef(class_def) => {
+                    seen_first_class = true;
+                    // If we had a previous class, save it
+                    if let Some(block) = current_class.take() {
+                        class_blocks.push(block);
+                    }
+                    // Start a new class block
+                    let class_name = class_def.name.to_string();
+                    current_class = Some(ClassBlock {
+                        class_stmt: Stmt::ClassDef(class_def),
+                        attributes: Vec::new(),
+                        class_name,
+                    });
+                }
+                Stmt::Assign(assign) if current_class.is_some() => {
+                    // Check if this is a class attribute assignment (e.g., __module__)
+                    let is_class_attr = if assign.targets.len() == 1 {
+                        if let Expr::Attribute(attr) = &assign.targets[0] {
+                            if let Expr::Name(name) = attr.value.as_ref() {
+                                if let Some(ref block) = current_class {
+                                    name.id.as_str() == block.class_name
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if is_class_attr {
+                        // This is an attribute of the current class
+                        if let Some(ref mut block) = current_class {
+                            block.attributes.push(Stmt::Assign(assign));
+                        }
+                    } else {
+                        // Not a class attribute, save current class and add to other statements
+                        if let Some(block) = current_class.take() {
+                            class_blocks.push(block);
+                        }
+                        other_statements.push(Stmt::Assign(assign));
+                    }
+                }
+                _ => {
+                    // Any other statement ends the current class block
+                    if let Some(block) = current_class.take() {
+                        class_blocks.push(block);
+                    }
+                    other_statements.push(stmt);
+                }
+            }
+        }
+
+        // Don't forget the last class if there is one
+        if let Some(block) = current_class {
+            class_blocks.push(block);
+        }
+
+        // Now order the class blocks by inheritance
+        let ordered_blocks = self.order_class_blocks_by_inheritance(class_blocks);
+
+        // Rebuild the statement list
+        let mut result = Vec::new();
+
+        // Add all pre-class statements
+        result.extend(pre_class_statements);
+
+        // Add all the ordered class blocks
+        for block in ordered_blocks {
+            result.push(block.class_stmt);
+            result.extend(block.attributes);
+        }
+
+        // Add any remaining statements
+        result.extend(other_statements);
+
+        result
+    }
+
+    /// Order class blocks based on their inheritance dependencies
+    fn order_class_blocks_by_inheritance(&self, class_blocks: Vec<ClassBlock>) -> Vec<ClassBlock> {
+        use petgraph::{algo::toposort, graph::DiGraph};
+
+        // Build a graph of class dependencies
+        let mut graph = DiGraph::new();
+        let mut block_indices = FxIndexMap::default();
+        let mut blocks_by_name = FxIndexMap::default();
+
+        // First pass: Create nodes for each class block
+        for (idx, block) in class_blocks.iter().enumerate() {
+            let node_idx = graph.add_node(idx);
+            block_indices.insert(block.class_name.clone(), node_idx);
+            blocks_by_name.insert(block.class_name.clone(), block);
+        }
+
+        // Second pass: Add edges based on inheritance
+        for block in &class_blocks {
+            if let Stmt::ClassDef(class_def) = &block.class_stmt {
+                let class_node = block_indices[&block.class_name];
+
+                // Check each base class
+                if let Some(arguments) = &class_def.arguments {
+                    for base in &arguments.args {
+                        if let Expr::Name(name_expr) = base {
+                            let base_name = name_expr.id.to_string();
+
+                            // Only add edge if the base class is defined in this module
+                            if let Some(&base_node) = block_indices.get(&base_name) {
+                                // Add edge from base to derived (base must come before derived)
+                                graph.add_edge(base_node, class_node, ());
+                                log::debug!(
+                                    "Added inheritance edge: {} -> {}",
+                                    base_name,
+                                    block.class_name
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Perform topological sort
+        match toposort(&graph, None) {
+            Ok(sorted_nodes) => {
+                // Convert back to class blocks in sorted order
+                let mut ordered = Vec::new();
+                for node in sorted_nodes {
+                    let idx = graph[node];
+                    ordered.push(class_blocks[idx].clone());
+                }
+                ordered
+            }
+            Err(_) => {
+                // Circular inheritance detected, return as-is
+                log::warn!("Circular inheritance detected, returning classes in original order");
+                class_blocks
+            }
+        }
+    }
+
+    /// Order classes based on their inheritance dependencies
+    fn order_classes_by_inheritance(&self, classes: &[Stmt]) -> Vec<Stmt> {
+        use petgraph::{algo::toposort, graph::DiGraph};
+
+        // Build a graph of class dependencies
+        let mut graph = DiGraph::new();
+        let mut class_indices = FxIndexMap::default();
+        let mut stmt_by_name = FxIndexMap::default();
+
+        // First pass: Create nodes for each class
+        for (idx, stmt) in classes.iter().enumerate() {
+            if let Stmt::ClassDef(class_def) = stmt {
+                let class_name = class_def.name.to_string();
+                let node_idx = graph.add_node(idx);
+                class_indices.insert(class_name.clone(), node_idx);
+                stmt_by_name.insert(class_name, stmt);
+            }
+        }
+
+        // Second pass: Add edges based on inheritance
+        for stmt in classes {
+            if let Stmt::ClassDef(class_def) = stmt {
+                let class_name = class_def.name.to_string();
+                let class_node = class_indices[&class_name];
+
+                // Check each base class
+                if let Some(arguments) = &class_def.arguments {
+                    for base in &arguments.args {
+                        if let Expr::Name(name_expr) = base {
+                            let base_name = name_expr.id.to_string();
+
+                            // Only add edge if the base class is defined in this module
+                            if let Some(&base_node) = class_indices.get(&base_name) {
+                                // Add edge from base to derived (base must come before derived)
+                                graph.add_edge(base_node, class_node, ());
+                                log::debug!("Added inheritance edge: {base_name} -> {class_name}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Perform topological sort
+        match toposort(&graph, None) {
+            Ok(sorted_nodes) => {
+                // Convert back to statements in sorted order
+                let mut ordered = Vec::new();
+                for node in sorted_nodes {
+                    let idx = graph[node];
+                    ordered.push(classes[idx].clone());
+                }
+                log::debug!(
+                    "Successfully ordered {} classes by inheritance",
+                    ordered.len()
+                );
+                ordered
+            }
+            Err(_) => {
+                // Circular inheritance detected - fall back to original order
+                log::warn!("Circular inheritance detected, using original class order");
+                classes.to_vec()
+            }
+        }
     }
 
     /// Resolve import aliases in an expression
@@ -8507,6 +8951,10 @@ impl<'a> HybridStaticBundler<'a> {
 
                     // Check if this base class was imported from another module
                     if let Some(source_module) = ctx.import_sources.get(base_class_name) {
+                        log::debug!(
+                            "Base class '{base_class_name}' was imported from module \
+                             '{source_module}'"
+                        );
                         // This base class was imported from another module
                         // Use that module's renames instead of the current module's
                         if let Some(source_renames) = ctx.module_renames.get(source_module)
@@ -8518,7 +8966,14 @@ impl<'a> HybridStaticBundler<'a> {
                             );
                             name_expr.id = renamed.clone().into();
                             continue;
+                        } else {
+                            log::debug!(
+                                "No rename found for base class '{base_class_name}' in source \
+                                 module '{source_module}'"
+                            );
                         }
+                    } else {
+                        log::debug!("Base class '{base_class_name}' not found in import_sources");
                     }
 
                     // Not imported or no rename found in source module, apply local renames
