@@ -8316,10 +8316,28 @@ impl<'a> HybridStaticBundler<'a> {
     /// Reorder statements to ensure proper declaration order
     fn reorder_statements_for_proper_declaration_order(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
         let mut imports = Vec::new();
-        let mut assignments = Vec::new();
         let mut self_assignments = Vec::new();
         let mut functions_and_classes = Vec::new();
         let mut other_stmts = Vec::new();
+
+        // First pass: identify all symbols used as base classes
+        let mut base_class_symbols = FxIndexSet::default();
+        for stmt in &statements {
+            if let Stmt::ClassDef(class_def) = stmt {
+                // Collect all base class names
+                if let Some(arguments) = &class_def.arguments {
+                    for base_expr in &arguments.args {
+                        if let Expr::Name(name_expr) = base_expr {
+                            base_class_symbols.insert(name_expr.id.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Separate assignments that define base classes from other assignments
+        let mut base_class_assignments = Vec::new();
+        let mut regular_assignments = Vec::new();
 
         // Categorize statements
         for stmt in statements {
@@ -8328,12 +8346,16 @@ impl<'a> HybridStaticBundler<'a> {
                     imports.push(stmt);
                 }
                 Stmt::Assign(assign) => {
-                    // Check if this is a self-assignment (e.g., validate = validate)
-                    let is_self_assignment = if assign.targets.len() == 1 {
-                        if let (Expr::Name(target), Expr::Name(value)) =
-                            (&assign.targets[0], assign.value.as_ref())
-                        {
-                            target.id == value.id
+                    // Check if this is a class attribute assignment (e.g., MyClass.__module__ =
+                    // 'foo')
+                    let is_class_attribute = if assign.targets.len() == 1 {
+                        if let Expr::Attribute(attr) = &assign.targets[0] {
+                            if let Expr::Name(_) = attr.value.as_ref() {
+                                // This is an attribute assignment like MyClass.__module__
+                                true
+                            } else {
+                                false
+                            }
                         } else {
                             false
                         }
@@ -8341,17 +8363,79 @@ impl<'a> HybridStaticBundler<'a> {
                         false
                     };
 
-                    if is_self_assignment {
-                        // Self-assignments should come after function definitions
-                        self_assignments.push(stmt);
+                    if is_class_attribute {
+                        // Class attribute assignments should stay after their class definitions
+                        other_stmts.push(stmt);
                     } else {
-                        // Regular module-level variable assignments
-                        assignments.push(stmt);
+                        // Check if this assignment defines a base class symbol
+                        let defines_base_class = if assign.targets.len() == 1 {
+                            if let Expr::Name(target) = &assign.targets[0] {
+                                // Only consider it a base class assignment if:
+                                // 1. The target is used as a base class
+                                // 2. The value looks like it could be a class (attribute access)
+                                if base_class_symbols.contains(target.id.as_str()) {
+                                    // Check if the value is an attribute access (e.g.,
+                                    // json.JSONDecodeError)
+                                    // or a simple name that could be a class
+                                    match assign.value.as_ref() {
+                                        Expr::Attribute(_) => true, // e.g., json.JSONDecodeError
+                                        Expr::Name(name) => {
+                                            // Check if it looks like a class name (starts with
+                                            // uppercase)
+                                            name.id.chars().next().is_some_and(|c| c.is_uppercase())
+                                        }
+                                        _ => false,
+                                    }
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        // Check if this is a self-assignment (e.g., validate = validate)
+                        let is_self_assignment = if assign.targets.len() == 1 {
+                            if let (Expr::Name(target), Expr::Name(value)) =
+                                (&assign.targets[0], assign.value.as_ref())
+                            {
+                                target.id == value.id
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if is_self_assignment {
+                            // Self-assignments should come after function definitions
+                            self_assignments.push(stmt);
+                        } else if defines_base_class {
+                            // Assignments that define base classes must come before class
+                            // definitions
+                            base_class_assignments.push(stmt);
+                        } else {
+                            // Regular module-level variable assignments
+                            regular_assignments.push(stmt);
+                        }
                     }
                 }
-                Stmt::AnnAssign(_) => {
-                    // Annotated assignments are regular variable declarations
-                    assignments.push(stmt);
+                Stmt::AnnAssign(ann_assign) => {
+                    // Check if this annotated assignment defines a base class symbol
+                    let defines_base_class = if let Expr::Name(target) = ann_assign.target.as_ref()
+                    {
+                        base_class_symbols.contains(target.id.as_str())
+                    } else {
+                        false
+                    };
+
+                    if defines_base_class {
+                        base_class_assignments.push(stmt);
+                    } else {
+                        regular_assignments.push(stmt);
+                    }
                 }
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
                     // Functions and classes that might reference module-level variables
@@ -8369,13 +8453,15 @@ impl<'a> HybridStaticBundler<'a> {
 
         // Build the reordered list:
         // 1. Imports first
-        // 2. Module-level assignments (variables) - but not self-assignments
-        // 3. Functions and classes (ordered by inheritance)
-        // 4. Self-assignments (after functions are defined)
-        // 5. Other statements
+        // 2. Base class assignments (must come before class definitions)
+        // 3. Other module-level assignments (variables) - but not self-assignments
+        // 4. Functions and classes (ordered by inheritance)
+        // 5. Self-assignments (after functions are defined)
+        // 6. Other statements
         let mut reordered = Vec::new();
         reordered.extend(imports);
-        reordered.extend(assignments);
+        reordered.extend(base_class_assignments);
+        reordered.extend(regular_assignments);
         reordered.extend(ordered_functions_and_classes);
         reordered.extend(self_assignments);
         reordered.extend(other_stmts);
