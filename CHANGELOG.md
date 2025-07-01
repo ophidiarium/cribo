@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.5](https://github.com/ophidiarium/cribo/compare/v0.5.4...v0.5.5) (2025-07-01)
+
+
+### Features
+
+* add __qualname__ ([8dc09ef](https://github.com/ophidiarium/cribo/commit/8dc09ef5e8cd133e3682f3cf65a6b5cc78e78878))
+
+
+### Bug Fixes
+
+* **bundler:** apply symbol renames to class base classes during inheritance ([#188](https://github.com/ophidiarium/cribo/issues/188)) ([5a6e229](https://github.com/ophidiarium/cribo/commit/5a6e2291882ad5255e3456a64dad6862c60700fa))
+* **bundler:** apply symbol renames to class base classes during inheritance ([#189](https://github.com/ophidiarium/cribo/issues/189)) ([590cc46](https://github.com/ophidiarium/cribo/commit/590cc46f0fc902131d986603080708e76ddbae2a))
+* **tree-shaking:** preserve entry module classes and fix namespace duplication ([#186](https://github.com/ophidiarium/cribo/issues/186)) ([ca3bd4e](https://github.com/ophidiarium/cribo/commit/ca3bd4e117223ba838cd1365644613307bba60c8))
+
 ## [0.5.4](https://github.com/ophidiarium/cribo/compare/v0.5.3...v0.5.4) (2025-06-30)
 
 
