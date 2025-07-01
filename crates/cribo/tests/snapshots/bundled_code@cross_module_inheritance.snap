@@ -18,7 +18,8 @@ class HTTPBasicAuth_2:
 HTTPBasicAuth_2.__module__ = 'auth'
 HTTPBasicAuth_2.__name__ = 'HTTPBasicAuth'
 HTTPBasicAuth_2.__qualname__ = 'HTTPBasicAuth'
-class HTTPProxyAuth(HTTPBasicAuth_2):
+HTTPBasicAuth = HTTPBasicAuth_2
+class HTTPProxyAuth(HTTPBasicAuth):
     """Proxy authentication that inherits from HTTPBasicAuth."""
 
     def __init__(self, username, password):
@@ -31,7 +32,6 @@ HTTPProxyAuth.__module__ = 'proxy'
 """Proxy module that inherits from HTTPBasicAuth in a different module.\n\nThis is the key part - proxy.py imports HTTPBasicAuth from auth.py\nand creates a class that inherits from it. When HTTPBasicAuth gets\nrenamed due to collision, this inheritance needs to be updated.\n"""
 """Another auth module with HTTPBasicAuth to create collision."""
 """First auth module with HTTPBasicAuth."""
-HTTPBasicAuth = HTTPBasicAuth_2
 """Test cross-module inheritance with symbol collision.\n\nThis reproduces the exact error from requests where HTTPBasicAuth\nis renamed to HTTPBasicAuth_1 in one module but another module\ntries to inherit from HTTPBasicAuth.\n"""
 proxy = HTTPProxyAuth("user", "pass")
 print(f"Created proxy auth: {proxy}")
