@@ -2913,7 +2913,6 @@ impl<'a> HybridStaticBundler<'a> {
                     || self.bundled_modules.contains(source_module)
                 {
                     for alias in &import_from.names {
-                        let _imported_name = alias.name.as_str();
                         let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
                         // Map the local name to its source module
