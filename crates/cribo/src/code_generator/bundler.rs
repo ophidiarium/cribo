@@ -2896,28 +2896,28 @@ impl<'a> HybridStaticBundler<'a> {
 
         for stmt in statements {
             if let Stmt::ImportFrom(import_from) = stmt
-                && let Some(module) = &import_from.module {
-                    let source_module = module.as_str();
+                && let Some(module) = &import_from.module
+            {
+                let source_module = module.as_str();
 
-                    // Only track imports from first-party modules that were inlined
-                    if self.inlined_modules.contains(source_module)
-                        || self.bundled_modules.contains(source_module)
-                    {
-                        for alias in &import_from.names {
-                            let _imported_name = alias.name.as_str();
-                            let local_name =
-                                alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+                // Only track imports from first-party modules that were inlined
+                if self.inlined_modules.contains(source_module)
+                    || self.bundled_modules.contains(source_module)
+                {
+                    for alias in &import_from.names {
+                        let _imported_name = alias.name.as_str();
+                        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
-                            // Map the local name to its source module
-                            import_sources
-                                .insert(local_name.to_string(), source_module.to_string());
+                        // Map the local name to its source module
+                        import_sources.insert(local_name.to_string(), source_module.to_string());
 
-                            log::debug!(
-                                "Module '{module_name}': Symbol '{local_name}' imported from '{source_module}'"
-                            );
-                        }
+                        log::debug!(
+                            "Module '{module_name}': Symbol '{local_name}' imported from \
+                             '{source_module}'"
+                        );
                     }
                 }
+            }
         }
 
         import_sources
@@ -8510,14 +8510,15 @@ impl<'a> HybridStaticBundler<'a> {
                         // This base class was imported from another module
                         // Use that module's renames instead of the current module's
                         if let Some(source_renames) = ctx.module_renames.get(source_module)
-                            && let Some(renamed) = source_renames.get(base_class_name) {
-                                log::debug!(
-                                    "Applying cross-module rename for base class '{base_class_name}' from module \
-                                     '{source_module}': '{base_class_name}' -> '{renamed}'"
-                                );
-                                name_expr.id = renamed.clone().into();
-                                continue;
-                            }
+                            && let Some(renamed) = source_renames.get(base_class_name)
+                        {
+                            log::debug!(
+                                "Applying cross-module rename for base class '{base_class_name}' \
+                                 from module '{source_module}': '{base_class_name}' -> '{renamed}'"
+                            );
+                            name_expr.id = renamed.clone().into();
+                            continue;
+                        }
                     }
 
                     // Not imported or no rename found in source module, apply local renames
