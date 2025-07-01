@@ -2886,6 +2886,43 @@ impl<'a> HybridStaticBundler<'a> {
         unreachable!("transform_module_to_init_function should return a FunctionDef")
     }
 
+    /// Build a map of imported symbols to their source modules by analyzing import statements
+    fn build_import_source_map(
+        &self,
+        statements: &[Stmt],
+        module_name: &str,
+    ) -> FxIndexMap<String, String> {
+        let mut import_sources = FxIndexMap::default();
+
+        for stmt in statements {
+            if let Stmt::ImportFrom(import_from) = stmt
+                && let Some(module) = &import_from.module {
+                    let source_module = module.as_str();
+
+                    // Only track imports from first-party modules that were inlined
+                    if self.inlined_modules.contains(source_module)
+                        || self.bundled_modules.contains(source_module)
+                    {
+                        for alias in &import_from.names {
+                            let _imported_name = alias.name.as_str();
+                            let local_name =
+                                alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                            // Map the local name to its source module
+                            import_sources
+                                .insert(local_name.to_string(), source_module.to_string());
+
+                            log::debug!(
+                                "Module '{module_name}': Symbol '{local_name}' imported from '{source_module}'"
+                            );
+                        }
+                    }
+                }
+        }
+
+        import_sources
+    }
+
     /// Inline a module
     pub fn inline_module(
         &mut self,
@@ -2914,6 +2951,9 @@ impl<'a> HybridStaticBundler<'a> {
         });
         transformer.transform_module(&mut ast);
 
+        // Copy import aliases from the transformer to the inline context
+        ctx.import_aliases = transformer.import_aliases;
+
         // Reorder statements to ensure proper declaration order
         let statements = if self.circular_modules.contains(module_name) {
             self.reorder_statements_for_circular_module(module_name, ast.body)
@@ -2922,6 +2962,9 @@ impl<'a> HybridStaticBundler<'a> {
             // before functions that might use them
             self.reorder_statements_for_proper_declaration_order(ast.body)
         };
+
+        // Build a map of imported symbols to their source modules
+        ctx.import_sources = self.build_import_source_map(&statements, module_name);
 
         // Process each statement in the module
         for stmt in statements {
@@ -4696,6 +4739,7 @@ impl<'a> HybridStaticBundler<'a> {
                 inlined_stmts: &mut inlined_stmts,
                 import_aliases: FxIndexMap::default(),
                 deferred_imports: &mut deferred_imports,
+                import_sources: FxIndexMap::default(),
             };
             self.inline_module(module_name, ast.clone(), _module_path, &mut inline_ctx)?;
             log::debug!(
@@ -8452,30 +8496,49 @@ impl<'a> HybridStaticBundler<'a> {
         let mut class_def_clone = class_def.clone();
         class_def_clone.name = Identifier::new(renamed_name.clone(), TextRange::default());
 
-        // Precompute a combined rename map that includes renames from all modules
-        // This is used for both base classes and class body to avoid repeated allocations
-        let mut combined_renames = module_renames.clone();
-        for (_other_module, other_renames) in ctx.module_renames.iter() {
-            for (original_name, renamed_name) in other_renames {
-                // Only add if not already present (local module renames take precedence)
-                if !combined_renames.contains_key(original_name) {
-                    combined_renames.insert(original_name.clone(), renamed_name.clone());
-                }
-            }
-        }
-
         // Apply renames to base classes
+        // CRITICAL: For cross-module inheritance, we need to apply renames from the
+        // source module of each base class, not just from the current module.
         if let Some(ref mut arguments) = class_def_clone.arguments {
-            // Apply renames to each base class using the precomputed map
             for arg in &mut arguments.args {
-                self.rewrite_aliases_in_expr(arg, &combined_renames);
+                // Try to determine the source module for base class names
+                if let Expr::Name(name_expr) = arg {
+                    let base_class_name = name_expr.id.as_str();
+
+                    // Check if this base class was imported from another module
+                    if let Some(source_module) = ctx.import_sources.get(base_class_name) {
+                        // This base class was imported from another module
+                        // Use that module's renames instead of the current module's
+                        if let Some(source_renames) = ctx.module_renames.get(source_module)
+                            && let Some(renamed) = source_renames.get(base_class_name) {
+                                log::debug!(
+                                    "Applying cross-module rename for base class '{base_class_name}' from module \
+                                     '{source_module}': '{base_class_name}' -> '{renamed}'"
+                                );
+                                name_expr.id = renamed.clone().into();
+                                continue;
+                            }
+                    }
+
+                    // Not imported or no rename found in source module, apply local renames
+                    if let Some(renamed) = module_renames.get(base_class_name) {
+                        name_expr.id = renamed.clone().into();
+                    }
+                } else {
+                    // Complex base class expression, use standard rewriting
+                    self.rewrite_aliases_in_expr(arg, module_renames);
+                }
             }
         }
 
         // Apply renames and resolve import aliases in class body
         for body_stmt in &mut class_def_clone.body {
             Self::resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);
-            self.rewrite_aliases_in_stmt(body_stmt, &combined_renames);
+            self.rewrite_aliases_in_stmt(body_stmt, module_renames);
+            // Also apply semantic renames from context
+            if let Some(semantic_renames) = ctx.module_renames.get(module_name) {
+                self.rewrite_aliases_in_stmt(body_stmt, semantic_renames);
+            }
         }
 
         ctx.inlined_stmts.push(Stmt::ClassDef(class_def_clone));
