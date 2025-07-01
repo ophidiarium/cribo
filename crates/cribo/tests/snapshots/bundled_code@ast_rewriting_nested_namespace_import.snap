@@ -9,9 +9,9 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_nested_namespace_import/ma
 import types
 greetings = types.SimpleNamespace()
 greetings.__name__ = 'greetings'
-"""Greetings package"""
 def get_greeting(name):
     return f"Hello, {name}!"
+"""Greetings package"""
 """Greeting module"""
 """Test nested namespace imports"""
 greetings.greeting = types.SimpleNamespace()

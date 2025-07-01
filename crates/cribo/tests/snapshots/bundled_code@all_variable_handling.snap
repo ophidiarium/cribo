@@ -11,6 +11,7 @@ nested_package = types.SimpleNamespace()
 nested_package.__name__ = 'nested_package'
 message_1 = "from conflict_module"
 SUB_CONSTANT = "submodule_value"
+CONSTANT = 42
 def sub_function():
     """Function from submodule"""
     return "Hello from submodule"
@@ -20,7 +21,6 @@ def exported_from_init():
 def helper_func():
     """Helper function used by other modules"""
     return "helper result"
-CONSTANT = 42
 def public_func():
     """A public function that should be exported."""
     return "Hello from public_func"

@@ -15,6 +15,12 @@ services = types.SimpleNamespace()
 services.__name__ = 'services'
 utils = types.SimpleNamespace()
 utils.__name__ = 'utils'
+def format_message(greeting: str, name: str) -> str:
+    """Format a greeting message."""
+    return f"{greeting}, {name}!"
+def calculate_total(values: typing.List[int]) -> int:
+    """Calculate the sum of a list of integers."""
+    return sum(values)
 class DatabaseConnection:
     """Represents a database connection."""
 
@@ -30,7 +36,6 @@ class DatabaseConnection:
     def disconnect(self) -> None:
         """Disconnect from the database."""
         self.is_connected = False
-DatabaseConnection.__module__ = 'services.database'
 class DatabaseService:
     """Service for database operations."""
 
@@ -52,14 +57,11 @@ class DatabaseService:
     def close(self) -> None:
         """Close the database connection."""
         self.connection.disconnect()
-DatabaseService.__module__ = 'services.database'
-"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
 class UserRole(enum.Enum):
     """User role enumeration."""
     ADMIN = "admin"
     USER = "user"
     GUEST = "guest"
-UserRole.__module__ = 'models.user'
 class User:
     """Simple user model."""
 
@@ -82,14 +84,12 @@ class User:
     def deactivate(self) -> None:
         """Deactivate the user."""
         self.active = False
+DatabaseConnection.__module__ = 'services.database'
+DatabaseService.__module__ = 'services.database'
+"""\nDatabase service module.\nContains database-related functionality with unique names.\n"""
+UserRole.__module__ = 'models.user'
 User.__module__ = 'models.user'
 """\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
-def format_message(greeting: str, name: str) -> str:
-    """Format a greeting message."""
-    return f"{greeting}, {name}!"
-def calculate_total(values: typing.List[int]) -> int:
-    """Calculate the sum of a list of integers."""
-    return sum(values)
 """\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
 """\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
 def main():

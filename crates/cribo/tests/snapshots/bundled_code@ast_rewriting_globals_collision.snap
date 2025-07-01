@@ -34,6 +34,12 @@ def validate_6(data):
     result = f"utils_validate: {data}"
     validate_cache[data] = result
     return result
+def sanitize(text):
+    """Utility function without conflicts"""
+    return text.strip().lower()
+def format_result(result):
+    """Another utility function"""
+    return f"formatted: {result}"
 class Logger_6:
     """Logger class in utils module"""
 
@@ -49,12 +55,6 @@ class Logger_6:
 Logger_6.__module__ = 'core.utils.helpers'
 Logger_6.__name__ = 'Logger'
 Logger_6.__qualname__ = 'Logger'
-def sanitize(text):
-    """Utility function without conflicts"""
-    return text.strip().lower()
-def format_result(result):
-    """Another utility function"""
-    return f"formatted: {result}"
 """Core utility helpers module - NO external dependencies to avoid circular imports"""
 _cribo_models_base_Connection = None
 @functools.cache
