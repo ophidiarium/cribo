@@ -13,7 +13,7 @@ mypkg = types.SimpleNamespace()
 mypkg.__name__ = 'mypkg'
 mypkg.compat = types.SimpleNamespace()
 @functools.cache
-def __cribo_init___cribo_4a2a5c_mypkg_compat():
+def __cribo_init___cribo_4089db_mypkg_compat():
     module = types.SimpleNamespace()
     module.__name__ = 'mypkg.compat'
     try:
@@ -25,7 +25,7 @@ def __cribo_init___cribo_4a2a5c_mypkg_compat():
     MutableMapping = collections.abc.MutableMapping
     module.MutableMapping = MutableMapping
     return module
-__cribo_init_result = __cribo_init___cribo_4a2a5c_mypkg_compat()
+__cribo_init_result = __cribo_init___cribo_4089db_mypkg_compat()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypkg.compat, attr, getattr(__cribo_init_result, attr))
@@ -44,7 +44,7 @@ class CustomJSONError(BaseException, JSONDecodeError):
         return mypkg.compat.JSONDecodeError.__reduce__(self)
 BaseException.__module__ = 'mypkg.exceptions'
 CustomJSONError.__module__ = 'mypkg.exceptions'
-__cribo_init___cribo_4a2a5c_mypkg_compat()
+__cribo_init___cribo_4089db_mypkg_compat()
 mypkg.__all__ = ['CustomJSONError']
 mypkg.CustomJSONError = CustomJSONError
 try:
