@@ -130,10 +130,9 @@ impl SymbolAnalyzer {
 
         // Only perform topological sort if we have symbols in circular modules
         if symbol_dep_graph.should_sort_symbols(circular_modules)
-            && let Err(e) = symbol_dep_graph.topological_sort_symbols(circular_modules)
+            && let Err(_) = symbol_dep_graph.topological_sort_symbols(circular_modules)
         {
             // The error is already logged inside topological_sort_symbols
-            log::error!("Failed to sort symbols: {e}");
         }
 
         symbol_dep_graph
