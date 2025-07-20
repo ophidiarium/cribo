@@ -46,6 +46,16 @@
                 "yaml-language-server",
                 "--stdio"
             ]
+        },
+        "jons-mcp-rust-debug": {
+            "type": "stdio",
+            "command": "uvx",
+            "args": [
+                "--from",
+                "git+https://github.com/jonmmease/jons-mcp-rust-debug",
+                "jons-mcp-rust-debug"
+            ],
+            "env": {}
         }
     }
 }

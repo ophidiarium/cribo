@@ -10,8 +10,8 @@ import types
 foo = types.SimpleNamespace()
 foo.__name__ = 'foo'
 foo.boo = types.SimpleNamespace()
+ANIMAL = "cat"
 def tada() -> str:
     return f"Tada {ANIMAL}!"
-ANIMAL = "cat"
 if __name__ == "__main__":
     print(tada())

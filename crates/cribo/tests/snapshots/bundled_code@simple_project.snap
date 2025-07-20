@@ -14,12 +14,6 @@ models.__name__ = 'models'
 utils = types.SimpleNamespace()
 utils.__name__ = 'utils'
 dataclass = dataclasses.dataclass
-def greet(name: str) -> str:
-    """Greet a person by name."""
-    return f"Hello, {name}!"
-def calculate(a: typing.Union[int, float], b: typing.Union[int, float]) -> typing.Union[int, float]:
-    """Calculate the sum of two numbers."""
-    return a + b
 @dataclass
 class User:
     """A simple user model."""
@@ -36,6 +30,12 @@ class User:
         if self.email:
             return f"{self.name} <{self.email}>"
         return self.name
+def greet(name: str) -> str:
+    """Greet a person by name."""
+    return f"Hello, {name}!"
+def calculate(a: typing.Union[int, float], b: typing.Union[int, float]) -> typing.Union[int, float]:
+    """Calculate the sum of two numbers."""
+    return a + b
 """Models package initialization."""
 User.__module__ = 'models.user'
 """User model for the test project."""

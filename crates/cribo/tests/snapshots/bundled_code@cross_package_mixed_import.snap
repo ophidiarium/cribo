@@ -17,6 +17,18 @@ models = types.SimpleNamespace()
 models.__name__ = 'models'
 _module_config = None
 CORE_MODEL_VERSION = "1.0.0"
+class BaseModel:
+    """Base model class."""
+
+    def __init__(self, name: str):
+        if not name or name.startswith("_"):
+            raise ValueError(f"Invalid model name: {name}")
+        self.name = name
+        self.version = "1.0.0"
+
+    def get_info(self):
+        """Get model information."""
+        return {"name": self.name, "type": "base", "model_version": self.version}
 def process_user(name: str) -> str:
     """Process a user-related string.\n\n    This function is imported by core.database.connection,\n    demonstrating a cross-package absolute import.\n    """
     return f"user_{name}_processed"
@@ -37,18 +49,6 @@ def is_debug():
 def validate(value: str) -> bool:
     """Validate a string value.\n\n    This function is imported by core.database.connection using\n    a relative import (..utils.helpers), demonstrating relative\n    imports within the same package hierarchy.\n    """
     return bool(value and not value.startswith("_"))
-class BaseModel:
-    """Base model class."""
-
-    def __init__(self, name: str):
-        if not name or name.startswith("_"):
-            raise ValueError(f"Invalid model name: {name}")
-        self.name = name
-        self.version = "1.0.0"
-
-    def get_info(self):
-        """Get model information."""
-        return {"name": self.name, "type": "base", "model_version": self.version}
 """User model providing cross-package functionality."""
 BaseModel.__module__ = 'models.base'
 """Base model module."""

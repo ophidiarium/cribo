@@ -118,6 +118,9 @@ pub struct HybridStaticBundler<'a> {
     /// Track namespace assignments that have already been made to avoid duplicates
     /// Format: (namespace_name, attribute_name)
     pub(crate) namespace_assignments_made: FxIndexSet<(String, String)>,
+    /// Track which namespace symbols have been populated after deferred imports
+    /// Format: (module_name, symbol_name)
+    pub(crate) symbols_populated_after_deferred: FxIndexSet<(String, String)>,
 }
 
 // Implementation block for importlib detection methods
@@ -692,6 +695,7 @@ impl<'a> HybridStaticBundler<'a> {
                                      * dependencies */
             namespaces_with_initial_symbols: FxIndexSet::default(),
             namespace_assignments_made: FxIndexSet::default(),
+            symbols_populated_after_deferred: FxIndexSet::default(),
         }
     }
 
@@ -3155,6 +3159,53 @@ impl<'a> HybridStaticBundler<'a> {
         module_name: &str,
         module_renames: &FxIndexMap<String, String>,
     ) -> Stmt {
+        // Check if this module has forward references that would cause NameError
+        // This happens when the module uses symbols from other modules that haven't been defined
+        // yet
+        let has_forward_references =
+            self.check_module_has_forward_references(module_name, module_renames);
+
+        if has_forward_references {
+            log::debug!(
+                "Module '{module_name}' has forward references, creating empty namespace"
+            );
+            // Create the namespace variable name
+            let namespace_var = module_name.cow_replace('.', "_").into_owned();
+
+            // Create empty namespace = types.SimpleNamespace() to avoid forward reference errors
+            return Stmt::Assign(StmtAssign {
+                node_index: AtomicNodeIndex::dummy(),
+                targets: vec![Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: namespace_var.into(),
+                    ctx: ExprContext::Store,
+                    range: TextRange::default(),
+                })],
+                value: Box::new(Expr::Call(ExprCall {
+                    node_index: AtomicNodeIndex::dummy(),
+                    func: Box::new(Expr::Attribute(ExprAttribute {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(Expr::Name(ExprName {
+                            node_index: AtomicNodeIndex::dummy(),
+                            id: "types".into(),
+                            ctx: ExprContext::Load,
+                            range: TextRange::default(),
+                        })),
+                        attr: Identifier::new("SimpleNamespace", TextRange::default()),
+                        ctx: ExprContext::Load,
+                        range: TextRange::default(),
+                    })),
+                    arguments: Arguments {
+                        node_index: AtomicNodeIndex::dummy(),
+                        args: Box::from([]),
+                        keywords: Box::from([]),
+                        range: TextRange::default(),
+                    },
+                    range: TextRange::default(),
+                })),
+                range: TextRange::default(),
+            });
+        }
         // Create a types.SimpleNamespace with all the module's symbols
         let mut keywords = Vec::new();
         let mut seen_args = FxIndexSet::default();
@@ -3698,6 +3749,35 @@ impl<'a> HybridStaticBundler<'a> {
 
         // Check if it's a package containing bundled modules
         // e.g., if "greetings.greeting" is bundled, then "greetings" is a package
+        let package_prefix = format!("{module_name}.");
+        self.bundled_modules
+            .iter()
+            .any(|bundled| bundled.starts_with(&package_prefix))
+    }
+
+    /// Check if module has forward references that would cause NameError
+    fn check_module_has_forward_references(
+        &self,
+        module_name: &str,
+        _module_renames: &FxIndexMap<String, String>,
+    ) -> bool {
+        // Always create empty namespaces for modules that are part of a package hierarchy
+        // to avoid forward reference issues. The symbols will be added later.
+
+        // For modules that are part of packages (contain dots), or are packages themselves
+        // we should create empty namespaces initially
+        if module_name.contains('.') || self.is_package_namespace(module_name) {
+            log::debug!(
+                "Module '{module_name}' is part of a package hierarchy, creating empty namespace"
+            );
+            return true;
+        }
+
+        false
+    }
+
+    /// Check if a module is a package namespace
+    fn is_package_namespace(&self, module_name: &str) -> bool {
         let package_prefix = format!("{module_name}.");
         self.bundled_modules
             .iter()
@@ -5048,15 +5128,11 @@ impl<'a> HybridStaticBundler<'a> {
         log::debug!("directly_imported_modules: {directly_imported_modules:?}");
 
         for (module_name, _, _, _) in &inlinable_modules {
-            log::debug!(
-                "Checking if module '{module_name}' needs namespace object"
-            );
+            log::debug!("Checking if module '{module_name}' needs namespace object");
 
             // Skip the entry module - it doesn't need namespace assignments
             if module_name == params.entry_module_name {
-                log::debug!(
-                    "Skipping namespace creation for entry module '{module_name}'"
-                );
+                log::debug!("Skipping namespace creation for entry module '{module_name}'");
                 continue;
             }
 
@@ -5073,7 +5149,8 @@ impl<'a> HybridStaticBundler<'a> {
                 let namespace_already_exists = self.created_namespaces.contains(&namespace_var);
 
                 log::debug!(
-                    "Namespace for inlined module '{module_name}' already exists: {namespace_already_exists}"
+                    "Namespace for inlined module '{module_name}' already exists: \
+                     {namespace_already_exists}"
                 );
 
                 // Get the symbols that were inlined from this module
@@ -5085,6 +5162,11 @@ impl<'a> HybridStaticBundler<'a> {
                         module_rename_map.keys().collect::<Vec<_>>()
                     );
                     if !namespace_already_exists {
+                        // Check if this module should have an empty namespace due to forward
+                        // references
+                        let has_forward_references = self
+                            .check_module_has_forward_references(module_name, module_rename_map);
+
                         // Create a SimpleNamespace for this module only if it doesn't exist
                         let namespace_stmt = self.create_namespace_for_inlined_module_static(
                             module_name,
@@ -5092,9 +5174,17 @@ impl<'a> HybridStaticBundler<'a> {
                         );
                         final_body.push(namespace_stmt);
 
-                        // Track that this namespace was created with initial symbols
-                        self.namespaces_with_initial_symbols
-                            .insert(module_name.to_string());
+                        // Only track as having initial symbols if we didn't create it empty
+                        if !has_forward_references {
+                            self.namespaces_with_initial_symbols
+                                .insert(module_name.to_string());
+                        } else {
+                            // We created an empty namespace, need to populate it later
+                            log::debug!(
+                                "Created empty namespace for '{module_name}', will populate with symbols \
+                                 later"
+                            );
+                        }
                     } else {
                         // Namespace already exists, we need to add symbols to it instead
                         log::debug!(
@@ -5109,8 +5199,8 @@ impl<'a> HybridStaticBundler<'a> {
                                     .contains(&(module_name.to_string(), original_name.clone()))
                             {
                                 log::debug!(
-                                    "Skipping tree-shaken symbol '{original_name}' from namespace for module \
-                                     '{module_name}'"
+                                    "Skipping tree-shaken symbol '{original_name}' from namespace \
+                                     for module '{module_name}'"
                                 );
                                 continue;
                             }
@@ -5119,7 +5209,8 @@ impl<'a> HybridStaticBundler<'a> {
                             let assignment_key = (namespace_var.clone(), original_name.clone());
                             if self.namespace_assignments_made.contains(&assignment_key) {
                                 log::debug!(
-                                    "Skipping duplicate namespace assignment: {namespace_var}.{original_name} = {renamed_name} (already \
+                                    "Skipping duplicate namespace assignment: \
+                                     {namespace_var}.{original_name} = {renamed_name} (already \
                                      assigned)"
                                 );
                                 continue;
@@ -5138,8 +5229,8 @@ impl<'a> HybridStaticBundler<'a> {
                                 && export_list.contains(original_name)
                             {
                                 log::debug!(
-                                    "Checking if '{original_name}' in module '{module_name}' is a re-export from child \
-                                     modules"
+                                    "Checking if '{original_name}' in module '{module_name}' is a \
+                                     re-export from child modules"
                                 );
 
                                 // Check if symbol is actually defined in a child module
@@ -5173,8 +5264,8 @@ impl<'a> HybridStaticBundler<'a> {
                                                 });
                                             if defines_symbol {
                                                 log::debug!(
-                                                    "  Child module '{inlined_module_name}' defines symbol '{original_name}' \
-                                                     directly"
+                                                    "  Child module '{inlined_module_name}' \
+                                                     defines symbol '{original_name}' directly"
                                                 );
                                             }
                                             defines_symbol
@@ -5196,8 +5287,9 @@ impl<'a> HybridStaticBundler<'a> {
                                                         child_renames.contains_key(original_name)
                                                     });
                                                 log::debug!(
-                                                    "  Child module '{inlined_module_name}' has symbol '{original_name}' in \
-                                                     rename map: {has_symbol}"
+                                                    "  Child module '{inlined_module_name}' has \
+                                                     symbol '{original_name}' in rename map: \
+                                                     {has_symbol}"
                                                 );
                                                 has_symbol
                                             } else {
@@ -5214,8 +5306,9 @@ impl<'a> HybridStaticBundler<'a> {
 
                             if is_reexport {
                                 log::debug!(
-                                    "Skipping namespace assignment for re-exported symbol {namespace_var}.{original_name} = \
-                                     {renamed_name} - will be handled by \
+                                    "Skipping namespace assignment for re-exported symbol \
+                                     {namespace_var}.{original_name} = {renamed_name} - will be \
+                                     handled by \
                                      populate_namespace_with_module_symbols_with_renames"
                                 );
                                 continue;
@@ -5248,6 +5341,10 @@ impl<'a> HybridStaticBundler<'a> {
 
                             // Track that we've made this assignment
                             self.namespace_assignments_made.insert(assignment_key);
+
+                            // Track that this symbol was added when namespace already existed
+                            self.symbols_populated_after_deferred
+                                .insert((module_name.to_string(), original_name.clone()));
                         }
 
                         // Also check for module-level variables that weren't renamed
@@ -5277,8 +5374,8 @@ impl<'a> HybridStaticBundler<'a> {
                                             .contains(&(module_name.to_string(), export.clone()))
                                     {
                                         log::debug!(
-                                            "Skipping tree-shaken export '{export}' from namespace for \
-                                             module '{module_name}'"
+                                            "Skipping tree-shaken export '{export}' from \
+                                             namespace for module '{module_name}'"
                                         );
                                         continue;
                                     }
@@ -5287,8 +5384,9 @@ impl<'a> HybridStaticBundler<'a> {
                                     let assignment_key = (namespace_var.clone(), export.clone());
                                     if self.namespace_assignments_made.contains(&assignment_key) {
                                         log::debug!(
-                                            "Skipping duplicate namespace assignment: {namespace_var}.{export} = {export} \
-                                             (already assigned)"
+                                            "Skipping duplicate namespace assignment: \
+                                             {namespace_var}.{export} = {export} (already \
+                                             assigned)"
                                         );
                                         continue;
                                     }
@@ -5299,17 +5397,19 @@ impl<'a> HybridStaticBundler<'a> {
                                         if let Stmt::Assign(assign) = stmt
                                             && assign.targets.len() == 1
                                             && let Expr::Attribute(attr) = &assign.targets[0]
-                                            && let Expr::Name(base) = attr.value.as_ref() {
-                                                return base.id.as_str() == namespace_var
-                                                    && attr.attr.as_str() == export;
-                                            }
+                                            && let Expr::Name(base) = attr.value.as_ref()
+                                        {
+                                            return base.id.as_str() == namespace_var
+                                                && attr.attr.as_str() == export;
+                                        }
                                         false
                                     });
 
                                     if assignment_exists_in_body {
                                         log::debug!(
-                                            "Skipping namespace assignment {namespace_var}.{export} = {export} - already \
-                                             exists in final_body"
+                                            "Skipping namespace assignment \
+                                             {namespace_var}.{export} = {export} - already exists \
+                                             in final_body"
                                         );
                                         // Track it so we don't create it again elsewhere
                                         self.namespace_assignments_made.insert(assignment_key);
@@ -5354,6 +5454,9 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
         }
+
+        // NOTE: Namespace population moved to after deferred imports are added to avoid forward
+        // reference errors
 
         // Module cache infrastructure was already added earlier if needed
 
@@ -5777,6 +5880,212 @@ impl<'a> HybridStaticBundler<'a> {
 
             // Clear the collection so we don't add them again later
             all_deferred_imports.clear();
+        }
+
+        // After processing all inlined modules and deferred imports, populate empty namespaces with
+        // their symbols This must happen AFTER deferred imports are added to avoid forward
+        // reference errors
+        for (module_name, _, _, _) in &inlinable_modules {
+            // Skip if this module was created with initial symbols
+            if self.namespaces_with_initial_symbols.contains(module_name) {
+                continue;
+            }
+
+            // Check if this module has a namespace that needs population
+            let namespace_var = module_name.cow_replace('.', "_").into_owned();
+            if self.created_namespaces.contains(&namespace_var) {
+                log::debug!(
+                    "Populating empty namespace '{namespace_var}' with symbols"
+                );
+
+                // Don't mark the module as fully populated yet, we'll track individual symbols
+
+                // Get the symbols that were inlined from this module
+                if let Some(module_rename_map) = symbol_renames.get(module_name) {
+                    // Add all renamed symbols as attributes to the namespace
+                    for (original_name, renamed_name) in module_rename_map {
+                        // Check if this symbol survived tree-shaking
+                        if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+                            && !kept_symbols
+                                .contains(&(module_name.to_string(), original_name.clone()))
+                        {
+                            log::debug!(
+                                "Skipping tree-shaken symbol '{original_name}' from namespace for \
+                                 module '{module_name}'"
+                            );
+                            continue;
+                        }
+
+                        // Skip symbols that are re-exported from child modules
+                        // These will be handled later by
+                        // populate_namespace_with_module_symbols_with_renames
+                        // Check if this symbol is in the exports list - if so, it's likely a
+                        // re-export
+                        let is_reexport = if module_name.contains('.') {
+                            // For sub-packages, symbols are likely defined locally
+                            false
+                        } else if let Some(exports) = self.module_exports.get(module_name)
+                            && let Some(export_list) = exports
+                            && export_list.contains(original_name)
+                        {
+                            log::debug!(
+                                "Checking if '{original_name}' in module '{module_name}' is a \
+                                 re-export from child modules"
+                            );
+                            // Check if symbol is actually defined in a child module
+                            // by examining ASTs of child modules
+                            let result = if let Some(module_asts) = &self.module_asts {
+                                module_asts.iter().any(|(inlined_module_name, ast, _, _)| {
+                                    let is_child = inlined_module_name != module_name
+                                        && inlined_module_name
+                                            .starts_with(&format!("{module_name}."));
+                                    if is_child {
+                                        // Check if this module defines the symbol (as a class,
+                                        // function, or variable)
+                                        let defines_symbol =
+                                            ast.body.iter().any(|stmt| match stmt {
+                                                Stmt::ClassDef(class_def) => {
+                                                    class_def.name.id.as_str() == original_name
+                                                }
+                                                Stmt::FunctionDef(func_def) => {
+                                                    func_def.name.id.as_str() == original_name
+                                                }
+                                                Stmt::Assign(assign) => {
+                                                    assign.targets.iter().any(|target| {
+                                                        if let Expr::Name(name) = target {
+                                                            name.id.as_str() == original_name
+                                                        } else {
+                                                            false
+                                                        }
+                                                    })
+                                                }
+                                                _ => false,
+                                            });
+                                        if defines_symbol {
+                                            log::debug!(
+                                                "  Child module '{inlined_module_name}' defines \
+                                                 symbol '{original_name}' directly"
+                                            );
+                                        }
+                                        defines_symbol
+                                    } else {
+                                        false
+                                    }
+                                })
+                            } else {
+                                // Fallback to checking rename maps if ASTs not available
+                                inlinable_modules
+                                    .iter()
+                                    .any(|(inlined_module_name, _, _, _)| {
+                                        let is_child = inlined_module_name != module_name
+                                            && inlined_module_name
+                                                .starts_with(&format!("{module_name}."));
+                                        if is_child {
+                                            let has_symbol = symbol_renames
+                                                .get(inlined_module_name)
+                                                .is_some_and(|renames| {
+                                                    renames.contains_key(original_name)
+                                                });
+                                            if has_symbol {
+                                                log::debug!(
+                                                    "  Child module '{inlined_module_name}' has \
+                                                     symbol '{original_name}' in rename map"
+                                                );
+                                            }
+                                            has_symbol
+                                        } else {
+                                            false
+                                        }
+                                    })
+                            };
+                            log::debug!(
+                                "  Symbol '{original_name}' is re-export from child modules: \
+                                 {result}"
+                            );
+                            result
+                        } else {
+                            false
+                        };
+
+                        if is_reexport {
+                            log::debug!(
+                                "Skipping namespace assignment for re-exported symbol \
+                                 {namespace_var}.{original_name} = {renamed_name} - will be \
+                                 handled by populate_namespace_with_module_symbols_with_renames"
+                            );
+                            continue;
+                        }
+
+                        // Check if this namespace assignment has already been made
+                        let assignment_key = (namespace_var.clone(), original_name.clone());
+                        if self.namespace_assignments_made.contains(&assignment_key) {
+                            log::debug!(
+                                "Skipping duplicate namespace assignment: {namespace_var}.{original_name} = {renamed_name} (already \
+                                 assigned)"
+                            );
+                            continue;
+                        }
+
+                        // Also check if this assignment already exists in final_body (may have been
+                        // added by populate_namespace_with_module_symbols_with_renames)
+                        let assignment_exists = final_body.iter().any(|stmt| {
+                            if let Stmt::Assign(assign) = stmt
+                                && assign.targets.len() == 1
+                                && let Expr::Attribute(attr) = &assign.targets[0]
+                                && let Expr::Name(base) = attr.value.as_ref()
+                                && let Expr::Name(value) = assign.value.as_ref()
+                            {
+                                return base.id.as_str() == namespace_var
+                                    && attr.attr.as_str() == original_name
+                                    && value.id.as_str() == renamed_name;
+                            }
+                            false
+                        });
+
+                        if assignment_exists {
+                            log::debug!(
+                                "Skipping duplicate namespace assignment: {namespace_var}.{original_name} = {renamed_name} (already \
+                                 exists in final_body)"
+                            );
+                            continue;
+                        }
+
+                        // Create assignment: namespace.original_name = renamed_name
+                        let assign_stmt = Stmt::Assign(StmtAssign {
+                            node_index: self.create_node_index(),
+                            targets: vec![Expr::Attribute(ExprAttribute {
+                                node_index: self.create_node_index(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: self.create_node_index(),
+                                    id: namespace_var.clone().into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(original_name, TextRange::default()),
+                                ctx: ExprContext::Store,
+                                range: TextRange::default(),
+                            })],
+                            value: Box::new(Expr::Name(ExprName {
+                                node_index: self.create_node_index(),
+                                id: renamed_name.clone().into(),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            range: TextRange::default(),
+                        });
+
+                        final_body.push(assign_stmt);
+
+                        // Track that we've made this assignment
+                        self.namespace_assignments_made
+                            .insert(assignment_key.clone());
+
+                        // Track that this symbol was populated after deferred imports
+                        self.symbols_populated_after_deferred
+                            .insert((module_name.to_string(), original_name.clone()));
+                    }
+                }
+            }
         }
 
         // Finally, add entry module code (it's always last in topological order)
@@ -9026,15 +9335,15 @@ impl<'a> HybridStaticBundler<'a> {
         // 1. Imports first
         // 2. Base class assignments (must come before class definitions)
         // 3. Regular assignments
-        // 4. Functions
-        // 5. Classes
-        // 6. Other statements
+        // 4. Classes (must come before functions that might use them)
+        // 5. Functions (may depend on classes)
+        // 6. Other statements (including class attribute assignments)
         let mut reordered = Vec::new();
         reordered.extend(imports);
         reordered.extend(base_class_assignments);
         reordered.extend(regular_assignments);
-        reordered.extend(functions);
         reordered.extend(classes);
+        reordered.extend(functions);
         reordered.extend(other_stmts);
 
         reordered
@@ -9042,11 +9351,30 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Reorder statements to ensure proper declaration order
     fn reorder_statements_for_proper_declaration_order(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
+        log::debug!("Reordering {} statements", statements.len());
         let mut imports = Vec::new();
-        let mut assignments = Vec::new();
         let mut self_assignments = Vec::new();
         let mut functions_and_classes = Vec::new();
         let mut other_stmts = Vec::new();
+
+        // First pass: identify all symbols used as base classes
+        let mut base_class_symbols = FxIndexSet::default();
+        for stmt in &statements {
+            if let Stmt::ClassDef(class_def) = stmt {
+                // Collect all base class names
+                if let Some(arguments) = &class_def.arguments {
+                    for base_expr in &arguments.args {
+                        if let Expr::Name(name_expr) = base_expr {
+                            base_class_symbols.insert(name_expr.id.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Separate assignments that define base classes from other assignments
+        let mut base_class_assignments = Vec::new();
+        let mut regular_assignments = Vec::new();
 
         // Categorize statements
         for stmt in statements {
@@ -9055,12 +9383,16 @@ impl<'a> HybridStaticBundler<'a> {
                     imports.push(stmt);
                 }
                 Stmt::Assign(assign) => {
-                    // Check if this is a self-assignment (e.g., validate = validate)
-                    let is_self_assignment = if assign.targets.len() == 1 {
-                        if let (Expr::Name(target), Expr::Name(value)) =
-                            (&assign.targets[0], assign.value.as_ref())
-                        {
-                            target.id == value.id
+                    // Check if this is a class attribute assignment (e.g., MyClass.__module__ =
+                    // 'foo')
+                    let is_class_attribute = if assign.targets.len() == 1 {
+                        if let Expr::Attribute(attr) = &assign.targets[0] {
+                            if let Expr::Name(_) = attr.value.as_ref() {
+                                // This is an attribute assignment like MyClass.__module__
+                                true
+                            } else {
+                                false
+                            }
                         } else {
                             false
                         }
@@ -9068,20 +9400,88 @@ impl<'a> HybridStaticBundler<'a> {
                         false
                     };
 
-                    if is_self_assignment {
-                        // Self-assignments should come after function definitions
-                        self_assignments.push(stmt);
+                    if is_class_attribute {
+                        // Class attribute assignments should stay after their class definitions
+                        other_stmts.push(stmt);
                     } else {
-                        // Regular module-level variable assignments
-                        assignments.push(stmt);
+                        // Check if this assignment defines a base class symbol
+                        let defines_base_class = if assign.targets.len() == 1 {
+                            if let Expr::Name(target) = &assign.targets[0] {
+                                // Only consider it a base class assignment if:
+                                // 1. The target is used as a base class
+                                // 2. The value looks like it could be a class (attribute access)
+                                if base_class_symbols.contains(target.id.as_str()) {
+                                    // Check if the value is an attribute access (e.g.,
+                                    // json.JSONDecodeError)
+                                    // or a simple name that could be a class
+                                    match assign.value.as_ref() {
+                                        Expr::Attribute(_) => true, // e.g., json.JSONDecodeError
+                                        Expr::Name(name) => {
+                                            // Check if it looks like a class name (starts with
+                                            // uppercase)
+                                            name.id.chars().next().is_some_and(|c| c.is_uppercase())
+                                        }
+                                        _ => false,
+                                    }
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        // Check if this is a self-assignment (e.g., validate = validate)
+                        let is_self_assignment = if assign.targets.len() == 1 {
+                            if let (Expr::Name(target), Expr::Name(value)) =
+                                (&assign.targets[0], assign.value.as_ref())
+                            {
+                                target.id == value.id
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if is_self_assignment {
+                            // Self-assignments should come after function definitions
+                            self_assignments.push(stmt);
+                        } else if defines_base_class {
+                            // Assignments that define base classes must come before class
+                            // definitions
+                            base_class_assignments.push(stmt);
+                        } else {
+                            // Regular assignments
+                            regular_assignments.push(stmt);
+                        }
                     }
                 }
-                Stmt::AnnAssign(_) => {
-                    // Annotated assignments are regular variable declarations
-                    assignments.push(stmt);
+                Stmt::AnnAssign(ann_assign) => {
+                    // Check if this annotated assignment defines a base class symbol
+                    let defines_base_class = if let Expr::Name(target) = ann_assign.target.as_ref()
+                    {
+                        base_class_symbols.contains(target.id.as_str())
+                    } else {
+                        false
+                    };
+
+                    if defines_base_class {
+                        base_class_assignments.push(stmt);
+                    } else {
+                        regular_assignments.push(stmt);
+                    }
                 }
-                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
-                    // Functions and classes that might reference module-level variables
+                Stmt::FunctionDef(_) => {
+                    // Functions need to come after classes they might reference
+                    // We'll sort these later
+                    functions_and_classes.push(stmt);
+                }
+                Stmt::ClassDef(_) => {
+                    // Classes can have forward references in type annotations
+                    // so they can go first among functions/classes
                     functions_and_classes.push(stmt);
                 }
                 _ => {
@@ -9090,19 +9490,53 @@ impl<'a> HybridStaticBundler<'a> {
             }
         }
 
-        // Don't reorder classes - Python supports forward references in type annotations
-        // and reordering can break other dependencies we're not tracking
-        let ordered_functions_and_classes = functions_and_classes;
+        // Separate functions and classes, then order them: classes first, functions second
+        // This ensures functions that depend on classes are defined after those classes
+        let mut classes = Vec::new();
+        let mut functions = Vec::new();
+
+        for stmt in functions_and_classes {
+            match &stmt {
+                Stmt::ClassDef(_) => classes.push(stmt),
+                Stmt::FunctionDef(_) => functions.push(stmt),
+                _ => unreachable!("Only functions and classes should be in this list"),
+            }
+        }
+
+        // Combine: classes first, then functions
+        let mut ordered_functions_and_classes = Vec::new();
+        ordered_functions_and_classes.extend(classes);
+        ordered_functions_and_classes.extend(functions);
+
+        log::debug!(
+            "Reordered: {} imports, {} base class assignments, {} regular assignments, {} \
+             classes, {} functions, {} self assignments, {} other statements",
+            imports.len(),
+            base_class_assignments.len(),
+            regular_assignments.len(),
+            ordered_functions_and_classes
+                .iter()
+                .filter(|s| matches!(s, Stmt::ClassDef(_)))
+                .count(),
+            ordered_functions_and_classes
+                .iter()
+                .filter(|s| matches!(s, Stmt::FunctionDef(_)))
+                .count(),
+            self_assignments.len(),
+            other_stmts.len()
+        );
 
         // Build the reordered list:
         // 1. Imports first
-        // 2. Module-level assignments (variables) - but not self-assignments
-        // 3. Functions and classes (ordered by inheritance)
-        // 4. Self-assignments (after functions are defined)
-        // 5. Other statements
+        // 2. Base class assignments (must come before class definitions)
+        // 3. Other module-level assignments (variables) - but not self-assignments
+        // 4. Functions and classes (ordered by inheritance)
+        // 5. Self-assignments (after functions are defined)
+        // 6. Other statements
         let mut reordered = Vec::new();
         reordered.extend(imports);
-        reordered.extend(assignments);
+        reordered.extend(base_class_assignments);
+        reordered.extend(regular_assignments);
         reordered.extend(ordered_functions_and_classes);
         reordered.extend(self_assignments);
         reordered.extend(other_stmts);
@@ -10049,15 +10483,16 @@ impl<'a> HybridStaticBundler<'a> {
             }));
 
             log::info!(
-                "Created __all__ assignment for namespace '{target_name}' with exports: {filtered_exports:?}"
+                "Created __all__ assignment for namespace '{target_name}' with exports: \
+                 {filtered_exports:?}"
             );
 
             // Skip individual symbol assignments if this namespace was already created with initial
             // symbols
             if self.namespaces_with_initial_symbols.contains(module_name) {
                 log::debug!(
-                    "Skipping individual symbol assignments for '{module_name}' - namespace created with \
-                     initial symbols"
+                    "Skipping individual symbol assignments for '{module_name}' - namespace \
+                     created with initial symbols"
                 );
                 return;
             }
@@ -10147,6 +10582,20 @@ impl<'a> HybridStaticBundler<'a> {
                     base
                 };
 
+                // Check if this specific symbol was already populated after deferred imports
+                // This happens for modules that had forward references and were populated later
+                if self
+                    .symbols_populated_after_deferred
+                    .contains(&(module_name.to_string(), (*symbol).clone()))
+                    && target_name == module_name.cow_replace('.', "_").as_ref()
+                {
+                    log::debug!(
+                        "Skipping symbol assignment {target_name}.{symbol} = {actual_symbol_name} - this specific symbol was already \
+                         populated after deferred imports"
+                    );
+                    continue;
+                }
+
                 // Check if this assignment already exists in result_stmts
                 let assignment_exists = result_stmts.iter().any(|stmt| {
                     if let Stmt::Assign(assign) = stmt
@@ -10181,28 +10630,30 @@ impl<'a> HybridStaticBundler<'a> {
                         .unwrap_or("");
                     if !parent_module.is_empty()
                         && let Some(Some(parent_exports)) = self.module_exports.get(parent_module)
-                            && parent_exports.contains(symbol) {
-                                // This symbol is re-exported by the parent module
-                                // Check if the parent assignment already exists
-                                let parent_assignment_exists = result_stmts.iter().any(|stmt| {
-                                    if let Stmt::Assign(assign) = stmt
-                                        && assign.targets.len() == 1
-                                        && let Expr::Attribute(attr) = &assign.targets[0]
-                                        && let Expr::Name(base) = attr.value.as_ref() {
-                                            return base.id.as_str() == parent_module
-                                                && attr.attr.as_str() == *symbol;
-                                        }
-                                    false
-                                });
-
-                                if parent_assignment_exists {
-                                    log::debug!(
-                                        "Skipping namespace assignment for '{symbol}' - parent module \
-                                         '{parent_module}' already has assignment for re-exported symbol"
-                                    );
-                                    continue;
-                                }
+                        && parent_exports.contains(symbol)
+                    {
+                        // This symbol is re-exported by the parent module
+                        // Check if the parent assignment already exists
+                        let parent_assignment_exists = result_stmts.iter().any(|stmt| {
+                            if let Stmt::Assign(assign) = stmt
+                                && assign.targets.len() == 1
+                                && let Expr::Attribute(attr) = &assign.targets[0]
+                                && let Expr::Name(base) = attr.value.as_ref()
+                            {
+                                return base.id.as_str() == parent_module
+                                    && attr.attr.as_str() == *symbol;
                             }
+                            false
+                        });
+
+                        if parent_assignment_exists {
+                            log::debug!(
+                                "Skipping namespace assignment for '{symbol}' - parent module \
+                                 '{parent_module}' already has assignment for re-exported symbol"
+                            );
+                            continue;
+                        }
+                    }
                 }
 
                 // Also check if this assignment was already made by deferred imports
@@ -10213,8 +10664,8 @@ impl<'a> HybridStaticBundler<'a> {
                     let key = (module_name.to_string(), symbol.to_string());
                     if self.global_deferred_imports.contains_key(&key) {
                         log::debug!(
-                            "Skipping namespace assignment for '{symbol}' - already created by deferred \
-                             import from module '{module_name}'"
+                            "Skipping namespace assignment for '{symbol}' - already created by \
+                             deferred import from module '{module_name}'"
                         );
                         continue;
                     }
@@ -10224,8 +10675,8 @@ impl<'a> HybridStaticBundler<'a> {
                 // These symbols are already added via module attribute assignments
                 if self.module_registry.contains_key(module_name) {
                     log::debug!(
-                        "Module '{module_name}' is a wrapper module, checking if symbol '{symbol}' is imported \
-                         from inlined submodule"
+                        "Module '{module_name}' is a wrapper module, checking if symbol \
+                         '{symbol}' is imported from inlined submodule"
                     );
                     // This is a wrapper module - check if symbol is re-exported from inlined
                     // submodule
@@ -10247,9 +10698,10 @@ impl<'a> HybridStaticBundler<'a> {
                                             for alias in &import_from.names {
                                                 if alias.name.as_str() == *symbol {
                                                     log::debug!(
-                                                        "Skipping namespace assignment for '{symbol}' - \
-                                                         already imported from inlined module \
-                                                         '{resolved}' and added as module attribute"
+                                                        "Skipping namespace assignment for \
+                                                         '{symbol}' - already imported from \
+                                                         inlined module '{resolved}' and added as \
+                                                         module attribute"
                                                     );
                                                     // Skip this symbol - it's already added via
                                                     // module attributes
@@ -10284,17 +10736,18 @@ impl<'a> HybridStaticBundler<'a> {
                                 if let Stmt::Assign(assign) = stmt
                                     && assign.targets.len() == 1
                                     && let Expr::Attribute(attr) = &assign.targets[0]
-                                    && let Expr::Name(base) = attr.value.as_ref() {
-                                        return base.id.as_str() == target_name
-                                            && attr.attr.as_str() == *symbol;
-                                    }
+                                    && let Expr::Name(base) = attr.value.as_ref()
+                                {
+                                    return base.id.as_str() == target_name
+                                        && attr.attr.as_str() == *symbol;
+                                }
                                 false
                             });
 
                             if parent_assignment_exists {
                                 log::debug!(
-                                    "Skipping parent module assignment {target_name}.{symbol} = {actual_symbol_name} - already \
-                                     exists in result_stmts"
+                                    "Skipping parent module assignment {target_name}.{symbol} = \
+                                     {actual_symbol_name} - already exists in result_stmts"
                                 );
                                 true
                             } else {
@@ -10308,9 +10761,34 @@ impl<'a> HybridStaticBundler<'a> {
                     };
 
                 if !should_skip_parent_assignment {
+                    // Check if this assignment already exists in result_stmts to avoid duplicates
+                    let assignment_exists = result_stmts.iter().any(|stmt| {
+                        if let Stmt::Assign(assign) = stmt
+                            && assign.targets.len() == 1
+                            && let Expr::Attribute(attr) = &assign.targets[0]
+                            && let Expr::Name(base) = attr.value.as_ref()
+                            && let Expr::Name(value) = assign.value.as_ref()
+                        {
+                            return base.id.as_str() == target_name
+                                && attr.attr.as_str() == *symbol
+                                && value.id.as_str() == actual_symbol_name;
+                        }
+                        false
+                    });
+
+                    if assignment_exists {
+                        log::debug!(
+                            "Skipping duplicate namespace assignment: {target_name}.{symbol} = {actual_symbol_name} (already exists \
+                             in result_stmts) - in \
+                             populate_namespace_with_module_symbols_with_renames"
+                        );
+                        continue;
+                    }
+
                     // Log when creating namespace assignments
                     log::info!(
-                        "Creating namespace assignment: {target_name}.{symbol} = {actual_symbol_name} (in \
+                        "Creating namespace assignment: {target_name}.{symbol} = \
+                         {actual_symbol_name} (in \
                          populate_namespace_with_module_symbols_with_renames)"
                     );
 

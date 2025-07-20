@@ -22,6 +22,18 @@ models.user = types.SimpleNamespace()
 process_count = 0
 validate_cache = {}
 Logger_6 = str
+class Logger_6:
+    """Logger class in utils module"""
+
+    def __init__(self, name):
+        self.name = name
+        self.messages = []
+
+    def log(self, message):
+        self.messages.append(f"[{self.name}] {message}")
+
+    def get_message(self):
+        return f"utils_logger_{self.name}"
 def process_7(data):
     """Process function in utils module"""
     global process_count
@@ -40,18 +52,6 @@ def sanitize(text):
 def format_result(result):
     """Another utility function"""
     return f"formatted: {result}"
-class Logger_6:
-    """Logger class in utils module"""
-
-    def __init__(self, name):
-        self.name = name
-        self.messages = []
-
-    def log(self, message):
-        self.messages.append(f"[{self.name}] {message}")
-
-    def get_message(self):
-        return f"utils_logger_{self.name}"
 Logger_6.__module__ = 'core.utils.helpers'
 Logger_6.__name__ = 'Logger'
 Logger_6.__qualname__ = 'Logger'

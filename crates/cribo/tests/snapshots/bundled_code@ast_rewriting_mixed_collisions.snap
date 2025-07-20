@@ -25,71 +25,6 @@ result_6 = 0
 User_4 = "helper_user_string"
 result_8 = []
 connection_5 = None
-def initialize() -> str:
-    """Module initialization function"""
-    global result_2
-    base = BaseModel("default")
-    init_result = base.initialize()
-    logger = UserLogger("base_init")
-    logger._log_process("Base module initialized")
-    result_2 = f"module_init: {init_result}"
-    return result_2
-def process_user(data: typing.Any) -> str:
-    """Module function with naming conflicts"""
-    global result_3
-    Logger_2 = globals()["Logger"]
-    validate_4 = lambda x: x is not None
-    logger = Logger_2("process_user")
-    is_valid = validate_4(data)
-    if is_valid:
-        logger._log_process(f"Processing user data: {data}")
-        processed = f"model_user_processed: {data}"
-    else:
-        processed = "model_user_invalid_data"
-    result_3["last_process"] = processed
-    return processed
-def validate_4(user_data: typing.Dict[str, typing.Any]) -> bool:
-    """Module validate function - conflicts with other validates"""
-    required_fields = ["name"]
-    return all(field in user_data for field in required_fields)
-def process_4(data: typing.Any) -> str:
-    """Module process function - major conflict"""
-    if isinstance(data, dict):
-        return process_user(data)
-    else:
-        return f"model_process_generic: {data}"
-def process_6(data: typing.Any) -> str:
-    """Utility process function - major conflict with other process functions"""
-    global result_6
-    if isinstance(data, str):
-        processed = data.upper()
-    elif isinstance(data, (int, float)):
-        processed = data * 2
-    elif isinstance(data, dict):
-        processed = {k: f"util_{v}" for k, v in data.items()}
-    else:
-        processed = str(data)
-    result_6 += 1
-    return f"util_processed: {processed}"
-def validate_6(data: typing.Any) -> bool:
-    """Utility validate function - conflicts with validate in other modules"""
-    if data is None:
-        return False
-    if isinstance(data, str):
-        return len(data) > 0
-    elif isinstance(data, (list, dict)):
-        return len(data) > 0
-    elif isinstance(data, (int, float)):
-        return data >= 0
-    return True
-def process_7(data):
-    """Database process function - conflicts with other process functions"""
-    global result_8
-    validated = helper_validate(data)
-    user_result = process_user(data)
-    processed = {"db_process": True, "data": validated, "user_processing": user_result, "timestamp": "2024-01-01"}
-    result_8.append(processed)
-    return f"db_processed: {data}"
 class BaseModel:
     """Base model class with method name conflicts"""
 
@@ -232,6 +167,71 @@ class Connection_6:
         self.connected = True
         connection_5 = self
         return f"Connected to {self.host}:{self.port}"
+def initialize() -> str:
+    """Module initialization function"""
+    global result_2
+    base = BaseModel("default")
+    init_result = base.initialize()
+    logger = UserLogger("base_init")
+    logger._log_process("Base module initialized")
+    result_2 = f"module_init: {init_result}"
+    return result_2
+def process_user(data: typing.Any) -> str:
+    """Module function with naming conflicts"""
+    global result_3
+    Logger_2 = globals()["Logger"]
+    validate_4 = lambda x: x is not None
+    logger = Logger_2("process_user")
+    is_valid = validate_4(data)
+    if is_valid:
+        logger._log_process(f"Processing user data: {data}")
+        processed = f"model_user_processed: {data}"
+    else:
+        processed = "model_user_invalid_data"
+    result_3["last_process"] = processed
+    return processed
+def validate_4(user_data: typing.Dict[str, typing.Any]) -> bool:
+    """Module validate function - conflicts with other validates"""
+    required_fields = ["name"]
+    return all(field in user_data for field in required_fields)
+def process_4(data: typing.Any) -> str:
+    """Module process function - major conflict"""
+    if isinstance(data, dict):
+        return process_user(data)
+    else:
+        return f"model_process_generic: {data}"
+def process_6(data: typing.Any) -> str:
+    """Utility process function - major conflict with other process functions"""
+    global result_6
+    if isinstance(data, str):
+        processed = data.upper()
+    elif isinstance(data, (int, float)):
+        processed = data * 2
+    elif isinstance(data, dict):
+        processed = {k: f"util_{v}" for k, v in data.items()}
+    else:
+        processed = str(data)
+    result_6 += 1
+    return f"util_processed: {processed}"
+def validate_6(data: typing.Any) -> bool:
+    """Utility validate function - conflicts with validate in other modules"""
+    if data is None:
+        return False
+    if isinstance(data, str):
+        return len(data) > 0
+    elif isinstance(data, (list, dict)):
+        return len(data) > 0
+    elif isinstance(data, (int, float)):
+        return data >= 0
+    return True
+def process_7(data):
+    """Database process function - conflicts with other process functions"""
+    global result_8
+    validated = helper_validate(data)
+    user_result = process_user(data)
+    processed = {"db_process": True, "data": validated, "user_processing": user_result, "timestamp": "2024-01-01"}
+    result_8.append(processed)
+    return f"db_processed: {data}"
 BaseModel.__module__ = 'models.base'
 Logger_1.__module__ = 'models.base'
 Logger_1.__name__ = 'Logger'
@@ -252,7 +252,7 @@ Connection_6.__module__ = 'core.database.connection'
 Connection_6.__name__ = 'Connection'
 Connection_6.__qualname__ = 'Connection'
 """\nDatabase connection module with naming conflicts\n"""
-models_base = types.SimpleNamespace(BaseModel=BaseModel, initialize=initialize, Logger=Logger_1, result=result_2)
+models_base = types.SimpleNamespace()
 _cribo_services_auth_manager_result = None
 @functools.cache
 def __cribo_init___cribo_ee1d45_services_auth_manager():
@@ -395,6 +395,10 @@ UserLogger = Logger_2
 util_process = process_6
 UtilLogger = Logger_4
 helper_validate = validate_6
+models_base.BaseModel = BaseModel
+models_base.initialize = initialize
+models_base.Logger = Logger_1
+models_base.result = result_2
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
 services.auth.manager = __cribo_init___cribo_ee1d45_services_auth_manager()
