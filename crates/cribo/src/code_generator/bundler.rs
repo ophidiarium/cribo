@@ -15,6 +15,7 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
+    analyzers::SymbolAnalyzer,
     code_generator::{
         circular_deps::SymbolDependencyGraph,
         context::{
@@ -2429,99 +2430,7 @@ impl<'a> HybridStaticBundler<'a> {
         symbol_renames.insert(module_name.to_string(), module_renames);
     }
 
-    /// Collect global symbols from modules
-    fn collect_global_symbols(
-        &self,
-        modules: &[(String, ModModule, PathBuf, String)],
-        entry_module_name: &str,
-    ) -> FxIndexSet<String> {
-        let mut global_symbols = FxIndexSet::default();
-
-        // Find entry module and collect its top-level symbols
-        if let Some((_, ast, _, _)) = modules
-            .iter()
-            .find(|(name, _, _, _)| name == entry_module_name)
-        {
-            for stmt in &ast.body {
-                match stmt {
-                    Stmt::FunctionDef(func_def) => {
-                        global_symbols.insert(func_def.name.to_string());
-                    }
-                    Stmt::ClassDef(class_def) => {
-                        global_symbols.insert(class_def.name.to_string());
-                    }
-                    Stmt::Assign(assign) => {
-                        for target in &assign.targets {
-                            if let Expr::Name(name) = target {
-                                global_symbols.insert(name.id.to_string());
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        global_symbols
-    }
-
     /// Sort wrapper modules by dependencies
-    /// Find which module defines a given symbol
-    fn find_symbol_module(
-        &self,
-        symbol: &str,
-        current_module: &str,
-        graph: &DependencyGraph,
-    ) -> Option<String> {
-        // First check if it's defined in the current module
-        if let Some(module_dep_graph) = graph.get_module_by_name(current_module) {
-            for item_data in module_dep_graph.items.values() {
-                match &item_data.item_type {
-                    crate::cribo_graph::ItemType::FunctionDef { name } if name == symbol => {
-                        return Some(current_module.to_string());
-                    }
-                    crate::cribo_graph::ItemType::ClassDef { name } if name == symbol => {
-                        return Some(current_module.to_string());
-                    }
-                    crate::cribo_graph::ItemType::Assignment { targets } => {
-                        if targets.contains(&symbol.to_string()) {
-                            return Some(current_module.to_string());
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        // Check other circular modules
-        for module_name in &self.circular_modules {
-            if module_name == current_module {
-                continue;
-            }
-
-            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
-                for item_data in module_dep_graph.items.values() {
-                    match &item_data.item_type {
-                        crate::cribo_graph::ItemType::FunctionDef { name } if name == symbol => {
-                            return Some(module_name.clone());
-                        }
-                        crate::cribo_graph::ItemType::ClassDef { name } if name == symbol => {
-                            return Some(module_name.clone());
-                        }
-                        crate::cribo_graph::ItemType::Assignment { targets } => {
-                            if targets.contains(&symbol.to_string()) {
-                                return Some(module_name.clone());
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
     fn sort_wrapper_modules_by_dependencies(
         &self,
         wrapper_modules: &[(String, ModModule, PathBuf, String)],
@@ -2562,9 +2471,12 @@ impl<'a> HybridStaticBundler<'a> {
 
                     for dep_var in all_deps {
                         // Find which module this dependency comes from
-                        if let Some(dep_module) =
-                            self.find_symbol_module(dep_var, module_name, graph)
-                        {
+                        if let Some(dep_module) = SymbolAnalyzer::find_symbol_module(
+                            dep_var,
+                            module_name,
+                            graph,
+                            &self.circular_modules,
+                        ) {
                             // Only add edge if the dependency is also a wrapper module
                             if wrapper_module_names.contains(&dep_module)
                                 && dep_module != *module_name
@@ -2662,175 +2574,6 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
         }
-    }
-
-    /// Build symbol dependency graph for circular modules
-    fn build_symbol_dependency_graph(
-        &mut self,
-        modules: &[(String, ModModule, PathBuf, String)],
-        graph: &DependencyGraph,
-        _semantic_ctx: &SemanticContext,
-    ) {
-        // Collect dependencies for each circular module
-        for (module_name, ast, _path, _source) in modules {
-            self.symbol_dep_graph.collect_dependencies(
-                module_name,
-                ast,
-                graph,
-                &self.circular_modules,
-            );
-        }
-
-        // Only perform topological sort if we have symbols in circular modules
-        if self
-            .symbol_dep_graph
-            .should_sort_symbols(&self.circular_modules)
-            && let Err(e) = self
-                .symbol_dep_graph
-                .topological_sort_symbols(&self.circular_modules)
-        {
-            // The error is already logged inside topological_sort_symbols
-            log::error!("Failed to sort symbols: {e}");
-        }
-    }
-
-    /// Detect hard dependencies in a module
-    fn detect_hard_dependencies(
-        &self,
-        module_name: &str,
-        ast: &ModModule,
-        import_map: &FxIndexMap<String, (String, Option<String>)>,
-    ) -> Vec<HardDependency> {
-        let mut hard_deps = Vec::new();
-
-        // Scan for class definitions
-        for stmt in &ast.body {
-            if let Stmt::ClassDef(class_def) = stmt {
-                // Check if any base class is an imported symbol
-                if let Some(arguments) = &class_def.arguments {
-                    for arg in &arguments.args {
-                        // Check if this is an attribute access (e.g.,
-                        // requests.compat.MutableMapping)
-                        if let Expr::Attribute(attr_expr) = arg {
-                            if let Expr::Attribute(inner_attr) = &*attr_expr.value {
-                                if let Expr::Name(name_expr) = &*inner_attr.value {
-                                    let base_module = name_expr.id.as_str();
-                                    let sub_module = inner_attr.attr.as_str();
-                                    let attr_name = attr_expr.attr.as_str();
-
-                                    // Check if this module.submodule is in our import map
-                                    let full_module = format!("{base_module}.{sub_module}");
-                                    if let Some((source_module, _alias)) =
-                                        import_map.get(&full_module)
-                                    {
-                                        debug!(
-                                            "Found hard dependency: class {} in module {} \
-                                             inherits from {}.{}.{}",
-                                            class_def.name.as_str(),
-                                            module_name,
-                                            base_module,
-                                            sub_module,
-                                            attr_name
-                                        );
-
-                                        hard_deps.push(HardDependency {
-                                            module_name: module_name.to_string(),
-                                            class_name: class_def.name.as_str().to_string(),
-                                            base_class: format!(
-                                                "{base_module}.{sub_module}.{attr_name}"
-                                            ),
-                                            source_module: source_module.clone(),
-                                            imported_attr: attr_name.to_string(),
-                                            alias: None, // No alias for multi-level imports
-                                            alias_is_mandatory: false,
-                                        });
-                                    }
-                                }
-                            } else if let Expr::Name(name_expr) = &*attr_expr.value {
-                                let module = name_expr.id.as_str();
-                                let attr_name = attr_expr.attr.as_str();
-
-                                // Check if this module is in our import map
-                                if let Some((source_module, _import_info)) = import_map.get(module)
-                                {
-                                    debug!(
-                                        "Found hard dependency: class {} in module {} inherits \
-                                         from {}.{}",
-                                        class_def.name.as_str(),
-                                        module_name,
-                                        module,
-                                        attr_name
-                                    );
-
-                                    // For module.attr, we need to import the module itself
-                                    hard_deps.push(HardDependency {
-                                        module_name: module_name.to_string(),
-                                        class_name: class_def.name.as_str().to_string(),
-                                        base_class: format!("{module}.{attr_name}"),
-                                        source_module: source_module.clone(),
-                                        imported_attr: module.to_string(), /* Import the module,
-                                                                            * not the attr */
-                                        alias: None, // No alias for module.attr imports
-                                        alias_is_mandatory: false,
-                                    });
-                                }
-                            }
-                        } else if let Expr::Name(name_expr) = arg {
-                            // Direct name reference (e.g., MutableMapping)
-                            let base_name = name_expr.id.as_str();
-
-                            // Check if this name is in our import map
-                            if let Some((source_module, original_name)) = import_map.get(base_name)
-                            {
-                                debug!(
-                                    "Found hard dependency: class {} in module {} inherits from \
-                                     {} (original: {:?})",
-                                    class_def.name.as_str(),
-                                    module_name,
-                                    base_name,
-                                    original_name
-                                );
-
-                                // Use the original imported name if available (for aliased imports)
-                                let import_attr = original_name
-                                    .clone()
-                                    .unwrap_or_else(|| base_name.to_string());
-
-                                // Check if this base_name is used as an alias
-                                // If base_name != import_attr, then base_name is an alias
-                                let has_alias = base_name != import_attr;
-
-                                // Check if the alias is mandatory (i.e., the original name
-                                // conflicts with a local definition)
-                                let alias_is_mandatory = if has_alias {
-                                    // Check if there's a local class with the same name as
-                                    // import_attr
-                                    crate::code_generator::module_registry::check_local_name_conflict(ast, &import_attr)
-                                } else {
-                                    false
-                                };
-
-                                hard_deps.push(HardDependency {
-                                    module_name: module_name.to_string(),
-                                    class_name: class_def.name.as_str().to_string(),
-                                    base_class: base_name.to_string(),
-                                    source_module: source_module.clone(),
-                                    imported_attr: import_attr,
-                                    alias: if has_alias {
-                                        Some(base_name.to_string())
-                                    } else {
-                                        None
-                                    },
-                                    alias_is_mandatory,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        hard_deps
     }
 
     /// Process wrapper module globals (matching original implementation)
@@ -4345,7 +4088,8 @@ impl<'a> HybridStaticBundler<'a> {
         }
 
         // Collect global symbols from the entry module first (for compatibility)
-        let mut global_symbols = self.collect_global_symbols(&modules, params.entry_module_name);
+        let mut global_symbols =
+            SymbolAnalyzer::collect_global_symbols(&modules, params.entry_module_name);
 
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
@@ -4366,7 +4110,11 @@ impl<'a> HybridStaticBundler<'a> {
                 })
                 .collect();
 
-            self.build_symbol_dependency_graph(&modules_for_graph, params.graph, &semantic_ctx);
+            self.symbol_dep_graph = SymbolAnalyzer::build_symbol_dependency_graph(
+                &modules_for_graph,
+                params.graph,
+                &self.circular_modules,
+            );
 
             // Get ordered symbols for circular modules
             match self
@@ -4570,7 +4318,8 @@ impl<'a> HybridStaticBundler<'a> {
                     }
 
                     // Detect hard dependencies
-                    let hard_deps = self.detect_hard_dependencies(module_name, ast, &import_map);
+                    let hard_deps =
+                        SymbolAnalyzer::detect_hard_dependencies(module_name, ast, &import_map);
                     if !hard_deps.is_empty() {
                         log::info!(
                             "Found {} hard dependencies in module {}",
@@ -4783,7 +4532,9 @@ impl<'a> HybridStaticBundler<'a> {
                             // Now generate assignments for hard dependencies from this module
                             for dep in &hard_deps {
                                 if dep.source_module == *module_name {
-                                    // Use the same logic as hard dependency rewriting
+                                    // Use the same logic as hard dependency rewriting in inlined
+                                    // modules This must match
+                                    // the logic in rewrite_hard_dependencies_in_inlined_module
                                     let target_name =
                                         if dep.alias_is_mandatory && dep.alias.is_some() {
                                             dep.alias.as_ref().expect(

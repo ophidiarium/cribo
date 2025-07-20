@@ -681,7 +681,7 @@ NOTE: if asked to attend all comments use `mcp__github__get_pull_request_comment
 - When running on macOS, you should try `gsed` instead of `sed` for GNU sed compatibility on macOS
 - MANDATORY: When addressing a clippy issue, never treat `#[allow]` annotations as a solution—perform actual refactoring to resolve the issue
 - Remember you have full ruff repository cloned locally at references/type-strip/ruff so you may search in files easier
-- lefhook (git hooks) config is at .lefthook.yaml
+- lefhook (git hooks) config is at lefthook.yml
 - use `bun` to manage Node.js dependencies and `bunx` to run npm packages
 - use ast-grep if needed
 - NEVER drop stashes!
