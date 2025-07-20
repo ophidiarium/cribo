@@ -100,7 +100,7 @@ impl<'a> Visitor<'a> for MyVisitor {
 
 ### 3.2 New Visitor Specifications
 
-#### 3.2.1 Symbol Collector Visitor (`symbol_collector.rs`)
+#### 3.2.1 Symbol Collector Visitor (`symbol_collector.rs`) ✅ COMPLETED
 
 **Purpose**: Collect all symbol definitions, their scopes, and attributes.
 
@@ -140,9 +140,9 @@ pub struct CollectedSymbols {
 
 **Replaces bundler.rs methods**:
 
-- `collect_global_symbols()`
-- `collect_module_renames()`
-- `extract_all_exports()`
+- ✅ `collect_global_symbols()`
+- ✅ `collect_module_renames()` (integrated into symbol collector)
+- ✅ `extract_all_exports()` (partially - **all** detection implemented)
 
 #### 3.2.2 Variable Collector Visitor (`variable_collector.rs`)
 
@@ -244,29 +244,30 @@ impl SymbolAnalyzer {
 
 ## 4. Phased Implementation Plan
 
-### Phase 1: Create Analyzer Infrastructure
+### Phase 1: Create Analyzer Infrastructure ✅ COMPLETED
 
 **New directories and base modules**:
 
-1. Create `src/analyzers/` directory
-2. Create `analyzers/mod.rs` with module declarations
-3. Move analyzer-related types from `bundler.rs` to `analyzers/types.rs`
+1. ✅ Create `src/analyzers/` directory
+2. ✅ Create `analyzers/mod.rs` with module declarations
+3. ✅ Move analyzer-related types from `bundler.rs` to `analyzers/types.rs`
 
-### Phase 2: Implement Symbol Collection Visitor
+### Phase 2: Implement Symbol Collection Visitor ✅ COMPLETED
 
 **Steps**:
 
-1. Create `visitors/symbol_collector.rs`
-2. Implement the visitor following the pattern above
-3. Create `analyzers/symbol_analyzer.rs`
-4. Migrate symbol analysis methods from `bundler.rs`
-5. Update `bundler.rs` to use the new analyzer
+1. ✅ Create `visitors/symbol_collector.rs`
+2. ✅ Implement the visitor following the pattern above
+3. ✅ Create `analyzers/symbol_analyzer.rs`
+4. ✅ Migrate symbol analysis methods from `bundler.rs`
+5. ✅ Update `bundler.rs` to use the new analyzer
 
 **Methods to migrate**:
 
-- `collect_global_symbols()` → visitor
-- `find_symbol_module()` → analyzer
-- `build_symbol_dependency_graph()` → analyzer
+- ✅ `collect_global_symbols()` → visitor
+- ✅ `find_symbol_module()` → analyzer
+- ✅ `build_symbol_dependency_graph()` → analyzer
+- ✅ `detect_hard_dependencies()` → analyzer (also migrated)
 
 ### Phase 3: Implement Variable Collection Visitor
 
