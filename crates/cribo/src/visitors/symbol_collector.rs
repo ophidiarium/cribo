@@ -310,7 +310,7 @@ impl<'a> Visitor<'a> for SymbolCollector {
                 walk_stmt(self, stmt);
             }
             Stmt::AnnAssign(StmtAnnAssign { target, .. }) => {
-                self.process_assignment(&[(**target).clone()], stmt.range());
+                self.process_assignment(std::slice::from_ref(target), stmt.range());
                 walk_stmt(self, stmt);
             }
             Stmt::Import(import) => {

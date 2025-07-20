@@ -50,11 +50,23 @@ impl SymbolAnalyzer {
             .iter()
             .find(|(name, _, _, _)| name == entry_module_name)
         {
-            let collected = SymbolCollector::analyze(ast);
-
-            // Add all global symbols from the entry module
-            for (name, _) in collected.global_symbols {
-                global_symbols.insert(name);
+            for stmt in &ast.body {
+                match stmt {
+                    Stmt::FunctionDef(func_def) => {
+                        global_symbols.insert(func_def.name.to_string());
+                    }
+                    Stmt::ClassDef(class_def) => {
+                        global_symbols.insert(class_def.name.to_string());
+                    }
+                    Stmt::Assign(assign) => {
+                        for target in &assign.targets {
+                            if let Expr::Name(name) = target {
+                                global_symbols.insert(name.id.to_string());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
 
