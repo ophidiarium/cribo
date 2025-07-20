@@ -248,19 +248,24 @@ impl SymbolAnalyzer {
                 let base_name = name_expr.id.as_str();
 
                 // Check if this is an imported class
-                if let Some((source_module, alias)) = import_map.get(base_name) {
+                if let Some((source_module, original_name)) = import_map.get(base_name) {
                     debug!(
                         "Found hard dependency: class {class_name} in module {module_name} \
                          inherits from {base_name}"
                     );
+
+                    // Use the original imported name if available (for aliased imports)
+                    let import_attr = original_name
+                        .clone()
+                        .unwrap_or_else(|| base_name.to_string());
 
                     deps.push(HardDependency {
                         module_name: module_name.to_string(),
                         class_name: class_name.to_string(),
                         base_class: base_name.to_string(),
                         source_module: source_module.clone(),
-                        imported_attr: base_name.to_string(),
-                        alias: alias.clone(),
+                        imported_attr: import_attr,
+                        alias: original_name.clone(),
                         alias_is_mandatory: false,
                     });
                 }

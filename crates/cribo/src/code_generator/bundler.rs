@@ -4532,7 +4532,9 @@ impl<'a> HybridStaticBundler<'a> {
                             // Now generate assignments for hard dependencies from this module
                             for dep in &hard_deps {
                                 if dep.source_module == *module_name {
-                                    // Use the same logic as hard dependency rewriting
+                                    // Use the same logic as hard dependency rewriting in inlined
+                                    // modules This must match
+                                    // the logic in rewrite_hard_dependencies_in_inlined_module
                                     let target_name =
                                         if dep.alias_is_mandatory && dep.alias.is_some() {
                                             dep.alias.as_ref().expect(
