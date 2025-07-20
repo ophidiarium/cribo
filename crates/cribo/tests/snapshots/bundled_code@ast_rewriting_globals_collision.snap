@@ -22,18 +22,6 @@ models.user = types.SimpleNamespace()
 process_count = 0
 validate_cache = {}
 Logger_6 = str
-def process_7(data):
-    """Process function in utils module"""
-    global process_count
-    process_count += 1
-    return f"utils_process: {data} (#{process_count})"
-def validate_6(data):
-    """Validate function in utils module"""
-    if data in validate_cache:
-        return validate_cache[data]
-    result = f"utils_validate: {data}"
-    validate_cache[data] = result
-    return result
 class Logger_6:
     """Logger class in utils module"""
 
@@ -46,15 +34,27 @@ class Logger_6:
 
     def get_message(self):
         return f"utils_logger_{self.name}"
-Logger_6.__module__ = 'core.utils.helpers'
-Logger_6.__name__ = 'Logger'
-Logger_6.__qualname__ = 'Logger'
+def process_7(data):
+    """Process function in utils module"""
+    global process_count
+    process_count += 1
+    return f"utils_process: {data} (#{process_count})"
+def validate_6(data):
+    """Validate function in utils module"""
+    if data in validate_cache:
+        return validate_cache[data]
+    result = f"utils_validate: {data}"
+    validate_cache[data] = result
+    return result
 def sanitize(text):
     """Utility function without conflicts"""
     return text.strip().lower()
 def format_result(result):
     """Another utility function"""
     return f"formatted: {result}"
+Logger_6.__module__ = 'core.utils.helpers'
+Logger_6.__name__ = 'Logger'
+Logger_6.__qualname__ = 'Logger'
 """Core utility helpers module - NO external dependencies to avoid circular imports"""
 _cribo_models_base_Connection = None
 @functools.cache

@@ -57,11 +57,11 @@ def __cribo_init___cribo_f275a8_schemas_user():
     module.UserResponse = UserResponse
     return module
 schemas.user = __cribo_init___cribo_f275a8_schemas_user()
-"""Utils package initialization."""
 def validate_email(email: str) -> bool:
     """Simple email validation."""
     pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
     return bool(re.match(pattern, email))
+"""Utils package initialization."""
 """Validation utilities."""
 """Schemas package initialization."""
 """Pydantic test project entry point."""

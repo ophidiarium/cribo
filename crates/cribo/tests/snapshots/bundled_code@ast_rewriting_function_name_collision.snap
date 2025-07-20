@@ -9,10 +9,10 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_function_name_collision/ma
 def process_data_1(input_data: str) -> str:
     """Process data in module B's way."""
     return f"Module B processed: {input_data.lower()}"
-"""\nModule B with a process_data function.\nThis will conflict with module_a.process_data when bundled.\n"""
 def process_data_2(input_data: str) -> str:
     """Process data in module A's way."""
     return f"Module A processed: {input_data.upper()}"
+"""\nModule B with a process_data function.\nThis will conflict with module_a.process_data when bundled.\n"""
 """\nModule A with a process_data function.\nThis will conflict with module_b.process_data when bundled.\n"""
 """\nFunction name collision test.\nBoth modules define a function with the same name.\n"""
 process_a = process_data_2

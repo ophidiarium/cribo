@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/forward_reference_import_before_init/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Caught error: Test error\nSUCCESS",
+    stderr: "",
+}
