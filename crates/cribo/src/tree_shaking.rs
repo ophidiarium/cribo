@@ -489,27 +489,6 @@ impl TreeShaker {
             }
         }
 
-        // For directly imported modules, preserve __all__ exports if the module has them
-        // This is necessary because attribute access (e.g., module.symbol) might not be
-        // properly tracked in all AST contexts (like inside raise statements)
-        for module_name in &directly_imported_modules {
-            if let Some(items) = self.module_items.get(module_name) {
-                // Check if the module has __all__ defined
-                let has_all = items
-                    .iter()
-                    .any(|item| item.defined_symbols.contains("__all__"));
-
-                if has_all {
-                    debug!(
-                        "Directly imported module '{module_name}' has __all__, preserving its \
-                         exports"
-                    );
-                    // Mark symbols defined in __all__ as used
-                    self.mark_all_defined_symbols_as_used(items, module_name, &mut worklist);
-                }
-            }
-        }
-
         // Process all modules with side effects - their module-level code will run
         for (module_name, items) in &self.module_items {
             if self.module_has_side_effects(module_name) {
