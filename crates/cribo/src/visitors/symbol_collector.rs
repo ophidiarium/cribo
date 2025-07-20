@@ -70,8 +70,8 @@ impl SymbolCollector {
     }
 
     /// Get the current scope path
-    fn current_scope(&self) -> ScopePath {
-        self.scope_stack.clone()
+    fn current_scope(&self) -> &ScopePath {
+        &self.scope_stack
     }
 
     /// Check if a name is uppercase (likely a constant)
@@ -89,10 +89,9 @@ impl SymbolCollector {
                 .insert(symbol.name.clone(), symbol.clone());
         }
 
-        let scope = self.current_scope();
         self.collected_symbols
             .scoped_symbols
-            .entry(scope)
+            .entry(self.current_scope().clone())
             .or_default()
             .push(symbol);
     }
@@ -116,7 +115,7 @@ impl SymbolCollector {
         let symbol = SymbolInfo {
             name: func.name.to_string(),
             kind: SymbolKind::Function { decorators },
-            scope: self.current_scope(),
+            scope: self.current_scope().clone(),
             is_exported: self.is_exported(func.name.as_ref()),
             is_global: self.at_module_level || self.current_globals.contains(func.name.as_str()),
             definition_range: func.range,
@@ -136,7 +135,7 @@ impl SymbolCollector {
         let symbol = SymbolInfo {
             name: class.name.to_string(),
             kind: SymbolKind::Class { bases },
-            scope: self.current_scope(),
+            scope: self.current_scope().clone(),
             is_exported: self.is_exported(class.name.as_ref()),
             is_global: self.at_module_level || self.current_globals.contains(class.name.as_str()),
             definition_range: class.range,
@@ -156,7 +155,7 @@ impl SymbolCollector {
                     kind: SymbolKind::Variable {
                         is_constant: Self::is_constant_name(&name.id),
                     },
-                    scope: self.current_scope(),
+                    scope: self.current_scope().clone(),
                     is_exported: self.is_exported(name.id.as_ref()),
                     is_global: self.at_module_level
                         || self.current_globals.contains(name.id.as_str()),
@@ -186,7 +185,7 @@ impl SymbolCollector {
                 kind: SymbolKind::Import {
                     module: actual_name.to_string(),
                 },
-                scope: self.current_scope(),
+                scope: self.current_scope().clone(),
                 is_exported: self.is_exported(import_name.as_ref()),
                 is_global: self.at_module_level,
                 definition_range: range,
@@ -220,7 +219,7 @@ impl SymbolCollector {
                 kind: SymbolKind::Import {
                     module: from_module.clone(),
                 },
-                scope: self.current_scope(),
+                scope: self.current_scope().clone(),
                 is_exported: self.is_exported(import_name.as_ref()),
                 is_global: self.at_module_level,
                 definition_range: range,
