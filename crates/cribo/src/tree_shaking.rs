@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use anyhow::Result;
 use indexmap::{IndexMap, IndexSet};
 use log::{debug, trace};
+use rustc_hash::FxHashSet;
 
 use crate::cribo_graph::{CriboGraph, ItemData, ItemType, ModuleId};
 
@@ -477,44 +478,12 @@ impl TreeShaker {
                             worklist.push_back((base_var.clone(), attr.clone()));
                         }
                     } else {
-                        // Check if base_var is a namespace package
-                        // For namespace packages, we need to find the symbol in submodules
-                        let is_namespace = self
-                            .module_items
-                            .keys()
-                            .any(|key| key.starts_with(&format!("{base_var}.")));
-                        if is_namespace {
-                            debug!("Found namespace package access: {base_var}");
-                            for attr in accessed_attrs {
-                                debug!("Looking for {attr} in submodules of {base_var}");
-                                // Find which submodule defines this attribute
-                                let mut found = false;
-                                for (module_name, items) in &self.module_items {
-                                    if module_name.starts_with(&format!("{base_var}.")) {
-                                        for item in items {
-                                            if item.defined_symbols.contains(attr) {
-                                                debug!("Found {attr} defined in {module_name}");
-                                                worklist
-                                                    .push_back((module_name.clone(), attr.clone()));
-                                                found = true;
-                                                break;
-                                            }
-                                        }
-                                        if found {
-                                            break;
-                                        }
-                                    }
-                                }
-                                if !found {
-                                    debug!(
-                                        "Warning: Could not find {attr} in any submodule of \
-                                         {base_var}"
-                                    );
-                                }
-                            }
-                        } else {
-                            debug!("Unknown base variable for attribute access: {base_var}");
-                        }
+                        self.find_attribute_in_namespace(
+                            base_var,
+                            accessed_attrs,
+                            &mut worklist,
+                            entry_module,
+                        );
                     }
                 }
             }
@@ -818,46 +787,12 @@ impl TreeShaker {
                     worklist.push_back((base_var.clone(), attr.clone()));
                 }
             } else {
-                // Check if base_var is a namespace package
-                // For namespace packages, we need to find the symbol in submodules
-                let is_namespace = self
-                    .module_items
-                    .keys()
-                    .any(|key| key.starts_with(&format!("{base_var}.")));
-                if is_namespace {
-                    debug!("Found namespace package access in {current_module}: {base_var}");
-                    for attr in accessed_attrs {
-                        debug!("Looking for {attr} in submodules of {base_var}");
-                        // Find which submodule defines this attribute
-                        let mut found = false;
-                        for (module_name, items) in &self.module_items {
-                            if module_name.starts_with(&format!("{base_var}.")) {
-                                for item in items {
-                                    if item.defined_symbols.contains(attr) {
-                                        debug!("Found {attr} defined in {module_name}");
-                                        worklist.push_back((module_name.clone(), attr.clone()));
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                                if found {
-                                    break;
-                                }
-                            }
-                        }
-                        if !found {
-                            debug!(
-                                "Warning: Could not find {attr} in any submodule of {base_var} \
-                                 from {current_module}"
-                            );
-                        }
-                    }
-                } else {
-                    debug!(
-                        "Unknown base variable for attribute access in {current_module}: \
-                         {base_var}"
-                    );
-                }
+                self.find_attribute_in_namespace(
+                    base_var,
+                    accessed_attrs,
+                    worklist,
+                    current_module,
+                );
             }
         }
     }
@@ -908,6 +843,54 @@ impl TreeShaker {
         } else {
             false
         }
+    }
+
+    /// Find attribute in namespace package submodules
+    fn find_attribute_in_namespace(
+        &self,
+        base_var: &str,
+        accessed_attrs: &FxHashSet<String>,
+        worklist: &mut VecDeque<(String, String)>,
+        context: &str,
+    ) {
+        let is_namespace = self
+            .module_items
+            .keys()
+            .any(|key| key.starts_with(&format!("{base_var}.")));
+
+        if !is_namespace {
+            debug!("Unknown base variable for attribute access in {context}: {base_var}");
+            return;
+        }
+
+        debug!("Found namespace package access in {context}: {base_var}");
+        for attr in accessed_attrs {
+            debug!("Looking for {attr} in submodules of {base_var}");
+
+            // Find which submodule defines this attribute
+            if let Some(module_name) = self.find_attribute_in_submodules(base_var, attr) {
+                debug!("Found {attr} defined in {module_name}");
+                worklist.push_back((module_name, attr.clone()));
+            } else {
+                debug!(
+                    "Warning: Could not find {attr} in any submodule of {base_var} from {context}"
+                );
+            }
+        }
+    }
+
+    /// Find which submodule defines an attribute
+    fn find_attribute_in_submodules(&self, base_var: &str, attr: &str) -> Option<String> {
+        for (module_name, items) in &self.module_items {
+            if module_name.starts_with(&format!("{base_var}.")) {
+                for item in items {
+                    if item.defined_symbols.contains(attr) {
+                        return Some(module_name.clone());
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Mark symbols defined in __all__ as used for star imports
