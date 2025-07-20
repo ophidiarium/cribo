@@ -172,6 +172,7 @@ impl SymbolAnalyzer {
                             &class_def.name,
                             arg,
                             import_map,
+                            ast,
                         ));
                     }
                 }
@@ -187,6 +188,7 @@ impl SymbolAnalyzer {
         class_name: &str,
         base_expr: &Expr,
         import_map: &FxIndexMap<String, (String, Option<String>)>,
+        ast: &ModModule,
     ) -> Vec<HardDependency> {
         let mut deps = Vec::new();
 
@@ -224,21 +226,22 @@ impl SymbolAnalyzer {
                     let module = name_expr.id.as_str();
                     let class = attr_expr.attr.as_str();
 
-                    if let Some((source_module, alias)) = import_map.get(module) {
+                    if let Some((source_module, _alias)) = import_map.get(module) {
                         debug!(
                             "Found hard dependency: class {class_name} in module {module_name} \
                              inherits from {module}.{class}"
                         );
 
-                        let alias_is_mandatory = alias.is_some();
+                        // For module.attr, we import the module itself, not the attribute
+                        // No alias is needed for module.attr imports
                         deps.push(HardDependency {
                             module_name: module_name.to_string(),
                             class_name: class_name.to_string(),
                             base_class: format!("{module}.{class}"),
                             source_module: source_module.clone(),
-                            imported_attr: class.to_string(),
-                            alias: alias.clone(),
-                            alias_is_mandatory,
+                            imported_attr: module.to_string(), // Import the module, not the attr
+                            alias: None,                       // No alias for module.attr imports
+                            alias_is_mandatory: false,
                         });
                     }
                 }
@@ -259,14 +262,34 @@ impl SymbolAnalyzer {
                         .clone()
                         .unwrap_or_else(|| base_name.to_string());
 
+                    // Check if this base_name is used as an alias
+                    // If base_name != import_attr, then base_name is an alias
+                    let has_alias = base_name != import_attr;
+
+                    // Check if the alias is mandatory (i.e., the original name
+                    // conflicts with a local definition)
+                    let alias_is_mandatory = if has_alias {
+                        // Check if there's a local class with the same name as import_attr
+                        crate::code_generator::module_registry::check_local_name_conflict(
+                            ast,
+                            &import_attr,
+                        )
+                    } else {
+                        false
+                    };
+
                     deps.push(HardDependency {
                         module_name: module_name.to_string(),
                         class_name: class_name.to_string(),
                         base_class: base_name.to_string(),
                         source_module: source_module.clone(),
                         imported_attr: import_attr,
-                        alias: original_name.clone(),
-                        alias_is_mandatory: false,
+                        alias: if has_alias {
+                            Some(base_name.to_string())
+                        } else {
+                            None
+                        },
+                        alias_is_mandatory,
                     });
                 }
             }
