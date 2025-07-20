@@ -1,3 +1,5 @@
+#![allow(clippy::excessive_nesting)]
+
 use std::collections::VecDeque;
 
 use anyhow::Result;
@@ -530,7 +532,8 @@ impl TreeShaker {
 
                 if has_all {
                     debug!(
-                        "Directly imported module '{module_name}' has __all__, preserving its exports"
+                        "Directly imported module '{module_name}' has __all__, preserving its \
+                         exports"
                     );
                     // Mark symbols defined in __all__ as used
                     self.mark_all_defined_symbols_as_used(items, module_name, &mut worklist);

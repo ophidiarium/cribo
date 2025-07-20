@@ -3166,9 +3166,7 @@ impl<'a> HybridStaticBundler<'a> {
             self.check_module_has_forward_references(module_name, module_renames);
 
         if has_forward_references {
-            log::debug!(
-                "Module '{module_name}' has forward references, creating empty namespace"
-            );
+            log::debug!("Module '{module_name}' has forward references, creating empty namespace");
             // Create the namespace variable name
             let namespace_var = module_name.cow_replace('.', "_").into_owned();
 
@@ -4788,7 +4786,10 @@ impl<'a> HybridStaticBundler<'a> {
                                     // Use the same logic as hard dependency rewriting
                                     let target_name =
                                         if dep.alias_is_mandatory && dep.alias.is_some() {
-                                            dep.alias.as_ref().unwrap()
+                                            dep.alias.as_ref().expect(
+                                                "Alias should be present when alias_is_mandatory \
+                                                 is true",
+                                            )
                                         } else {
                                             &dep.imported_attr
                                         };
@@ -5181,8 +5182,8 @@ impl<'a> HybridStaticBundler<'a> {
                         } else {
                             // We created an empty namespace, need to populate it later
                             log::debug!(
-                                "Created empty namespace for '{module_name}', will populate with symbols \
-                                 later"
+                                "Created empty namespace for '{module_name}', will populate with \
+                                 symbols later"
                             );
                         }
                     } else {
@@ -5667,7 +5668,9 @@ impl<'a> HybridStaticBundler<'a> {
                     for dep in &self.hard_dependencies {
                         if dep.source_module == *module_name {
                             let target_name = if dep.alias_is_mandatory && dep.alias.is_some() {
-                                dep.alias.as_ref().unwrap()
+                                dep.alias.as_ref().expect(
+                                    "Alias should be present when alias_is_mandatory is true",
+                                )
                             } else {
                                 &dep.imported_attr
                             };
@@ -5695,7 +5698,9 @@ impl<'a> HybridStaticBundler<'a> {
                         .any(|(name, _, _, _)| name == &dep.source_module)
                     {
                         let target_name = if dep.alias_is_mandatory && dep.alias.is_some() {
-                            dep.alias.as_ref().unwrap()
+                            dep.alias
+                                .as_ref()
+                                .expect("Alias should be present when alias_is_mandatory is true")
                         } else {
                             &dep.imported_attr
                         };
@@ -5729,7 +5734,9 @@ impl<'a> HybridStaticBundler<'a> {
                     for dep in deps {
                         // Use the same logic as hard dependency rewriting
                         let target_name = if dep.alias_is_mandatory && dep.alias.is_some() {
-                            dep.alias.as_ref().unwrap()
+                            dep.alias
+                                .as_ref()
+                                .expect("Alias should be present when alias_is_mandatory is true")
                         } else {
                             &dep.imported_attr
                         };
@@ -5894,9 +5901,7 @@ impl<'a> HybridStaticBundler<'a> {
             // Check if this module has a namespace that needs population
             let namespace_var = module_name.cow_replace('.', "_").into_owned();
             if self.created_namespaces.contains(&namespace_var) {
-                log::debug!(
-                    "Populating empty namespace '{namespace_var}' with symbols"
-                );
+                log::debug!("Populating empty namespace '{namespace_var}' with symbols");
 
                 // Don't mark the module as fully populated yet, we'll track individual symbols
 
@@ -6020,7 +6025,8 @@ impl<'a> HybridStaticBundler<'a> {
                         let assignment_key = (namespace_var.clone(), original_name.clone());
                         if self.namespace_assignments_made.contains(&assignment_key) {
                             log::debug!(
-                                "Skipping duplicate namespace assignment: {namespace_var}.{original_name} = {renamed_name} (already \
+                                "Skipping duplicate namespace assignment: \
+                                 {namespace_var}.{original_name} = {renamed_name} (already \
                                  assigned)"
                             );
                             continue;
@@ -6044,8 +6050,9 @@ impl<'a> HybridStaticBundler<'a> {
 
                         if assignment_exists {
                             log::debug!(
-                                "Skipping duplicate namespace assignment: {namespace_var}.{original_name} = {renamed_name} (already \
-                                 exists in final_body)"
+                                "Skipping duplicate namespace assignment: \
+                                 {namespace_var}.{original_name} = {renamed_name} (already exists \
+                                 in final_body)"
                             );
                             continue;
                         }
@@ -10315,7 +10322,7 @@ impl<'a> HybridStaticBundler<'a> {
             }
 
             // Check if we should use a flattened namespace instead of creating an empty one
-            let flattened_name = partial_module.replace('.', "_");
+            let flattened_name = partial_module.cow_replace('.', "_").into_owned();
             let should_use_flattened = self.inlined_modules.contains(&partial_module)
                 && self
                     .namespaces_with_initial_symbols
@@ -10590,8 +10597,8 @@ impl<'a> HybridStaticBundler<'a> {
                     && target_name == module_name.cow_replace('.', "_").as_ref()
                 {
                     log::debug!(
-                        "Skipping symbol assignment {target_name}.{symbol} = {actual_symbol_name} - this specific symbol was already \
-                         populated after deferred imports"
+                        "Skipping symbol assignment {target_name}.{symbol} = {actual_symbol_name} \
+                         - this specific symbol was already populated after deferred imports"
                     );
                     continue;
                 }
@@ -10778,8 +10785,8 @@ impl<'a> HybridStaticBundler<'a> {
 
                     if assignment_exists {
                         log::debug!(
-                            "Skipping duplicate namespace assignment: {target_name}.{symbol} = {actual_symbol_name} (already exists \
-                             in result_stmts) - in \
+                            "Skipping duplicate namespace assignment: {target_name}.{symbol} = \
+                             {actual_symbol_name} (already exists in result_stmts) - in \
                              populate_namespace_with_module_symbols_with_renames"
                         );
                         continue;
@@ -10862,7 +10869,7 @@ impl<'a> HybridStaticBundler<'a> {
     /// Create a namespace object for an inlined module
     fn create_namespace_object_for_module(&self, target_name: &str, module_name: &str) -> Stmt {
         // Check if we should use a flattened namespace instead of creating an empty one
-        let flattened_name = module_name.replace('.', "_");
+        let flattened_name = module_name.cow_replace('.', "_").into_owned();
         let should_use_flattened = self.inlined_modules.contains(module_name)
             && self.namespaces_with_initial_symbols.contains(module_name);
 
