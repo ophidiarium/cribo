@@ -15,7 +15,6 @@ class User:
 
     def __repr__(self):
         return f"User(name={self.name!r}, id={self.id})"
-User.__module__ = 'models'
 class Connection:
     """Connection class that will be shadowed by function parameters."""
 
@@ -31,6 +30,7 @@ class Connection:
 
     def __repr__(self):
         return f"Connection(host={self.host!r}, port={self.port}, connected={self.connected})"
+User.__module__ = 'models'
 Connection.__module__ = 'models'
 """Models module containing classes that will be shadowed by parameters."""
 """Test fixture for parameter names shadowing global/class names.\n\nThis fixture demonstrates the pattern where function parameters shadow\nimportant module-level names (classes, functions, constants).\n"""

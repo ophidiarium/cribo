@@ -1,6 +1,5 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
-assertion_line: 497
 input_file: crates/cribo/tests/fixtures/simple_treeshaking_inlining/main.py
 ---
 #!/usr/bin/env python3
@@ -16,7 +15,6 @@ class PersonTitle(enum.Enum):
     MS = "Ms."
     DR = "Dr."
     PROF = "Prof."
-PersonTitle.__module__ = 'speaking'
 class Person:
 
     def __init__(self, name: str, title: PersonTitle):
@@ -25,15 +23,16 @@ class Person:
 
     def greet(self) -> str:
         return f"{self.title.value} {self.name}"
-Person.__module__ = 'speaking'
-def create_ms(name: str) -> Person:
-    return Person(name, PersonTitle.MS)
 class Phrase(typing.TypedDict):
     what: str
     whom: Person
-Phrase.__module__ = 'speaking'
+def create_ms(name: str) -> Person:
+    return Person(name, PersonTitle.MS)
 def say(phrase: Phrase) -> str:
     return f"{phrase['what']} {phrase['whom'].greet()}"
+PersonTitle.__module__ = 'speaking'
+Person.__module__ = 'speaking'
+Phrase.__module__ = 'speaking'
 def main() -> None:
     print(say({"what": "Hello", "whom": create_ms(ALICE_NAME)}))
 if __name__ == "__main__":

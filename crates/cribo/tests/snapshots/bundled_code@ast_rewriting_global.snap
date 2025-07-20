@@ -17,6 +17,7 @@ def modify_foo():
     global foo_3
     foo_3 = "module1_foo_modified"
 """Module demonstrating global keyword usage."""
+module_global_keyword = types.SimpleNamespace(foo=foo_3, get_foo=get_foo, modify_foo=modify_foo)
 _cribo_module_mixed_patterns_foo = None
 _cribo_module_mixed_patterns_counter = None
 @functools.cache
@@ -114,11 +115,7 @@ foo_1 = "main_foo"
 foo = foo_1
 bar_1 = "main_bar"
 bar = bar_1
-module_global_keyword = types.SimpleNamespace()
 module_global_keyword.__all__ = ['foo', 'get_foo', 'modify_foo']
-module_global_keyword.foo = foo_3
-module_global_keyword.get_foo = get_foo
-module_global_keyword.modify_foo = modify_foo
 module_globals_dict = __cribo_init___cribo_5101f4_module_globals_dict()
 module_mixed_patterns = __cribo_init___cribo_c75306_module_mixed_patterns()
 assert foo_1 == "main_foo"

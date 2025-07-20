@@ -13,7 +13,9 @@ def get_name():
     return "app.utils"
 def helper():
     return "I am from app.utils"
-app_utils = types.SimpleNamespace(get_name=get_name, helper=helper)
+app_utils = types.SimpleNamespace()
+app_utils.get_name = get_name
+app_utils.helper = helper
 app.utils = types.SimpleNamespace()
 app.utils.__all__ = ['get_name', 'helper']
 app.utils.get_name = get_name

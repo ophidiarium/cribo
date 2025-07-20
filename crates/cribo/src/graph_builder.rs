@@ -64,6 +64,10 @@ impl<'a> GraphBuilder<'a> {
 
     /// Process a statement and add it to the graph
     fn process_statement(&mut self, stmt: &Stmt) -> Result<()> {
+        log::trace!(
+            "process_statement: Processing statement type: {:?}",
+            std::mem::discriminant(stmt)
+        );
         // Inside functions, process imports, functions, and classes normally
         // Skip other statements as they're tracked via eventual_read_vars
         if matches!(self.current_scope, ScopeType::Function) {
@@ -81,7 +85,10 @@ impl<'a> GraphBuilder<'a> {
         }
 
         match stmt {
-            Stmt::Import(import_stmt) => self.process_import(import_stmt),
+            Stmt::Import(import_stmt) => {
+                log::debug!("Processing import statement");
+                self.process_import(import_stmt)
+            }
             Stmt::ImportFrom(import_from) => self.process_import_from(import_from),
             Stmt::FunctionDef(func_def) => self.process_function_def(func_def),
             Stmt::ClassDef(class_def) => self.process_class_def(class_def),
@@ -94,6 +101,7 @@ impl<'a> GraphBuilder<'a> {
             Stmt::While(while_stmt) => self.process_while_stmt(while_stmt),
             Stmt::With(with_stmt) => self.process_with_stmt(with_stmt),
             Stmt::Try(try_stmt) => self.process_try_stmt(try_stmt),
+            Stmt::Raise(raise_stmt) => self.process_raise_stmt(raise_stmt),
             _ => Ok(()), // Other statements
         }
     }
@@ -890,8 +898,55 @@ impl<'a> GraphBuilder<'a> {
         Ok(())
     }
 
+    /// Process raise statement
+    fn process_raise_stmt(&mut self, raise_stmt: &ast::StmtRaise) -> Result<()> {
+        log::debug!("Processing raise statement");
+
+        let mut read_vars = FxHashSet::default();
+        let mut attribute_accesses = FxHashMap::default();
+
+        // Collect variables from the exception expression
+        if let Some(exc) = &raise_stmt.exc {
+            self.collect_vars_in_expr_with_attrs(exc, &mut read_vars, &mut attribute_accesses);
+        }
+
+        // Also collect from the cause expression if present
+        if let Some(cause) = &raise_stmt.cause {
+            self.collect_vars_in_expr_with_attrs(cause, &mut read_vars, &mut attribute_accesses);
+        }
+
+        log::debug!(
+            "Processing raise statement, read_vars: {read_vars:?}, attribute_accesses: \
+             {attribute_accesses:?}"
+        );
+
+        let item_data = ItemData {
+            item_type: ItemType::Other,
+            var_decls: FxHashSet::default(),
+            read_vars,
+            eventual_read_vars: FxHashSet::default(),
+            write_vars: FxHashSet::default(),
+            eventual_write_vars: FxHashSet::default(),
+            has_side_effects: true, // Raise statements have side effects
+            imported_names: FxHashSet::default(),
+            reexported_names: FxHashSet::default(),
+            defined_symbols: FxHashSet::default(),
+            symbol_dependencies: FxHashMap::default(),
+            attribute_accesses,
+            is_normalized_import: false,
+        };
+
+        self.graph.add_item(item_data);
+        Ok(())
+    }
+
     /// Process try statement
     fn process_try_stmt(&mut self, try_stmt: &ast::StmtTry) -> Result<()> {
+        log::debug!(
+            "Processing try statement with {} statements in body",
+            try_stmt.body.len()
+        );
+
         let item_data = ItemData {
             item_type: ItemType::Try,
             var_decls: FxHashSet::default(),
@@ -922,7 +977,12 @@ impl<'a> GraphBuilder<'a> {
             // Track exception type if specified
             if let Some(type_expr) = &handler.type_ {
                 let mut read_vars = FxHashSet::default();
-                self.collect_vars_in_expr(type_expr, &mut read_vars);
+                let mut attribute_accesses = FxHashMap::default();
+                self.collect_vars_in_expr_with_attrs(
+                    type_expr,
+                    &mut read_vars,
+                    &mut attribute_accesses,
+                );
 
                 // Create an item for the exception handler
                 let item_data = ItemData {
@@ -937,7 +997,7 @@ impl<'a> GraphBuilder<'a> {
                     reexported_names: FxHashSet::default(),
                     defined_symbols: FxHashSet::default(),
                     symbol_dependencies: FxHashMap::default(),
-                    attribute_accesses: FxHashMap::default(),
+                    attribute_accesses,
                     is_normalized_import: false,
                 };
                 self.graph.add_item(item_data);
@@ -1340,6 +1400,23 @@ impl<'a> GraphBuilder<'a> {
                         if let Some(msg) = &assert_stmt.msg {
                             self.collect_vars_in_expr_with_attrs(
                                 msg,
+                                read_vars,
+                                attribute_accesses,
+                            );
+                        }
+                    }
+                    Stmt::Raise(raise_stmt) => {
+                        // Collect variables from raise statement
+                        if let Some(exc) = &raise_stmt.exc {
+                            self.collect_vars_in_expr_with_attrs(
+                                exc,
+                                read_vars,
+                                attribute_accesses,
+                            );
+                        }
+                        if let Some(cause) = &raise_stmt.cause {
+                            self.collect_vars_in_expr_with_attrs(
+                                cause,
                                 read_vars,
                                 attribute_accesses,
                             );

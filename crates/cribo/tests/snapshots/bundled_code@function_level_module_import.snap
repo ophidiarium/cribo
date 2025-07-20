@@ -13,7 +13,9 @@ description = "A simple calculator module"
 def add(a, b):
     return a + b
 """Calculator module with simple operations"""
-utils_calculator = types.SimpleNamespace(description=description, add=add)
+utils_calculator = types.SimpleNamespace()
+utils_calculator.description = description
+utils_calculator.add = add
 def process_data():
     calculator = utils_calculator
     result = calculator.add(5, 3)

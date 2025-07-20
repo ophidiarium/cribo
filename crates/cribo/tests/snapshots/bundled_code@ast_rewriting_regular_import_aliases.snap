@@ -16,13 +16,6 @@ import xml.etree.ElementTree
 utils = types.SimpleNamespace()
 utils.__name__ = 'utils'
 DEFAULT_CONFIG = {"debug": True, "timeout": 30}
-def get_config():
-    """Get the default configuration."""
-    return DEFAULT_CONFIG.copy()
-"""Configuration module for testing regular import aliases."""
-def helper_function():
-    """A simple helper function."""
-    return "helper_result"
 class UtilityClass:
     """A simple utility class."""
 
@@ -31,8 +24,21 @@ class UtilityClass:
 
     def get_value(self):
         return self.value
+def get_config():
+    """Get the default configuration."""
+    return DEFAULT_CONFIG.copy()
+def helper_function():
+    """A simple helper function."""
+    return "helper_result"
+"""Configuration module for testing regular import aliases."""
 UtilityClass.__module__ = 'utils.helpers'
 """Utility module for testing regular import aliases."""
+utils_config = types.SimpleNamespace()
+utils_helpers = types.SimpleNamespace()
+utils_config.DEFAULT_CONFIG = DEFAULT_CONFIG
+utils_config.get_config = get_config
+utils_helpers.UtilityClass = UtilityClass
+utils_helpers.helper_function = helper_function
 '''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
 helper_utils = types.SimpleNamespace()
 helper_utils.__all__ = ['UtilityClass', 'helper_function']

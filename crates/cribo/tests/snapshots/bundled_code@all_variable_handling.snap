@@ -11,6 +11,7 @@ nested_package = types.SimpleNamespace()
 nested_package.__name__ = 'nested_package'
 message_1 = "from conflict_module"
 SUB_CONSTANT = "submodule_value"
+CONSTANT = 42
 def sub_function():
     """Function from submodule"""
     return "Hello from submodule"
@@ -20,10 +21,14 @@ def exported_from_init():
 def helper_func():
     """Helper function used by other modules"""
     return "helper result"
-CONSTANT = 42
 def public_func():
     """A public function that should be exported."""
     return "Hello from public_func"
+nested_package_submodule = types.SimpleNamespace()
+nested_package.exported_from_init = exported_from_init
+simple_module = types.SimpleNamespace(CONSTANT=CONSTANT, public_func=public_func)
+nested_package_submodule.SUB_CONSTANT = SUB_CONSTANT
+nested_package_submodule.sub_function = sub_function
 message = message_1
 print("Testing simple module exports:")
 print(f"public_func() = {public_func()}")
@@ -33,10 +38,7 @@ print(f"exported_from_init() = {exported_from_init()}")
 print(f"sub_function() = {sub_function()}")
 print("\nTesting conflict resolution:")
 print(f"message = {message}")
-simple_module = types.SimpleNamespace()
 simple_module.__all__ = ['public_func', 'CONSTANT']
-simple_module.public_func = public_func
-simple_module.CONSTANT = CONSTANT
 print(f"\n'public_func' in simple_module.__all__ = {'public_func' in simple_module.__all__}")
 print(f"'CONSTANT' in simple_module.__all__ = {'CONSTANT' in simple_module.__all__}")
 sub = types.SimpleNamespace()

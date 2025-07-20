@@ -18,6 +18,10 @@ models.__name__ = 'models'
 services = types.SimpleNamespace()
 services.__name__ = 'services'
 services.auth = types.SimpleNamespace()
+result_3 = {"model": "user"}
+result_5 = 0
+User_4 = "helper_user_string"
+result_6 = []
 class BaseModel:
     """Base model class with method name conflicts"""
 
@@ -45,15 +49,6 @@ class BaseModel:
         self.initialized = True
         new_result = f"base_initialized_{self.model_type}"
         return new_result
-BaseModel.__module__ = 'models.base'
-def initialize() -> str:
-    """Module initialization function"""
-    base = BaseModel("default")
-    init_result = base.initialize()
-    logger = UserLogger("base_init")
-    logger._log_process("Base module initialized")
-    new_result = f"module_init: {init_result}"
-    return new_result
 class Logger_1:
     """Base Logger class - yet another Logger conflict"""
 
@@ -68,11 +63,6 @@ class Logger_1:
         """Logger process method - conflicts with module-level process"""
         self.log(f"Processing: {log_data}")
         return f"base_logger_process: {log_data}"
-Logger_1.__module__ = 'models.base'
-Logger_1.__name__ = 'Logger'
-Logger_1.__qualname__ = 'Logger'
-"""\nBase model functionality with relative import conflicts\n"""
-result_3 = {"model": "user"}
 class Logger_2:
     """Model Logger class - conflicts with other Logger classes"""
 
@@ -90,9 +80,6 @@ class Logger_2:
     def validate(self, entry: str) -> bool:
         """Method with name that conflicts with global functions"""
         return len(entry) > 0
-Logger_2.__module__ = 'models.user'
-Logger_2.__name__ = 'Logger'
-Logger_2.__qualname__ = 'Logger'
 class User_2:
     """Model User class - major conflict with other User classes"""
 
@@ -140,9 +127,47 @@ class User_2:
         """Method with name that conflicts with global functions"""
         new_connection = f"user_model_connection_{self.name}"
         return new_connection
-User_2.__module__ = 'models.user'
-User_2.__name__ = 'User'
-User_2.__qualname__ = 'User'
+class Logger_3:
+    """Utility logger class - conflicts with other Logger classes"""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.messages: typing.List[str] = []
+        self.User = User_4
+
+    def log(self, message: str) -> None:
+        self.messages.append(f"[{self.name}] {message}")
+
+    def get_message(self) -> str:
+        return f"Utils Logger: {self.name}"
+
+    def process(self, data: typing.Any) -> str:
+        """Method with same name as module functions"""
+        return f"logger_process: {data}"
+class Connection_5:
+    """Database connection class"""
+
+    def __init__(self, host="localhost", port=5432):
+        self.host = host
+        self.port = port
+        self.connected = False
+        self.result = None
+        self.process = self._internal_process
+
+    def _internal_process(self, query):
+        return f"db_internal: {query}"
+
+    def connect(self):
+        self.connected = True
+        return f"Connected to {self.host}:{self.port}"
+def initialize() -> str:
+    """Module initialization function"""
+    base = BaseModel("default")
+    init_result = base.initialize()
+    logger = UserLogger("base_init")
+    logger._log_process("Base module initialized")
+    new_result = f"module_init: {init_result}"
+    return new_result
 def process_user(data: typing.Any) -> str:
     """Module function with naming conflicts"""
     Logger_class = Logger_2
@@ -166,29 +191,6 @@ def process_3(data: typing.Any) -> str:
         return process_user(data)
     else:
         return f"model_process_generic: {data}"
-"""\nUser model with extensive naming conflicts across the project\n"""
-result_5 = 0
-User_4 = "helper_user_string"
-class Logger_3:
-    """Utility logger class - conflicts with other Logger classes"""
-
-    def __init__(self, name: str):
-        self.name = name
-        self.messages: typing.List[str] = []
-        self.User = User_4
-
-    def log(self, message: str) -> None:
-        self.messages.append(f"[{self.name}] {message}")
-
-    def get_message(self) -> str:
-        return f"Utils Logger: {self.name}"
-
-    def process(self, data: typing.Any) -> str:
-        """Method with same name as module functions"""
-        return f"logger_process: {data}"
-Logger_3.__module__ = 'core.utils.helpers'
-Logger_3.__name__ = 'Logger'
-Logger_3.__qualname__ = 'Logger'
 def process_5(data: typing.Any) -> str:
     """Utility process function - major conflict with other process functions"""
     if isinstance(data, str):
@@ -212,27 +214,6 @@ def validate_5(data: typing.Any) -> bool:
     elif isinstance(data, (int, float)):
         return data >= 0
     return True
-"""\nUtility helpers module with extensive naming conflicts\n"""
-result_6 = []
-class Connection_5:
-    """Database connection class"""
-
-    def __init__(self, host="localhost", port=5432):
-        self.host = host
-        self.port = port
-        self.connected = False
-        self.result = None
-        self.process = self._internal_process
-
-    def _internal_process(self, query):
-        return f"db_internal: {query}"
-
-    def connect(self):
-        self.connected = True
-        return f"Connected to {self.host}:{self.port}"
-Connection_5.__module__ = 'core.database.connection'
-Connection_5.__name__ = 'Connection'
-Connection_5.__qualname__ = 'Connection'
 def process_6(data):
     """Database process function - conflicts with other process functions"""
     validated = helper_validate(data)
@@ -240,8 +221,27 @@ def process_6(data):
     processed = {"db_process": True, "data": validated, "user_processing": user_result, "timestamp": "2024-01-01"}
     result_6.append(processed)
     return f"db_processed: {data}"
+BaseModel.__module__ = 'models.base'
+Logger_1.__module__ = 'models.base'
+Logger_1.__name__ = 'Logger'
+Logger_1.__qualname__ = 'Logger'
+"""\nBase model functionality with relative import conflicts\n"""
+Logger_2.__module__ = 'models.user'
+Logger_2.__name__ = 'Logger'
+Logger_2.__qualname__ = 'Logger'
+User_2.__module__ = 'models.user'
+User_2.__name__ = 'User'
+User_2.__qualname__ = 'User'
+"""\nUser model with extensive naming conflicts across the project\n"""
+Logger_3.__module__ = 'core.utils.helpers'
+Logger_3.__name__ = 'Logger'
+Logger_3.__qualname__ = 'Logger'
+"""\nUtility helpers module with extensive naming conflicts\n"""
+Connection_5.__module__ = 'core.database.connection'
+Connection_5.__name__ = 'Connection'
+Connection_5.__qualname__ = 'Connection'
 """\nDatabase connection module with naming conflicts\n"""
-models_base = types.SimpleNamespace(BaseModel=BaseModel, initialize=initialize, Logger=Logger_1)
+models_base = types.SimpleNamespace()
 @functools.cache
 def __cribo_init___cribo_6ccb3a_services_auth_manager():
     module = types.SimpleNamespace()
@@ -378,6 +378,9 @@ UserLogger = Logger_2
 util_process = process_5
 UtilLogger = Logger_3
 helper_validate = validate_5
+models_base.BaseModel = BaseModel
+models_base.Logger = Logger_1
+models_base.initialize = initialize
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_6
 services.auth.manager = __cribo_init___cribo_6ccb3a_services_auth_manager()

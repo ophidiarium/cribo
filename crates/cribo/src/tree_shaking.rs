@@ -1,8 +1,11 @@
+#![allow(clippy::excessive_nesting)]
+
 use std::collections::VecDeque;
 
 use anyhow::Result;
 use indexmap::{IndexMap, IndexSet};
 use log::{debug, trace};
+use rustc_hash::FxHashSet;
 
 use crate::cribo_graph::{CriboGraph, ItemData, ItemType, ModuleId};
 
@@ -429,6 +432,11 @@ impl TreeShaker {
                 // Process attribute accesses - if we access `greetings.message`,
                 // we need the `message` symbol from the `greetings` module
                 for (base_var, accessed_attrs) in &item.attribute_accesses {
+                    debug!(
+                        "Processing attribute access: base_var={base_var}, \
+                         attrs={accessed_attrs:?}"
+                    );
+
                     // First, check if base_var is an imported module alias (e.g., import x.y as z)
                     if let Some(source_module) =
                         self.resolve_module_import_alias(entry_module, base_var)
@@ -469,14 +477,17 @@ impl TreeShaker {
                             debug!("Found direct module attribute access: {base_var}.{attr}");
                             worklist.push_back((base_var.clone(), attr.clone()));
                         }
+                    } else {
+                        self.find_attribute_in_namespace(
+                            base_var,
+                            accessed_attrs,
+                            &mut worklist,
+                            entry_module,
+                        );
                     }
                 }
             }
         }
-
-        // For directly imported modules, we don't automatically mark any symbols as used
-        // They will be marked as used only if actually accessed (e.g., module.symbol)
-        // The only exception would be `from module import *` which isn't handled here
 
         // Process all modules with side effects - their module-level code will run
         for (module_name, items) in &self.module_items {
@@ -754,6 +765,13 @@ impl TreeShaker {
                     );
                     worklist.push_back((base_var.clone(), attr.clone()));
                 }
+            } else {
+                self.find_attribute_in_namespace(
+                    base_var,
+                    accessed_attrs,
+                    worklist,
+                    current_module,
+                );
             }
         }
     }
@@ -804,6 +822,54 @@ impl TreeShaker {
         } else {
             false
         }
+    }
+
+    /// Find attribute in namespace package submodules
+    fn find_attribute_in_namespace(
+        &self,
+        base_var: &str,
+        accessed_attrs: &FxHashSet<String>,
+        worklist: &mut VecDeque<(String, String)>,
+        context: &str,
+    ) {
+        let is_namespace = self
+            .module_items
+            .keys()
+            .any(|key| key.starts_with(&format!("{base_var}.")));
+
+        if !is_namespace {
+            debug!("Unknown base variable for attribute access in {context}: {base_var}");
+            return;
+        }
+
+        debug!("Found namespace package access in {context}: {base_var}");
+        for attr in accessed_attrs {
+            debug!("Looking for {attr} in submodules of {base_var}");
+
+            // Find which submodule defines this attribute
+            if let Some(module_name) = self.find_attribute_in_submodules(base_var, attr) {
+                debug!("Found {attr} defined in {module_name}");
+                worklist.push_back((module_name, attr.clone()));
+            } else {
+                debug!(
+                    "Warning: Could not find {attr} in any submodule of {base_var} from {context}"
+                );
+            }
+        }
+    }
+
+    /// Find which submodule defines an attribute
+    fn find_attribute_in_submodules(&self, base_var: &str, attr: &str) -> Option<String> {
+        for (module_name, items) in &self.module_items {
+            if module_name.starts_with(&format!("{base_var}.")) {
+                for item in items {
+                    if item.defined_symbols.contains(attr) {
+                        return Some(module_name.clone());
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Mark symbols defined in __all__ as used for star imports

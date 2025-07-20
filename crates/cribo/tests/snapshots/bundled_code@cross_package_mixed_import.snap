@@ -15,10 +15,8 @@ core.database = types.SimpleNamespace()
 core.utils = types.SimpleNamespace()
 models = types.SimpleNamespace()
 models.__name__ = 'models'
-def process_user(name: str) -> str:
-    """Process a user-related string.\n\n    This function is imported by core.database.connection,\n    demonstrating a cross-package absolute import.\n    """
-    return f"user_{name}_processed"
-"""User model providing cross-package functionality."""
+_module_config = None
+CORE_MODEL_VERSION = "1.0.0"
 class BaseModel:
     """Base model class."""
 
@@ -31,9 +29,9 @@ class BaseModel:
     def get_info(self):
         """Get model information."""
         return {"name": self.name, "type": "base", "model_version": self.version}
-BaseModel.__module__ = 'models.base'
-"""Base model module."""
-_module_config = None
+def process_user(name: str) -> str:
+    """Process a user-related string.\n\n    This function is imported by core.database.connection,\n    demonstrating a cross-package absolute import.\n    """
+    return f"user_{name}_processed"
 def set_config_reference(config):
     """Set the configuration reference - called by parent package."""
     global _module_config
@@ -48,12 +46,14 @@ def is_debug():
     if _module_config is None:
         return False
     return _module_config.get("debug", False)
-"""Configuration utilities for the core package."""
-CORE_MODEL_VERSION = "1.0.0"
-"""Version module separate from __init__ to avoid circular imports."""
 def validate(value: str) -> bool:
     """Validate a string value.\n\n    This function is imported by core.database.connection using\n    a relative import (..utils.helpers), demonstrating relative\n    imports within the same package hierarchy.\n    """
     return bool(value and not value.startswith("_"))
+"""User model providing cross-package functionality."""
+BaseModel.__module__ = 'models.base'
+"""Base model module."""
+"""Configuration utilities for the core package."""
+"""Version module separate from __init__ to avoid circular imports."""
 """Helper utilities for the core package."""
 _cribo_models__base_model = None
 _cribo_core__initialized = None
