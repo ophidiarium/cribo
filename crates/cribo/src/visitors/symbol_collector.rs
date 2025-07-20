@@ -198,7 +198,11 @@ impl SymbolCollector {
 
     /// Process from imports
     fn process_from_import(&mut self, import: &StmtImportFrom, range: TextRange) {
-        let module = import.module.as_ref().map(|id| id.to_string());
+        // Handle relative imports properly
+        let from_module = import.module.as_ref().map_or_else(
+            || ".".repeat(import.level as usize),
+            |mod_name| mod_name.to_string(),
+        );
 
         for alias in &import.names {
             let import_name = alias.asname.as_ref().unwrap_or(&alias.name);
@@ -211,16 +215,10 @@ impl SymbolCollector {
                     .insert(import_name.to_string(), actual_name.to_string());
             }
 
-            let full_module = if let Some(ref mod_name) = module {
-                format!("{mod_name}.{actual_name}")
-            } else {
-                actual_name.to_string()
-            };
-
             let symbol = SymbolInfo {
                 name: import_name.to_string(),
                 kind: SymbolKind::Import {
-                    module: full_module,
+                    module: from_module.clone(),
                 },
                 scope: self.current_scope(),
                 is_exported: self.is_exported(import_name.as_ref()),
