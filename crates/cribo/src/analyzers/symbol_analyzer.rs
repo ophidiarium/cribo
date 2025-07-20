@@ -80,53 +80,39 @@ impl SymbolAnalyzer {
         graph: &DependencyGraph,
         circular_modules: &FxIndexSet<String>,
     ) -> Option<String> {
-        // First check if it's defined in the current module
-        if let Some(module_dep_graph) = graph.get_module_by_name(current_module) {
-            for item_data in module_dep_graph.items.values() {
-                match &item_data.item_type {
-                    crate::cribo_graph::ItemType::FunctionDef { name } if name == symbol => {
-                        return Some(current_module.to_string());
-                    }
-                    crate::cribo_graph::ItemType::ClassDef { name } if name == symbol => {
-                        return Some(current_module.to_string());
-                    }
-                    crate::cribo_graph::ItemType::Assignment { targets } => {
-                        if targets.contains(&symbol.to_string()) {
-                            return Some(current_module.to_string());
+        // Helper closure to check if a module defines the symbol
+        let module_defines_symbol = |module_name: &str| -> bool {
+            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+                for item_data in module_dep_graph.items.values() {
+                    let found = match &item_data.item_type {
+                        crate::cribo_graph::ItemType::FunctionDef { name } => name == symbol,
+                        crate::cribo_graph::ItemType::ClassDef { name } => name == symbol,
+                        crate::cribo_graph::ItemType::Assignment { targets } => {
+                            targets.contains(&symbol.to_string())
                         }
+                        _ => false,
+                    };
+                    if found {
+                        return true;
                     }
-                    _ => {}
                 }
             }
+            false
+        };
+
+        // First check if it's defined in the current module
+        if module_defines_symbol(current_module) {
+            return Some(current_module.to_string());
         }
 
         // Check other circular modules
-        for module_name in circular_modules {
-            if module_name == current_module {
-                continue;
+        circular_modules.iter().find_map(|module_name| {
+            if module_name != current_module && module_defines_symbol(module_name) {
+                Some(module_name.clone())
+            } else {
+                None
             }
-
-            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
-                for item_data in module_dep_graph.items.values() {
-                    match &item_data.item_type {
-                        crate::cribo_graph::ItemType::FunctionDef { name } if name == symbol => {
-                            return Some(module_name.clone());
-                        }
-                        crate::cribo_graph::ItemType::ClassDef { name } if name == symbol => {
-                            return Some(module_name.clone());
-                        }
-                        crate::cribo_graph::ItemType::Assignment { targets } => {
-                            if targets.contains(&symbol.to_string()) {
-                                return Some(module_name.clone());
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        None
+        })
     }
 
     /// Build symbol dependency graph for circular modules
