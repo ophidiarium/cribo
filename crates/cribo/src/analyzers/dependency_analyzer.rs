@@ -339,10 +339,33 @@ impl DependencyAnalyzer {
                             has_class_definitions = true;
                         }
                         ItemType::Import { .. } | ItemType::FromImport { .. } => {
-                            // For now, assume all imports are at module level
-                            // (proper scope tracking would require enhanced AST analysis)
-                            has_module_level_imports = true;
-                            imports_used_in_functions_only = false;
+                            // Since we can't determine scope from ItemData directly,
+                            // check if this import is only referenced within function definitions
+                            // This is a heuristic: if an import has no direct module-level usage,
+                            // it's likely a function-scoped import
+                            let import_vars = &item.var_decls;
+
+                            // Check if any of the imported names are used at module level
+                            let used_at_module_level = module.items.values().any(|other_item| {
+                                // Skip function and class definitions when checking usage
+                                if matches!(
+                                    other_item.item_type,
+                                    ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
+                                ) {
+                                    return false;
+                                }
+
+                                // Check if this item uses any of the imported variables
+                                import_vars
+                                    .iter()
+                                    .any(|import_var| other_item.read_vars.contains(import_var))
+                            });
+
+                            if used_at_module_level {
+                                has_module_level_imports = true;
+                                imports_used_in_functions_only = false;
+                            }
+                            // If not used at module level, the import is likely function-scoped
                         }
                         ItemType::Assignment { .. } => {
                             // Not all assignments are constants
