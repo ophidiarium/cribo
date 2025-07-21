@@ -89,7 +89,7 @@ impl ImportAnalyzer {
         modules
             .iter()
             .find_map(|(name, _, _, _)| {
-                if name == full_module_path || name.ends_with(full_module_path) {
+                if name == full_module_path || name.ends_with(&format!(".{full_module_path}")) {
                     Some(name.clone())
                 } else {
                     None

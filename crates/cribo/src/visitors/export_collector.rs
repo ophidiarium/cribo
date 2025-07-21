@@ -177,16 +177,18 @@ impl<'a> Visitor<'a> for ExportCollector {
                 // Check for __all__ assignment
                 if let Some(Expr::Name(name)) = assign.targets.first()
                     && name.id.as_str() == "__all__"
-                        && let Some(exports) = self.extract_all_exports(&assign.value) {
-                            self.current_all = Some(exports);
-                        }
+                    && let Some(exports) = self.extract_all_exports(&assign.value)
+                {
+                    self.current_all = Some(exports);
+                }
             }
             Stmt::AugAssign(aug_assign) => {
                 // Check for __all__ += [...] or similar
                 if let Expr::Name(name) = &*aug_assign.target
-                    && name.id.as_str() == "__all__" {
-                        self.has_dynamic_all = true;
-                    }
+                    && name.id.as_str() == "__all__"
+                {
+                    self.has_dynamic_all = true;
+                }
             }
             Stmt::ImportFrom(import) => {
                 // Check for re-export patterns
