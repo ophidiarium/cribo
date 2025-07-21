@@ -6580,10 +6580,12 @@ impl<'a> HybridStaticBundler<'a> {
                                             "Import '{local_name}' from '{from_module}' is not \
                                              used by surviving code after tree-shaking"
                                         );
-                                        unused_imports.push(crate::cribo_graph::UnusedImportInfo {
-                                            name: local_name.clone(),
-                                            module: from_module.clone(),
-                                        });
+                                        unused_imports.push(
+                                            crate::analyzers::types::UnusedImportInfo {
+                                                name: local_name.clone(),
+                                                module: from_module.clone(),
+                                            },
+                                        );
                                     }
                                 }
                             }
@@ -6709,10 +6711,12 @@ impl<'a> HybridStaticBundler<'a> {
                                          used by surviving code after tree-shaking (item_id: \
                                          {item_id:?})"
                                     );
-                                    unused_imports.push(crate::cribo_graph::UnusedImportInfo {
-                                        name: import_name.to_string(),
-                                        module: module.clone(),
-                                    });
+                                    unused_imports.push(
+                                        crate::analyzers::types::UnusedImportInfo {
+                                            name: import_name.to_string(),
+                                            module: module.clone(),
+                                        },
+                                    );
                                 }
                             }
                             _ => {}
@@ -7132,7 +7136,7 @@ impl<'a> HybridStaticBundler<'a> {
             .unwrap_or_else(|| full_module_path.to_string())
     }
 
-    fn log_unused_imports_details(unused_imports: &[crate::cribo_graph::UnusedImportInfo]) {
+    fn log_unused_imports_details(unused_imports: &[crate::analyzers::types::UnusedImportInfo]) {
         if log::log_enabled!(log::Level::Debug) {
             for unused in unused_imports {
                 log::debug!("  - {} from {}", unused.name, unused.module);
@@ -7144,7 +7148,7 @@ impl<'a> HybridStaticBundler<'a> {
     fn should_remove_import_stmt(
         &self,
         stmt: &Stmt,
-        unused_imports: &[crate::cribo_graph::UnusedImportInfo],
+        unused_imports: &[crate::analyzers::types::UnusedImportInfo],
     ) -> bool {
         match stmt {
             Stmt::Import(import_stmt) => {
@@ -7764,62 +7768,9 @@ impl<'a> HybridStaticBundler<'a> {
         None
     }
 
-    /// Collect variables referenced in statements
+    /// Collect variables referenced in statements (delegated to VariableCollector)
     pub fn collect_referenced_vars(&self, stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
-        for stmt in stmts {
-            self.collect_vars_in_stmt(stmt, vars);
-        }
-    }
-
-    /// Collect variable names referenced in a statement
-    fn collect_vars_in_stmt(&self, stmt: &Stmt, vars: &mut FxIndexSet<String>) {
-        match stmt {
-            Stmt::Expr(expr_stmt) => Self::collect_vars_in_expr(&expr_stmt.value, vars),
-            Stmt::Return(ret) => {
-                if let Some(value) = &ret.value {
-                    Self::collect_vars_in_expr(value, vars);
-                }
-            }
-            Stmt::Assign(assign) => {
-                Self::collect_vars_in_expr(&assign.value, vars);
-            }
-            Stmt::If(if_stmt) => {
-                Self::collect_vars_in_expr(&if_stmt.test, vars);
-                self.collect_referenced_vars(&if_stmt.body, vars);
-                for clause in &if_stmt.elif_else_clauses {
-                    if let Some(condition) = &clause.test {
-                        Self::collect_vars_in_expr(condition, vars);
-                    }
-                    self.collect_referenced_vars(&clause.body, vars);
-                }
-            }
-            Stmt::For(for_stmt) => {
-                Self::collect_vars_in_expr(&for_stmt.iter, vars);
-                self.collect_referenced_vars(&for_stmt.body, vars);
-                self.collect_referenced_vars(&for_stmt.orelse, vars);
-            }
-            Stmt::While(while_stmt) => {
-                Self::collect_vars_in_expr(&while_stmt.test, vars);
-                self.collect_referenced_vars(&while_stmt.body, vars);
-                self.collect_referenced_vars(&while_stmt.orelse, vars);
-            }
-            Stmt::Try(try_stmt) => {
-                self.collect_referenced_vars(&try_stmt.body, vars);
-                for handler in &try_stmt.handlers {
-                    let ExceptHandler::ExceptHandler(eh) = handler;
-                    self.collect_referenced_vars(&eh.body, vars);
-                }
-                self.collect_referenced_vars(&try_stmt.orelse, vars);
-                self.collect_referenced_vars(&try_stmt.finalbody, vars);
-            }
-            Stmt::With(with_stmt) => {
-                for item in &with_stmt.items {
-                    Self::collect_vars_in_expr(&item.context_expr, vars);
-                }
-                self.collect_referenced_vars(&with_stmt.body, vars);
-            }
-            _ => {}
-        }
+        crate::visitors::VariableCollector::collect_referenced_vars(stmts, vars);
     }
 
     /// Process module body recursively to handle conditional imports
@@ -8086,71 +8037,9 @@ impl<'a> HybridStaticBundler<'a> {
         result
     }
 
-    /// Collect variable names referenced in an expression
+    /// Collect variable names referenced in an expression (delegated to VariableCollector)
     fn collect_vars_in_expr(expr: &Expr, vars: &mut FxIndexSet<String>) {
-        match expr {
-            Expr::Name(name) => {
-                vars.insert(name.id.to_string());
-            }
-            Expr::Call(call) => {
-                Self::collect_vars_in_expr(&call.func, vars);
-                for arg in call.arguments.args.iter() {
-                    Self::collect_vars_in_expr(arg, vars);
-                }
-                for keyword in call.arguments.keywords.iter() {
-                    Self::collect_vars_in_expr(&keyword.value, vars);
-                }
-            }
-            Expr::Attribute(attr) => {
-                Self::collect_vars_in_expr(&attr.value, vars);
-            }
-            Expr::BinOp(binop) => {
-                Self::collect_vars_in_expr(&binop.left, vars);
-                Self::collect_vars_in_expr(&binop.right, vars);
-            }
-            Expr::UnaryOp(unaryop) => {
-                Self::collect_vars_in_expr(&unaryop.operand, vars);
-            }
-            Expr::BoolOp(boolop) => {
-                for value in boolop.values.iter() {
-                    Self::collect_vars_in_expr(value, vars);
-                }
-            }
-            Expr::Compare(compare) => {
-                Self::collect_vars_in_expr(&compare.left, vars);
-                for comparator in compare.comparators.iter() {
-                    Self::collect_vars_in_expr(comparator, vars);
-                }
-            }
-            Expr::List(list) => {
-                for elt in list.elts.iter() {
-                    Self::collect_vars_in_expr(elt, vars);
-                }
-            }
-            Expr::Tuple(tuple) => {
-                for elt in tuple.elts.iter() {
-                    Self::collect_vars_in_expr(elt, vars);
-                }
-            }
-            Expr::Dict(dict) => {
-                for item in dict.items.iter() {
-                    if let Some(key) = &item.key {
-                        Self::collect_vars_in_expr(key, vars);
-                    }
-                    Self::collect_vars_in_expr(&item.value, vars);
-                }
-            }
-            Expr::Subscript(sub) => {
-                Self::collect_vars_in_expr(&sub.value, vars);
-                Self::collect_vars_in_expr(&sub.slice, vars);
-            }
-            Expr::If(if_expr) => {
-                Self::collect_vars_in_expr(&if_expr.test, vars);
-                Self::collect_vars_in_expr(&if_expr.body, vars);
-                Self::collect_vars_in_expr(&if_expr.orelse, vars);
-            }
-            _ => {}
-        }
+        crate::visitors::VariableCollector::collect_vars_in_expr(expr, vars);
     }
 
     /// Transform nested functions to use module attributes for module-level variables
@@ -10863,17 +10752,9 @@ impl<'a> HybridStaticBundler<'a> {
         statements.push(for_loop);
     }
 
-    /// Collect global declarations from a function body
+    /// Collect global declarations from a function body (delegated to VariableCollector)
     fn collect_function_globals(&self, body: &[Stmt]) -> FxIndexSet<String> {
-        let mut function_globals = FxIndexSet::default();
-        for stmt in body {
-            if let Stmt::Global(global_stmt) = stmt {
-                for name in &global_stmt.names {
-                    function_globals.insert(name.to_string());
-                }
-            }
-        }
-        function_globals
+        crate::visitors::VariableCollector::collect_function_globals(body)
     }
 
     /// Create initialization statements for lifted globals

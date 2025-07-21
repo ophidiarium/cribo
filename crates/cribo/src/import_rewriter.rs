@@ -65,7 +65,7 @@ impl ImportRewriter {
     pub fn analyze_movable_imports_semantic(
         &mut self,
         graph: &CriboGraph,
-        resolvable_cycles: &[crate::cribo_graph::CircularDependencyGroup],
+        resolvable_cycles: &[crate::analyzers::types::CircularDependencyGroup],
         semantic_bundler: &SemanticBundler,
         module_asts: &[(String, &ModModule)],
     ) -> Result<Vec<MovableImport>> {
@@ -85,7 +85,7 @@ impl ImportRewriter {
             // Only handle function-level cycles
             if !matches!(
                 cycle.cycle_type,
-                crate::cribo_graph::CircularDependencyType::FunctionLevel
+                crate::analyzers::types::CircularDependencyType::FunctionLevel
             ) {
                 continue;
             }

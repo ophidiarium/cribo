@@ -176,6 +176,15 @@ pub struct ImportAnalysis {
     pub unused_imports: FxIndexSet<(String, String)>,
 }
 
+/// Information about an unused import
+#[derive(Debug, Clone)]
+pub struct UnusedImportInfo {
+    /// The imported name that is unused
+    pub name: String,
+    /// The module it was imported from
+    pub module: String,
+}
+
 /// Result of namespace analysis
 #[derive(Debug)]
 pub struct NamespaceAnalysis {
@@ -185,4 +194,43 @@ pub struct NamespaceAnalysis {
     pub namespace_hierarchy: FxIndexMap<String, FxIndexSet<String>>,
     /// Modules that need namespace objects
     pub modules_needing_namespaces: FxIndexSet<String>,
+}
+
+/// Type of circular dependency
+#[derive(Debug, Clone, PartialEq)]
+pub enum CircularDependencyType {
+    /// Can be resolved by moving imports inside functions
+    FunctionLevel,
+    /// May be resolvable depending on usage patterns
+    ClassLevel,
+    /// Unresolvable - temporal paradox
+    ModuleConstants,
+    /// Depends on execution order
+    ImportTime,
+}
+
+/// Resolution strategy for circular dependencies
+#[derive(Debug, Clone)]
+pub enum ResolutionStrategy {
+    LazyImport,
+    FunctionScopedImport,
+    ModuleSplit,
+    Unresolvable { reason: String },
+}
+
+/// A group of modules forming a circular dependency
+#[derive(Debug, Clone)]
+pub struct CircularDependencyGroup {
+    pub modules: Vec<String>,
+    pub cycle_type: CircularDependencyType,
+    pub suggested_resolution: ResolutionStrategy,
+}
+
+/// Comprehensive analysis of circular dependencies
+#[derive(Debug, Clone)]
+pub struct CircularDependencyAnalysis {
+    /// Circular dependencies that can be resolved through code transformations
+    pub resolvable_cycles: Vec<CircularDependencyGroup>,
+    /// Circular dependencies that cannot be resolved
+    pub unresolvable_cycles: Vec<CircularDependencyGroup>,
 }

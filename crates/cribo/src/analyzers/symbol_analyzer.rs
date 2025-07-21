@@ -11,7 +11,7 @@ use crate::{
     code_generator::{circular_deps::SymbolDependencyGraph, context::HardDependency},
     cribo_graph::CriboGraph as DependencyGraph,
     types::{FxIndexMap, FxIndexSet},
-    visitors::{SymbolCollector, VariableCollector},
+    visitors::{ExportCollector, SymbolCollector, VariableCollector},
 };
 
 /// Symbol analyzer for processing collected symbol data
@@ -23,12 +23,18 @@ impl SymbolAnalyzer {
         // Run visitors to collect data
         let symbols = SymbolCollector::analyze(module);
         let variables = VariableCollector::analyze(module);
+        let export_info = ExportCollector::analyze(module);
 
         // Build symbol dependencies (simplified for now)
         let symbol_dependencies = Self::build_symbol_dependencies(&symbols);
 
-        // Extract export information
-        let exports = Self::extract_exports(&symbols);
+        // Use export collector data, falling back to symbol-based detection
+        let exports = if export_info.exported_names.is_some() || !export_info.re_exports.is_empty()
+        {
+            Some(export_info)
+        } else {
+            Self::extract_exports(&symbols)
+        };
 
         SymbolAnalysis {
             symbols,
@@ -284,17 +290,19 @@ impl SymbolAnalyzer {
         deps
     }
 
-    /// Build symbol dependencies from collected symbols
+    /// Build symbol dependencies from collected symbols and variables
     fn build_symbol_dependencies(
         symbols: &CollectedSymbols,
     ) -> FxIndexMap<String, FxIndexSet<String>> {
         let mut dependencies = FxIndexMap::default();
 
-        // For now, return empty dependencies
-        // This will be enhanced when we have the variable collector
+        // Initialize dependencies for all global symbols
         for (name, _) in &symbols.global_symbols {
             dependencies.insert(name.clone(), FxIndexSet::default());
         }
+
+        // TODO: Enhanced dependency analysis will be implemented when we have
+        // the full variable usage tracking integrated with scope analysis
 
         dependencies
     }
