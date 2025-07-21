@@ -15,7 +15,7 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
-    analyzers::{ImportAnalyzer, SymbolAnalyzer},
+    analyzers::{ImportAnalyzer, SymbolAnalyzer, namespace_analyzer::NamespaceAnalyzer},
     code_generator::{
         circular_deps::SymbolDependencyGraph,
         context::{
@@ -2139,91 +2139,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
-    /// Identify required namespaces from module names
-    fn identify_required_namespaces(&mut self, modules: &[(String, ModModule, PathBuf, String)]) {
-        debug!(
-            "Identifying required namespaces from {} modules",
-            modules.len()
-        );
-
-        // Don't clear if we already have namespaces identified
-        // This allows early identification to be preserved
-        if !self.required_namespaces.is_empty() {
-            debug!(
-                "Required namespaces already identified ({}), skipping re-identification",
-                self.required_namespaces.len()
-            );
-            return;
-        }
-
-        // First, collect all module names to check if parent modules exist
-        // Normalize __init__ to the actual package name if present
-        let all_module_names: FxIndexSet<String> = modules
-            .iter()
-            .map(|(name, _, _, _)| {
-                if name == "__init__" {
-                    // Find the actual package name from other modules
-                    // e.g., if we have "requests.compat", the package is "requests"
-                    if let Some((other_name, _, _, _)) =
-                        modules.iter().find(|(n, _, _, _)| n.contains('.'))
-                        && let Some(package_name) = other_name.split('.').next()
-                    {
-                        return package_name.to_string();
-                    }
-                }
-                name.clone()
-            })
-            .collect();
-
-        // Scan all modules to find dotted module names
-        for (module_name, _, _, _) in modules {
-            // Skip __init__ module as it's already handled above
-            if module_name == "__init__" {
-                continue;
-            }
-
-            if !module_name.contains('.') {
-                continue;
-            }
-
-            // Split the module name and identify all parent namespaces
-            let parts: Vec<&str> = module_name.split('.').collect();
-
-            // Add all parent namespace levels
-            for i in 1..parts.len() {
-                let namespace = parts[..i].join(".");
-
-                // We need to create a namespace for ALL parent namespaces, regardless of whether
-                // they are wrapped modules or not. This is because child modules need to be
-                // assigned as attributes on their parent namespaces.
-                debug!("Identified required namespace: {namespace}");
-                self.required_namespaces.insert(namespace);
-            }
-        }
-
-        // IMPORTANT: Also add modules that have submodules as required namespaces
-        // This ensures that parent modules like 'models' and 'services' exist as namespaces
-        // before we try to assign their submodules
-        for module_name in &all_module_names {
-            // Check if this module has any submodules
-            let has_submodules = all_module_names
-                .iter()
-                .any(|m| m != module_name && m.starts_with(&format!("{module_name}.")));
-
-            if has_submodules {
-                // Any module with submodules needs a namespace, regardless of whether it's
-                // a wrapper module or the entry module
-                debug!("Identified module with submodules as required namespace: {module_name}");
-                self.required_namespaces.insert(module_name.clone());
-            }
-        }
-
-        debug!(
-            "Total required namespaces: {}",
-            self.required_namespaces.len()
-        );
-    }
-
     /// Create namespace statements for required namespaces
     fn create_namespace_statements(&mut self) -> Vec<Stmt> {
         let mut statements = Vec::new();
@@ -3683,7 +3598,8 @@ impl<'a> HybridStaticBundler<'a> {
             .iter()
             .map(|(name, ast, path, hash)| (name.clone(), ast.clone(), path.clone(), hash.clone()))
             .collect::<Vec<_>>();
-        self.identify_required_namespaces(&all_modules_for_namespace_detection);
+        self.required_namespaces =
+            NamespaceAnalyzer::identify_required_namespaces(&all_modules_for_namespace_detection);
 
         // If we need to create namespace statements, ensure types import is available
         if !self.required_namespaces.is_empty() {
