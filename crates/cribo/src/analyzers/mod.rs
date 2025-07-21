@@ -10,4 +10,5 @@ pub mod namespace_analyzer;
 pub mod symbol_analyzer;
 pub mod types;
 
+pub use import_analyzer::ImportAnalyzer;
 pub use symbol_analyzer::SymbolAnalyzer;

@@ -38,18 +38,21 @@ impl DependencyAnalyzer {
         // For each wrapper module, find its dependencies on other wrapper modules
         for (module_name, _, _, _) in modules {
             if wrapper_names_set.contains(module_name)
-                && let Some(&module_id) = graph.module_names.get(module_name) {
-                    let dependencies = graph.get_dependencies(module_id);
-                    for dep_id in dependencies {
-                        if let Some(dep_module) = graph.modules.get(&dep_id) {
-                            let dep_name = &dep_module.module_name;
-                            if wrapper_names_set.contains(dep_name) && dep_name != module_name
-                                && let Some(deps) = dependency_map.get_mut(module_name) {
-                                    deps.insert(dep_name.clone());
-                                }
+                && let Some(&module_id) = graph.module_names.get(module_name)
+            {
+                let dependencies = graph.get_dependencies(module_id);
+                for dep_id in dependencies {
+                    if let Some(dep_module) = graph.modules.get(&dep_id) {
+                        let dep_name = &dep_module.module_name;
+                        if wrapper_names_set.contains(dep_name)
+                            && dep_name != module_name
+                            && let Some(deps) = dependency_map.get_mut(module_name)
+                        {
+                            deps.insert(dep_name.clone());
                         }
                     }
                 }
+            }
         }
 
         // Perform topological sort
@@ -89,10 +92,12 @@ impl DependencyAnalyzer {
                 for dep_id in dependencies {
                     if let Some(dep_module) = graph.modules.get(&dep_id) {
                         let dep_name = &dep_module.module_name;
-                        if module_names_set.contains(dep_name) && dep_name != module_name
-                            && let Some(deps) = dependency_map.get_mut(module_name) {
-                                deps.insert(dep_name.clone());
-                            }
+                        if module_names_set.contains(dep_name)
+                            && dep_name != module_name
+                            && let Some(deps) = dependency_map.get_mut(module_name)
+                        {
+                            deps.insert(dep_name.clone());
+                        }
                     }
                 }
             }
