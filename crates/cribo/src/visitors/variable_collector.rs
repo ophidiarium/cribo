@@ -4,7 +4,7 @@
 //! including reads, writes, deletions, and global/nonlocal declarations.
 
 use ruff_python_ast::{
-    ExceptHandler, Expr, ModModule, Stmt,
+    Expr, ModModule, Stmt,
     visitor::{Visitor, walk_expr, walk_stmt},
 };
 use ruff_text_size::TextRange;
@@ -115,69 +115,21 @@ impl VariableCollector {
 
     /// Collect variables in an expression (static helper for compatibility)
     pub fn collect_vars_in_expr(expr: &Expr, vars: &mut FxIndexSet<String>) {
-        match expr {
-            Expr::Name(name) => {
-                vars.insert(name.id.to_string());
-            }
-            Expr::Call(call) => {
-                Self::collect_vars_in_expr(&call.func, vars);
-                for arg in call.arguments.args.iter() {
-                    Self::collect_vars_in_expr(arg, vars);
-                }
-                for keyword in call.arguments.keywords.iter() {
-                    Self::collect_vars_in_expr(&keyword.value, vars);
-                }
-            }
-            Expr::Attribute(attr) => {
-                Self::collect_vars_in_expr(&attr.value, vars);
-            }
-            Expr::BinOp(binop) => {
-                Self::collect_vars_in_expr(&binop.left, vars);
-                Self::collect_vars_in_expr(&binop.right, vars);
-            }
-            Expr::UnaryOp(unaryop) => {
-                Self::collect_vars_in_expr(&unaryop.operand, vars);
-            }
-            Expr::BoolOp(boolop) => {
-                for value in boolop.values.iter() {
-                    Self::collect_vars_in_expr(value, vars);
-                }
-            }
-            Expr::Compare(compare) => {
-                Self::collect_vars_in_expr(&compare.left, vars);
-                for comparator in compare.comparators.iter() {
-                    Self::collect_vars_in_expr(comparator, vars);
-                }
-            }
-            Expr::List(list) => {
-                for elt in list.elts.iter() {
-                    Self::collect_vars_in_expr(elt, vars);
-                }
-            }
-            Expr::Tuple(tuple) => {
-                for elt in tuple.elts.iter() {
-                    Self::collect_vars_in_expr(elt, vars);
-                }
-            }
-            Expr::Dict(dict) => {
-                for item in dict.items.iter() {
-                    if let Some(key) = &item.key {
-                        Self::collect_vars_in_expr(key, vars);
-                    }
-                    Self::collect_vars_in_expr(&item.value, vars);
-                }
-            }
-            Expr::Subscript(sub) => {
-                Self::collect_vars_in_expr(&sub.value, vars);
-                Self::collect_vars_in_expr(&sub.slice, vars);
-            }
-            Expr::If(if_expr) => {
-                Self::collect_vars_in_expr(&if_expr.test, vars);
-                Self::collect_vars_in_expr(&if_expr.body, vars);
-                Self::collect_vars_in_expr(&if_expr.orelse, vars);
-            }
-            _ => {}
+        struct SimpleCollector<'a> {
+            vars: &'a mut FxIndexSet<String>,
         }
+
+        impl<'a> Visitor<'a> for SimpleCollector<'_> {
+            fn visit_expr(&mut self, expr: &'a Expr) {
+                if let Expr::Name(name) = expr {
+                    self.vars.insert(name.id.to_string());
+                }
+                walk_expr(self, expr);
+            }
+        }
+
+        let mut collector = SimpleCollector { vars };
+        collector.visit_expr(expr);
     }
 
     /// Collect global declarations from a function body (static helper)
@@ -195,59 +147,26 @@ impl VariableCollector {
 
     /// Collect variables referenced in statements (static helper for compatibility)
     pub fn collect_referenced_vars(stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
-        for stmt in stmts {
-            Self::collect_vars_in_stmt(stmt, vars);
+        struct SimpleStmtCollector<'a> {
+            vars: &'a mut FxIndexSet<String>,
         }
-    }
 
-    /// Collect variable names referenced in a statement (static helper)
-    fn collect_vars_in_stmt(stmt: &Stmt, vars: &mut FxIndexSet<String>) {
-        match stmt {
-            Stmt::Expr(expr_stmt) => Self::collect_vars_in_expr(&expr_stmt.value, vars),
-            Stmt::Return(ret) => {
-                if let Some(value) = &ret.value {
-                    Self::collect_vars_in_expr(value, vars);
+        impl<'a> Visitor<'a> for SimpleStmtCollector<'_> {
+            fn visit_stmt(&mut self, stmt: &'a Stmt) {
+                walk_stmt(self, stmt);
+            }
+
+            fn visit_expr(&mut self, expr: &'a Expr) {
+                if let Expr::Name(name) = expr {
+                    self.vars.insert(name.id.to_string());
                 }
+                walk_expr(self, expr);
             }
-            Stmt::Assign(assign) => {
-                Self::collect_vars_in_expr(&assign.value, vars);
-            }
-            Stmt::If(if_stmt) => {
-                Self::collect_vars_in_expr(&if_stmt.test, vars);
-                Self::collect_referenced_vars(&if_stmt.body, vars);
-                for clause in &if_stmt.elif_else_clauses {
-                    if let Some(condition) = &clause.test {
-                        Self::collect_vars_in_expr(condition, vars);
-                    }
-                    Self::collect_referenced_vars(&clause.body, vars);
-                }
-            }
-            Stmt::For(for_stmt) => {
-                Self::collect_vars_in_expr(&for_stmt.iter, vars);
-                Self::collect_referenced_vars(&for_stmt.body, vars);
-                Self::collect_referenced_vars(&for_stmt.orelse, vars);
-            }
-            Stmt::While(while_stmt) => {
-                Self::collect_vars_in_expr(&while_stmt.test, vars);
-                Self::collect_referenced_vars(&while_stmt.body, vars);
-                Self::collect_referenced_vars(&while_stmt.orelse, vars);
-            }
-            Stmt::Try(try_stmt) => {
-                Self::collect_referenced_vars(&try_stmt.body, vars);
-                for handler in &try_stmt.handlers {
-                    let ExceptHandler::ExceptHandler(eh) = handler;
-                    Self::collect_referenced_vars(&eh.body, vars);
-                }
-                Self::collect_referenced_vars(&try_stmt.orelse, vars);
-                Self::collect_referenced_vars(&try_stmt.finalbody, vars);
-            }
-            Stmt::With(with_stmt) => {
-                for item in &with_stmt.items {
-                    Self::collect_vars_in_expr(&item.context_expr, vars);
-                }
-                Self::collect_referenced_vars(&with_stmt.body, vars);
-            }
-            _ => {}
+        }
+
+        let mut collector = SimpleStmtCollector { vars };
+        for stmt in stmts {
+            collector.visit_stmt(stmt);
         }
     }
 }
