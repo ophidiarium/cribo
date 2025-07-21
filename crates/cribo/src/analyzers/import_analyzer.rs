@@ -250,6 +250,130 @@ impl ImportAnalyzer {
                     );
                 }
             }
+            // Handle other compound statements
+            Stmt::If(if_stmt) => {
+                // Check body
+                for stmt in &if_stmt.body {
+                    Self::collect_namespace_imports(
+                        stmt,
+                        modules,
+                        importing_module,
+                        namespace_imported_modules,
+                    );
+                }
+                // Check elif/else clauses
+                for clause in &if_stmt.elif_else_clauses {
+                    for stmt in &clause.body {
+                        Self::collect_namespace_imports(
+                            stmt,
+                            modules,
+                            importing_module,
+                            namespace_imported_modules,
+                        );
+                    }
+                }
+            }
+            Stmt::While(while_stmt) => {
+                for stmt in &while_stmt.body {
+                    Self::collect_namespace_imports(
+                        stmt,
+                        modules,
+                        importing_module,
+                        namespace_imported_modules,
+                    );
+                }
+                // Also check else clause
+                for stmt in &while_stmt.orelse {
+                    Self::collect_namespace_imports(
+                        stmt,
+                        modules,
+                        importing_module,
+                        namespace_imported_modules,
+                    );
+                }
+            }
+            Stmt::For(for_stmt) => {
+                for stmt in &for_stmt.body {
+                    Self::collect_namespace_imports(
+                        stmt,
+                        modules,
+                        importing_module,
+                        namespace_imported_modules,
+                    );
+                }
+                // Also check else clause
+                for stmt in &for_stmt.orelse {
+                    Self::collect_namespace_imports(
+                        stmt,
+                        modules,
+                        importing_module,
+                        namespace_imported_modules,
+                    );
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                // Check try body
+                for stmt in &try_stmt.body {
+                    Self::collect_namespace_imports(
+                        stmt,
+                        modules,
+                        importing_module,
+                        namespace_imported_modules,
+                    );
+                }
+                // Check except handlers
+                for handler in &try_stmt.handlers {
+                    let ruff_python_ast::ExceptHandler::ExceptHandler(except_handler) = handler;
+                    for stmt in &except_handler.body {
+                        Self::collect_namespace_imports(
+                            stmt,
+                            modules,
+                            importing_module,
+                            namespace_imported_modules,
+                        );
+                    }
+                }
+                // Check else clause
+                for stmt in &try_stmt.orelse {
+                    Self::collect_namespace_imports(
+                        stmt,
+                        modules,
+                        importing_module,
+                        namespace_imported_modules,
+                    );
+                }
+                // Check finally clause
+                for stmt in &try_stmt.finalbody {
+                    Self::collect_namespace_imports(
+                        stmt,
+                        modules,
+                        importing_module,
+                        namespace_imported_modules,
+                    );
+                }
+            }
+            Stmt::With(with_stmt) => {
+                for stmt in &with_stmt.body {
+                    Self::collect_namespace_imports(
+                        stmt,
+                        modules,
+                        importing_module,
+                        namespace_imported_modules,
+                    );
+                }
+            }
+            Stmt::Match(match_stmt) => {
+                for case in &match_stmt.cases {
+                    for stmt in &case.body {
+                        Self::collect_namespace_imports(
+                            stmt,
+                            modules,
+                            importing_module,
+                            namespace_imported_modules,
+                        );
+                    }
+                }
+            }
             _ => {}
         }
     }
