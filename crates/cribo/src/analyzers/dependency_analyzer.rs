@@ -15,6 +15,19 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
+/// Result of analyzing modules in a circular dependency cycle
+#[derive(Debug)]
+struct CycleAnalysisResult {
+    /// Whether the modules contain only constants (no functions or classes)
+    has_only_constants: bool,
+    /// Whether any module contains class definitions
+    has_class_definitions: bool,
+    /// Whether there are module-level imports
+    has_module_level_imports: bool,
+    /// Whether imports are only used within functions
+    imports_used_in_functions_only: bool,
+}
+
 /// Dependency analyzer for module and symbol dependencies
 pub struct DependencyAnalyzer;
 
@@ -263,7 +276,7 @@ impl DependencyAnalyzer {
         let analysis_result = Self::analyze_cycle_modules(graph, module_names);
 
         // Use AST analysis results for classification
-        if analysis_result.0 // has_only_constants
+        if analysis_result.has_only_constants
             && !module_names.iter().any(|name| name.ends_with("__init__"))
         {
             // Modules that only contain constants create unresolvable cycles
@@ -271,12 +284,10 @@ impl DependencyAnalyzer {
             return CircularDependencyType::ModuleConstants;
         }
 
-        if analysis_result.1 {
-            // has_class_definitions
+        if analysis_result.has_class_definitions {
             // Check if the circular imports are used for inheritance
             // If all imports in the cycle are only used in functions, it's still FunctionLevel
-            if analysis_result.3 {
-                // imports_used_in_functions_only
+            if analysis_result.imports_used_in_functions_only {
                 return CircularDependencyType::FunctionLevel;
             }
             // Otherwise, it's a true class-level cycle
@@ -294,10 +305,9 @@ impl DependencyAnalyzer {
         }
 
         // Default classification based on remaining heuristics
-        if analysis_result.3 {
-            // imports_used_in_functions_only
+        if analysis_result.imports_used_in_functions_only {
             CircularDependencyType::FunctionLevel
-        } else if analysis_result.2 // has_module_level_imports
+        } else if analysis_result.has_module_level_imports
             || module_names.iter().any(|name| name.contains("__init__"))
         {
             CircularDependencyType::ImportTime
@@ -307,12 +317,11 @@ impl DependencyAnalyzer {
     }
 
     /// Analyze modules in a cycle to determine their characteristics
-    /// Returns (has_only_constants, has_class_definitions, has_module_level_imports,
-    /// imports_used_in_functions_only)
+    /// Returns a `CycleAnalysisResult` containing the analysis of the modules in the cycle.
     fn analyze_cycle_modules(
         graph: &DependencyGraph,
         module_names: &[String],
-    ) -> (bool, bool, bool, bool) {
+    ) -> CycleAnalysisResult {
         let mut has_only_constants = true;
         let mut has_class_definitions = false;
         let mut has_module_level_imports = false;
@@ -345,12 +354,12 @@ impl DependencyAnalyzer {
             }
         }
 
-        (
+        CycleAnalysisResult {
             has_only_constants,
             has_class_definitions,
             has_module_level_imports,
             imports_used_in_functions_only,
-        )
+        }
     }
 
     /// Check if all modules in the cycle are empty or contain only imports
