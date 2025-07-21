@@ -139,35 +139,6 @@ impl ExportCollector {
             }
         }
     }
-
-    /// Extract string list from expression (static helper for compatibility)
-    pub fn extract_string_list_from_expr(expr: &Expr) -> Option<Vec<String>> {
-        match expr {
-            Expr::List(list) => {
-                let mut names = Vec::new();
-                for item in &list.elts {
-                    if let Some(name) = Self::extract_string_from_expr(item) {
-                        names.push(name);
-                    } else {
-                        return None;
-                    }
-                }
-                Some(names)
-            }
-            Expr::Tuple(tuple) => {
-                let mut names = Vec::new();
-                for item in &tuple.elts {
-                    if let Some(name) = Self::extract_string_from_expr(item) {
-                        names.push(name);
-                    } else {
-                        return None;
-                    }
-                }
-                Some(names)
-            }
-            _ => None,
-        }
-    }
 }
 
 impl<'a> Visitor<'a> for ExportCollector {
