@@ -268,7 +268,7 @@ impl ImportAnalyzer {
     fn collect_direct_imports_recursive(
         body: &[Stmt],
         current_module: &str,
-        module_path: &std::path::Path,
+        _module_path: &std::path::Path,
         module_names: &FxIndexSet<&str>,
         directly_imported: &mut FxIndexSet<String>,
     ) {
@@ -290,7 +290,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &func_def.body,
                         current_module,
-                        module_path,
+                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -300,7 +300,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &class_def.body,
                         current_module,
-                        module_path,
+                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -310,7 +310,7 @@ impl ImportAnalyzer {
                     Self::collect_direct_imports_recursive(
                         &if_stmt.body,
                         current_module,
-                        module_path,
+                        _module_path,
                         module_names,
                         directly_imported,
                     );
@@ -318,7 +318,7 @@ impl ImportAnalyzer {
                         Self::collect_direct_imports_recursive(
                             &clause.body,
                             current_module,
-                            module_path,
+                            _module_path,
                             module_names,
                             directly_imported,
                         );
@@ -541,14 +541,14 @@ import module_b as mb
 def func():
     import module_c
 "#;
-        let parsed1 = parse_module(code1).unwrap();
+        let parsed1 = parse_module(code1).expect("Test code should parse successfully");
         let ast1 = parsed1.into_syntax();
 
         let code2 = r#"
 def other_func():
     pass
 "#;
-        let parsed2 = parse_module(code2).unwrap();
+        let parsed2 = parse_module(code2).expect("Test code should parse successfully");
         let ast2 = parsed2.into_syntax();
 
         let modules = vec![
@@ -593,11 +593,11 @@ def other_func():
 from pkg import module_a
 from pkg.sub import module_b
 "#;
-        let parsed1 = parse_module(code1).unwrap();
+        let parsed1 = parse_module(code1).expect("Test code should parse successfully");
         let ast1 = parsed1.into_syntax();
 
         let code2 = r#"pass"#;
-        let parsed2 = parse_module(code2).unwrap();
+        let parsed2 = parse_module(code2).expect("Test code should parse successfully");
         let ast2 = parsed2.into_syntax();
 
         let modules = vec![
@@ -627,13 +627,13 @@ from pkg.sub import module_b
         assert!(
             namespace_imported
                 .get("pkg.module_a")
-                .unwrap()
+                .expect("pkg.module_a should be in namespace_imported")
                 .contains("test_module")
         );
         assert!(
             namespace_imported
                 .get("pkg.sub.module_b")
-                .unwrap()
+                .expect("pkg.sub.module_b should be in namespace_imported")
                 .contains("test_module")
         );
     }

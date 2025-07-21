@@ -433,15 +433,28 @@ mod tests {
         );
         deps.insert("d".to_string(), FxIndexSet::default());
 
-        let result = DependencyAnalyzer::topological_sort(&deps).unwrap();
+        let result = DependencyAnalyzer::topological_sort(&deps)
+            .expect("Topological sort should succeed for DAG");
 
         // In our topological sort, if a depends on b,c and b,c depend on d,
         // then the order is: a (no incoming edges), then b,c, then d
         // This is because we're processing nodes that have no incoming dependencies first
-        let a_pos = result.iter().position(|x| x == "a").unwrap();
-        let b_pos = result.iter().position(|x| x == "b").unwrap();
-        let c_pos = result.iter().position(|x| x == "c").unwrap();
-        let d_pos = result.iter().position(|x| x == "d").unwrap();
+        let a_pos = result
+            .iter()
+            .position(|x| x == "a")
+            .expect("Module 'a' should be in the result");
+        let b_pos = result
+            .iter()
+            .position(|x| x == "b")
+            .expect("Module 'b' should be in the result");
+        let c_pos = result
+            .iter()
+            .position(|x| x == "c")
+            .expect("Module 'c' should be in the result");
+        let d_pos = result
+            .iter()
+            .position(|x| x == "d")
+            .expect("Module 'd' should be in the result");
 
         // a should come first (no incoming edges)
         assert!(a_pos < b_pos);

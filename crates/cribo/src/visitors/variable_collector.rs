@@ -288,7 +288,7 @@ x = 1
 y = x + 2
 print(y)
 "#;
-        let parsed = parse_module(code).unwrap();
+        let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let collected = VariableCollector::analyze(&module);
 
@@ -313,12 +313,15 @@ def foo():
     x = 1
     y = 2
 "#;
-        let parsed = parse_module(code).unwrap();
+        let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let collected = VariableCollector::analyze(&module);
 
         // Check function globals
-        let foo_globals = collected.function_globals.get("foo").unwrap();
+        let foo_globals = collected
+            .function_globals
+            .get("foo")
+            .expect("Function 'foo' should exist in function_globals");
         assert!(foo_globals.contains("x"));
         assert!(foo_globals.contains("y"));
 
@@ -337,7 +340,7 @@ def foo():
 x = 1
 x += 2
 "#;
-        let parsed = parse_module(code).unwrap();
+        let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let collected = VariableCollector::analyze(&module);
 
@@ -351,7 +354,7 @@ x += 2
 x = 1
 del x
 "#;
-        let parsed = parse_module(code).unwrap();
+        let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let collected = VariableCollector::analyze(&module);
 
@@ -359,7 +362,7 @@ del x
             .usages
             .iter()
             .find(|u| matches!(u.usage_type, UsageType::Delete))
-            .unwrap();
+            .expect("Delete usage should exist in collected usages");
         assert_eq!(delete_usage.name, "x");
     }
 
@@ -370,7 +373,7 @@ def foo():
     global x, y
     x = 1
 "#;
-        let parsed = parse_module(code).unwrap();
+        let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
 
         if let Stmt::FunctionDef(func) = &module.body[0] {

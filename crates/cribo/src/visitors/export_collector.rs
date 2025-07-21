@@ -195,7 +195,7 @@ def baz():
 def _private():
     pass
 "#;
-        let parsed = parse_module(code).unwrap();
+        let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let export_info = ExportCollector::analyze(&module);
 
@@ -217,7 +217,7 @@ __all__ = []
 __all__.append("foo")
 __all__ += ["bar"]
 "#;
-        let parsed = parse_module(code).unwrap();
+        let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let export_info = ExportCollector::analyze(&module);
 
@@ -231,7 +231,7 @@ from .submodule import foo, bar as baz
 from . import module
 from ..parent import *
 "#;
-        let parsed = parse_module(code).unwrap();
+        let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let export_info = ExportCollector::analyze(&module);
 
@@ -259,7 +259,7 @@ from ..parent import *
         let code = r#"
 __all__ = ("foo", "bar")
 "#;
-        let parsed = parse_module(code).unwrap();
+        let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let export_info = ExportCollector::analyze(&module);
 
