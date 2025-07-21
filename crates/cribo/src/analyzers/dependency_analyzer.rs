@@ -25,6 +25,9 @@ impl DependencyAnalyzer {
         modules: &[(String, ModModule, std::path::PathBuf, String)],
         graph: &DependencyGraph,
     ) -> Vec<String> {
+        // Convert wrapper_names to a set for O(1) lookups
+        let wrapper_names_set: FxIndexSet<String> = wrapper_names.iter().cloned().collect();
+
         // Build a dependency map for wrapper modules
         let mut dependency_map: FxIndexMap<String, FxIndexSet<String>> = FxIndexMap::default();
 
@@ -34,18 +37,16 @@ impl DependencyAnalyzer {
 
         // For each wrapper module, find its dependencies on other wrapper modules
         for (module_name, _, _, _) in modules {
-            if wrapper_names.contains(module_name)
+            if wrapper_names_set.contains(module_name)
                 && let Some(&module_id) = graph.module_names.get(module_name) {
                     let dependencies = graph.get_dependencies(module_id);
                     for dep_id in dependencies {
                         if let Some(dep_module) = graph.modules.get(&dep_id) {
                             let dep_name = &dep_module.module_name;
-                            if wrapper_names.contains(dep_name) && dep_name != module_name {
-                                dependency_map
-                                    .get_mut(module_name)
-                                    .unwrap()
-                                    .insert(dep_name.clone());
-                            }
+                            if wrapper_names_set.contains(dep_name) && dep_name != module_name
+                                && let Some(deps) = dependency_map.get_mut(module_name) {
+                                    deps.insert(dep_name.clone());
+                                }
                         }
                     }
                 }
@@ -70,6 +71,9 @@ impl DependencyAnalyzer {
         module_names: Vec<String>,
         graph: &DependencyGraph,
     ) -> Vec<String> {
+        // Convert module_names to a set for O(1) lookups
+        let module_names_set: FxIndexSet<String> = module_names.iter().cloned().collect();
+
         // Build a dependency map for the modules
         let mut dependency_map: FxIndexMap<String, FxIndexSet<String>> = FxIndexMap::default();
 
@@ -85,12 +89,10 @@ impl DependencyAnalyzer {
                 for dep_id in dependencies {
                     if let Some(dep_module) = graph.modules.get(&dep_id) {
                         let dep_name = &dep_module.module_name;
-                        if module_names.contains(dep_name) && dep_name != module_name {
-                            dependency_map
-                                .get_mut(module_name)
-                                .unwrap()
-                                .insert(dep_name.clone());
-                        }
+                        if module_names_set.contains(dep_name) && dep_name != module_name
+                            && let Some(deps) = dependency_map.get_mut(module_name) {
+                                deps.insert(dep_name.clone());
+                            }
                     }
                 }
             }
