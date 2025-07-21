@@ -2429,144 +2429,37 @@ impl<'a> HybridStaticBundler<'a> {
         wrapper_modules: &[(String, ModModule, PathBuf, String)],
         graph: &DependencyGraph,
     ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
-        use petgraph::{
-            algo::toposort,
-            graph::{DiGraph, NodeIndex},
-        };
-        use rustc_hash::{FxHashMap, FxHashSet};
+        use crate::analyzers::dependency_analyzer::DependencyAnalyzer;
 
-        // Build a directed graph of wrapper module dependencies
-        let mut module_graph = DiGraph::new();
-        let mut node_map: FxHashMap<String, NodeIndex> = FxHashMap::default();
-
-        // Create a set for quick lookup
-        let wrapper_module_names: FxHashSet<String> = wrapper_modules
+        // Extract module names
+        let wrapper_names: Vec<String> = wrapper_modules
             .iter()
             .map(|(name, _, _, _)| name.clone())
             .collect();
 
-        // Add nodes for all wrapper modules
-        for (module_name, _, _, _) in wrapper_modules {
-            let node = module_graph.add_node(module_name.clone());
-            node_map.insert(module_name.clone(), node);
-        }
+        // Get all modules for the analyzer (wrapper modules are a subset)
+        let all_modules = wrapper_modules;
 
-        // Add edges based on module dependencies
-        for (module_name, _, _, _) in wrapper_modules {
-            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
-                // Check all items in this module for dependencies
-                for item_data in module_dep_graph.items.values() {
-                    // Look at both immediate reads (module-level) and eventual reads
-                    let all_deps = item_data
-                        .read_vars
-                        .iter()
-                        .chain(item_data.eventual_read_vars.iter());
+        // Use DependencyAnalyzer to sort
+        let sorted_names = DependencyAnalyzer::sort_wrapper_modules_by_dependencies(
+            wrapper_names,
+            all_modules,
+            graph,
+        );
 
-                    for dep_var in all_deps {
-                        // Find which module this dependency comes from
-                        if let Some(dep_module) = SymbolAnalyzer::find_symbol_module(
-                            dep_var,
-                            module_name,
-                            graph,
-                            &self.circular_modules,
-                        ) {
-                            // Only add edge if the dependency is also a wrapper module
-                            if wrapper_module_names.contains(&dep_module)
-                                && dep_module != *module_name
-                                && let (Some(&from_node), Some(&to_node)) =
-                                    (node_map.get(module_name), node_map.get(&dep_module))
-                            {
-                                // Edge from current module to its dependency
-                                module_graph.add_edge(from_node, to_node, ());
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // Create a map for quick lookup
+        let module_map: FxIndexMap<String, (String, ModModule, PathBuf, String)> = wrapper_modules
+            .iter()
+            .map(|m| (m.0.clone(), m.clone()))
+            .collect();
 
-        // Perform topological sort
-        match toposort(&module_graph, None) {
-            Ok(sorted_nodes) => {
-                // Create a map for quick lookup
-                let module_map: FxHashMap<String, (String, ModModule, PathBuf, String)> =
-                    wrapper_modules
-                        .iter()
-                        .map(|m| (m.0.clone(), m.clone()))
-                        .collect();
+        // Map sorted names back to full modules
+        let sorted_modules = sorted_names
+            .into_iter()
+            .filter_map(|module_name| module_map.get(&module_name).cloned())
+            .collect();
 
-                // Return modules in reverse topological order (dependencies first)
-                let sorted_module_names: Vec<String> = sorted_nodes
-                    .iter()
-                    .rev()
-                    .map(|&idx| module_graph[idx].clone())
-                    .collect();
-
-                log::debug!("Sorted wrapper modules by dependencies: {sorted_module_names:?}");
-
-                let sorted_modules = sorted_module_names
-                    .into_iter()
-                    .filter_map(|module_name| module_map.get(&module_name).cloned())
-                    .collect();
-
-                Ok(sorted_modules)
-            }
-            Err(cycle) => {
-                // If there's a true initialization cycle and we're using module cache,
-                // return modules in alphabetical order within the cycle
-                if self.use_module_cache {
-                    log::warn!(
-                        "Module-level initialization cycle detected involving module '{}'. Using \
-                         module cache approach with alphabetical ordering.",
-                        &module_graph[cycle.node_id()]
-                    );
-
-                    // Find all modules in the cycle using Tarjan's algorithm
-                    let sccs = petgraph::algo::tarjan_scc(&module_graph);
-                    let mut cyclic_modules = FxHashSet::default();
-
-                    for scc in sccs {
-                        if scc.len() > 1 {
-                            // This is a cycle
-                            for &node_idx in &scc {
-                                cyclic_modules.insert(module_graph[node_idx].clone());
-                            }
-                        }
-                    }
-
-                    log::warn!("Modules in cycle: {cyclic_modules:?}");
-
-                    // Sort all modules alphabetically
-                    let mut sorted_names: Vec<String> = wrapper_modules
-                        .iter()
-                        .map(|(name, _, _, _)| name.clone())
-                        .collect();
-                    sorted_names.sort();
-
-                    let module_map: FxHashMap<String, (String, ModModule, PathBuf, String)> =
-                        wrapper_modules
-                            .iter()
-                            .map(|m| (m.0.clone(), m.clone()))
-                            .collect();
-
-                    let sorted_modules = sorted_names
-                        .into_iter()
-                        .filter_map(|module_name| module_map.get(&module_name).cloned())
-                        .collect();
-
-                    Ok(sorted_modules)
-                } else {
-                    // Original error for non-module-cache approach
-                    let node_in_cycle = &module_graph[cycle.node_id()];
-                    anyhow::bail!(
-                        "Module-level initialization cycle detected involving module '{}'. This \
-                         occurs when modules have mutually dependent top-level code that cannot \
-                         be resolved. Consider refactoring to break the initialization cycle.",
-                        node_in_cycle
-                    )
-                }
-            }
-        }
+        Ok(sorted_modules)
     }
 
     /// Process wrapper module globals (matching original implementation)
@@ -3058,140 +2951,16 @@ impl<'a> HybridStaticBundler<'a> {
     fn sort_wrapped_modules_by_dependencies(
         &self,
         wrapped_modules: &[String],
-        all_modules: &[(String, PathBuf, Vec<String>)],
+        _all_modules: &[(String, PathBuf, Vec<String>)],
+        graph: &DependencyGraph,
     ) -> Vec<String> {
-        // Build a dependency map for wrapped modules only
-        let mut deps_map: FxIndexMap<String, Vec<String>> = FxIndexMap::default();
+        use crate::analyzers::dependency_analyzer::DependencyAnalyzer;
 
-        for module_name in wrapped_modules {
-            deps_map.insert(module_name.clone(), Vec::new());
+        // Convert wrapped_modules slice to Vec for DependencyAnalyzer
+        let module_names: Vec<String> = wrapped_modules.to_vec();
 
-            // Add parent modules as dependencies to ensure they're initialized first
-            // For example, "models.base" depends on "models"
-            // because Python always initializes parent packages before submodules
-            // UNLESS the parent imports from this child
-            for other_module in wrapped_modules {
-                if other_module != module_name
-                    && module_name.starts_with(other_module)
-                    && module_name[other_module.len()..].starts_with('.')
-                {
-                    // module_name is a child of other_module
-                    // Check if the parent imports from this child
-                    let parent_imports_child = if let Some((_, _, parent_deps)) =
-                        all_modules.iter().find(|(name, _, _)| name == other_module)
-                    {
-                        // Dependencies might be stored as relative imports
-                        // e.g., ".connection" for "core.database.connection"
-                        let relative_name = if module_name.starts_with(&format!("{other_module}."))
-                        {
-                            format!(".{}", &module_name[other_module.len() + 1..])
-                        } else {
-                            module_name.to_string()
-                        };
-
-                        let imports_child = parent_deps.contains(module_name)
-                            || parent_deps.contains(&relative_name);
-                        if imports_child {
-                            debug!(
-                                "    Found: parent {other_module} has dependency on child \
-                                 {module_name}"
-                            );
-                        }
-                        imports_child
-                    } else {
-                        debug!("    No dependency info found for parent {other_module}");
-                        false
-                    };
-
-                    if parent_imports_child {
-                        // Parent imports from child, so parent depends on child
-                        debug!(
-                            "  - Parent {other_module} imports from child {module_name}, \
-                             reversing dependency"
-                        );
-                        if let Some(parent_deps) = deps_map.get_mut(other_module)
-                            && !parent_deps.contains(module_name)
-                        {
-                            parent_deps.push(module_name.clone());
-                        }
-                    } else {
-                        // Normal case: child depends on parent
-                        debug!("  - {module_name} depends on parent module {other_module}");
-                        if let Some(module_deps) = deps_map.get_mut(module_name)
-                            && !module_deps.contains(other_module)
-                        {
-                            module_deps.push(other_module.clone());
-                        }
-                    }
-                }
-            }
-
-            // Find this module's dependencies from all_modules
-            if let Some((_, _, deps)) = all_modules.iter().find(|(name, _, _)| name == module_name)
-            {
-                debug!("Module {module_name} has dependencies: {deps:?}");
-                for dep in deps {
-                    // Check if this dependency or any of its submodules are wrapped
-                    for wrapped in wrapped_modules {
-                        // Check exact match or if wrapped module is a submodule of dep
-                        if wrapped == dep
-                            || (wrapped.starts_with(dep) && wrapped[dep.len()..].starts_with('.'))
-                        {
-                            debug!("  - {module_name} depends on wrapped module {wrapped}");
-                            if let Some(module_deps) = deps_map.get_mut(module_name)
-                                && !module_deps.contains(wrapped)
-                            {
-                                module_deps.push(wrapped.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        debug!("Dependency map for wrapped modules: {deps_map:?}");
-
-        // Perform a simple topological sort on wrapped modules
-        let mut sorted = Vec::new();
-        let mut visited = FxIndexSet::default();
-        let mut visiting = FxIndexSet::default();
-
-        fn visit(
-            module: &str,
-            deps_map: &FxIndexMap<String, Vec<String>>,
-            visited: &mut FxIndexSet<String>,
-            visiting: &mut FxIndexSet<String>,
-            sorted: &mut Vec<String>,
-        ) -> bool {
-            if visited.contains(module) {
-                return true;
-            }
-            if visiting.contains(module) {
-                // Circular dependency among wrapped modules
-                return false;
-            }
-
-            visiting.insert(module.to_string());
-
-            if let Some(deps) = deps_map.get(module) {
-                for dep in deps {
-                    if !visit(dep, deps_map, visited, visiting, sorted) {
-                        return false;
-                    }
-                }
-            }
-
-            visiting.shift_remove(module);
-            visited.insert(module.to_string());
-            sorted.push(module.to_string());
-            true
-        }
-
-        for module in wrapped_modules {
-            visit(module, &deps_map, &mut visited, &mut visiting, &mut sorted);
-        }
-
-        sorted
+        // Use DependencyAnalyzer to sort
+        DependencyAnalyzer::sort_wrapped_modules_by_dependencies(module_names, graph)
     }
 
     /// Get imports from entry module
@@ -5297,6 +5066,7 @@ impl<'a> HybridStaticBundler<'a> {
             let sorted_wrapped = self.sort_wrapped_modules_by_dependencies(
                 &wrapped_modules_to_init,
                 params.sorted_modules,
+                params.graph,
             );
             debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
 

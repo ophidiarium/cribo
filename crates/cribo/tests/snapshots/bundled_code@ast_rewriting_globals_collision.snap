@@ -325,13 +325,13 @@ def __cribo_init___cribo_df9c8d_core_database_connection():
         return conn
     module.create_connection = create_connection
     return module
-__cribo_init___cribo_b2dda7_services()
+__cribo_init___cribo_0ecebd_services_auth_manager()
 __cribo_init___cribo_0a162a_models_base()
 __cribo_init___cribo_df9c8d_core_database_connection()
-__cribo_init___cribo_0ecebd_services_auth_manager()
 __cribo_init___cribo_1f9e6c_models_user()
 __cribo_init___cribo_84bf42_services_auth()
 __cribo_init___cribo_293a98_models()
+__cribo_init___cribo_b2dda7_services()
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\nWITHOUT circular dependencies\n"""
 core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
 db_process = core.database.connection.process

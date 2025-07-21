@@ -59,55 +59,43 @@ _cribo_models__base_model = None
 _cribo_core__initialized = None
 _cribo_core__config = None
 @functools.cache
-def __cribo_init___cribo_563ea2_models():
+def __cribo_init___cribo_782908_core_database():
     module = types.SimpleNamespace()
-    module.__name__ = 'models'
-    """Models package with conditional imports and circular dependency handling."""
-    _VERSION = "1.0.0"
-    module._VERSION = _VERSION
+    module.__name__ = 'core.database'
+    """Database subpackage with import-time initialization and re-exports."""
+    _registered_types = []
+    module._registered_types = _registered_types
 
-    def get_model_version():
-        """Get the models package version."""
-        return module._VERSION
-    module.get_model_version = get_model_version
-    if sys.version_info >= (3, 9):
-        from typing import TypeAlias
-        module.TypeAlias = TypeAlias
-        ModelID: TypeAlias = str
-    else:
-        ModelID = str
-        module.ModelID = ModelID
-    _base_model = None
+    def _register_type(type_name):
+        """Internal function to register database types."""
+        module._registered_types.append(type_name)
+        return type_name
+    _register_type("connection")
+    _register_type("cursor")
 
-    def get_base_model():
-        """Lazy import of BaseModel to avoid circular imports."""
-        global _cribo_models__base_model
-        if _cribo_models__base_model is None:
-            _cribo_models__base_model = BaseModel
-        return _cribo_models__base_model
-    module.get_base_model = get_base_model
-    DEFAULT_MODEL_CONFIG = {"version": _VERSION, "features": ["user_processing", "lazy_loading"]}
-    module.DEFAULT_MODEL_CONFIG = DEFAULT_MODEL_CONFIG
-    try:
-        from models.advanced import AdvancedModel
-        module.AdvancedModel = AdvancedModel
-        HAS_ADVANCED = True
-        module.HAS_ADVANCED = HAS_ADVANCED
-        DEFAULT_MODEL_CONFIG["features"].append("advanced_model")
-    except ImportError:
-        HAS_ADVANCED = False
-        module.HAS_ADVANCED = HAS_ADVANCED
-        AdvancedModel = None
-        module.AdvancedModel = AdvancedModel
-    if HAS_ADVANCED:
-        __all__.append("AdvancedModel")
-    global _cribo_models__base_model
-    _cribo_models__base_model = _base_model
-    user = types.SimpleNamespace()
-    user.process_user = process_user
-    base = types.SimpleNamespace()
-    base.BaseModel = BaseModel
-    module.process_user = process_user
+    def validate_db_name(name: str) -> bool:
+        """Validate database name with additional rules."""
+        if not validate(name):
+            return False
+        return not any(char in name for char in ["/", "\\", ":"])
+    module.validate_db_name = validate_db_name
+    core.database.connection = __cribo_init___cribo_1f0c3d_core_database_connection()
+    connect = core.database.connection.connect
+    module.connect = connect
+    get_connection_info = core.database.connection.get_connection_info
+    module.get_connection_info = get_connection_info
+
+    def safe_connect(database_name: str) -> str:
+        """Connect only if core is initialized."""
+        __cribo_init_result = __cribo_init___cribo_f00e4b_core()
+        for attr in dir(__cribo_init_result):
+            if not attr.startswith('_'):
+                setattr(core, attr, getattr(__cribo_init_result, attr))
+        is_initialized = core.is_initialized
+        if not is_initialized():
+            raise RuntimeError("Core package must be initialized before connecting")
+        return connect(database_name)
+    module.safe_connect = safe_connect
     return module
 @functools.cache
 def __cribo_init___cribo_1f0c3d_core_database_connection():
@@ -157,43 +145,55 @@ def __cribo_init___cribo_1f0c3d_core_database_connection():
     module.get_connection_info = get_connection_info
     return module
 @functools.cache
-def __cribo_init___cribo_782908_core_database():
+def __cribo_init___cribo_563ea2_models():
     module = types.SimpleNamespace()
-    module.__name__ = 'core.database'
-    """Database subpackage with import-time initialization and re-exports."""
-    _registered_types = []
-    module._registered_types = _registered_types
+    module.__name__ = 'models'
+    """Models package with conditional imports and circular dependency handling."""
+    _VERSION = "1.0.0"
+    module._VERSION = _VERSION
 
-    def _register_type(type_name):
-        """Internal function to register database types."""
-        module._registered_types.append(type_name)
-        return type_name
-    _register_type("connection")
-    _register_type("cursor")
+    def get_model_version():
+        """Get the models package version."""
+        return module._VERSION
+    module.get_model_version = get_model_version
+    if sys.version_info >= (3, 9):
+        from typing import TypeAlias
+        module.TypeAlias = TypeAlias
+        ModelID: TypeAlias = str
+    else:
+        ModelID = str
+        module.ModelID = ModelID
+    _base_model = None
 
-    def validate_db_name(name: str) -> bool:
-        """Validate database name with additional rules."""
-        if not validate(name):
-            return False
-        return not any(char in name for char in ["/", "\\", ":"])
-    module.validate_db_name = validate_db_name
-    core.database.connection = __cribo_init___cribo_1f0c3d_core_database_connection()
-    connect = core.database.connection.connect
-    module.connect = connect
-    get_connection_info = core.database.connection.get_connection_info
-    module.get_connection_info = get_connection_info
-
-    def safe_connect(database_name: str) -> str:
-        """Connect only if core is initialized."""
-        __cribo_init_result = __cribo_init___cribo_f00e4b_core()
-        for attr in dir(__cribo_init_result):
-            if not attr.startswith('_'):
-                setattr(core, attr, getattr(__cribo_init_result, attr))
-        is_initialized = core.is_initialized
-        if not is_initialized():
-            raise RuntimeError("Core package must be initialized before connecting")
-        return connect(database_name)
-    module.safe_connect = safe_connect
+    def get_base_model():
+        """Lazy import of BaseModel to avoid circular imports."""
+        global _cribo_models__base_model
+        if _cribo_models__base_model is None:
+            _cribo_models__base_model = BaseModel
+        return _cribo_models__base_model
+    module.get_base_model = get_base_model
+    DEFAULT_MODEL_CONFIG = {"version": _VERSION, "features": ["user_processing", "lazy_loading"]}
+    module.DEFAULT_MODEL_CONFIG = DEFAULT_MODEL_CONFIG
+    try:
+        from models.advanced import AdvancedModel
+        module.AdvancedModel = AdvancedModel
+        HAS_ADVANCED = True
+        module.HAS_ADVANCED = HAS_ADVANCED
+        DEFAULT_MODEL_CONFIG["features"].append("advanced_model")
+    except ImportError:
+        HAS_ADVANCED = False
+        module.HAS_ADVANCED = HAS_ADVANCED
+        AdvancedModel = None
+        module.AdvancedModel = AdvancedModel
+    if HAS_ADVANCED:
+        __all__.append("AdvancedModel")
+    global _cribo_models__base_model
+    _cribo_models__base_model = _base_model
+    user = types.SimpleNamespace()
+    user.process_user = process_user
+    base = types.SimpleNamespace()
+    base.BaseModel = BaseModel
+    module.process_user = process_user
     return module
 @functools.cache
 def __cribo_init___cribo_f00e4b_core():

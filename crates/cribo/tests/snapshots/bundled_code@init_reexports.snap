@@ -30,22 +30,6 @@ def process_data(data):
 """Data formatting module."""
 """Data processing module."""
 @functools.cache
-def __cribo_init___cribo_de6c46_mypackage_config():
-    module = types.SimpleNamespace()
-    module.__name__ = 'mypackage.config'
-    """Configuration module."""
-
-    class Config:
-        """Configuration class."""
-
-        def __init__(self):
-            self.DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
-            self.LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
-    module.Config = Config
-    config = Config()
-    module.config = config
-    return module
-@functools.cache
 def __cribo_init___cribo_a81151_mypackage():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage'
@@ -66,8 +50,24 @@ def __cribo_init___cribo_a81151_mypackage():
     module.format_data = format_data
     module.helper_function = helper_function
     return module
-__cribo_init___cribo_de6c46_mypackage_config()
+@functools.cache
+def __cribo_init___cribo_de6c46_mypackage_config():
+    module = types.SimpleNamespace()
+    module.__name__ = 'mypackage.config'
+    """Configuration module."""
+
+    class Config:
+        """Configuration class."""
+
+        def __init__(self):
+            self.DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
+            self.LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+    module.Config = Config
+    config = Config()
+    module.config = config
+    return module
 __cribo_init___cribo_a81151_mypackage()
+__cribo_init___cribo_de6c46_mypackage_config()
 '''\nTest script demonstrating __init__.py re-export preservation.\n\nThis fixture tests that imports in __init__.py files are preserved even if they\nappear "unused" within that file, as they are typically re-exports for the package interface.\n'''
 __cribo_init_result = __cribo_init___cribo_a81151_mypackage()
 for attr in dir(__cribo_init_result):
