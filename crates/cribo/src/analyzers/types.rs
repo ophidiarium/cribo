@@ -72,8 +72,8 @@ pub struct VariableUsage {
     pub usage_type: UsageType,
     /// Where this usage occurs
     pub location: TextRange,
-    /// The scope containing this usage
-    pub scope: ScopePath,
+    /// The scope containing this usage (dot-separated path)
+    pub scope: String,
 }
 
 /// Different ways a variable can be used

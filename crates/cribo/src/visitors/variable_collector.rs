@@ -50,9 +50,9 @@ impl VariableCollector {
         collector.collected
     }
 
-    /// Get the current scope path
-    fn current_scope(&self) -> Vec<String> {
-        self.scope_stack.clone()
+    /// Build the current scope path as a single string
+    fn current_scope_path(&self) -> String {
+        self.scope_stack.join(".")
     }
 
     /// Record a variable usage
@@ -61,7 +61,7 @@ impl VariableCollector {
             name: name.to_string(),
             usage_type,
             location,
-            scope: self.current_scope(),
+            scope: self.current_scope_path(),
         });
 
         // Track referenced vars for quick lookup
