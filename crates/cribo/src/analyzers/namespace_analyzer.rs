@@ -8,7 +8,10 @@ use std::path::PathBuf;
 use log::debug;
 use ruff_python_ast::ModModule;
 
-use crate::types::FxIndexSet;
+use crate::{
+    analyzers::types::NamespaceAnalysis,
+    types::{FxIndexMap, FxIndexSet},
+};
 
 /// Namespace analyzer for processing namespace requirements
 pub struct NamespaceAnalyzer;
@@ -79,7 +82,7 @@ impl NamespaceAnalyzer {
     ) -> NamespaceAnalysis {
         let required_namespaces = Self::identify_required_namespaces(modules);
 
-        let mut modules_needing_namespace = FxIndexSet::default();
+        let mut modules_needing_namespaces = FxIndexSet::default();
 
         for (module_name, _, _, _) in modules {
             let has_exports = module_exports.contains(module_name);
@@ -90,24 +93,17 @@ impl NamespaceAnalyzer {
                 namespace_imported_modules,
                 has_exports,
             ) {
-                modules_needing_namespace.insert(module_name.clone());
+                modules_needing_namespaces.insert(module_name.clone());
             }
         }
 
         NamespaceAnalysis {
             required_namespaces,
-            modules_needing_namespace,
+            namespace_hierarchy: FxIndexMap::default(), /* TODO: Implement namespace hierarchy
+                                                         * building */
+            modules_needing_namespaces,
         }
     }
-}
-
-/// Results of namespace analysis
-#[derive(Debug, Default)]
-pub struct NamespaceAnalysis {
-    /// Namespaces that need to be created (e.g., "pkg" for "pkg.module")
-    pub required_namespaces: FxIndexSet<String>,
-    /// Modules that need namespace objects
-    pub modules_needing_namespace: FxIndexSet<String>,
 }
 
 #[cfg(test)]
