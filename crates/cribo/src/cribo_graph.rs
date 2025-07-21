@@ -21,8 +21,6 @@ use petgraph::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::analyzers::types::UnusedImportInfo;
-
 /// Unique identifier for a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModuleId(u32);
@@ -98,14 +96,6 @@ pub struct VarState {
     pub writers: Vec<ItemId>,
     /// Items that read this variable
     pub readers: Vec<ItemId>,
-}
-
-/// Context for checking if an import is unused
-struct ImportUsageContext<'a> {
-    imported_name: &'a str,
-    import_id: ItemId,
-    is_init_py: bool,
-    import_data: &'a ItemData,
 }
 
 /// Data about a Python item (statement/definition)
@@ -236,50 +226,6 @@ impl ModuleDepGraph {
         id
     }
 
-    /// Find unused imports in the module
-    pub fn find_unused_imports(&self, is_init_py: bool) -> Vec<UnusedImportInfo> {
-        let mut unused_imports = Vec::new();
-
-        // First, collect all imported names
-        let mut imported_items: Vec<(ItemId, &ItemData)> = Vec::new();
-        for (id, data) in &self.items {
-            if matches!(
-                data.item_type,
-                ItemType::Import { .. } | ItemType::FromImport { .. }
-            ) && !data.imported_names.is_empty()
-            {
-                imported_items.push((*id, data));
-            }
-        }
-
-        // For each imported name, check if it's used
-        for (import_id, import_data) in imported_items {
-            for imported_name in &import_data.imported_names {
-                let ctx = ImportUsageContext {
-                    imported_name,
-                    import_id,
-                    is_init_py,
-                    import_data,
-                };
-
-                if self.is_import_unused(ctx) {
-                    let module_name = match &import_data.item_type {
-                        ItemType::Import { module, .. } => module.clone(),
-                        ItemType::FromImport { module, .. } => module.clone(),
-                        _ => continue,
-                    };
-
-                    unused_imports.push(UnusedImportInfo {
-                        name: imported_name.clone(),
-                        module: module_name,
-                    });
-                }
-            }
-        }
-
-        unused_imports
-    }
-
     /// Get all import items in the module with their IDs
     pub fn get_all_import_items(&self) -> Vec<(ItemId, &ItemData)> {
         self.items
@@ -329,99 +275,6 @@ impl ModuleDepGraph {
                 {
                     return true;
                 }
-            }
-        }
-        false
-    }
-
-    /// Check if a specific imported name is unused
-    fn is_import_unused(&self, ctx: ImportUsageContext<'_>) -> bool {
-        // Check for special cases where imports should be preserved
-        if ctx.is_init_py {
-            // In __init__.py, preserve all imports as they might be part of the public API
-            return false;
-        }
-
-        // Check if it's a star import
-        if let ItemType::FromImport { is_star: true, .. } = &ctx.import_data.item_type {
-            // Star imports are always preserved
-            return false;
-        }
-
-        // Check if it's explicitly re-exported
-        if ctx.import_data.reexported_names.contains(ctx.imported_name) {
-            return false;
-        }
-
-        // Check if it's in __all__ (module re-export)
-        if self.is_in_all_export(ctx.imported_name) {
-            return false;
-        }
-
-        // Check if the import has side effects (includes stdlib imports)
-        if ctx.import_data.has_side_effects {
-            return false;
-        }
-
-        // Check if the name is used anywhere in the module
-        for (item_id, item_data) in &self.items {
-            // Skip the import statement itself
-            if *item_id == ctx.import_id {
-                continue;
-            }
-
-            // Check if the name is read by this item
-            if item_data.read_vars.contains(ctx.imported_name)
-                || item_data.eventual_read_vars.contains(ctx.imported_name)
-            {
-                log::trace!(
-                    "Import '{}' is used by item {:?} (read_vars: {:?}, eventual_read_vars: {:?})",
-                    ctx.imported_name,
-                    item_id,
-                    item_data.read_vars,
-                    item_data.eventual_read_vars
-                );
-                return false;
-            }
-
-            // For dotted imports like `import xml.etree.ElementTree`, also check if any of the
-            // declared variables from that import are used
-            if let Some(import_item) = self.items.get(&ctx.import_id) {
-                let is_var_used = import_item.var_decls.iter().any(|var_decl| {
-                    item_data.read_vars.contains(var_decl)
-                        || item_data.eventual_read_vars.contains(var_decl)
-                });
-
-                if is_var_used {
-                    log::trace!(
-                        "Import '{}' is used via declared variables by item {:?}",
-                        ctx.imported_name,
-                        item_id
-                    );
-                    return false;
-                }
-            }
-        }
-
-        // Check if the name is in the module's __all__ export list
-        if self.is_in_module_exports(ctx.imported_name) {
-            return false;
-        }
-
-        log::trace!("Import '{}' is UNUSED", ctx.imported_name);
-        true
-    }
-
-    /// Check if a name is in the module's __all__ export list
-    fn is_in_module_exports(&self, name: &str) -> bool {
-        // Look for __all__ assignment
-        for item_data in self.items.values() {
-            if let ItemType::Assignment { targets } = &item_data.item_type
-                && targets.contains(&"__all__".to_string())
-            {
-                // Check if the name is in the reexported_names set
-                // which contains the parsed __all__ list values
-                return item_data.reexported_names.contains(name);
             }
         }
         false

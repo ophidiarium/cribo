@@ -6252,7 +6252,10 @@ impl<'a> HybridStaticBundler<'a> {
 
             // Get unused imports from the graph
             if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
-                let mut unused_imports = module_dep_graph.find_unused_imports(is_init_py);
+                let mut unused_imports = crate::analyzers::import_analyzer::ImportAnalyzer::find_unused_imports_in_module(
+                    module_dep_graph,
+                    is_init_py,
+                );
 
                 // If tree shaking is enabled, also check if imported symbols were removed
                 // Note: We only apply tree-shaking logic to "from module import symbol" style

@@ -10,12 +10,21 @@ use ruff_python_ast::{ModModule, Stmt};
 
 use crate::{
     analyzers::types::UnusedImportInfo,
-    cribo_graph::CriboGraph as DependencyGraph,
+    cribo_graph::{ItemData, ItemId},
     types::{FxIndexMap, FxIndexSet},
 };
 
 /// Import analyzer for processing import patterns and relationships
 pub struct ImportAnalyzer;
+
+/// Context for checking if an import is unused
+struct ImportUsageContext<'a> {
+    imported_name: &'a str,
+    import_id: ItemId,
+    is_init_py: bool,
+    import_data: &'a ItemData,
+    module: &'a crate::cribo_graph::ModuleDepGraph,
+}
 
 impl ImportAnalyzer {
     /// Find modules that are imported directly (e.g., `import module`)
@@ -98,23 +107,155 @@ impl ImportAnalyzer {
             .unwrap_or_else(|| full_module_path.to_string())
     }
 
-    /// Find unused imports in a dependency graph
-    pub fn find_unused_imports(
-        graph: &DependencyGraph,
+    /// Find unused imports in a specific module
+    pub fn find_unused_imports_in_module(
+        module: &crate::cribo_graph::ModuleDepGraph,
         is_init_py: bool,
-    ) -> Vec<(String, Vec<UnusedImportInfo>)> {
-        let mut results = Vec::new();
+    ) -> Vec<UnusedImportInfo> {
+        let mut unused_imports = Vec::new();
 
-        // Iterate through all modules in the graph
-        for module in graph.modules.values() {
-            let unused_imports = module.find_unused_imports(is_init_py);
+        // First, collect all imported names
+        let imported_items: Vec<_> = module.get_all_import_items();
 
-            if !unused_imports.is_empty() {
-                results.push((module.module_name.clone(), unused_imports));
+        // For each imported name, check if it's used
+        for (import_id, import_data) in imported_items {
+            for imported_name in &import_data.imported_names {
+                let ctx = ImportUsageContext {
+                    imported_name,
+                    import_id,
+                    is_init_py,
+                    import_data,
+                    module,
+                };
+
+                if Self::is_import_unused(&ctx) {
+                    let module_name = match &import_data.item_type {
+                        crate::cribo_graph::ItemType::Import { module, .. } => module.clone(),
+                        crate::cribo_graph::ItemType::FromImport { module, .. } => module.clone(),
+                        _ => continue,
+                    };
+
+                    unused_imports.push(UnusedImportInfo {
+                        name: imported_name.clone(),
+                        module: module_name,
+                    });
+                }
             }
         }
 
-        results
+        unused_imports
+    }
+
+    /// Check if a specific imported name is unused
+    fn is_import_unused(ctx: &ImportUsageContext<'_>) -> bool {
+        // Check for special cases where imports should be preserved
+        if ctx.is_init_py {
+            // In __init__.py, preserve all imports as they might be part of the public API
+            return false;
+        }
+
+        // Check if it's a star import
+        if let crate::cribo_graph::ItemType::FromImport { is_star: true, .. } =
+            &ctx.import_data.item_type
+        {
+            // Star imports are always preserved
+            return false;
+        }
+
+        // Check if it's explicitly re-exported
+        if ctx.import_data.reexported_names.contains(ctx.imported_name) {
+            return false;
+        }
+
+        // Check if it's in __all__ (module re-export)
+        if Self::is_in_all_export(ctx.module, ctx.imported_name) {
+            return false;
+        }
+
+        // Check if the import has side effects (includes stdlib imports)
+        if ctx.import_data.has_side_effects {
+            return false;
+        }
+
+        // Check if the name is used anywhere in the module
+        for (item_id, item_data) in &ctx.module.items {
+            // Skip the import statement itself
+            if *item_id == ctx.import_id {
+                continue;
+            }
+
+            // Check if the name is read by this item
+            if item_data.read_vars.contains(ctx.imported_name)
+                || item_data.eventual_read_vars.contains(ctx.imported_name)
+            {
+                log::trace!(
+                    "Import '{}' is used by item {:?} (read_vars: {:?}, eventual_read_vars: {:?})",
+                    ctx.imported_name,
+                    item_id,
+                    item_data.read_vars,
+                    item_data.eventual_read_vars
+                );
+                return false;
+            }
+
+            // For dotted imports like `import xml.etree.ElementTree`, also check if any of the
+            // declared variables from that import are used
+            if let Some(import_item) = ctx.module.items.get(&ctx.import_id) {
+                let is_var_used = import_item.var_decls.iter().any(|var_decl| {
+                    item_data.read_vars.contains(var_decl)
+                        || item_data.eventual_read_vars.contains(var_decl)
+                });
+
+                if is_var_used {
+                    log::trace!(
+                        "Import '{}' is used via declared variables by item {:?}",
+                        ctx.imported_name,
+                        item_id
+                    );
+                    return false;
+                }
+            }
+        }
+
+        // Check if the name is in the module's __all__ export list
+        if Self::is_in_module_exports(ctx.module, ctx.imported_name) {
+            return false;
+        }
+
+        log::trace!("Import '{}' is UNUSED", ctx.imported_name);
+        true
+    }
+
+    /// Check if a name is in __all__ export
+    fn is_in_all_export(module: &crate::cribo_graph::ModuleDepGraph, name: &str) -> bool {
+        // Look for __all__ assignments
+        for item_data in module.items.values() {
+            if let crate::cribo_graph::ItemType::Assignment { targets, .. } = &item_data.item_type
+                && targets.contains(&"__all__".to_string())
+            {
+                // Check if the name is in the eventual_read_vars (where __all__ names are
+                // stored)
+                if item_data.eventual_read_vars.contains(name) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Check if a name is in the module's __all__ export list
+    fn is_in_module_exports(module: &crate::cribo_graph::ModuleDepGraph, name: &str) -> bool {
+        // Look for __all__ assignment
+        for item_data in module.items.values() {
+            if let crate::cribo_graph::ItemType::Assignment { targets } = &item_data.item_type
+                && targets.contains(&"__all__".to_string())
+            {
+                // Check if the name is in the reexported_names set
+                // which contains the parsed __all__ list values
+                return item_data.reexported_names.contains(name);
+            }
+        }
+        false
     }
 
     /// Collect direct imports recursively through the AST
