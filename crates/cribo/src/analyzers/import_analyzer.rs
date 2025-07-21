@@ -34,6 +34,12 @@ impl ImportAnalyzer {
     ) -> FxIndexSet<String> {
         let mut directly_imported = FxIndexSet::default();
 
+        // Pre-compute module names for O(1) lookup performance
+        let module_names: FxIndexSet<&str> = modules
+            .iter()
+            .map(|(name, _, _, _)| name.as_str())
+            .collect();
+
         // Check all modules for direct imports (both module-level and function-scoped)
         for (module_name, ast, module_path, _) in modules {
             debug!("Checking module '{module_name}' for direct imports");
@@ -43,7 +49,7 @@ impl ImportAnalyzer {
                 &ast.body,
                 module_name,
                 module_path,
-                modules,
+                &module_names,
                 &mut directly_imported,
             );
         }
@@ -263,7 +269,7 @@ impl ImportAnalyzer {
         body: &[Stmt],
         current_module: &str,
         module_path: &std::path::Path,
-        modules: &[(String, ModModule, PathBuf, String)],
+        module_names: &FxIndexSet<&str>,
         directly_imported: &mut FxIndexSet<String>,
     ) {
         for stmt in body {
@@ -274,7 +280,7 @@ impl ImportAnalyzer {
                         debug!("Found direct import '{import_name}' in module '{current_module}'");
 
                         // Check if this import corresponds to a module we're bundling
-                        if modules.iter().any(|(name, _, _, _)| name == &import_name) {
+                        if module_names.contains(import_name.as_str()) {
                             directly_imported.insert(import_name);
                         }
                     }
@@ -285,7 +291,7 @@ impl ImportAnalyzer {
                         &func_def.body,
                         current_module,
                         module_path,
-                        modules,
+                        module_names,
                         directly_imported,
                     );
                 }
@@ -295,7 +301,7 @@ impl ImportAnalyzer {
                         &class_def.body,
                         current_module,
                         module_path,
-                        modules,
+                        module_names,
                         directly_imported,
                     );
                 }
@@ -305,7 +311,7 @@ impl ImportAnalyzer {
                         &if_stmt.body,
                         current_module,
                         module_path,
-                        modules,
+                        module_names,
                         directly_imported,
                     );
                     for clause in &if_stmt.elif_else_clauses {
@@ -313,7 +319,7 @@ impl ImportAnalyzer {
                             &clause.body,
                             current_module,
                             module_path,
-                            modules,
+                            module_names,
                             directly_imported,
                         );
                     }
