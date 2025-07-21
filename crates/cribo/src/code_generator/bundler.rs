@@ -7405,7 +7405,7 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Collect variables referenced in statements (delegated to VariableCollector)
-    pub fn collect_referenced_vars(&self, stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
+    pub fn collect_referenced_vars(stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
         crate::visitors::VariableCollector::collect_referenced_vars(stmts, vars);
     }
 
