@@ -7093,11 +7093,6 @@ impl<'a> HybridStaticBundler<'a> {
         None
     }
 
-    /// Collect variables referenced in statements (delegated to VariableCollector)
-    pub fn collect_referenced_vars(stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
-        crate::visitors::VariableCollector::collect_referenced_vars(stmts, vars);
-    }
-
     /// Process module body recursively to handle conditional imports
     pub fn process_body_recursive(
         &self,
@@ -7360,11 +7355,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
 
         result
-    }
-
-    /// Collect variable names referenced in an expression (delegated to VariableCollector)
-    fn collect_vars_in_expr(expr: &Expr, vars: &mut FxIndexSet<String>) {
-        crate::visitors::VariableCollector::collect_vars_in_expr(expr, vars);
     }
 
     /// Transform nested functions to use module attributes for module-level variables

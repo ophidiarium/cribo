@@ -113,25 +113,6 @@ impl VariableCollector {
         self.in_assignment_target = prev_in_assignment;
     }
 
-    /// Collect variables in an expression (static helper for compatibility)
-    pub fn collect_vars_in_expr(expr: &Expr, vars: &mut FxIndexSet<String>) {
-        struct SimpleCollector<'a> {
-            vars: &'a mut FxIndexSet<String>,
-        }
-
-        impl<'a> Visitor<'a> for SimpleCollector<'_> {
-            fn visit_expr(&mut self, expr: &'a Expr) {
-                if let Expr::Name(name) = expr {
-                    self.vars.insert(name.id.to_string());
-                }
-                walk_expr(self, expr);
-            }
-        }
-
-        let mut collector = SimpleCollector { vars };
-        collector.visit_expr(expr);
-    }
-
     /// Collect global declarations from a function body (static helper)
     pub fn collect_function_globals(body: &[Stmt]) -> FxIndexSet<String> {
         let mut function_globals = FxIndexSet::default();
