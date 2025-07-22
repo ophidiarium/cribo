@@ -269,61 +269,63 @@ impl SymbolAnalyzer {
 - ✅ `build_symbol_dependency_graph()` → analyzer
 - ✅ `detect_hard_dependencies()` → analyzer (also migrated)
 
-### Phase 3: Implement Variable Collection Visitor
+### Phase 3: Implement Variable Collection Visitor ✅ COMPLETED
 
 **Steps**:
 
-1. Create `visitors/variable_collector.rs`
-2. Implement comprehensive variable tracking
-3. Integrate with `symbol_analyzer.rs`
-4. Remove variable collection from `bundler.rs`
+1. ✅ Create `visitors/variable_collector.rs`
+2. ✅ Implement comprehensive variable tracking
+3. ✅ Integrate with `symbol_analyzer.rs`
+4. ✅ Remove variable collection from `bundler.rs`
 
 **Methods to migrate**:
 
-- `collect_referenced_vars()` → visitor
-- `collect_vars_in_stmt()` → visitor
-- `collect_vars_in_expr()` → visitor (as static helper)
-- `collect_function_globals()` → visitor
+- ✅ `collect_referenced_vars()` → visitor
+- ✅ `collect_vars_in_stmt()` → visitor
+- ✅ `collect_vars_in_expr()` → visitor (as static helper)
+- ✅ `collect_function_globals()` → visitor
 
-### Phase 4: Implement Export Collection Visitor
+### Phase 4: Implement Export Collection Visitor ✅ COMPLETED
 
 **Steps**:
 
-1. Create `visitors/export_collector.rs`
-2. Handle `__all__` and re-export patterns
-3. Create dedicated export analysis in analyzer
+1. ✅ Create `visitors/export_collector.rs`
+2. ✅ Handle `__all__` and re-export patterns
+3. ✅ Create dedicated export analysis in analyzer
 
 **Methods to migrate**:
 
-- `extract_all_exports()` → visitor + analyzer
-- `extract_string_list_from_expr()` → visitor helper
-- `is_package_init_reexport()` → analyzer
+- ✅ `extract_all_exports()` → visitor + analyzer
+- ✅ `extract_string_list_from_expr()` → visitor helper
+- ✅ `is_package_init_reexport()` → analyzer
 
-### Phase 5: Create Dedicated Analyzers
+### Phase 5: Create Dedicated Analyzers ✅ COMPLETED
 
 **New modules in `analyzers/`**:
 
-1. **`dependency_analyzer.rs`**:
-   - `detect_hard_dependencies()`
-   - `sort_wrapper_modules_by_dependencies()`
-   - `sort_wrapped_modules_by_dependencies()`
+1. ✅ **`dependency_analyzer.rs`**:
+   - ✅ `detect_hard_dependencies()`
+   - ✅ `sort_wrapper_modules_by_dependencies()`
+   - ✅ `sort_wrapped_modules_by_dependencies()`
 
-2. **`import_analyzer.rs`**:
-   - `find_directly_imported_modules()`
-   - `find_namespace_imported_modules()`
-   - `find_matching_module_name_namespace()`
+2. ✅ **`import_analyzer.rs`**:
+   - ✅ `find_directly_imported_modules()`
+   - ✅ `find_namespace_imported_modules()`
+   - ✅ `find_matching_module_name_namespace()`
 
-3. **`namespace_analyzer.rs`**:
-   - `identify_required_namespaces()`
-   - Namespace requirement detection logic
+3. ✅ **`namespace_analyzer.rs`**:
+   - ✅ `identify_required_namespaces()`
+   - ✅ Namespace requirement detection logic
 
-### Phase 6: Refactor cribo_graph.rs
+### Phase 6: Refactor cribo_graph.rs ✅ COMPLETED
 
 **Move analysis methods to analyzers**:
 
-- `analyze_circular_dependencies()` → `dependency_analyzer.rs`
-- `find_unused_imports()` → `import_analyzer.rs`
-- Keep only pure graph operations in `cribo_graph.rs`
+- ✅ `analyze_circular_dependencies()` → `dependency_analyzer.rs`
+- ✅ `find_unused_imports()` → `import_analyzer.rs`
+- ✅ Keep only pure graph operations in `cribo_graph.rs`
+- ✅ All related types moved to `analyzers/types.rs`
+- ✅ Tests updated and passing
 
 ### Phase 7: Complete Code Generator Extraction
 
@@ -401,7 +403,17 @@ For each migrated method:
 - Visitor test coverage > 90%
 - No performance regression in bundling
 
-## 8. Future Considerations
+## 8. Implementation Status
+
+- **Phase 1**: ✅ COMPLETED - Analyzer infrastructure created
+- **Phase 2**: ✅ COMPLETED - Symbol collection visitor implemented
+- **Phase 3**: ✅ COMPLETED - Variable collection visitor implemented
+- **Phase 4**: ✅ COMPLETED - Export collection visitor implemented
+- **Phase 5**: ✅ COMPLETED - Dedicated analyzers created
+- **Phase 6**: ✅ COMPLETED - Refactored cribo_graph.rs
+- **Phase 7**: ⏳ PENDING - Complete code generator extraction
+
+## 9. Future Considerations
 
 This architecture enables future enhancements:
 

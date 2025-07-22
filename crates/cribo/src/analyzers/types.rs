@@ -72,8 +72,8 @@ pub struct VariableUsage {
     pub usage_type: UsageType,
     /// Where this usage occurs
     pub location: TextRange,
-    /// The scope containing this usage
-    pub scope: ScopePath,
+    /// The scope containing this usage (dot-separated path)
+    pub scope: String,
 }
 
 /// Different ways a variable can be used
@@ -124,65 +124,50 @@ pub struct ReExport {
     pub is_star: bool,
 }
 
-/// Result of symbol analysis
-#[derive(Debug)]
-pub struct SymbolAnalysis {
-    /// All collected symbols
-    pub symbols: CollectedSymbols,
-    /// Variable usage information
-    pub variables: CollectedVariables,
-    /// Export information
-    pub exports: Option<ExportInfo>,
-    /// Symbol dependency relationships
-    pub symbol_dependencies: FxIndexMap<String, FxIndexSet<String>>,
+/// Information about an unused import
+#[derive(Debug, Clone)]
+pub struct UnusedImportInfo {
+    /// The imported name that is unused
+    pub name: String,
+    /// The module it was imported from
+    pub module: String,
 }
 
-/// Represents a dependency between symbols
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SymbolDependency {
-    /// The symbol that depends on another
-    pub from_symbol: String,
-    /// The symbol being depended upon
-    pub to_symbol: String,
-    /// The module containing the from_symbol
-    pub from_module: String,
-    /// The module containing the to_symbol
-    pub to_module: String,
+/// Type of circular dependency
+#[derive(Debug, Clone, PartialEq)]
+pub enum CircularDependencyType {
+    /// Can be resolved by moving imports inside functions
+    FunctionLevel,
+    /// May be resolvable depending on usage patterns
+    ClassLevel,
+    /// Unresolvable - temporal paradox
+    ModuleConstants,
+    /// Depends on execution order
+    ImportTime,
 }
 
-/// Result of dependency analysis
-#[derive(Debug)]
-pub struct DependencyAnalysis {
-    /// Direct module dependencies
-    pub module_dependencies: FxIndexMap<String, FxIndexSet<String>>,
-    /// Symbol-level dependencies
-    pub symbol_dependencies: Vec<SymbolDependency>,
-    /// Circular dependency groups
-    pub circular_groups: Vec<FxIndexSet<String>>,
-    /// Hard dependencies (e.g., base class dependencies)
-    pub hard_dependencies: Vec<crate::code_generator::context::HardDependency>,
+/// Resolution strategy for circular dependencies
+#[derive(Debug, Clone)]
+pub enum ResolutionStrategy {
+    LazyImport,
+    FunctionScopedImport,
+    ModuleSplit,
+    Unresolvable { reason: String },
 }
 
-/// Result of import analysis
-#[derive(Debug)]
-pub struct ImportAnalysis {
-    /// Modules directly imported (import module)
-    pub directly_imported: FxIndexSet<String>,
-    /// Modules imported as namespaces (from package import module)
-    pub namespace_imported: FxIndexMap<String, FxIndexSet<String>>,
-    /// Import aliases mapping
-    pub import_aliases: FxIndexMap<String, String>,
-    /// Unused imports
-    pub unused_imports: FxIndexSet<(String, String)>,
+/// A group of modules forming a circular dependency
+#[derive(Debug, Clone)]
+pub struct CircularDependencyGroup {
+    pub modules: Vec<String>,
+    pub cycle_type: CircularDependencyType,
+    pub suggested_resolution: ResolutionStrategy,
 }
 
-/// Result of namespace analysis
-#[derive(Debug)]
-pub struct NamespaceAnalysis {
-    /// Required namespace modules
-    pub required_namespaces: FxIndexSet<String>,
-    /// Namespace hierarchy (parent -> children)
-    pub namespace_hierarchy: FxIndexMap<String, FxIndexSet<String>>,
-    /// Modules that need namespace objects
-    pub modules_needing_namespaces: FxIndexSet<String>,
+/// Comprehensive analysis of circular dependencies
+#[derive(Debug, Clone)]
+pub struct CircularDependencyAnalysis {
+    /// Circular dependencies that can be resolved through code transformations
+    pub resolvable_cycles: Vec<CircularDependencyGroup>,
+    /// Circular dependencies that cannot be resolved
+    pub unresolvable_cycles: Vec<CircularDependencyGroup>,
 }
