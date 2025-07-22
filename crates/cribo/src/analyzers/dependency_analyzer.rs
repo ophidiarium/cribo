@@ -32,32 +32,27 @@ struct CycleAnalysisResult {
 pub struct DependencyAnalyzer;
 
 impl DependencyAnalyzer {
-    /// Sort wrapper modules by their dependencies
-    pub fn sort_wrapper_modules_by_dependencies(
-        wrapper_names: Vec<String>,
-        modules: &[(String, ModModule, std::path::PathBuf, String)],
+    /// Build a dependency map for a subset of modules
+    fn build_dependency_map(
+        module_names: &[String],
+        module_names_set: &FxIndexSet<String>,
         graph: &DependencyGraph,
-    ) -> Vec<String> {
-        // Convert wrapper_names to a set for O(1) lookups
-        let wrapper_names_set: FxIndexSet<String> = wrapper_names.iter().cloned().collect();
-
-        // Build a dependency map for wrapper modules
+    ) -> FxIndexMap<String, FxIndexSet<String>> {
         let mut dependency_map: FxIndexMap<String, FxIndexSet<String>> = FxIndexMap::default();
 
-        for wrapper in &wrapper_names {
-            dependency_map.insert(wrapper.clone(), FxIndexSet::default());
+        // Initialize all modules
+        for module in module_names {
+            dependency_map.insert(module.clone(), FxIndexSet::default());
         }
 
-        // For each wrapper module, find its dependencies on other wrapper modules
-        for (module_name, _, _, _) in modules {
-            if wrapper_names_set.contains(module_name)
-                && let Some(&module_id) = graph.module_names.get(module_name)
-            {
+        // For each module, find its dependencies within the subset
+        for module_name in module_names {
+            if let Some(&module_id) = graph.module_names.get(module_name) {
                 let dependencies = graph.get_dependencies(module_id);
                 for dep_id in dependencies {
                     if let Some(dep_module) = graph.modules.get(&dep_id) {
                         let dep_name = &dep_module.module_name;
-                        if wrapper_names_set.contains(dep_name)
+                        if module_names_set.contains(dep_name)
                             && dep_name != module_name
                             && let Some(deps) = dependency_map.get_mut(module_name)
                         {
@@ -67,6 +62,34 @@ impl DependencyAnalyzer {
                 }
             }
         }
+
+        dependency_map
+    }
+
+    /// Sort wrapper modules by their dependencies
+    pub fn sort_wrapper_modules_by_dependencies(
+        wrapper_names: Vec<String>,
+        modules: &[(String, ModModule, std::path::PathBuf, String)],
+        graph: &DependencyGraph,
+    ) -> Vec<String> {
+        // Convert wrapper_names to a set for O(1) lookups
+        let wrapper_names_set: FxIndexSet<String> = wrapper_names.iter().cloned().collect();
+
+        // Filter to only wrapper modules for dependency map building
+        let wrapper_modules: Vec<String> = modules
+            .iter()
+            .filter_map(|(name, _, _, _)| {
+                if wrapper_names_set.contains(name) {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Build dependency map using the helper
+        let dependency_map =
+            Self::build_dependency_map(&wrapper_modules, &wrapper_names_set, graph);
 
         // Perform topological sort
         match Self::topological_sort(&dependency_map) {
@@ -90,31 +113,8 @@ impl DependencyAnalyzer {
         // Convert module_names to a set for O(1) lookups
         let module_names_set: FxIndexSet<String> = module_names.iter().cloned().collect();
 
-        // Build a dependency map for the modules
-        let mut dependency_map: FxIndexMap<String, FxIndexSet<String>> = FxIndexMap::default();
-
-        // Initialize all modules
-        for module in &module_names {
-            dependency_map.insert(module.clone(), FxIndexSet::default());
-        }
-
-        // For each module, find its dependencies on other modules in the group
-        for module_name in &module_names {
-            if let Some(&module_id) = graph.module_names.get(module_name) {
-                let dependencies = graph.get_dependencies(module_id);
-                for dep_id in dependencies {
-                    if let Some(dep_module) = graph.modules.get(&dep_id) {
-                        let dep_name = &dep_module.module_name;
-                        if module_names_set.contains(dep_name)
-                            && dep_name != module_name
-                            && let Some(deps) = dependency_map.get_mut(module_name)
-                        {
-                            deps.insert(dep_name.clone());
-                        }
-                    }
-                }
-            }
-        }
+        // Build dependency map using the helper
+        let dependency_map = Self::build_dependency_map(&module_names, &module_names_set, graph);
 
         // Perform topological sort
         match Self::topological_sort(&dependency_map) {
