@@ -324,6 +324,101 @@ impl ImportAnalyzer {
                         );
                     }
                 }
+                Stmt::While(while_stmt) => {
+                    // Check while body
+                    Self::collect_direct_imports_recursive(
+                        &while_stmt.body,
+                        current_module,
+                        _module_path,
+                        module_names,
+                        directly_imported,
+                    );
+                    // Check else clause
+                    Self::collect_direct_imports_recursive(
+                        &while_stmt.orelse,
+                        current_module,
+                        _module_path,
+                        module_names,
+                        directly_imported,
+                    );
+                }
+                Stmt::For(for_stmt) => {
+                    // Check for body
+                    Self::collect_direct_imports_recursive(
+                        &for_stmt.body,
+                        current_module,
+                        _module_path,
+                        module_names,
+                        directly_imported,
+                    );
+                    // Check else clause
+                    Self::collect_direct_imports_recursive(
+                        &for_stmt.orelse,
+                        current_module,
+                        _module_path,
+                        module_names,
+                        directly_imported,
+                    );
+                }
+                Stmt::Try(try_stmt) => {
+                    // Check try body
+                    Self::collect_direct_imports_recursive(
+                        &try_stmt.body,
+                        current_module,
+                        _module_path,
+                        module_names,
+                        directly_imported,
+                    );
+                    // Check except handlers
+                    for handler in &try_stmt.handlers {
+                        let ruff_python_ast::ExceptHandler::ExceptHandler(except_handler) = handler;
+                        Self::collect_direct_imports_recursive(
+                            &except_handler.body,
+                            current_module,
+                            _module_path,
+                            module_names,
+                            directly_imported,
+                        );
+                    }
+                    // Check else clause
+                    Self::collect_direct_imports_recursive(
+                        &try_stmt.orelse,
+                        current_module,
+                        _module_path,
+                        module_names,
+                        directly_imported,
+                    );
+                    // Check finally clause
+                    Self::collect_direct_imports_recursive(
+                        &try_stmt.finalbody,
+                        current_module,
+                        _module_path,
+                        module_names,
+                        directly_imported,
+                    );
+                }
+                Stmt::With(with_stmt) => {
+                    // Check with body
+                    Self::collect_direct_imports_recursive(
+                        &with_stmt.body,
+                        current_module,
+                        _module_path,
+                        module_names,
+                        directly_imported,
+                    );
+                }
+                Stmt::Match(match_stmt) => {
+                    // Check match cases
+                    for case in &match_stmt.cases {
+                        Self::collect_direct_imports_recursive(
+                            &case.body,
+                            current_module,
+                            _module_path,
+                            module_names,
+                            directly_imported,
+                        );
+                    }
+                }
                 _ => {}
             }
         }
@@ -585,6 +680,111 @@ def other_func():
         assert!(directly_imported.contains("module_a"));
         assert!(directly_imported.contains("module_b"));
         assert!(directly_imported.contains("module_c"));
+    }
+
+    #[test]
+    fn test_find_directly_imported_modules_in_compound_statements() {
+        let code = r#"
+# Test all compound statements
+try:
+    import module_in_try
+except:
+    import module_in_except
+else:
+    import module_in_else
+finally:
+    import module_in_finally
+
+for i in range(1):
+    import module_in_for
+
+while False:
+    import module_in_while
+
+with open("test") as f:
+    import module_in_with
+
+match x:
+    case _:
+        import module_in_match
+"#;
+        let parsed = parse_module(code).expect("Test code should parse successfully");
+        let ast = parsed.into_syntax();
+
+        let dummy_ast = parse_module("pass")
+            .expect("Dummy module should parse")
+            .into_syntax();
+
+        let modules = vec![
+            (
+                "test_module".to_string(),
+                ast,
+                PathBuf::from("test.py"),
+                "hash1".to_string(),
+            ),
+            (
+                "module_in_try".to_string(),
+                dummy_ast.clone(),
+                PathBuf::from("module_in_try.py"),
+                "hash2".to_string(),
+            ),
+            (
+                "module_in_except".to_string(),
+                dummy_ast.clone(),
+                PathBuf::from("module_in_except.py"),
+                "hash3".to_string(),
+            ),
+            (
+                "module_in_else".to_string(),
+                dummy_ast.clone(),
+                PathBuf::from("module_in_else.py"),
+                "hash4".to_string(),
+            ),
+            (
+                "module_in_finally".to_string(),
+                dummy_ast.clone(),
+                PathBuf::from("module_in_finally.py"),
+                "hash5".to_string(),
+            ),
+            (
+                "module_in_for".to_string(),
+                dummy_ast.clone(),
+                PathBuf::from("module_in_for.py"),
+                "hash6".to_string(),
+            ),
+            (
+                "module_in_while".to_string(),
+                dummy_ast.clone(),
+                PathBuf::from("module_in_while.py"),
+                "hash7".to_string(),
+            ),
+            (
+                "module_in_with".to_string(),
+                dummy_ast.clone(),
+                PathBuf::from("module_in_with.py"),
+                "hash8".to_string(),
+            ),
+            (
+                "module_in_match".to_string(),
+                dummy_ast,
+                PathBuf::from("module_in_match.py"),
+                "hash9".to_string(),
+            ),
+        ];
+
+        let directly_imported =
+            ImportAnalyzer::find_directly_imported_modules(&modules, "test_module");
+
+        // All imports should be found
+        assert_eq!(directly_imported.len(), 8);
+        assert!(directly_imported.contains("module_in_try"));
+        assert!(directly_imported.contains("module_in_except"));
+        assert!(directly_imported.contains("module_in_else"));
+        assert!(directly_imported.contains("module_in_finally"));
+        assert!(directly_imported.contains("module_in_for"));
+        assert!(directly_imported.contains("module_in_while"));
+        assert!(directly_imported.contains("module_in_with"));
+        assert!(directly_imported.contains("module_in_match"));
     }
 
     #[test]
