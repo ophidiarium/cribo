@@ -23,9 +23,10 @@ use crate::{
             ProcessGlobalsParams, SemanticContext,
         },
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry::INIT_RESULT_VAR,
+        module_registry::{INIT_RESULT_VAR, generate_unique_name},
     },
     cribo_graph::CriboGraph as DependencyGraph,
+    side_effects::{is_safe_stdlib_module, module_has_side_effects},
     transformation_context::TransformationContext,
     types::{FxIndexMap, FxIndexSet},
 };
@@ -812,7 +813,7 @@ impl<'a> HybridStaticBundler<'a> {
                         return true;
                     }
                     // Check if this is a stdlib import that we've hoisted
-                    if self.is_safe_stdlib_module(module_name) {
+                    if is_safe_stdlib_module(module_name) {
                         // Check if this exact import is in our hoisted stdlib imports
                         return self.is_import_in_hoisted_stdlib(module_name);
                     }
@@ -826,7 +827,7 @@ impl<'a> HybridStaticBundler<'a> {
                 import_stmt.names.iter().any(|alias| {
                     let module_name = alias.name.as_str();
                     // Check stdlib imports
-                    if self.is_safe_stdlib_module(module_name) {
+                    if is_safe_stdlib_module(module_name) {
                         self.stdlib_import_statements.iter().any(|hoisted| {
                             matches!(hoisted, Stmt::Import(hoisted_import)
                                 if hoisted_import.names.iter().any(|h| h.name == alias.name))
@@ -1986,11 +1987,6 @@ impl<'a> HybridStaticBundler<'a> {
         ruff_python_stdlib::identifiers::is_identifier(name)
     }
 
-    /// Check if a module has side effects
-    pub fn has_side_effects(ast: &ModModule) -> bool {
-        crate::side_effects::module_has_side_effects(ast)
-    }
-
     /// Extract __all__ exports from a module
     /// Returns:
     /// - has_explicit_all: true if __all__ is explicitly defined
@@ -2115,11 +2111,6 @@ impl<'a> HybridStaticBundler<'a> {
         self.stdlib_import_statements.push(import_stmt);
     }
 
-    /// Check if a module is a safe stdlib module
-    fn is_safe_stdlib_module(&self, module_name: &str) -> bool {
-        crate::side_effects::is_safe_stdlib_module(module_name)
-    }
-
     /// Collect future imports from an AST
     fn collect_future_imports_from_ast(&mut self, ast: &ModModule) {
         for stmt in &ast.body {
@@ -2223,7 +2214,7 @@ impl<'a> HybridStaticBundler<'a> {
                         }
 
                         // Check if this is a safe stdlib module
-                        if self.is_safe_stdlib_module(module_str) {
+                        if is_safe_stdlib_module(module_str) {
                             let import_map = self
                                 .stdlib_import_from_map
                                 .entry(module_str.to_string())
@@ -2242,7 +2233,7 @@ impl<'a> HybridStaticBundler<'a> {
                     // Track regular import statements for stdlib modules
                     for alias in &import_stmt.names {
                         let module_name = alias.name.as_str();
-                        if self.is_safe_stdlib_module(module_name) && alias.asname.is_none() {
+                        if is_safe_stdlib_module(module_name) && alias.asname.is_none() {
                             self.stdlib_import_statements.push(stmt.clone());
                         }
                     }
@@ -2581,7 +2572,7 @@ impl<'a> HybridStaticBundler<'a> {
                                         &func_name,
                                         module_name,
                                     );
-                                    self.get_unique_name(&base_name, ctx.global_symbols)
+                                    generate_unique_name(&base_name, ctx.global_symbols)
                                 } else {
                                     // No conflict, use original name
                                     func_name.clone()
@@ -2593,7 +2584,7 @@ impl<'a> HybridStaticBundler<'a> {
                                 // There's a conflict, apply module suffix pattern
                                 let base_name = self
                                     .get_unique_name_with_module_suffix(&func_name, module_name);
-                                self.get_unique_name(&base_name, ctx.global_symbols)
+                                generate_unique_name(&base_name, ctx.global_symbols)
                             } else {
                                 // No conflict, use original name
                                 func_name.clone()
@@ -2605,7 +2596,7 @@ impl<'a> HybridStaticBundler<'a> {
                             // There's a conflict, apply module suffix pattern
                             let base_name =
                                 self.get_unique_name_with_module_suffix(&func_name, module_name);
-                            self.get_unique_name(&base_name, ctx.global_symbols)
+                            generate_unique_name(&base_name, ctx.global_symbols)
                         } else {
                             // No conflict, use original name
                             func_name.clone()
@@ -3104,7 +3095,7 @@ impl<'a> HybridStaticBundler<'a> {
         if let Some(ref module) = import_from.module {
             let module_name = module.as_str();
             // For third-party imports, check if they're already in the body
-            if !self.is_safe_stdlib_module(module_name)
+            if !is_safe_stdlib_module(module_name)
                 && !self.is_bundled_module_or_package(module_name)
             {
                 return existing_body.iter().any(|existing| {
@@ -3125,7 +3116,7 @@ impl<'a> HybridStaticBundler<'a> {
         import_stmt.names.iter().any(|alias| {
             let module_name = alias.name.as_str();
             // For third-party imports, check if they're already in the body
-            if !self.is_safe_stdlib_module(module_name)
+            if !is_safe_stdlib_module(module_name)
                 && !self.is_bundled_module_or_package(module_name)
             {
                 existing_body.iter().any(|existing| {
@@ -3546,7 +3537,7 @@ impl<'a> HybridStaticBundler<'a> {
             // With full static bundling, we only need to wrap modules with side effects
             // All imports are rewritten at bundle time, so namespace imports, direct imports,
             // and circular dependencies can all be handled through static transformation
-            let has_side_effects = Self::has_side_effects(ast);
+            let has_side_effects = module_has_side_effects(ast);
 
             // Check if this module has an invalid identifier (can't be imported normally)
             // These modules are likely imported via importlib and need to be wrapped
@@ -3625,7 +3616,7 @@ impl<'a> HybridStaticBundler<'a> {
                 if module_name.contains('.') && module_name != "__init__" {
                     // Check if this is a wrapper module
                     let is_wrapper = modules.iter().any(|(name, ast, _, _)| {
-                        name == module_name && Self::has_side_effects(ast)
+                        name == module_name && module_has_side_effects(ast)
                     });
 
                     if is_wrapper {
@@ -4066,7 +4057,7 @@ impl<'a> HybridStaticBundler<'a> {
                 if let Stmt::Import(import_stmt) = stmt {
                     for alias in &import_stmt.names {
                         let module_name = alias.name.as_str();
-                        if self.is_safe_stdlib_module(module_name) && alias.asname.is_none() {
+                        if is_safe_stdlib_module(module_name) && alias.asname.is_none() {
                             // This is a normalized stdlib import (no alias), ensure it's
                             // hoisted
                             self.add_stdlib_import(module_name);
@@ -7705,7 +7696,10 @@ impl<'a> HybridStaticBundler<'a> {
                     .contains(&func_def.name.to_string())
                 {
                     // Collect globals declared in this function
-                    let function_globals = Self::collect_function_globals(&func_def.body);
+                    let function_globals =
+                        crate::visitors::VariableCollector::collect_function_globals(
+                            &func_def.body,
+                        );
 
                     // Create initialization statements for lifted globals
                     let init_stmts =
@@ -8042,11 +8036,6 @@ impl<'a> HybridStaticBundler<'a> {
     fn get_unique_name_with_module_suffix(&self, base_name: &str, module_name: &str) -> String {
         let module_suffix = module_name.cow_replace('.', "_").into_owned();
         format!("{base_name}_{module_suffix}")
-    }
-
-    /// Get a unique name for a symbol, using the same pattern as generate_unique_name
-    fn get_unique_name(&self, base_name: &str, existing_symbols: &FxIndexSet<String>) -> String {
-        crate::code_generator::module_registry::generate_unique_name(base_name, existing_symbols)
     }
 
     /// Rewrite hard dependencies in a module's AST
@@ -8594,7 +8583,7 @@ impl<'a> HybridStaticBundler<'a> {
                         // There's a conflict, apply module suffix pattern
                         let base_name =
                             self.get_unique_name_with_module_suffix(&class_name, module_name);
-                        self.get_unique_name(&base_name, ctx.global_symbols)
+                        generate_unique_name(&base_name, ctx.global_symbols)
                     } else {
                         // No conflict, use original name
                         class_name.clone()
@@ -8606,7 +8595,7 @@ impl<'a> HybridStaticBundler<'a> {
                     // There's a conflict, apply module suffix pattern
                     let base_name =
                         self.get_unique_name_with_module_suffix(&class_name, module_name);
-                    self.get_unique_name(&base_name, ctx.global_symbols)
+                    generate_unique_name(&base_name, ctx.global_symbols)
                 } else {
                     // No conflict, use original name
                     class_name.clone()
@@ -8617,7 +8606,7 @@ impl<'a> HybridStaticBundler<'a> {
             if ctx.global_symbols.contains(&class_name) {
                 // There's a conflict, apply module suffix pattern
                 let base_name = self.get_unique_name_with_module_suffix(&class_name, module_name);
-                self.get_unique_name(&base_name, ctx.global_symbols)
+                generate_unique_name(&base_name, ctx.global_symbols)
             } else {
                 // No conflict, use original name
                 class_name.clone()
@@ -8806,13 +8795,13 @@ impl<'a> HybridStaticBundler<'a> {
                         new_name.clone()
                     } else if ctx.global_symbols.contains(&name) {
                         let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                        self.get_unique_name(&base_name, ctx.global_symbols)
+                        generate_unique_name(&base_name, ctx.global_symbols)
                     } else {
                         name.clone()
                     }
                 } else if ctx.global_symbols.contains(&name) {
                     let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                    self.get_unique_name(&base_name, ctx.global_symbols)
+                    generate_unique_name(&base_name, ctx.global_symbols)
                 } else {
                     name.clone()
                 };
@@ -8842,7 +8831,7 @@ impl<'a> HybridStaticBundler<'a> {
                     if ctx.global_symbols.contains(&name) {
                         // There's a conflict, apply module suffix pattern
                         let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                        self.get_unique_name(&base_name, ctx.global_symbols)
+                        generate_unique_name(&base_name, ctx.global_symbols)
                     } else {
                         // No conflict, use original name
                         name.clone()
@@ -8853,7 +8842,7 @@ impl<'a> HybridStaticBundler<'a> {
                 if ctx.global_symbols.contains(&name) {
                     // There's a conflict, apply module suffix pattern
                     let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                    self.get_unique_name(&base_name, ctx.global_symbols)
+                    generate_unique_name(&base_name, ctx.global_symbols)
                 } else {
                     // No conflict, use original name
                     name.clone()
@@ -8864,7 +8853,7 @@ impl<'a> HybridStaticBundler<'a> {
             if ctx.global_symbols.contains(&name) {
                 // There's a conflict, apply module suffix pattern
                 let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                self.get_unique_name(&base_name, ctx.global_symbols)
+                generate_unique_name(&base_name, ctx.global_symbols)
             } else {
                 // No conflict, use original name
                 name.clone()
@@ -8926,7 +8915,7 @@ impl<'a> HybridStaticBundler<'a> {
                         // There's a conflict, apply module suffix pattern
                         let base_name =
                             self.get_unique_name_with_module_suffix(&var_name, module_name);
-                        self.get_unique_name(&base_name, ctx.global_symbols)
+                        generate_unique_name(&base_name, ctx.global_symbols)
                     } else {
                         // No conflict, use original name
                         var_name.clone()
@@ -8937,7 +8926,7 @@ impl<'a> HybridStaticBundler<'a> {
                 if ctx.global_symbols.contains(&var_name) {
                     // There's a conflict, apply module suffix pattern
                     let base_name = self.get_unique_name_with_module_suffix(&var_name, module_name);
-                    self.get_unique_name(&base_name, ctx.global_symbols)
+                    generate_unique_name(&base_name, ctx.global_symbols)
                 } else {
                     // No conflict, use original name
                     var_name.clone()
@@ -8948,7 +8937,7 @@ impl<'a> HybridStaticBundler<'a> {
             if ctx.global_symbols.contains(&var_name) {
                 // There's a conflict, apply module suffix pattern
                 let base_name = self.get_unique_name_with_module_suffix(&var_name, module_name);
-                self.get_unique_name(&base_name, ctx.global_symbols)
+                generate_unique_name(&base_name, ctx.global_symbols)
             } else {
                 // No conflict, use original name
                 var_name.clone()
@@ -10065,11 +10054,6 @@ impl<'a> HybridStaticBundler<'a> {
         });
 
         statements.push(for_loop);
-    }
-
-    /// Collect global declarations from a function body (delegated to VariableCollector)
-    fn collect_function_globals(body: &[Stmt]) -> FxIndexSet<String> {
-        crate::visitors::VariableCollector::collect_function_globals(body)
     }
 
     /// Create initialization statements for lifted globals
