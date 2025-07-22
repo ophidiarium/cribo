@@ -23,10 +23,10 @@ use crate::{
             ProcessGlobalsParams, SemanticContext,
         },
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry::INIT_RESULT_VAR,
+        module_registry::{INIT_RESULT_VAR, generate_unique_name},
     },
     cribo_graph::CriboGraph as DependencyGraph,
-    side_effects::is_safe_stdlib_module,
+    side_effects::{is_safe_stdlib_module, module_has_side_effects},
     transformation_context::TransformationContext,
     types::{FxIndexMap, FxIndexSet},
 };
@@ -2572,10 +2572,7 @@ impl<'a> HybridStaticBundler<'a> {
                                         &func_name,
                                         module_name,
                                     );
-                                    crate::code_generator::module_registry::generate_unique_name(
-                                        &base_name,
-                                        ctx.global_symbols,
-                                    )
+                                    generate_unique_name(&base_name, ctx.global_symbols)
                                 } else {
                                     // No conflict, use original name
                                     func_name.clone()
@@ -2587,10 +2584,7 @@ impl<'a> HybridStaticBundler<'a> {
                                 // There's a conflict, apply module suffix pattern
                                 let base_name = self
                                     .get_unique_name_with_module_suffix(&func_name, module_name);
-                                crate::code_generator::module_registry::generate_unique_name(
-                                    &base_name,
-                                    ctx.global_symbols,
-                                )
+                                generate_unique_name(&base_name, ctx.global_symbols)
                             } else {
                                 // No conflict, use original name
                                 func_name.clone()
@@ -2602,10 +2596,7 @@ impl<'a> HybridStaticBundler<'a> {
                             // There's a conflict, apply module suffix pattern
                             let base_name =
                                 self.get_unique_name_with_module_suffix(&func_name, module_name);
-                            crate::code_generator::module_registry::generate_unique_name(
-                                &base_name,
-                                ctx.global_symbols,
-                            )
+                            generate_unique_name(&base_name, ctx.global_symbols)
                         } else {
                             // No conflict, use original name
                             func_name.clone()
@@ -3546,7 +3537,7 @@ impl<'a> HybridStaticBundler<'a> {
             // With full static bundling, we only need to wrap modules with side effects
             // All imports are rewritten at bundle time, so namespace imports, direct imports,
             // and circular dependencies can all be handled through static transformation
-            let has_side_effects = crate::side_effects::module_has_side_effects(ast);
+            let has_side_effects = module_has_side_effects(ast);
 
             // Check if this module has an invalid identifier (can't be imported normally)
             // These modules are likely imported via importlib and need to be wrapped
@@ -3625,7 +3616,7 @@ impl<'a> HybridStaticBundler<'a> {
                 if module_name.contains('.') && module_name != "__init__" {
                     // Check if this is a wrapper module
                     let is_wrapper = modules.iter().any(|(name, ast, _, _)| {
-                        name == module_name && crate::side_effects::module_has_side_effects(ast)
+                        name == module_name && module_has_side_effects(ast)
                     });
 
                     if is_wrapper {
@@ -8592,10 +8583,7 @@ impl<'a> HybridStaticBundler<'a> {
                         // There's a conflict, apply module suffix pattern
                         let base_name =
                             self.get_unique_name_with_module_suffix(&class_name, module_name);
-                        crate::code_generator::module_registry::generate_unique_name(
-                            &base_name,
-                            ctx.global_symbols,
-                        )
+                        generate_unique_name(&base_name, ctx.global_symbols)
                     } else {
                         // No conflict, use original name
                         class_name.clone()
@@ -8607,10 +8595,7 @@ impl<'a> HybridStaticBundler<'a> {
                     // There's a conflict, apply module suffix pattern
                     let base_name =
                         self.get_unique_name_with_module_suffix(&class_name, module_name);
-                    crate::code_generator::module_registry::generate_unique_name(
-                        &base_name,
-                        ctx.global_symbols,
-                    )
+                    generate_unique_name(&base_name, ctx.global_symbols)
                 } else {
                     // No conflict, use original name
                     class_name.clone()
@@ -8621,10 +8606,7 @@ impl<'a> HybridStaticBundler<'a> {
             if ctx.global_symbols.contains(&class_name) {
                 // There's a conflict, apply module suffix pattern
                 let base_name = self.get_unique_name_with_module_suffix(&class_name, module_name);
-                crate::code_generator::module_registry::generate_unique_name(
-                    &base_name,
-                    ctx.global_symbols,
-                )
+                generate_unique_name(&base_name, ctx.global_symbols)
             } else {
                 // No conflict, use original name
                 class_name.clone()
@@ -8813,19 +8795,13 @@ impl<'a> HybridStaticBundler<'a> {
                         new_name.clone()
                     } else if ctx.global_symbols.contains(&name) {
                         let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                        crate::code_generator::module_registry::generate_unique_name(
-                            &base_name,
-                            ctx.global_symbols,
-                        )
+                        generate_unique_name(&base_name, ctx.global_symbols)
                     } else {
                         name.clone()
                     }
                 } else if ctx.global_symbols.contains(&name) {
                     let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                    crate::code_generator::module_registry::generate_unique_name(
-                        &base_name,
-                        ctx.global_symbols,
-                    )
+                    generate_unique_name(&base_name, ctx.global_symbols)
                 } else {
                     name.clone()
                 };
@@ -8855,10 +8831,7 @@ impl<'a> HybridStaticBundler<'a> {
                     if ctx.global_symbols.contains(&name) {
                         // There's a conflict, apply module suffix pattern
                         let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                        crate::code_generator::module_registry::generate_unique_name(
-                            &base_name,
-                            ctx.global_symbols,
-                        )
+                        generate_unique_name(&base_name, ctx.global_symbols)
                     } else {
                         // No conflict, use original name
                         name.clone()
@@ -8869,10 +8842,7 @@ impl<'a> HybridStaticBundler<'a> {
                 if ctx.global_symbols.contains(&name) {
                     // There's a conflict, apply module suffix pattern
                     let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                    crate::code_generator::module_registry::generate_unique_name(
-                        &base_name,
-                        ctx.global_symbols,
-                    )
+                    generate_unique_name(&base_name, ctx.global_symbols)
                 } else {
                     // No conflict, use original name
                     name.clone()
@@ -8883,10 +8853,7 @@ impl<'a> HybridStaticBundler<'a> {
             if ctx.global_symbols.contains(&name) {
                 // There's a conflict, apply module suffix pattern
                 let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                crate::code_generator::module_registry::generate_unique_name(
-                    &base_name,
-                    ctx.global_symbols,
-                )
+                generate_unique_name(&base_name, ctx.global_symbols)
             } else {
                 // No conflict, use original name
                 name.clone()
@@ -8948,10 +8915,7 @@ impl<'a> HybridStaticBundler<'a> {
                         // There's a conflict, apply module suffix pattern
                         let base_name =
                             self.get_unique_name_with_module_suffix(&var_name, module_name);
-                        crate::code_generator::module_registry::generate_unique_name(
-                            &base_name,
-                            ctx.global_symbols,
-                        )
+                        generate_unique_name(&base_name, ctx.global_symbols)
                     } else {
                         // No conflict, use original name
                         var_name.clone()
@@ -8962,10 +8926,7 @@ impl<'a> HybridStaticBundler<'a> {
                 if ctx.global_symbols.contains(&var_name) {
                     // There's a conflict, apply module suffix pattern
                     let base_name = self.get_unique_name_with_module_suffix(&var_name, module_name);
-                    crate::code_generator::module_registry::generate_unique_name(
-                        &base_name,
-                        ctx.global_symbols,
-                    )
+                    generate_unique_name(&base_name, ctx.global_symbols)
                 } else {
                     // No conflict, use original name
                     var_name.clone()
@@ -8976,10 +8937,7 @@ impl<'a> HybridStaticBundler<'a> {
             if ctx.global_symbols.contains(&var_name) {
                 // There's a conflict, apply module suffix pattern
                 let base_name = self.get_unique_name_with_module_suffix(&var_name, module_name);
-                crate::code_generator::module_registry::generate_unique_name(
-                    &base_name,
-                    ctx.global_symbols,
-                )
+                generate_unique_name(&base_name, ctx.global_symbols)
             } else {
                 // No conflict, use original name
                 var_name.clone()

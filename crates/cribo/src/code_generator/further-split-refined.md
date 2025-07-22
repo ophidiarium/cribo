@@ -186,7 +186,6 @@ pub struct CollectedVariables {
 - `collect_referenced_vars()`
 - `collect_vars_in_stmt()`
 - `collect_vars_in_expr()`
-- `collect_function_globals()`
 
 #### 3.2.3 Export Collector Visitor (`export_collector.rs`)
 

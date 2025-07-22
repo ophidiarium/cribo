@@ -288,7 +288,6 @@ Extract symbol collection and analysis:
 - collect_module_renames()
 - collect_referenced_vars()
 - collect_vars_in_stmt()
-- collect_function_globals()
 - collect_direct_imports()
 - collect_direct_imports_recursive()
 - collect_direct_relative_imports()
