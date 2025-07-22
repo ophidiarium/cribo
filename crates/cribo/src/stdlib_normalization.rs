@@ -52,7 +52,7 @@ impl StdlibNormalizer {
 
                     if let Some(ref module) = import_from.module {
                         let module_name = module.as_str();
-                        if self.is_safe_stdlib_module(module_name) {
+                        if crate::side_effects::is_safe_stdlib_module(module_name) {
                             // Extract the root module for stdlib imports
                             let root_module = module_name.split('.').next().unwrap_or(module_name);
 
@@ -142,7 +142,7 @@ impl StdlibNormalizer {
                     if let Some(ref module) = import_from.module {
                         let module_name = module.as_str();
                         // Check if this is a safe stdlib module or submodule
-                        if self.is_safe_stdlib_module(module_name) {
+                        if crate::side_effects::is_safe_stdlib_module(module_name) {
                             // Extract the root module name
                             let root_module = module_name.split('.').next().unwrap_or(module_name);
 
@@ -234,11 +234,6 @@ impl StdlibNormalizer {
         }
     }
 
-    /// Check if a module is safe to hoist
-    fn is_safe_stdlib_module(&self, module_name: &str) -> bool {
-        crate::side_effects::is_safe_stdlib_module(module_name)
-    }
-
     /// Check if a path refers to a known stdlib submodule
     fn is_known_stdlib_submodule(&self, module_path: &str) -> bool {
         // Check if this is a stdlib module itself (not just an attribute)
@@ -316,7 +311,7 @@ impl StdlibNormalizer {
     ) {
         for alias in &import_stmt.names {
             let module_name = alias.name.as_str();
-            if !self.is_safe_stdlib_module(module_name) {
+            if !crate::side_effects::is_safe_stdlib_module(module_name) {
                 continue;
             }
             if let Some(ref alias_name) = alias.asname {
@@ -330,7 +325,7 @@ impl StdlibNormalizer {
     fn normalize_import_aliases(&self, import_stmt: &mut StmtImport) {
         for alias in &mut import_stmt.names {
             let module_name = alias.name.as_str();
-            if !self.is_safe_stdlib_module(module_name) {
+            if !crate::side_effects::is_safe_stdlib_module(module_name) {
                 debug!("Skipping non-safe stdlib module: {module_name}");
                 continue;
             }
