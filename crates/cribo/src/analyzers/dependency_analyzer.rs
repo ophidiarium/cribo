@@ -183,7 +183,9 @@ impl DependencyAnalyzer {
 
         // Check if all nodes were processed
         if result.len() == dependencies.len() {
-            Ok(result)
+            // Reverse the result to get proper dependency order
+            // (dependencies come before dependents)
+            Ok(result.into_iter().rev().collect())
         } else {
             // Find a cycle for error reporting
             let processed: FxIndexSet<String> = result.into_iter().collect();
@@ -460,8 +462,8 @@ mod tests {
             .expect("Topological sort should succeed for DAG");
 
         // In our topological sort, if a depends on b,c and b,c depend on d,
-        // then the order is: a (no incoming edges), then b,c, then d
-        // This is because we're processing nodes that have no incoming dependencies first
+        // then the order should be: d first (no dependencies), then b,c (depend on d), then a
+        // (depends on b,c) This ensures dependencies are processed before dependents
         let a_pos = result
             .iter()
             .position(|x| x == "a")
@@ -479,12 +481,12 @@ mod tests {
             .position(|x| x == "d")
             .expect("Module 'd' should be in the result");
 
-        // a should come first (no incoming edges)
-        assert!(a_pos < b_pos);
-        assert!(a_pos < c_pos);
-        // b and c should come before d
-        assert!(b_pos < d_pos);
-        assert!(c_pos < d_pos);
+        // d should come first (no dependencies)
+        assert!(d_pos < b_pos);
+        assert!(d_pos < c_pos);
+        // b and c should come before a (since a depends on them)
+        assert!(b_pos < a_pos);
+        assert!(c_pos < a_pos);
     }
 
     #[test]

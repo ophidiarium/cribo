@@ -17,30 +17,6 @@ mypackage.core = types.SimpleNamespace()
 """Submodule with future imports."""
 """Package initialization with future import."""
 @functools.cache
-def __cribo_init___cribo_41d36f_mypackage_core():
-    module = types.SimpleNamespace()
-    module.__name__ = 'mypackage.core'
-    Dict = typing.Dict
-    module.Dict = Dict
-    List = typing.List
-    module.List = List
-    Any = typing.Any
-    module.Any = Any
-
-    def process_data(data: typing.Dict[str, typing.Any]) -> typing.Dict[str, typing.Any]:
-        """Process input data and return results.\n\n    This function uses forward references in type hints.\n    """
-        result: ProcessingResult = {"input": data, "processed": True, "output": _transform_data(data)}
-        return result
-    module.process_data = process_data
-
-    def _transform_data(data: typing.Dict[str, typing.Any]) -> typing.List[str]:
-        """Transform data into list format."""
-        return [f"{k}={v}" for k, v in data.items()]
-    module._transform_data = _transform_data
-    ProcessingResult = typing.Dict[str, typing.Any]
-    module.ProcessingResult = ProcessingResult
-    return module
-@functools.cache
 def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage.submodule.utils'
@@ -66,6 +42,30 @@ def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
     module.InputData = InputData
     FormattedOutput = typing.Union[str, typing.Dict[str, typing.Any]]
     module.FormattedOutput = FormattedOutput
+    return module
+@functools.cache
+def __cribo_init___cribo_41d36f_mypackage_core():
+    module = types.SimpleNamespace()
+    module.__name__ = 'mypackage.core'
+    Dict = typing.Dict
+    module.Dict = Dict
+    List = typing.List
+    module.List = List
+    Any = typing.Any
+    module.Any = Any
+
+    def process_data(data: typing.Dict[str, typing.Any]) -> typing.Dict[str, typing.Any]:
+        """Process input data and return results.\n\n    This function uses forward references in type hints.\n    """
+        result: ProcessingResult = {"input": data, "processed": True, "output": _transform_data(data)}
+        return result
+    module.process_data = process_data
+
+    def _transform_data(data: typing.Dict[str, typing.Any]) -> typing.List[str]:
+        """Transform data into list format."""
+        return [f"{k}={v}" for k, v in data.items()]
+    module._transform_data = _transform_data
+    ProcessingResult = typing.Dict[str, typing.Any]
+    module.ProcessingResult = ProcessingResult
     return module
 mypackage.core = __cribo_init___cribo_41d36f_mypackage_core()
 process_data = mypackage.core.process_data

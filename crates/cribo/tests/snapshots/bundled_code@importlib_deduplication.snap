@@ -12,14 +12,12 @@ package = types.SimpleNamespace()
 package.__name__ = 'package'
 package.submodule = types.SimpleNamespace()
 @functools.cache
-def __cribo_init___cribo_26ef78_mymodule():
+def __cribo_init___cribo_75ebb7_package_submodule():
     module = types.SimpleNamespace()
-    module.__name__ = 'mymodule'
-    print("mymodule.py is being executed!")
-    counter = 1
-    module.counter = counter
-    test_value = "Original"
-    module.test_value = test_value
+    module.__name__ = 'package.submodule'
+    print("package/submodule.py is being executed!")
+    sub_counter = 10
+    module.sub_counter = sub_counter
     return module
 @functools.cache
 def __cribo_init___cribo_20ca72_package():
@@ -28,12 +26,14 @@ def __cribo_init___cribo_20ca72_package():
     print("package/__init__.py is being executed!")
     return module
 @functools.cache
-def __cribo_init___cribo_75ebb7_package_submodule():
+def __cribo_init___cribo_26ef78_mymodule():
     module = types.SimpleNamespace()
-    module.__name__ = 'package.submodule'
-    print("package/submodule.py is being executed!")
-    sub_counter = 10
-    module.sub_counter = sub_counter
+    module.__name__ = 'mymodule'
+    print("mymodule.py is being executed!")
+    counter = 1
+    module.counter = counter
+    test_value = "Original"
+    module.test_value = test_value
     return module
 """Test how importlib.import_module handles sys.modules and deduplication"""
 print("=== Testing importlib.import_module deduplication ===\n")

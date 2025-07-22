@@ -124,58 +124,6 @@ pub struct ReExport {
     pub is_star: bool,
 }
 
-/// Result of symbol analysis
-#[derive(Debug)]
-pub struct SymbolAnalysis {
-    /// All collected symbols
-    pub symbols: CollectedSymbols,
-    /// Variable usage information
-    pub variables: CollectedVariables,
-    /// Export information
-    pub exports: Option<ExportInfo>,
-    /// Symbol dependency relationships
-    pub symbol_dependencies: FxIndexMap<String, FxIndexSet<String>>,
-}
-
-/// Represents a dependency between symbols
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SymbolDependency {
-    /// The symbol that depends on another
-    pub from_symbol: String,
-    /// The symbol being depended upon
-    pub to_symbol: String,
-    /// The module containing the from_symbol
-    pub from_module: String,
-    /// The module containing the to_symbol
-    pub to_module: String,
-}
-
-/// Result of dependency analysis
-#[derive(Debug)]
-pub struct DependencyAnalysis {
-    /// Direct module dependencies
-    pub module_dependencies: FxIndexMap<String, FxIndexSet<String>>,
-    /// Symbol-level dependencies
-    pub symbol_dependencies: Vec<SymbolDependency>,
-    /// Circular dependency groups
-    pub circular_groups: Vec<FxIndexSet<String>>,
-    /// Hard dependencies (e.g., base class dependencies)
-    pub hard_dependencies: Vec<crate::code_generator::context::HardDependency>,
-}
-
-/// Result of import analysis
-#[derive(Debug)]
-pub struct ImportAnalysis {
-    /// Modules directly imported (import module)
-    pub directly_imported: FxIndexSet<String>,
-    /// Modules imported as namespaces (from package import module)
-    pub namespace_imported: FxIndexMap<String, FxIndexSet<String>>,
-    /// Import aliases mapping
-    pub import_aliases: FxIndexMap<String, String>,
-    /// Unused imports
-    pub unused_imports: FxIndexSet<(String, String)>,
-}
-
 /// Information about an unused import
 #[derive(Debug, Clone)]
 pub struct UnusedImportInfo {
@@ -183,17 +131,6 @@ pub struct UnusedImportInfo {
     pub name: String,
     /// The module it was imported from
     pub module: String,
-}
-
-/// Result of namespace analysis
-#[derive(Debug)]
-pub struct NamespaceAnalysis {
-    /// Required namespace modules
-    pub required_namespaces: FxIndexSet<String>,
-    /// Namespace hierarchy (parent -> children)
-    pub namespace_hierarchy: FxIndexMap<String, FxIndexSet<String>>,
-    /// Modules that need namespace objects
-    pub modules_needing_namespaces: FxIndexSet<String>,
 }
 
 /// Type of circular dependency

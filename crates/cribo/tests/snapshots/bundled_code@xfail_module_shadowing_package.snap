@@ -9,6 +9,19 @@ input_file: crates/cribo/tests/fixtures/xfail_module_shadowing_package/main.py
 import functools
 import types
 @functools.cache
+def __cribo_init___cribo_2b5490_pandera():
+    module = types.SimpleNamespace()
+    module.__name__ = 'pandera'
+    """First-party pandera package that shadows the third-party pandera package."""
+    print("Loading first-party pandera package")
+    __version__ = "0.0.1-local-package"
+    module.__version__ = __version__
+
+    def local_function():
+        return "This is from the local pandera package"
+    module.local_function = local_function
+    return module
+@functools.cache
 def __cribo_init___cribo_a6eb08_test_import():
     module = types.SimpleNamespace()
     module.__name__ = 'test_import'
@@ -34,19 +47,6 @@ def __cribo_init___cribo_a6eb08_test_import():
             print("This is the third-party pandera package")
     except ImportError as e:
         print(f"\nFailed to import pandera: {e}")
-    return module
-@functools.cache
-def __cribo_init___cribo_2b5490_pandera():
-    module = types.SimpleNamespace()
-    module.__name__ = 'pandera'
-    """First-party pandera package that shadows the third-party pandera package."""
-    print("Loading first-party pandera package")
-    __version__ = "0.0.1-local-package"
-    module.__version__ = __version__
-
-    def local_function():
-        return "This is from the local pandera package"
-    module.local_function = local_function
     return module
 """Main entry point that imports test_import to demonstrate module shadowing behavior."""
 print("=== Module Shadowing Test (Package Version) ===")
