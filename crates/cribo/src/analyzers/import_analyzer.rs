@@ -73,6 +73,12 @@ impl ImportAnalyzer {
             modules.len()
         );
 
+        // Pre-compute module names for O(1) lookup performance
+        let module_names: FxIndexSet<&str> = modules
+            .iter()
+            .map(|(name, _, _, _)| name.as_str())
+            .collect();
+
         // Check all modules for namespace imports
         for (importing_module, ast, _, _) in modules {
             debug!("Checking module '{importing_module}' for namespace imports");
@@ -80,6 +86,7 @@ impl ImportAnalyzer {
                 Self::collect_namespace_imports(
                     stmt,
                     modules,
+                    &module_names,
                     importing_module,
                     &mut namespace_imported_modules,
                 );
@@ -408,6 +415,7 @@ impl ImportAnalyzer {
     fn collect_namespace_imports(
         stmt: &Stmt,
         modules: &[(String, ModModule, PathBuf, String)],
+        module_names: &FxIndexSet<&str>,
         importing_module: &str,
         namespace_imported_modules: &mut FxIndexMap<String, FxIndexSet<String>>,
     ) {
@@ -427,9 +435,7 @@ impl ImportAnalyzer {
                         let full_module_path = format!("{module_str}.{imported_name}");
 
                         // Check if this is importing a module we're bundling
-                        let is_namespace_import = modules
-                            .iter()
-                            .any(|(name, _, _, _)| name == &full_module_path);
+                        let is_namespace_import = module_names.contains(full_module_path.as_str());
 
                         if is_namespace_import {
                             // Find the actual module name that matched
@@ -457,6 +463,7 @@ impl ImportAnalyzer {
                     Self::collect_namespace_imports(
                         stmt,
                         modules,
+                        module_names,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -467,6 +474,7 @@ impl ImportAnalyzer {
                     Self::collect_namespace_imports(
                         stmt,
                         modules,
+                        module_names,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -479,6 +487,7 @@ impl ImportAnalyzer {
                     Self::collect_namespace_imports(
                         stmt,
                         modules,
+                        module_names,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -489,6 +498,7 @@ impl ImportAnalyzer {
                         Self::collect_namespace_imports(
                             stmt,
                             modules,
+                            module_names,
                             importing_module,
                             namespace_imported_modules,
                         );
@@ -500,6 +510,7 @@ impl ImportAnalyzer {
                     Self::collect_namespace_imports(
                         stmt,
                         modules,
+                        module_names,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -509,6 +520,7 @@ impl ImportAnalyzer {
                     Self::collect_namespace_imports(
                         stmt,
                         modules,
+                        module_names,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -519,6 +531,7 @@ impl ImportAnalyzer {
                     Self::collect_namespace_imports(
                         stmt,
                         modules,
+                        module_names,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -528,6 +541,7 @@ impl ImportAnalyzer {
                     Self::collect_namespace_imports(
                         stmt,
                         modules,
+                        module_names,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -539,6 +553,7 @@ impl ImportAnalyzer {
                     Self::collect_namespace_imports(
                         stmt,
                         modules,
+                        module_names,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -550,6 +565,7 @@ impl ImportAnalyzer {
                         Self::collect_namespace_imports(
                             stmt,
                             modules,
+                            module_names,
                             importing_module,
                             namespace_imported_modules,
                         );
@@ -560,6 +576,7 @@ impl ImportAnalyzer {
                     Self::collect_namespace_imports(
                         stmt,
                         modules,
+                        module_names,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -569,6 +586,7 @@ impl ImportAnalyzer {
                     Self::collect_namespace_imports(
                         stmt,
                         modules,
+                        module_names,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -579,6 +597,7 @@ impl ImportAnalyzer {
                     Self::collect_namespace_imports(
                         stmt,
                         modules,
+                        module_names,
                         importing_module,
                         namespace_imported_modules,
                     );
@@ -590,6 +609,7 @@ impl ImportAnalyzer {
                         Self::collect_namespace_imports(
                             stmt,
                             modules,
+                            module_names,
                             importing_module,
                             namespace_imported_modules,
                         );
