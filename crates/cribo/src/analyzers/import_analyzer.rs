@@ -173,11 +173,6 @@ impl ImportAnalyzer {
             return false;
         }
 
-        // Check if it's in __all__ (module re-export)
-        if Self::is_in_all_export(ctx.module, ctx.imported_name) {
-            return false;
-        }
-
         // Check if the import has side effects (includes stdlib imports)
         if ctx.import_data.has_side_effects {
             return false;
@@ -232,24 +227,9 @@ impl ImportAnalyzer {
         true
     }
 
-    /// Check if a name is in __all__ export
-    fn is_in_all_export(module: &crate::cribo_graph::ModuleDepGraph, name: &str) -> bool {
-        // Look for __all__ assignments
-        for item_data in module.items.values() {
-            if let crate::cribo_graph::ItemType::Assignment { targets, .. } = &item_data.item_type
-                && targets.contains(&"__all__".to_string())
-            {
-                // Check if the name is in the eventual_read_vars (where __all__ names are
-                // stored)
-                if item_data.eventual_read_vars.contains(name) {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
     /// Check if a name is in the module's __all__ export list
+    /// This is the single source of truth for __all__ exports, using the reexported_names
+    /// field which is populated by the ExportCollector during graph building
     fn is_in_module_exports(module: &crate::cribo_graph::ModuleDepGraph, name: &str) -> bool {
         // Look for __all__ assignment
         for item_data in module.items.values() {
@@ -257,7 +237,7 @@ impl ImportAnalyzer {
                 && targets.contains(&"__all__".to_string())
             {
                 // Check if the name is in the reexported_names set
-                // which contains the parsed __all__ list values
+                // which contains the parsed __all__ list values from ExportCollector
                 return item_data.reexported_names.contains(name);
             }
         }
