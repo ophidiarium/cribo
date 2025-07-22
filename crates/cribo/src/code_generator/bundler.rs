@@ -7705,7 +7705,7 @@ impl<'a> HybridStaticBundler<'a> {
                     .contains(&func_def.name.to_string())
                 {
                     // Collect globals declared in this function
-                    let function_globals = self.collect_function_globals(&func_def.body);
+                    let function_globals = Self::collect_function_globals(&func_def.body);
 
                     // Create initialization statements for lifted globals
                     let init_stmts =
@@ -10068,7 +10068,7 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Collect global declarations from a function body (delegated to VariableCollector)
-    fn collect_function_globals(&self, body: &[Stmt]) -> FxIndexSet<String> {
+    fn collect_function_globals(body: &[Stmt]) -> FxIndexSet<String> {
         crate::visitors::VariableCollector::collect_function_globals(body)
     }
 
