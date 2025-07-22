@@ -209,9 +209,11 @@ impl<'a> Visitor<'a> for VariableCollector {
             }
             Stmt::AugAssign(aug_assign) => {
                 // For augmented assignment, target is both read and written
-                if let Expr::Name(name) = &*aug_assign.target {
-                    self.record_usage(&name.id, UsageType::Read, name.range);
-                }
+                // First visit the target in read context to record reads
+                let prev_in_assignment = self.in_assignment_target;
+                self.in_assignment_target = false;
+                self.visit_expr(&aug_assign.target);
+                self.in_assignment_target = prev_in_assignment;
 
                 // Visit value
                 self.visit_expr(&aug_assign.value);
@@ -327,6 +329,58 @@ x += 2
 
         let x_usages: Vec<_> = collected.usages.iter().filter(|u| u.name == "x").collect();
         assert_eq!(x_usages.len(), 3); // 1 initial write, 1 read + 1 write from +=
+    }
+
+    #[test]
+    fn test_augmented_assignment_complex_targets() {
+        let code = r#"
+obj = {'attr': 5}
+arr = [1, 2, 3]
+i = 0
+obj.attr += 1
+arr[i] += 10
+"#;
+        let parsed = parse_module(code).expect("Test code should parse successfully");
+        let module = parsed.into_syntax();
+        let collected = VariableCollector::analyze(&module);
+
+        // Check that 'obj' is recorded as read during obj.attr += 1
+        let obj_usages: Vec<_> = collected
+            .usages
+            .iter()
+            .filter(|u| u.name == "obj")
+            .collect();
+        // Should have: 1 write (assignment), 1 read (in augmented assignment)
+        assert!(
+            obj_usages
+                .iter()
+                .any(|u| matches!(u.usage_type, UsageType::Read)),
+            "obj should be read in obj.attr += 1"
+        );
+
+        // Check that 'arr' is recorded as read during arr[i] += 10
+        let arr_usages: Vec<_> = collected
+            .usages
+            .iter()
+            .filter(|u| u.name == "arr")
+            .collect();
+        // Should have: 1 write (assignment), 1 read (in augmented assignment)
+        assert!(
+            arr_usages
+                .iter()
+                .any(|u| matches!(u.usage_type, UsageType::Read)),
+            "arr should be read in arr[i] += 10"
+        );
+
+        // Check that 'i' is recorded as read during arr[i] += 10
+        let i_usages: Vec<_> = collected.usages.iter().filter(|u| u.name == "i").collect();
+        // Should have: 1 write (assignment), 1 read (in augmented assignment)
+        assert!(
+            i_usages
+                .iter()
+                .any(|u| matches!(u.usage_type, UsageType::Read)),
+            "i should be read in arr[i] += 10"
+        );
     }
 
     #[test]
