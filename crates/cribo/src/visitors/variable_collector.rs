@@ -24,6 +24,8 @@ pub struct VariableCollector {
     in_deletion: bool,
     /// Whether we're on the left side of an assignment
     in_assignment_target: bool,
+    /// Current function name (if inside a function)
+    current_function: Option<String>,
 }
 
 impl Default for VariableCollector {
@@ -40,6 +42,7 @@ impl VariableCollector {
             scope_stack: vec!["<module>".to_string()],
             in_deletion: false,
             in_assignment_target: false,
+            current_function: None,
         }
     }
 
@@ -158,26 +161,14 @@ impl<'a> Visitor<'a> for VariableCollector {
             Stmt::FunctionDef(func) => {
                 // Enter function scope
                 self.scope_stack.push(func.name.to_string());
-
-                // Collect global declarations
-                for stmt in &func.body {
-                    if let Stmt::Global(global_stmt) = stmt {
-                        let func_name = func.name.to_string();
-                        let globals_set = self
-                            .collected
-                            .function_globals
-                            .entry(func_name)
-                            .or_default();
-                        for name in &global_stmt.names {
-                            globals_set.insert(name.to_string());
-                        }
-                    }
-                }
+                let prev_function = self.current_function.clone();
+                self.current_function = Some(func.name.to_string());
 
                 // Visit function body
                 walk_stmt(self, stmt);
 
                 // Exit function scope
+                self.current_function = prev_function;
                 self.scope_stack.pop();
             }
             Stmt::ClassDef(class) => {
@@ -233,8 +224,21 @@ impl<'a> Visitor<'a> for VariableCollector {
                 self.in_deletion = false;
             }
             Stmt::Global(global_stmt) => {
+                // Record global declarations
                 for name in &global_stmt.names {
                     self.record_usage(name, UsageType::GlobalDeclaration, global_stmt.range);
+                }
+
+                // If we're in a function scope, also track in function_globals
+                if let Some(ref func_name) = self.current_function {
+                    let globals_set = self
+                        .collected
+                        .function_globals
+                        .entry(func_name.clone())
+                        .or_default();
+                    for name in &global_stmt.names {
+                        globals_set.insert(name.to_string());
+                    }
                 }
             }
             Stmt::Nonlocal(nonlocal_stmt) => {
@@ -417,5 +421,36 @@ def foo():
             assert!(globals.contains("x"));
             assert!(globals.contains("y"));
         }
+    }
+
+    #[test]
+    fn test_nested_function_globals() {
+        let code = r#"
+def outer():
+    global x
+    def inner():
+        global y
+        y = 2
+    x = 1
+"#;
+        let parsed = parse_module(code).expect("Test code should parse successfully");
+        let module = parsed.into_syntax();
+        let collected = VariableCollector::analyze(&module);
+
+        // Check outer function globals
+        let outer_globals = collected
+            .function_globals
+            .get("outer")
+            .expect("Function 'outer' should exist in function_globals");
+        assert_eq!(outer_globals.len(), 1);
+        assert!(outer_globals.contains("x"));
+
+        // Check inner function globals
+        let inner_globals = collected
+            .function_globals
+            .get("inner")
+            .expect("Function 'inner' should exist in function_globals");
+        assert_eq!(inner_globals.len(), 1);
+        assert!(inner_globals.contains("y"));
     }
 }
