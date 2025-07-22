@@ -146,7 +146,6 @@ Extract low-level code generation utilities:
 - generate_module_init_call()
 - add_hoisted_imports()
 - add_stdlib_import()
-- is_safe_stdlib_module()
 - is_hoisted_import()
 - is_import_in_hoisted_stdlib()
 - collect_future_imports_from_ast()
@@ -361,7 +360,6 @@ Extract import cleanup functionality:
 - log_unused_imports_details()
 
 // Import utilities:
-- is_safe_stdlib_module()
 - is_hoisted_import()
 - is_import_in_hoisted_stdlib()
 - add_hoisted_imports()

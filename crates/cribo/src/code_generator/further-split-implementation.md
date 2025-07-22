@@ -96,7 +96,6 @@ This plan follows the "Concrete Implementation Plan" from the proposal.
     - `stmt_uses_importlib`
     - `log_unused_imports_details`
   - **Import Utilities**:
-    - `is_safe_stdlib_module`
     - `is_hoisted_import`
     - `is_import_in_hoisted_stdlib`
     - `add_hoisted_imports`

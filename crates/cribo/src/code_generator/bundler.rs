@@ -26,6 +26,7 @@ use crate::{
         module_registry::INIT_RESULT_VAR,
     },
     cribo_graph::CriboGraph as DependencyGraph,
+    side_effects::is_safe_stdlib_module,
     transformation_context::TransformationContext,
     types::{FxIndexMap, FxIndexSet},
 };
@@ -812,7 +813,7 @@ impl<'a> HybridStaticBundler<'a> {
                         return true;
                     }
                     // Check if this is a stdlib import that we've hoisted
-                    if crate::side_effects::is_safe_stdlib_module(module_name) {
+                    if is_safe_stdlib_module(module_name) {
                         // Check if this exact import is in our hoisted stdlib imports
                         return self.is_import_in_hoisted_stdlib(module_name);
                     }
@@ -826,7 +827,7 @@ impl<'a> HybridStaticBundler<'a> {
                 import_stmt.names.iter().any(|alias| {
                     let module_name = alias.name.as_str();
                     // Check stdlib imports
-                    if crate::side_effects::is_safe_stdlib_module(module_name) {
+                    if is_safe_stdlib_module(module_name) {
                         self.stdlib_import_statements.iter().any(|hoisted| {
                             matches!(hoisted, Stmt::Import(hoisted_import)
                                 if hoisted_import.names.iter().any(|h| h.name == alias.name))
@@ -2213,7 +2214,7 @@ impl<'a> HybridStaticBundler<'a> {
                         }
 
                         // Check if this is a safe stdlib module
-                        if crate::side_effects::is_safe_stdlib_module(module_str) {
+                        if is_safe_stdlib_module(module_str) {
                             let import_map = self
                                 .stdlib_import_from_map
                                 .entry(module_str.to_string())
@@ -2232,9 +2233,7 @@ impl<'a> HybridStaticBundler<'a> {
                     // Track regular import statements for stdlib modules
                     for alias in &import_stmt.names {
                         let module_name = alias.name.as_str();
-                        if crate::side_effects::is_safe_stdlib_module(module_name)
-                            && alias.asname.is_none()
-                        {
+                        if is_safe_stdlib_module(module_name) && alias.asname.is_none() {
                             self.stdlib_import_statements.push(stmt.clone());
                         }
                     }
@@ -3105,7 +3104,7 @@ impl<'a> HybridStaticBundler<'a> {
         if let Some(ref module) = import_from.module {
             let module_name = module.as_str();
             // For third-party imports, check if they're already in the body
-            if !crate::side_effects::is_safe_stdlib_module(module_name)
+            if !is_safe_stdlib_module(module_name)
                 && !self.is_bundled_module_or_package(module_name)
             {
                 return existing_body.iter().any(|existing| {
@@ -3126,7 +3125,7 @@ impl<'a> HybridStaticBundler<'a> {
         import_stmt.names.iter().any(|alias| {
             let module_name = alias.name.as_str();
             // For third-party imports, check if they're already in the body
-            if !crate::side_effects::is_safe_stdlib_module(module_name)
+            if !is_safe_stdlib_module(module_name)
                 && !self.is_bundled_module_or_package(module_name)
             {
                 existing_body.iter().any(|existing| {
@@ -4067,9 +4066,7 @@ impl<'a> HybridStaticBundler<'a> {
                 if let Stmt::Import(import_stmt) = stmt {
                     for alias in &import_stmt.names {
                         let module_name = alias.name.as_str();
-                        if crate::side_effects::is_safe_stdlib_module(module_name)
-                            && alias.asname.is_none()
-                        {
+                        if is_safe_stdlib_module(module_name) && alias.asname.is_none() {
                             // This is a normalized stdlib import (no alias), ensure it's
                             // hoisted
                             self.add_stdlib_import(module_name);
