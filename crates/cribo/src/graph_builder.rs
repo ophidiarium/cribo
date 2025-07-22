@@ -6,6 +6,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     cribo_graph::{ItemData, ItemType, ModuleDepGraph},
+    side_effects::is_safe_stdlib_module,
     visitors::ExpressionSideEffectDetector,
 };
 
@@ -572,7 +573,7 @@ impl<'a> GraphBuilder<'a> {
                 && let Expr::Name(name_expr) = attr_expr.value.as_ref()
             {
                 let module_name = name_expr.id.as_str();
-                if crate::side_effects::is_safe_stdlib_module(module_name) {
+                if is_safe_stdlib_module(module_name) {
                     is_safe_stdlib_attribute_access = true;
                     log::debug!(
                         "Assignment from safe stdlib module '{module_name}' attribute access"

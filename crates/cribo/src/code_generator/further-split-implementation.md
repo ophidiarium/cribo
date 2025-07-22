@@ -96,7 +96,6 @@ This plan follows the "Concrete Implementation Plan" from the proposal.
     - `stmt_uses_importlib`
     - `log_unused_imports_details`
   - **Import Utilities**:
-    - `is_safe_stdlib_module`
     - `is_hoisted_import`
     - `is_import_in_hoisted_stdlib`
     - `add_hoisted_imports`
@@ -114,7 +113,6 @@ This plan follows the "Concrete Implementation Plan" from the proposal.
      - `collect_module_renames`
      - `collect_referenced_vars`
      - `collect_vars_in_stmt`
-     - `collect_function_globals`
      - `extract_all_exports`
   3. **Enhance `visitors/import_discovery.rs`** to be the sole source of import collection, replacing:
      - `collect_direct_imports` and its variants.
