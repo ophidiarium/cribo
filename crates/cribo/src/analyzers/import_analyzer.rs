@@ -185,6 +185,13 @@ impl ImportAnalyzer {
             return false;
         }
 
+        // Fetch the import item's declared variables once to avoid repeated lookups
+        let import_vars_to_check = ctx
+            .module
+            .items
+            .get(&ctx.import_id)
+            .map(|item| &item.var_decls);
+
         // Check if the name is used anywhere in the module
         for (item_id, item_data) in &ctx.module.items {
             // Skip the import statement itself
@@ -208,8 +215,8 @@ impl ImportAnalyzer {
 
             // For dotted imports like `import xml.etree.ElementTree`, also check if any of the
             // declared variables from that import are used
-            if let Some(import_item) = ctx.module.items.get(&ctx.import_id) {
-                let is_var_used = import_item.var_decls.iter().any(|var_decl| {
+            if let Some(import_vars) = import_vars_to_check {
+                let is_var_used = import_vars.iter().any(|var_decl| {
                     item_data.read_vars.contains(var_decl)
                         || item_data.eventual_read_vars.contains(var_decl)
                 });
