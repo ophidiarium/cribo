@@ -187,17 +187,100 @@ impl DependencyAnalyzer {
             // (dependencies come before dependents)
             Ok(result.into_iter().rev().collect())
         } else {
-            // Find a cycle for error reporting
+            // Find the actual cycle using DFS
             let processed: FxIndexSet<String> = result.into_iter().collect();
-            let remaining: Vec<String> = dependencies
+            let unprocessed: Vec<String> = dependencies
                 .keys()
                 .filter(|k| !processed.contains(*k))
                 .cloned()
                 .collect();
 
-            // For simplicity, return the remaining nodes as the cycle
-            Err(remaining)
+            // Use DFS to find the actual cycle path
+            if let Some(cycle) = Self::find_cycle_dfs(dependencies, &unprocessed) {
+                Err(cycle)
+            } else {
+                // Fallback to returning all unprocessed nodes if we can't find a specific cycle
+                Err(unprocessed)
+            }
         }
+    }
+
+    /// Find a cycle using DFS starting from unprocessed nodes
+    fn find_cycle_dfs(
+        dependencies: &FxIndexMap<String, FxIndexSet<String>>,
+        unprocessed: &[String],
+    ) -> Option<Vec<String>> {
+        let mut visited = FxIndexSet::default();
+        let mut rec_stack = FxIndexSet::default();
+        let mut parent = FxIndexMap::default();
+
+        // Try to find a cycle starting from each unprocessed node
+        for start_node in unprocessed {
+            if visited.contains(start_node) {
+                continue;
+            }
+
+            let mut stack = vec![(start_node.clone(), false)];
+
+            while let Some((node, backtrack)) = stack.pop() {
+                if backtrack {
+                    rec_stack.swap_remove(&node);
+                    continue;
+                }
+
+                if rec_stack.contains(&node) {
+                    // Skip - already being processed
+                    continue;
+                }
+
+                if visited.contains(&node) {
+                    continue;
+                }
+
+                visited.insert(node.clone());
+                rec_stack.insert(node.clone());
+                stack.push((node.clone(), true)); // Push backtrack marker
+
+                if let Some(deps) = dependencies.get(&node) {
+                    for dep in deps {
+                        if !visited.contains(dep) {
+                            parent.insert(dep.clone(), node.clone());
+                            stack.push((dep.clone(), false));
+                        } else if rec_stack.contains(dep) {
+                            // Found a cycle - reconstruct the path
+                            let mut cycle = Vec::new();
+                            let mut current = node.clone();
+
+                            // Add the current node
+                            cycle.push(current.clone());
+
+                            // Follow parent pointers until we reach the dependency that creates the
+                            // cycle
+                            while current != *dep {
+                                if let Some(parent_node) = parent.get(&current) {
+                                    current = parent_node.clone();
+                                    cycle.push(current.clone());
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            // The cycle should be in the correct order now
+                            cycle.reverse();
+
+                            // Remove any nodes before the actual cycle starts
+                            if let Some(pos) = cycle.iter().position(|x| x == dep) {
+                                cycle = cycle[pos..].to_vec();
+                            }
+
+                            return Some(cycle);
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Analyze circular dependencies and classify them
