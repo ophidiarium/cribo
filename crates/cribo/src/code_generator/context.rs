@@ -76,6 +76,6 @@ pub struct BundleParams<'a> {
     pub entry_module_name: &'a str,
     pub graph: &'a DependencyGraph, // Dependency graph for unused import detection
     pub semantic_bundler: &'a SemanticBundler, // Semantic analysis results
-    pub circular_dep_analysis: Option<&'a crate::cribo_graph::CircularDependencyAnalysis>, /* Circular dependency analysis */
+    pub circular_dep_analysis: Option<&'a crate::analyzers::types::CircularDependencyAnalysis>, /* Circular dependency analysis */
     pub tree_shaker: Option<&'a crate::tree_shaking::TreeShaker>, // Tree shaking analysis
 }

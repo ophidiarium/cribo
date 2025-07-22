@@ -15,7 +15,7 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
-    analyzers::SymbolAnalyzer,
+    analyzers::{ImportAnalyzer, SymbolAnalyzer, namespace_analyzer::NamespaceAnalyzer},
     code_generator::{
         circular_deps::SymbolDependencyGraph,
         context::{
@@ -29,13 +29,6 @@ use crate::{
     transformation_context::TransformationContext,
     types::{FxIndexMap, FxIndexSet},
 };
-
-/// Direct import collection context
-struct DirectImportContext<'a> {
-    current_module: &'a str,
-    module_path: &'a Path,
-    modules: &'a [(String, ModModule, PathBuf, String)],
-}
 
 /// Parameters for transforming functions with lifted globals
 struct TransformFunctionParams<'a> {
@@ -2146,91 +2139,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
-    /// Identify required namespaces from module names
-    fn identify_required_namespaces(&mut self, modules: &[(String, ModModule, PathBuf, String)]) {
-        debug!(
-            "Identifying required namespaces from {} modules",
-            modules.len()
-        );
-
-        // Don't clear if we already have namespaces identified
-        // This allows early identification to be preserved
-        if !self.required_namespaces.is_empty() {
-            debug!(
-                "Required namespaces already identified ({}), skipping re-identification",
-                self.required_namespaces.len()
-            );
-            return;
-        }
-
-        // First, collect all module names to check if parent modules exist
-        // Normalize __init__ to the actual package name if present
-        let all_module_names: FxIndexSet<String> = modules
-            .iter()
-            .map(|(name, _, _, _)| {
-                if name == "__init__" {
-                    // Find the actual package name from other modules
-                    // e.g., if we have "requests.compat", the package is "requests"
-                    if let Some((other_name, _, _, _)) =
-                        modules.iter().find(|(n, _, _, _)| n.contains('.'))
-                        && let Some(package_name) = other_name.split('.').next()
-                    {
-                        return package_name.to_string();
-                    }
-                }
-                name.clone()
-            })
-            .collect();
-
-        // Scan all modules to find dotted module names
-        for (module_name, _, _, _) in modules {
-            // Skip __init__ module as it's already handled above
-            if module_name == "__init__" {
-                continue;
-            }
-
-            if !module_name.contains('.') {
-                continue;
-            }
-
-            // Split the module name and identify all parent namespaces
-            let parts: Vec<&str> = module_name.split('.').collect();
-
-            // Add all parent namespace levels
-            for i in 1..parts.len() {
-                let namespace = parts[..i].join(".");
-
-                // We need to create a namespace for ALL parent namespaces, regardless of whether
-                // they are wrapped modules or not. This is because child modules need to be
-                // assigned as attributes on their parent namespaces.
-                debug!("Identified required namespace: {namespace}");
-                self.required_namespaces.insert(namespace);
-            }
-        }
-
-        // IMPORTANT: Also add modules that have submodules as required namespaces
-        // This ensures that parent modules like 'models' and 'services' exist as namespaces
-        // before we try to assign their submodules
-        for module_name in &all_module_names {
-            // Check if this module has any submodules
-            let has_submodules = all_module_names
-                .iter()
-                .any(|m| m != module_name && m.starts_with(&format!("{module_name}.")));
-
-            if has_submodules {
-                // Any module with submodules needs a namespace, regardless of whether it's
-                // a wrapper module or the entry module
-                debug!("Identified module with submodules as required namespace: {module_name}");
-                self.required_namespaces.insert(module_name.clone());
-            }
-        }
-
-        debug!(
-            "Total required namespaces: {}",
-            self.required_namespaces.len()
-        );
-    }
-
     /// Create namespace statements for required namespaces
     fn create_namespace_statements(&mut self) -> Vec<Stmt> {
         let mut statements = Vec::new();
@@ -2436,144 +2344,37 @@ impl<'a> HybridStaticBundler<'a> {
         wrapper_modules: &[(String, ModModule, PathBuf, String)],
         graph: &DependencyGraph,
     ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
-        use petgraph::{
-            algo::toposort,
-            graph::{DiGraph, NodeIndex},
-        };
-        use rustc_hash::{FxHashMap, FxHashSet};
+        use crate::analyzers::dependency_analyzer::DependencyAnalyzer;
 
-        // Build a directed graph of wrapper module dependencies
-        let mut module_graph = DiGraph::new();
-        let mut node_map: FxHashMap<String, NodeIndex> = FxHashMap::default();
-
-        // Create a set for quick lookup
-        let wrapper_module_names: FxHashSet<String> = wrapper_modules
+        // Extract module names
+        let wrapper_names: Vec<String> = wrapper_modules
             .iter()
             .map(|(name, _, _, _)| name.clone())
             .collect();
 
-        // Add nodes for all wrapper modules
-        for (module_name, _, _, _) in wrapper_modules {
-            let node = module_graph.add_node(module_name.clone());
-            node_map.insert(module_name.clone(), node);
-        }
+        // Get all modules for the analyzer (wrapper modules are a subset)
+        let all_modules = wrapper_modules;
 
-        // Add edges based on module dependencies
-        for (module_name, _, _, _) in wrapper_modules {
-            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
-                // Check all items in this module for dependencies
-                for item_data in module_dep_graph.items.values() {
-                    // Look at both immediate reads (module-level) and eventual reads
-                    let all_deps = item_data
-                        .read_vars
-                        .iter()
-                        .chain(item_data.eventual_read_vars.iter());
+        // Use DependencyAnalyzer to sort
+        let sorted_names = DependencyAnalyzer::sort_wrapper_modules_by_dependencies(
+            wrapper_names,
+            all_modules,
+            graph,
+        );
 
-                    for dep_var in all_deps {
-                        // Find which module this dependency comes from
-                        if let Some(dep_module) = SymbolAnalyzer::find_symbol_module(
-                            dep_var,
-                            module_name,
-                            graph,
-                            &self.circular_modules,
-                        ) {
-                            // Only add edge if the dependency is also a wrapper module
-                            if wrapper_module_names.contains(&dep_module)
-                                && dep_module != *module_name
-                                && let (Some(&from_node), Some(&to_node)) =
-                                    (node_map.get(module_name), node_map.get(&dep_module))
-                            {
-                                // Edge from current module to its dependency
-                                module_graph.add_edge(from_node, to_node, ());
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // Create a map for quick lookup
+        let module_map: FxIndexMap<String, (String, ModModule, PathBuf, String)> = wrapper_modules
+            .iter()
+            .map(|m| (m.0.clone(), m.clone()))
+            .collect();
 
-        // Perform topological sort
-        match toposort(&module_graph, None) {
-            Ok(sorted_nodes) => {
-                // Create a map for quick lookup
-                let module_map: FxHashMap<String, (String, ModModule, PathBuf, String)> =
-                    wrapper_modules
-                        .iter()
-                        .map(|m| (m.0.clone(), m.clone()))
-                        .collect();
+        // Map sorted names back to full modules
+        let sorted_modules = sorted_names
+            .into_iter()
+            .filter_map(|module_name| module_map.get(&module_name).cloned())
+            .collect();
 
-                // Return modules in reverse topological order (dependencies first)
-                let sorted_module_names: Vec<String> = sorted_nodes
-                    .iter()
-                    .rev()
-                    .map(|&idx| module_graph[idx].clone())
-                    .collect();
-
-                log::debug!("Sorted wrapper modules by dependencies: {sorted_module_names:?}");
-
-                let sorted_modules = sorted_module_names
-                    .into_iter()
-                    .filter_map(|module_name| module_map.get(&module_name).cloned())
-                    .collect();
-
-                Ok(sorted_modules)
-            }
-            Err(cycle) => {
-                // If there's a true initialization cycle and we're using module cache,
-                // return modules in alphabetical order within the cycle
-                if self.use_module_cache {
-                    log::warn!(
-                        "Module-level initialization cycle detected involving module '{}'. Using \
-                         module cache approach with alphabetical ordering.",
-                        &module_graph[cycle.node_id()]
-                    );
-
-                    // Find all modules in the cycle using Tarjan's algorithm
-                    let sccs = petgraph::algo::tarjan_scc(&module_graph);
-                    let mut cyclic_modules = FxHashSet::default();
-
-                    for scc in sccs {
-                        if scc.len() > 1 {
-                            // This is a cycle
-                            for &node_idx in &scc {
-                                cyclic_modules.insert(module_graph[node_idx].clone());
-                            }
-                        }
-                    }
-
-                    log::warn!("Modules in cycle: {cyclic_modules:?}");
-
-                    // Sort all modules alphabetically
-                    let mut sorted_names: Vec<String> = wrapper_modules
-                        .iter()
-                        .map(|(name, _, _, _)| name.clone())
-                        .collect();
-                    sorted_names.sort();
-
-                    let module_map: FxHashMap<String, (String, ModModule, PathBuf, String)> =
-                        wrapper_modules
-                            .iter()
-                            .map(|m| (m.0.clone(), m.clone()))
-                            .collect();
-
-                    let sorted_modules = sorted_names
-                        .into_iter()
-                        .filter_map(|module_name| module_map.get(&module_name).cloned())
-                        .collect();
-
-                    Ok(sorted_modules)
-                } else {
-                    // Original error for non-module-cache approach
-                    let node_in_cycle = &module_graph[cycle.node_id()];
-                    anyhow::bail!(
-                        "Module-level initialization cycle detected involving module '{}'. This \
-                         occurs when modules have mutually dependent top-level code that cannot \
-                         be resolved. Consider refactoring to break the initialization cycle.",
-                        node_in_cycle
-                    )
-                }
-            }
-        }
+        Ok(sorted_modules)
     }
 
     /// Process wrapper module globals (matching original implementation)
@@ -3065,140 +2866,16 @@ impl<'a> HybridStaticBundler<'a> {
     fn sort_wrapped_modules_by_dependencies(
         &self,
         wrapped_modules: &[String],
-        all_modules: &[(String, PathBuf, Vec<String>)],
+        _all_modules: &[(String, PathBuf, Vec<String>)],
+        graph: &DependencyGraph,
     ) -> Vec<String> {
-        // Build a dependency map for wrapped modules only
-        let mut deps_map: FxIndexMap<String, Vec<String>> = FxIndexMap::default();
+        use crate::analyzers::dependency_analyzer::DependencyAnalyzer;
 
-        for module_name in wrapped_modules {
-            deps_map.insert(module_name.clone(), Vec::new());
+        // Convert wrapped_modules slice to Vec for DependencyAnalyzer
+        let module_names: Vec<String> = wrapped_modules.to_vec();
 
-            // Add parent modules as dependencies to ensure they're initialized first
-            // For example, "models.base" depends on "models"
-            // because Python always initializes parent packages before submodules
-            // UNLESS the parent imports from this child
-            for other_module in wrapped_modules {
-                if other_module != module_name
-                    && module_name.starts_with(other_module)
-                    && module_name[other_module.len()..].starts_with('.')
-                {
-                    // module_name is a child of other_module
-                    // Check if the parent imports from this child
-                    let parent_imports_child = if let Some((_, _, parent_deps)) =
-                        all_modules.iter().find(|(name, _, _)| name == other_module)
-                    {
-                        // Dependencies might be stored as relative imports
-                        // e.g., ".connection" for "core.database.connection"
-                        let relative_name = if module_name.starts_with(&format!("{other_module}."))
-                        {
-                            format!(".{}", &module_name[other_module.len() + 1..])
-                        } else {
-                            module_name.to_string()
-                        };
-
-                        let imports_child = parent_deps.contains(module_name)
-                            || parent_deps.contains(&relative_name);
-                        if imports_child {
-                            debug!(
-                                "    Found: parent {other_module} has dependency on child \
-                                 {module_name}"
-                            );
-                        }
-                        imports_child
-                    } else {
-                        debug!("    No dependency info found for parent {other_module}");
-                        false
-                    };
-
-                    if parent_imports_child {
-                        // Parent imports from child, so parent depends on child
-                        debug!(
-                            "  - Parent {other_module} imports from child {module_name}, \
-                             reversing dependency"
-                        );
-                        if let Some(parent_deps) = deps_map.get_mut(other_module)
-                            && !parent_deps.contains(module_name)
-                        {
-                            parent_deps.push(module_name.clone());
-                        }
-                    } else {
-                        // Normal case: child depends on parent
-                        debug!("  - {module_name} depends on parent module {other_module}");
-                        if let Some(module_deps) = deps_map.get_mut(module_name)
-                            && !module_deps.contains(other_module)
-                        {
-                            module_deps.push(other_module.clone());
-                        }
-                    }
-                }
-            }
-
-            // Find this module's dependencies from all_modules
-            if let Some((_, _, deps)) = all_modules.iter().find(|(name, _, _)| name == module_name)
-            {
-                debug!("Module {module_name} has dependencies: {deps:?}");
-                for dep in deps {
-                    // Check if this dependency or any of its submodules are wrapped
-                    for wrapped in wrapped_modules {
-                        // Check exact match or if wrapped module is a submodule of dep
-                        if wrapped == dep
-                            || (wrapped.starts_with(dep) && wrapped[dep.len()..].starts_with('.'))
-                        {
-                            debug!("  - {module_name} depends on wrapped module {wrapped}");
-                            if let Some(module_deps) = deps_map.get_mut(module_name)
-                                && !module_deps.contains(wrapped)
-                            {
-                                module_deps.push(wrapped.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        debug!("Dependency map for wrapped modules: {deps_map:?}");
-
-        // Perform a simple topological sort on wrapped modules
-        let mut sorted = Vec::new();
-        let mut visited = FxIndexSet::default();
-        let mut visiting = FxIndexSet::default();
-
-        fn visit(
-            module: &str,
-            deps_map: &FxIndexMap<String, Vec<String>>,
-            visited: &mut FxIndexSet<String>,
-            visiting: &mut FxIndexSet<String>,
-            sorted: &mut Vec<String>,
-        ) -> bool {
-            if visited.contains(module) {
-                return true;
-            }
-            if visiting.contains(module) {
-                // Circular dependency among wrapped modules
-                return false;
-            }
-
-            visiting.insert(module.to_string());
-
-            if let Some(deps) = deps_map.get(module) {
-                for dep in deps {
-                    if !visit(dep, deps_map, visited, visiting, sorted) {
-                        return false;
-                    }
-                }
-            }
-
-            visiting.shift_remove(module);
-            visited.insert(module.to_string());
-            sorted.push(module.to_string());
-            true
-        }
-
-        for module in wrapped_modules {
-            visit(module, &deps_map, &mut visited, &mut visiting, &mut sorted);
-        }
-
-        sorted
+        // Use DependencyAnalyzer to sort
+        DependencyAnalyzer::sort_wrapped_modules_by_dependencies(module_names, graph)
     }
 
     /// Get imports from entry module
@@ -3921,7 +3598,8 @@ impl<'a> HybridStaticBundler<'a> {
             .iter()
             .map(|(name, ast, path, hash)| (name.clone(), ast.clone(), path.clone(), hash.clone()))
             .collect::<Vec<_>>();
-        self.identify_required_namespaces(&all_modules_for_namespace_detection);
+        self.required_namespaces =
+            NamespaceAnalyzer::identify_required_namespaces(&all_modules_for_namespace_detection);
 
         // If we need to create namespace statements, ensure types import is available
         if !self.required_namespaces.is_empty() {
@@ -5304,6 +4982,7 @@ impl<'a> HybridStaticBundler<'a> {
             let sorted_wrapped = self.sort_wrapped_modules_by_dependencies(
                 &wrapped_modules_to_init,
                 params.sorted_modules,
+                params.graph,
             );
             debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
 
@@ -6489,7 +6168,10 @@ impl<'a> HybridStaticBundler<'a> {
 
             // Get unused imports from the graph
             if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
-                let mut unused_imports = module_dep_graph.find_unused_imports(is_init_py);
+                let mut unused_imports = crate::analyzers::import_analyzer::ImportAnalyzer::find_unused_imports_in_module(
+                    module_dep_graph,
+                    is_init_py,
+                );
 
                 // If tree shaking is enabled, also check if imported symbols were removed
                 // Note: We only apply tree-shaking logic to "from module import symbol" style
@@ -6580,10 +6262,12 @@ impl<'a> HybridStaticBundler<'a> {
                                             "Import '{local_name}' from '{from_module}' is not \
                                              used by surviving code after tree-shaking"
                                         );
-                                        unused_imports.push(crate::cribo_graph::UnusedImportInfo {
-                                            name: local_name.clone(),
-                                            module: from_module.clone(),
-                                        });
+                                        unused_imports.push(
+                                            crate::analyzers::types::UnusedImportInfo {
+                                                name: local_name.clone(),
+                                                module: from_module.clone(),
+                                            },
+                                        );
                                     }
                                 }
                             }
@@ -6709,10 +6393,12 @@ impl<'a> HybridStaticBundler<'a> {
                                          used by surviving code after tree-shaking (item_id: \
                                          {item_id:?})"
                                     );
-                                    unused_imports.push(crate::cribo_graph::UnusedImportInfo {
-                                        name: import_name.to_string(),
-                                        module: module.clone(),
-                                    });
+                                    unused_imports.push(
+                                        crate::analyzers::types::UnusedImportInfo {
+                                            name: import_name.to_string(),
+                                            module: module.clone(),
+                                        },
+                                    );
                                 }
                             }
                             _ => {}
@@ -6756,214 +6442,8 @@ impl<'a> HybridStaticBundler<'a> {
         modules: &[(String, ModModule, PathBuf, String)],
         entry_module_name: &str,
     ) -> FxIndexSet<String> {
-        let mut directly_imported = FxIndexSet::default();
-
-        // Check all modules for direct imports (both module-level and function-scoped)
-        for (module_name, ast, module_path, _) in modules {
-            log::debug!("Checking module '{module_name}' for direct imports");
-            let ctx = DirectImportContext {
-                current_module: module_name,
-                module_path,
-                modules,
-            };
-            for stmt in &ast.body {
-                self.collect_direct_imports(stmt, &ctx, &mut directly_imported);
-                // Also check for imports inside functions, classes, etc.
-                self.collect_direct_imports_recursive(stmt, &ctx, &mut directly_imported);
-            }
-        }
-
-        // Also check the entry module if it has an AST
-        if let Some(entry_ast) = self.module_asts.as_ref().and_then(|asts| {
-            asts.iter()
-                .find(|(name, _, _, _)| name == entry_module_name)
-                .map(|(_, ast, _, _)| ast)
-        }) {
-            log::debug!("Checking entry module '{entry_module_name}' for direct imports");
-            let ctx = DirectImportContext {
-                current_module: entry_module_name,
-                module_path: &PathBuf::new(), // Entry module path doesn't matter for this
-                modules,
-            };
-            for stmt in &entry_ast.body {
-                self.collect_direct_imports(stmt, &ctx, &mut directly_imported);
-                self.collect_direct_imports_recursive(stmt, &ctx, &mut directly_imported);
-            }
-        }
-
-        log::debug!(
-            "Found {} directly imported modules: {:?}",
-            directly_imported.len(),
-            directly_imported
-        );
-        directly_imported
-    }
-
-    /// Helper to collect direct imports from a statement
-    fn collect_direct_imports(
-        &self,
-        stmt: &Stmt,
-        ctx: &DirectImportContext<'_>,
-        directly_imported: &mut FxIndexSet<String>,
-    ) {
-        match stmt {
-            Stmt::Import(import_stmt) => {
-                for alias in &import_stmt.names {
-                    let imported_module = alias.name.as_str();
-                    // Check if this is a bundled module
-                    if ctx
-                        .modules
-                        .iter()
-                        .any(|(name, _, _, _)| name == imported_module)
-                    {
-                        directly_imported.insert(imported_module.to_string());
-
-                        // When importing a submodule, Python implicitly imports parent packages
-                        // For example, importing 'greetings.irrelevant' also imports 'greetings'
-                        if imported_module.contains('.') {
-                            self.mark_parent_packages_as_imported(
-                                imported_module,
-                                ctx.modules,
-                                directly_imported,
-                            );
-                        }
-                    }
-                }
-            }
-            Stmt::ImportFrom(import_from) => {
-                if let Some(module) = &import_from.module {
-                    let module_name = module.as_str();
-                    // Check if any imported name is actually a submodule
-                    for alias in &import_from.names {
-                        let imported_name = alias.name.as_str();
-                        let full_module_path = format!("{module_name}.{imported_name}");
-
-                        log::debug!(
-                            "Checking if '{full_module_path}' (from {module_name} import \
-                             {imported_name}) is a bundled module"
-                        );
-
-                        // Check if this full path matches a bundled module
-                        if ctx
-                            .modules
-                            .iter()
-                            .any(|(name, _, _, _)| name == &full_module_path)
-                        {
-                            // This is importing a submodule directly
-                            log::debug!(
-                                "Found submodule import: from {module_name} import \
-                                 {imported_name} -> {full_module_path}"
-                            );
-                            // Note: We don't mark this as directly imported anymore
-                            // `from models import base` should allow `models.base` to be inlined
-                            // if it has no side effects. Only `import models.base` should
-                            // force wrapping.
-                        }
-                    }
-                } else if import_from.level > 0 {
-                    // Handle relative imports (e.g., from . import greeting)
-                    self.collect_direct_relative_imports(import_from, ctx, directly_imported);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Recursively collect direct imports from nested statements
-    fn collect_direct_imports_recursive(
-        &self,
-        stmt: &Stmt,
-        ctx: &DirectImportContext<'_>,
-        directly_imported: &mut FxIndexSet<String>,
-    ) {
-        match stmt {
-            Stmt::FunctionDef(func_def) => {
-                for body_stmt in &func_def.body {
-                    self.collect_direct_imports(body_stmt, ctx, directly_imported);
-                    self.collect_direct_imports_recursive(body_stmt, ctx, directly_imported);
-                }
-            }
-            Stmt::ClassDef(class_def) => {
-                for body_stmt in &class_def.body {
-                    self.collect_direct_imports(body_stmt, ctx, directly_imported);
-                    self.collect_direct_imports_recursive(body_stmt, ctx, directly_imported);
-                }
-            }
-            Stmt::If(if_stmt) => {
-                for body_stmt in &if_stmt.body {
-                    self.collect_direct_imports(body_stmt, ctx, directly_imported);
-                    self.collect_direct_imports_recursive(body_stmt, ctx, directly_imported);
-                }
-                for clause in &if_stmt.elif_else_clauses {
-                    for body_stmt in &clause.body {
-                        self.collect_direct_imports(body_stmt, ctx, directly_imported);
-                        self.collect_direct_imports_recursive(body_stmt, ctx, directly_imported);
-                    }
-                }
-            }
-            // Add other compound statements as needed...
-            _ => {}
-        }
-    }
-
-    /// Mark parent packages as imported
-    fn mark_parent_packages_as_imported(
-        &self,
-        module_path: &str,
-        modules: &[(String, ModModule, PathBuf, String)],
-        directly_imported: &mut FxIndexSet<String>,
-    ) {
-        let parts: Vec<&str> = module_path.split('.').collect();
-        for i in 1..parts.len() {
-            let parent_path = parts[0..i].join(".");
-            if modules.iter().any(|(name, _, _, _)| name == &parent_path) {
-                directly_imported.insert(parent_path);
-            }
-        }
-    }
-
-    /// Collect direct relative imports
-    fn collect_direct_relative_imports(
-        &self,
-        import_from: &StmtImportFrom,
-        ctx: &DirectImportContext<'_>,
-        directly_imported: &mut FxIndexSet<String>,
-    ) {
-        let resolved_module = self.resolve_relative_import_with_context(
-            import_from,
-            ctx.current_module,
-            Some(ctx.module_path),
-        );
-
-        let Some(base_module) = resolved_module else {
-            return;
-        };
-
-        // Check if any imported name is actually a submodule
-        for alias in &import_from.names {
-            let imported_name = alias.name.as_str();
-            let full_module_path = format!("{base_module}.{imported_name}");
-
-            log::debug!(
-                "Checking if '{full_module_path}' (from . import {imported_name}) is a bundled \
-                 module"
-            );
-
-            // Check if this full path matches a bundled module
-            let is_bundled_module = ctx
-                .modules
-                .iter()
-                .any(|(name, _, _, _)| name == &full_module_path);
-
-            if is_bundled_module {
-                // This is importing a submodule directly
-                log::debug!(
-                    "Found direct submodule import via relative import: from . import \
-                     {imported_name} -> {full_module_path}"
-                );
-                directly_imported.insert(full_module_path);
-            }
-        }
+        // Use ImportAnalyzer to find directly imported modules
+        ImportAnalyzer::find_directly_imported_modules(modules, entry_module_name)
     }
 
     /// Find modules that are imported as namespaces
@@ -6971,18 +6451,8 @@ impl<'a> HybridStaticBundler<'a> {
         &mut self,
         modules: &[(String, ModModule, PathBuf, String)],
     ) {
-        log::debug!(
-            "find_namespace_imported_modules: Checking {} modules",
-            modules.len()
-        );
-
-        // Check all modules for namespace imports
-        for (importing_module, ast, _, _) in modules {
-            log::debug!("Checking module '{importing_module}' for namespace imports");
-            for stmt in &ast.body {
-                self.collect_namespace_imports(stmt, modules, importing_module);
-            }
-        }
+        // Use ImportAnalyzer to find namespace imported modules
+        self.namespace_imported_modules = ImportAnalyzer::find_namespace_imported_modules(modules);
 
         log::debug!(
             "Found {} namespace imported modules: {:?}",
@@ -6991,148 +6461,7 @@ impl<'a> HybridStaticBundler<'a> {
         );
     }
 
-    /// Helper to collect namespace imports from a statement
-    fn collect_namespace_imports(
-        &mut self,
-        stmt: &Stmt,
-        modules: &[(String, ModModule, PathBuf, String)],
-        importing_module: &str,
-    ) {
-        match stmt {
-            Stmt::ImportFrom(import_from) if import_from.module.is_some() => {
-                let module = import_from
-                    .module
-                    .as_ref()
-                    .expect("module was checked to be Some");
-                let module_name = module.as_str();
-                log::debug!(
-                    "  Found import from '{}' with names: {:?} in '{}'",
-                    module_name,
-                    import_from
-                        .names
-                        .iter()
-                        .map(|a| a.name.as_str())
-                        .collect::<Vec<_>>(),
-                    importing_module
-                );
-
-                // Check if any imported name is actually a submodule
-                for alias in &import_from.names {
-                    let imported_name = alias.name.as_str();
-                    let full_module_path = format!("{module_name}.{imported_name}");
-
-                    log::debug!(
-                        "  Checking if '{full_module_path}' (from {module_name} import \
-                         {imported_name}) is a bundled module in namespace import check"
-                    );
-
-                    // Check if this full path matches a bundled module
-                    let is_namespace_import = modules.iter().any(|(name, _, _, _)| {
-                        name == &full_module_path || name.ends_with(&full_module_path)
-                    });
-
-                    if is_namespace_import {
-                        // Find the actual module name that matched
-                        let actual_module_name =
-                            Self::find_matching_module_name_namespace(modules, &full_module_path);
-
-                        // This is importing a submodule as a namespace
-                        log::debug!(
-                            "  Found namespace import: from {module_name} import {imported_name} \
-                             -> {full_module_path} (actual: {actual_module_name}) in module \
-                             {importing_module}"
-                        );
-                        self.namespace_imported_modules
-                            .entry(actual_module_name)
-                            .or_default()
-                            .insert(importing_module.to_string());
-                    }
-                }
-            }
-            // Recursively check function bodies
-            Stmt::FunctionDef(func_def) => {
-                for body_stmt in &func_def.body {
-                    self.collect_namespace_imports(body_stmt, modules, importing_module);
-                }
-            }
-            // Recursively check class bodies and methods
-            Stmt::ClassDef(class_def) => {
-                for body_stmt in &class_def.body {
-                    self.collect_namespace_imports(body_stmt, modules, importing_module);
-                }
-            }
-            // Recursively check other compound statements
-            Stmt::If(if_stmt) => {
-                for body_stmt in &if_stmt.body {
-                    self.collect_namespace_imports(body_stmt, modules, importing_module);
-                }
-                for clause in &if_stmt.elif_else_clauses {
-                    for body_stmt in &clause.body {
-                        self.collect_namespace_imports(body_stmt, modules, importing_module);
-                    }
-                }
-            }
-            Stmt::While(while_stmt) => {
-                for body_stmt in &while_stmt.body {
-                    self.collect_namespace_imports(body_stmt, modules, importing_module);
-                }
-                for body_stmt in &while_stmt.orelse {
-                    self.collect_namespace_imports(body_stmt, modules, importing_module);
-                }
-            }
-            Stmt::For(for_stmt) => {
-                for body_stmt in &for_stmt.body {
-                    self.collect_namespace_imports(body_stmt, modules, importing_module);
-                }
-                for body_stmt in &for_stmt.orelse {
-                    self.collect_namespace_imports(body_stmt, modules, importing_module);
-                }
-            }
-            Stmt::With(with_stmt) => {
-                for body_stmt in &with_stmt.body {
-                    self.collect_namespace_imports(body_stmt, modules, importing_module);
-                }
-            }
-            Stmt::Try(try_stmt) => {
-                for body_stmt in &try_stmt.body {
-                    self.collect_namespace_imports(body_stmt, modules, importing_module);
-                }
-                for handler in &try_stmt.handlers {
-                    let ExceptHandler::ExceptHandler(eh) = handler;
-                    for body_stmt in &eh.body {
-                        self.collect_namespace_imports(body_stmt, modules, importing_module);
-                    }
-                }
-                for body_stmt in &try_stmt.orelse {
-                    self.collect_namespace_imports(body_stmt, modules, importing_module);
-                }
-                for body_stmt in &try_stmt.finalbody {
-                    self.collect_namespace_imports(body_stmt, modules, importing_module);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Find matching module name for namespace imports
-    fn find_matching_module_name_namespace(
-        modules: &[(String, ModModule, PathBuf, String)],
-        full_module_path: &str,
-    ) -> String {
-        // Find the actual module name that matched
-        modules
-            .iter()
-            .find_map(|(name, _, _, _)| {
-                if name == full_module_path || name.ends_with(full_module_path) {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| full_module_path.to_string())
-    }
-
-    fn log_unused_imports_details(unused_imports: &[crate::cribo_graph::UnusedImportInfo]) {
+    fn log_unused_imports_details(unused_imports: &[crate::analyzers::types::UnusedImportInfo]) {
         if log::log_enabled!(log::Level::Debug) {
             for unused in unused_imports {
                 log::debug!("  - {} from {}", unused.name, unused.module);
@@ -7144,7 +6473,7 @@ impl<'a> HybridStaticBundler<'a> {
     fn should_remove_import_stmt(
         &self,
         stmt: &Stmt,
-        unused_imports: &[crate::cribo_graph::UnusedImportInfo],
+        unused_imports: &[crate::analyzers::types::UnusedImportInfo],
     ) -> bool {
         match stmt {
             Stmt::Import(import_stmt) => {
@@ -7764,64 +7093,6 @@ impl<'a> HybridStaticBundler<'a> {
         None
     }
 
-    /// Collect variables referenced in statements
-    pub fn collect_referenced_vars(&self, stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
-        for stmt in stmts {
-            self.collect_vars_in_stmt(stmt, vars);
-        }
-    }
-
-    /// Collect variable names referenced in a statement
-    fn collect_vars_in_stmt(&self, stmt: &Stmt, vars: &mut FxIndexSet<String>) {
-        match stmt {
-            Stmt::Expr(expr_stmt) => Self::collect_vars_in_expr(&expr_stmt.value, vars),
-            Stmt::Return(ret) => {
-                if let Some(value) = &ret.value {
-                    Self::collect_vars_in_expr(value, vars);
-                }
-            }
-            Stmt::Assign(assign) => {
-                Self::collect_vars_in_expr(&assign.value, vars);
-            }
-            Stmt::If(if_stmt) => {
-                Self::collect_vars_in_expr(&if_stmt.test, vars);
-                self.collect_referenced_vars(&if_stmt.body, vars);
-                for clause in &if_stmt.elif_else_clauses {
-                    if let Some(condition) = &clause.test {
-                        Self::collect_vars_in_expr(condition, vars);
-                    }
-                    self.collect_referenced_vars(&clause.body, vars);
-                }
-            }
-            Stmt::For(for_stmt) => {
-                Self::collect_vars_in_expr(&for_stmt.iter, vars);
-                self.collect_referenced_vars(&for_stmt.body, vars);
-                self.collect_referenced_vars(&for_stmt.orelse, vars);
-            }
-            Stmt::While(while_stmt) => {
-                Self::collect_vars_in_expr(&while_stmt.test, vars);
-                self.collect_referenced_vars(&while_stmt.body, vars);
-                self.collect_referenced_vars(&while_stmt.orelse, vars);
-            }
-            Stmt::Try(try_stmt) => {
-                self.collect_referenced_vars(&try_stmt.body, vars);
-                for handler in &try_stmt.handlers {
-                    let ExceptHandler::ExceptHandler(eh) = handler;
-                    self.collect_referenced_vars(&eh.body, vars);
-                }
-                self.collect_referenced_vars(&try_stmt.orelse, vars);
-                self.collect_referenced_vars(&try_stmt.finalbody, vars);
-            }
-            Stmt::With(with_stmt) => {
-                for item in &with_stmt.items {
-                    Self::collect_vars_in_expr(&item.context_expr, vars);
-                }
-                self.collect_referenced_vars(&with_stmt.body, vars);
-            }
-            _ => {}
-        }
-    }
-
     /// Process module body recursively to handle conditional imports
     pub fn process_body_recursive(
         &self,
@@ -8084,73 +7355,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
 
         result
-    }
-
-    /// Collect variable names referenced in an expression
-    fn collect_vars_in_expr(expr: &Expr, vars: &mut FxIndexSet<String>) {
-        match expr {
-            Expr::Name(name) => {
-                vars.insert(name.id.to_string());
-            }
-            Expr::Call(call) => {
-                Self::collect_vars_in_expr(&call.func, vars);
-                for arg in call.arguments.args.iter() {
-                    Self::collect_vars_in_expr(arg, vars);
-                }
-                for keyword in call.arguments.keywords.iter() {
-                    Self::collect_vars_in_expr(&keyword.value, vars);
-                }
-            }
-            Expr::Attribute(attr) => {
-                Self::collect_vars_in_expr(&attr.value, vars);
-            }
-            Expr::BinOp(binop) => {
-                Self::collect_vars_in_expr(&binop.left, vars);
-                Self::collect_vars_in_expr(&binop.right, vars);
-            }
-            Expr::UnaryOp(unaryop) => {
-                Self::collect_vars_in_expr(&unaryop.operand, vars);
-            }
-            Expr::BoolOp(boolop) => {
-                for value in boolop.values.iter() {
-                    Self::collect_vars_in_expr(value, vars);
-                }
-            }
-            Expr::Compare(compare) => {
-                Self::collect_vars_in_expr(&compare.left, vars);
-                for comparator in compare.comparators.iter() {
-                    Self::collect_vars_in_expr(comparator, vars);
-                }
-            }
-            Expr::List(list) => {
-                for elt in list.elts.iter() {
-                    Self::collect_vars_in_expr(elt, vars);
-                }
-            }
-            Expr::Tuple(tuple) => {
-                for elt in tuple.elts.iter() {
-                    Self::collect_vars_in_expr(elt, vars);
-                }
-            }
-            Expr::Dict(dict) => {
-                for item in dict.items.iter() {
-                    if let Some(key) = &item.key {
-                        Self::collect_vars_in_expr(key, vars);
-                    }
-                    Self::collect_vars_in_expr(&item.value, vars);
-                }
-            }
-            Expr::Subscript(sub) => {
-                Self::collect_vars_in_expr(&sub.value, vars);
-                Self::collect_vars_in_expr(&sub.slice, vars);
-            }
-            Expr::If(if_expr) => {
-                Self::collect_vars_in_expr(&if_expr.test, vars);
-                Self::collect_vars_in_expr(&if_expr.body, vars);
-                Self::collect_vars_in_expr(&if_expr.orelse, vars);
-            }
-            _ => {}
-        }
     }
 
     /// Transform nested functions to use module attributes for module-level variables
@@ -8501,7 +7705,7 @@ impl<'a> HybridStaticBundler<'a> {
                     .contains(&func_def.name.to_string())
                 {
                     // Collect globals declared in this function
-                    let function_globals = self.collect_function_globals(&func_def.body);
+                    let function_globals = Self::collect_function_globals(&func_def.body);
 
                     // Create initialization statements for lifted globals
                     let init_stmts =
@@ -10863,17 +10067,9 @@ impl<'a> HybridStaticBundler<'a> {
         statements.push(for_loop);
     }
 
-    /// Collect global declarations from a function body
-    fn collect_function_globals(&self, body: &[Stmt]) -> FxIndexSet<String> {
-        let mut function_globals = FxIndexSet::default();
-        for stmt in body {
-            if let Stmt::Global(global_stmt) = stmt {
-                for name in &global_stmt.names {
-                    function_globals.insert(name.to_string());
-                }
-            }
-        }
-        function_globals
+    /// Collect global declarations from a function body (delegated to VariableCollector)
+    fn collect_function_globals(body: &[Stmt]) -> FxIndexSet<String> {
+        crate::visitors::VariableCollector::collect_function_globals(body)
     }
 
     /// Create initialization statements for lifted globals

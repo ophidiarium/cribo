@@ -55,9 +55,45 @@ BaseModel.__module__ = 'models.base'
 """Configuration utilities for the core package."""
 """Version module separate from __init__ to avoid circular imports."""
 """Helper utilities for the core package."""
-_cribo_models__base_model = None
 _cribo_core__initialized = None
 _cribo_core__config = None
+_cribo_models__base_model = None
+@functools.cache
+def __cribo_init___cribo_f00e4b_core():
+    module = types.SimpleNamespace()
+    module.__name__ = 'core'
+    """Core package with initialization logic and cross-package imports."""
+    _initialized = False
+    module._initialized = _initialized
+    _config = {"debug": False}
+    set_config_reference(_config)
+
+    def initialize_core(debug=False):
+        """Initialize the core package with configuration."""
+        global _cribo_core__initialized, _cribo_core__config
+        _cribo_core__initialized = True
+        module._initialized = _cribo_core__initialized
+        _cribo_core__config["debug"] = debug
+        if debug:
+            print(f"Core initialized with version: {CORE_MODEL_VERSION}")
+        return _cribo_core__initialized
+    module.initialize_core = initialize_core
+
+    def is_initialized():
+        """Check if core is initialized."""
+        return module._initialized
+    module.is_initialized = is_initialized
+    global _cribo_core__initialized
+    _cribo_core__initialized = _initialized
+    global _cribo_core__config
+    _cribo_core__config = _config
+    version = types.SimpleNamespace()
+    version.CORE_MODEL_VERSION = CORE_MODEL_VERSION
+    utils = types.SimpleNamespace()
+    module.CORE_MODEL_VERSION = CORE_MODEL_VERSION
+    module.validate = validate
+    module.get_config = get_config
+    return module
 @functools.cache
 def __cribo_init___cribo_563ea2_models():
     module = types.SimpleNamespace()
@@ -194,42 +230,6 @@ def __cribo_init___cribo_782908_core_database():
             raise RuntimeError("Core package must be initialized before connecting")
         return connect(database_name)
     module.safe_connect = safe_connect
-    return module
-@functools.cache
-def __cribo_init___cribo_f00e4b_core():
-    module = types.SimpleNamespace()
-    module.__name__ = 'core'
-    """Core package with initialization logic and cross-package imports."""
-    _initialized = False
-    module._initialized = _initialized
-    _config = {"debug": False}
-    set_config_reference(_config)
-
-    def initialize_core(debug=False):
-        """Initialize the core package with configuration."""
-        global _cribo_core__initialized, _cribo_core__config
-        _cribo_core__initialized = True
-        module._initialized = _cribo_core__initialized
-        _cribo_core__config["debug"] = debug
-        if debug:
-            print(f"Core initialized with version: {CORE_MODEL_VERSION}")
-        return _cribo_core__initialized
-    module.initialize_core = initialize_core
-
-    def is_initialized():
-        """Check if core is initialized."""
-        return module._initialized
-    module.is_initialized = is_initialized
-    global _cribo_core__initialized
-    _cribo_core__initialized = _initialized
-    global _cribo_core__config
-    _cribo_core__config = _config
-    version = types.SimpleNamespace()
-    version.CORE_MODEL_VERSION = CORE_MODEL_VERSION
-    utils = types.SimpleNamespace()
-    module.CORE_MODEL_VERSION = CORE_MODEL_VERSION
-    module.validate = validate
-    module.get_config = get_config
     return module
 """Test fixture demonstrating cross-package mixed import patterns.\n\nThis tests the specific pattern where a module uses both:\n1. Deep absolute imports crossing package boundaries (e.g., from models.user)\n2. Relative imports within its package (e.g., from ..utils.helpers)\n3. Import order dependencies with __init__.py files\n"""
 __cribo_init_result = __cribo_init___cribo_f00e4b_core()

@@ -10,12 +10,13 @@ use log::{debug, info, trace, warn};
 use ruff_python_ast::{ModModule, visitor::Visitor};
 
 use crate::{
+    analyzers::types::{
+        CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType,
+        ResolutionStrategy,
+    },
     code_generator::HybridStaticBundler,
     config::Config,
-    cribo_graph::{
-        CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType, CriboGraph,
-        ModuleId, ResolutionStrategy,
-    },
+    cribo_graph::{CriboGraph, ModuleId},
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
     resolver::{ImportType, ModuleResolver},
     semantic_bundler::SemanticBundler,
@@ -459,7 +460,7 @@ impl BundleOrchestrator {
         // Enhanced circular dependency detection and analysis
         let mut circular_dep_analysis = None;
         if graph.has_cycles() {
-            let analysis = graph.analyze_circular_dependencies();
+            let analysis = crate::analyzers::dependency_analyzer::DependencyAnalyzer::analyze_circular_dependencies(graph);
 
             // Check if we have unresolvable cycles - these we must fail on
             if !analysis.unresolvable_cycles.is_empty() {
@@ -741,7 +742,7 @@ impl BundleOrchestrator {
     fn get_modules_with_cycle_resolution(
         &self,
         graph: &CriboGraph,
-        analysis: &crate::cribo_graph::CircularDependencyAnalysis,
+        analysis: &crate::analyzers::types::CircularDependencyAnalysis,
     ) -> Result<Vec<crate::cribo_graph::ModuleId>> {
         // For simple function-level cycles, we can use a modified topological sort
         // that breaks cycles by removing edges within strongly connected components

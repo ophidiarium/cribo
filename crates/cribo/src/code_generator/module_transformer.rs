@@ -144,7 +144,10 @@ pub fn transform_module_to_init_function<'a>(
             && bundler.should_export_symbol(func_def.name.as_ref(), ctx.module_name)
         {
             // This function will be exported, collect variables it references
-            bundler.collect_referenced_vars(&func_def.body, &mut vars_used_by_exported_functions);
+            crate::visitors::VariableCollector::collect_referenced_vars(
+                &func_def.body,
+                &mut vars_used_by_exported_functions,
+            );
         }
     }
 

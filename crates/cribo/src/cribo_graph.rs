@@ -15,7 +15,6 @@ use std::path::PathBuf;
 /// - Side effect preservation
 use anyhow::{Result, anyhow};
 use indexmap::IndexSet;
-use log::debug;
 use petgraph::{
     algo::{is_cyclic_directed, toposort},
     graph::{DiGraph, NodeIndex},
@@ -97,23 +96,6 @@ pub struct VarState {
     pub writers: Vec<ItemId>,
     /// Items that read this variable
     pub readers: Vec<ItemId>,
-}
-
-/// Information about an unused import
-#[derive(Debug, Clone)]
-pub struct UnusedImportInfo {
-    /// The imported name that is unused
-    pub name: String,
-    /// The module it was imported from
-    pub module: String,
-}
-
-/// Context for checking if an import is unused
-struct ImportUsageContext<'a> {
-    imported_name: &'a str,
-    import_id: ItemId,
-    is_init_py: bool,
-    import_data: &'a ItemData,
 }
 
 /// Data about a Python item (statement/definition)
@@ -244,50 +226,6 @@ impl ModuleDepGraph {
         id
     }
 
-    /// Find unused imports in the module
-    pub fn find_unused_imports(&self, is_init_py: bool) -> Vec<UnusedImportInfo> {
-        let mut unused_imports = Vec::new();
-
-        // First, collect all imported names
-        let mut imported_items: Vec<(ItemId, &ItemData)> = Vec::new();
-        for (id, data) in &self.items {
-            if matches!(
-                data.item_type,
-                ItemType::Import { .. } | ItemType::FromImport { .. }
-            ) && !data.imported_names.is_empty()
-            {
-                imported_items.push((*id, data));
-            }
-        }
-
-        // For each imported name, check if it's used
-        for (import_id, import_data) in imported_items {
-            for imported_name in &import_data.imported_names {
-                let ctx = ImportUsageContext {
-                    imported_name,
-                    import_id,
-                    is_init_py,
-                    import_data,
-                };
-
-                if self.is_import_unused(ctx) {
-                    let module_name = match &import_data.item_type {
-                        ItemType::Import { module, .. } => module.clone(),
-                        ItemType::FromImport { module, .. } => module.clone(),
-                        _ => continue,
-                    };
-
-                    unused_imports.push(UnusedImportInfo {
-                        name: imported_name.clone(),
-                        module: module_name,
-                    });
-                }
-            }
-        }
-
-        unused_imports
-    }
-
     /// Get all import items in the module with their IDs
     pub fn get_all_import_items(&self) -> Vec<(ItemId, &ItemData)> {
         self.items
@@ -341,99 +279,6 @@ impl ModuleDepGraph {
         }
         false
     }
-
-    /// Check if a specific imported name is unused
-    fn is_import_unused(&self, ctx: ImportUsageContext<'_>) -> bool {
-        // Check for special cases where imports should be preserved
-        if ctx.is_init_py {
-            // In __init__.py, preserve all imports as they might be part of the public API
-            return false;
-        }
-
-        // Check if it's a star import
-        if let ItemType::FromImport { is_star: true, .. } = &ctx.import_data.item_type {
-            // Star imports are always preserved
-            return false;
-        }
-
-        // Check if it's explicitly re-exported
-        if ctx.import_data.reexported_names.contains(ctx.imported_name) {
-            return false;
-        }
-
-        // Check if it's in __all__ (module re-export)
-        if self.is_in_all_export(ctx.imported_name) {
-            return false;
-        }
-
-        // Check if the import has side effects (includes stdlib imports)
-        if ctx.import_data.has_side_effects {
-            return false;
-        }
-
-        // Check if the name is used anywhere in the module
-        for (item_id, item_data) in &self.items {
-            // Skip the import statement itself
-            if *item_id == ctx.import_id {
-                continue;
-            }
-
-            // Check if the name is read by this item
-            if item_data.read_vars.contains(ctx.imported_name)
-                || item_data.eventual_read_vars.contains(ctx.imported_name)
-            {
-                log::trace!(
-                    "Import '{}' is used by item {:?} (read_vars: {:?}, eventual_read_vars: {:?})",
-                    ctx.imported_name,
-                    item_id,
-                    item_data.read_vars,
-                    item_data.eventual_read_vars
-                );
-                return false;
-            }
-
-            // For dotted imports like `import xml.etree.ElementTree`, also check if any of the
-            // declared variables from that import are used
-            if let Some(import_item) = self.items.get(&ctx.import_id) {
-                let is_var_used = import_item.var_decls.iter().any(|var_decl| {
-                    item_data.read_vars.contains(var_decl)
-                        || item_data.eventual_read_vars.contains(var_decl)
-                });
-
-                if is_var_used {
-                    log::trace!(
-                        "Import '{}' is used via declared variables by item {:?}",
-                        ctx.imported_name,
-                        item_id
-                    );
-                    return false;
-                }
-            }
-        }
-
-        // Check if the name is in the module's __all__ export list
-        if self.is_in_module_exports(ctx.imported_name) {
-            return false;
-        }
-
-        log::trace!("Import '{}' is UNUSED", ctx.imported_name);
-        true
-    }
-
-    /// Check if a name is in the module's __all__ export list
-    fn is_in_module_exports(&self, name: &str) -> bool {
-        // Look for __all__ assignment
-        for item_data in self.items.values() {
-            if let ItemType::Assignment { targets } = &item_data.item_type
-                && targets.contains(&"__all__".to_string())
-            {
-                // Check if the name is in the reexported_names set
-                // which contains the parsed __all__ list values
-                return item_data.reexported_names.contains(name);
-            }
-        }
-        false
-    }
 }
 
 /// State for Tarjan's strongly connected components algorithm
@@ -444,53 +289,6 @@ struct TarjanState {
     lowlinks: FxHashMap<NodeIndex, usize>,
     on_stack: FxHashMap<NodeIndex, bool>,
     components: Vec<Vec<NodeIndex>>,
-}
-
-/// Analysis result for cycle modules
-struct CycleAnalysisResult {
-    has_only_constants: bool,
-    has_class_definitions: bool,
-    has_module_level_imports: bool,
-    imports_used_in_functions_only: bool,
-}
-
-/// Comprehensive analysis of circular dependencies
-#[derive(Debug, Clone)]
-pub struct CircularDependencyAnalysis {
-    /// Circular dependencies that can be resolved through code transformations
-    pub resolvable_cycles: Vec<CircularDependencyGroup>,
-    /// Circular dependencies that cannot be resolved
-    pub unresolvable_cycles: Vec<CircularDependencyGroup>,
-}
-
-/// A group of modules forming a circular dependency
-#[derive(Debug, Clone)]
-pub struct CircularDependencyGroup {
-    pub modules: Vec<String>,
-    pub cycle_type: CircularDependencyType,
-    pub suggested_resolution: ResolutionStrategy,
-}
-
-/// Type of circular dependency
-#[derive(Debug, Clone, PartialEq)]
-pub enum CircularDependencyType {
-    /// Can be resolved by moving imports inside functions
-    FunctionLevel,
-    /// May be resolvable depending on usage patterns
-    ClassLevel,
-    /// Unresolvable - temporal paradox
-    ModuleConstants,
-    /// Depends on execution order
-    ImportTime,
-}
-
-/// Resolution strategy for circular dependencies
-#[derive(Debug, Clone)]
-pub enum ResolutionStrategy {
-    LazyImport,
-    FunctionScopedImport,
-    ModuleSplit,
-    Unresolvable { reason: String },
 }
 
 /// High-level dependency graph managing multiple modules
@@ -761,341 +559,6 @@ impl CriboGraph {
         }
         component
     }
-
-    /// Find cycle paths using DFS with three-color marking
-    /// Analyze circular dependencies and classify them
-    pub fn analyze_circular_dependencies(&self) -> CircularDependencyAnalysis {
-        let sccs = self.find_strongly_connected_components();
-
-        let mut resolvable_cycles = Vec::new();
-        let mut unresolvable_cycles = Vec::new();
-
-        for scc in &sccs {
-            // Skip single-node SCCs (self-cycles)
-            if scc.len() <= 1 {
-                continue;
-            }
-
-            let module_names: Vec<String> = scc
-                .iter()
-                .filter_map(|&module_id| {
-                    self.modules
-                        .get(&module_id)
-                        .map(|module| module.module_name.clone())
-                })
-                .collect();
-
-            // Classify the cycle type
-            let cycle_type = self.classify_cycle_type(&module_names);
-
-            // Suggest resolution strategy
-            let suggested_resolution =
-                self.suggest_resolution_for_cycle(&cycle_type, &module_names);
-
-            let group = CircularDependencyGroup {
-                modules: module_names,
-                cycle_type: cycle_type.clone(),
-                suggested_resolution,
-            };
-
-            // Categorize based on cycle type
-            match cycle_type {
-                CircularDependencyType::ModuleConstants => {
-                    unresolvable_cycles.push(group);
-                }
-                _ => {
-                    resolvable_cycles.push(group);
-                }
-            }
-        }
-
-        CircularDependencyAnalysis {
-            resolvable_cycles,
-            unresolvable_cycles,
-        }
-    }
-
-    /// Classify the type of circular dependency
-    fn classify_cycle_type(&self, module_names: &[String]) -> CircularDependencyType {
-        // Check if this is a parent-child package cycle
-        // These occur when a package imports from its subpackage (e.g., pkg/__init__.py imports
-        // from pkg.submodule)
-        if self.is_parent_child_package_cycle(module_names) {
-            // This is a normal Python pattern, not a problematic cycle
-            return CircularDependencyType::FunctionLevel; // Most permissive type
-        }
-
-        // Perform AST analysis on the modules in the cycle
-        let analysis_result = self.analyze_cycle_modules(module_names);
-
-        // Use AST analysis results for classification
-        if analysis_result.has_only_constants
-            && !module_names.iter().any(|name| name.ends_with("__init__"))
-        {
-            // Modules that only contain constants create unresolvable cycles
-            // Exception: __init__.py files often only have imports/exports which is normal
-            return CircularDependencyType::ModuleConstants;
-        }
-
-        if analysis_result.has_class_definitions {
-            // Check if the circular imports are used for inheritance
-            // If all imports in the cycle are only used in functions, it's still FunctionLevel
-            if analysis_result.imports_used_in_functions_only {
-                return CircularDependencyType::FunctionLevel;
-            }
-            // Otherwise, it's a true class-level cycle
-            return CircularDependencyType::ClassLevel;
-        }
-
-        // Fall back to name-based heuristics if AST analysis is inconclusive
-        for module_name in module_names {
-            if module_name.contains("constants") || module_name.contains("config") {
-                return CircularDependencyType::ModuleConstants;
-            }
-            if module_name.contains("class") || module_name.ends_with("_class") {
-                return CircularDependencyType::ClassLevel;
-            }
-        }
-
-        // Check if imports can be moved to functions
-        // Special case: if modules have NO items (empty or only imports), treat as FunctionLevel
-        // This handles simple circular import cases like stickytape tests
-        if self.all_modules_empty_or_imports_only(module_names) {
-            // Simple circular imports can often be resolved
-            CircularDependencyType::FunctionLevel
-        } else if analysis_result.imports_used_in_functions_only {
-            CircularDependencyType::FunctionLevel
-        } else if analysis_result.has_module_level_imports
-            || module_names.iter().any(|name| name.contains("__init__"))
-        {
-            CircularDependencyType::ImportTime
-        } else {
-            CircularDependencyType::FunctionLevel
-        }
-    }
-
-    /// Analyze modules in a cycle to determine their characteristics
-    fn analyze_cycle_modules(&self, module_names: &[String]) -> CycleAnalysisResult {
-        let mut has_only_constants = true;
-        let mut has_class_definitions = false;
-        let mut has_module_level_imports = false;
-        let mut imports_used_in_functions_only = true;
-
-        for module_name in module_names {
-            let Some(&module_id) = self.module_names.get(module_name) else {
-                continue;
-            };
-
-            let Some(module) = self.modules.get(&module_id) else {
-                continue;
-            };
-
-            // Check if module only contains constant assignments
-            let module_has_only_constants = self.module_has_only_constants(module);
-            has_only_constants = has_only_constants && module_has_only_constants;
-
-            // Check for class definitions
-            if self.module_has_class_definitions(module) {
-                has_class_definitions = true;
-            }
-
-            // Check if imports are at module level
-            if self.module_has_module_level_imports(module) {
-                has_module_level_imports = true;
-
-                // Now check if those imports are only used inside functions
-                if !self.are_imports_used_only_in_functions(module) {
-                    imports_used_in_functions_only = false;
-                }
-            }
-        }
-
-        CycleAnalysisResult {
-            has_only_constants,
-            has_class_definitions,
-            has_module_level_imports,
-            imports_used_in_functions_only: !has_module_level_imports
-                || imports_used_in_functions_only,
-        }
-    }
-
-    /// Check if a module only contains constant assignments
-    fn module_has_only_constants(&self, module: &ModuleDepGraph) -> bool {
-        // Empty modules (no items) should not be considered as "only constants"
-        // Modules with only imports should not be considered as "only constants"
-        !module.items.is_empty()
-            && module
-                .items
-                .values()
-                .any(|item| matches!(item.item_type, ItemType::Assignment { .. }))
-            && !module.items.values().any(|item| {
-                matches!(
-                    &item.item_type,
-                    ItemType::FunctionDef { .. }
-                        | ItemType::ClassDef { .. }
-                        | ItemType::Expression
-                        | ItemType::If { .. }
-                        | ItemType::Try
-                )
-            })
-    }
-
-    /// Check if a module has class definitions
-    fn module_has_class_definitions(&self, module: &ModuleDepGraph) -> bool {
-        module
-            .items
-            .values()
-            .any(|item| matches!(item.item_type, ItemType::ClassDef { .. }))
-    }
-
-    /// Check if a module has module-level imports
-    fn module_has_module_level_imports(&self, module: &ModuleDepGraph) -> bool {
-        module.items.values().any(|item| {
-            matches!(
-                item.item_type,
-                ItemType::Import { .. } | ItemType::FromImport { .. }
-            )
-        })
-    }
-
-    /// Check if all modules in the cycle are empty or only contain imports
-    fn all_modules_empty_or_imports_only(&self, module_names: &[String]) -> bool {
-        module_names.iter().all(|module_name| {
-            let Some(&module_id) = self.module_names.get(module_name) else {
-                return true; // Module not found, assume empty
-            };
-
-            let Some(module) = self.modules.get(&module_id) else {
-                return true; // Module not found, assume empty
-            };
-
-            // Module has no items, or only has import items
-            module.items.is_empty()
-                || module.items.values().all(|item| {
-                    matches!(
-                        item.item_type,
-                        ItemType::Import { .. } | ItemType::FromImport { .. }
-                    )
-                })
-        })
-    }
-
-    /// Check if imported items are only used inside functions
-    fn are_imports_used_only_in_functions(&self, module: &ModuleDepGraph) -> bool {
-        // Get all imported names from this module
-        let mut imported_names = FxHashSet::default();
-
-        // TODO: This has O(n*m) complexity where n is imported names and m is module items.
-        // For modules with many imports and items, consider building an index of variable
-        // usage upfront to reduce lookup time.
-
-        for item in module.items.values() {
-            match &item.item_type {
-                ItemType::Import { alias, module } => {
-                    let local_name = alias.as_ref().unwrap_or(module).clone();
-                    imported_names.insert(local_name.clone());
-
-                    // For dotted imports like `import xml.etree.ElementTree`,
-                    // also track the root module name (e.g., "xml")
-                    // since that's what appears in read_vars
-                    if alias.is_none()
-                        && module.contains('.')
-                        && let Some(root) = module.split('.').next()
-                    {
-                        imported_names.insert(root.to_string());
-                    }
-                }
-                ItemType::FromImport { names, .. } => {
-                    for (name, alias) in names {
-                        imported_names.insert(alias.as_ref().unwrap_or(name).clone());
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        debug!(
-            "Module {} has imported names: {:?}",
-            module.module_name, imported_names
-        );
-
-        // For each imported name, check if it's only used inside functions
-        // We need to check if the import appears in any item's read_vars (module level)
-        // vs only appearing in eventual_read_vars (function level)
-        for imported_name in &imported_names {
-            debug!(
-                "Checking usage of imported '{}' in module {}",
-                imported_name, module.module_name
-            );
-
-            // Check all items in the module
-            for (item_id, item_data) in &module.items {
-                // Skip import statements themselves
-                if matches!(
-                    item_data.item_type,
-                    ItemType::Import { .. } | ItemType::FromImport { .. }
-                ) {
-                    continue;
-                }
-
-                // If the import is used in read_vars, it's used at module level
-                if item_data.read_vars.contains(imported_name) {
-                    debug!(
-                        "  -> Import '{}' used at module level in item {:?} (type: {:?})",
-                        imported_name, item_id, item_data.item_type
-                    );
-                    return false;
-                }
-
-                // Note: Usage in eventual_read_vars is OK - that's function-level usage
-                if item_data.eventual_read_vars.contains(imported_name) {
-                    debug!(
-                        "  -> Import '{imported_name}' used inside function in item {item_id:?}"
-                    );
-                }
-            }
-        }
-
-        debug!(
-            "All imports in module {} are only used inside functions",
-            module.module_name
-        );
-        true
-    }
-
-    /// Check if a cycle is a parent-child package relationship
-    fn is_parent_child_package_cycle(&self, module_names: &[String]) -> bool {
-        // A parent-child cycle occurs when:
-        // 1. We have exactly 2 modules in the cycle
-        // 2. One module is a parent package of the other
-        if module_names.len() != 2 {
-            return false;
-        }
-
-        let mod1 = &module_names[0];
-        let mod2 = &module_names[1];
-
-        // Check if mod1 is parent of mod2 or vice versa
-        mod2.starts_with(&format!("{mod1}.")) || mod1.starts_with(&format!("{mod2}."))
-    }
-
-    /// Suggest resolution strategy for a circular dependency
-    fn suggest_resolution_for_cycle(
-        &self,
-        cycle_type: &CircularDependencyType,
-        _module_names: &[String],
-    ) -> ResolutionStrategy {
-        match cycle_type {
-            CircularDependencyType::FunctionLevel => ResolutionStrategy::FunctionScopedImport,
-            CircularDependencyType::ClassLevel => ResolutionStrategy::LazyImport,
-            CircularDependencyType::ModuleConstants => ResolutionStrategy::Unresolvable {
-                reason: "Module-level constants create temporal paradox - consider moving to a \
-                         shared configuration module"
-                    .into(),
-            },
-            CircularDependencyType::ImportTime => ResolutionStrategy::ModuleSplit,
-        }
-    }
 }
 
 // HashSet import moved to top
@@ -1109,6 +572,7 @@ impl Default for CriboGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::analyzers::types::{CircularDependencyType, ResolutionStrategy};
 
     #[test]
     fn test_basic_module_graph() {
@@ -1147,8 +611,8 @@ mod tests {
         assert_eq!(sccs.len(), 1);
         assert_eq!(sccs[0].len(), 3);
 
-        // Analyze circular dependencies
-        let analysis = graph.analyze_circular_dependencies();
+        // Analyze circular dependencies using the analyzer
+        let analysis = crate::analyzers::dependency_analyzer::DependencyAnalyzer::analyze_circular_dependencies(&graph);
         assert!(!analysis.resolvable_cycles.is_empty());
     }
 
@@ -1162,11 +626,54 @@ mod tests {
         let constants_b =
             graph.add_module("constants_b".to_string(), PathBuf::from("constants_b.py"));
 
+        // Add some constant assignments to make these actual constant modules
+        if let Some(module_a) = graph.modules.get_mut(&constants_a) {
+            module_a.add_item(ItemData {
+                item_type: ItemType::Assignment {
+                    targets: vec!["CONFIG".to_string()],
+                },
+                var_decls: ["CONFIG".into()].into_iter().collect(),
+                read_vars: FxHashSet::default(),
+                eventual_read_vars: FxHashSet::default(),
+                write_vars: ["CONFIG".into()].into_iter().collect(),
+                eventual_write_vars: FxHashSet::default(),
+                has_side_effects: false,
+                imported_names: FxHashSet::default(),
+                reexported_names: FxHashSet::default(),
+                defined_symbols: FxHashSet::default(),
+                symbol_dependencies: FxHashMap::default(),
+                attribute_accesses: FxHashMap::default(),
+                is_normalized_import: false,
+            });
+        }
+
+        if let Some(module_b) = graph.modules.get_mut(&constants_b) {
+            module_b.add_item(ItemData {
+                item_type: ItemType::Assignment {
+                    targets: vec!["SETTINGS".to_string()],
+                },
+                var_decls: ["SETTINGS".into()].into_iter().collect(),
+                read_vars: FxHashSet::default(),
+                eventual_read_vars: FxHashSet::default(),
+                write_vars: ["SETTINGS".into()].into_iter().collect(),
+                eventual_write_vars: FxHashSet::default(),
+                has_side_effects: false,
+                imported_names: FxHashSet::default(),
+                reexported_names: FxHashSet::default(),
+                defined_symbols: FxHashSet::default(),
+                symbol_dependencies: FxHashMap::default(),
+                attribute_accesses: FxHashMap::default(),
+                is_normalized_import: false,
+            });
+        }
+
         graph.add_module_dependency(constants_a, constants_b);
         graph.add_module_dependency(constants_b, constants_a);
 
-        let analysis = graph.analyze_circular_dependencies();
+        // Now we need to use the analyzer
+        let analysis = crate::analyzers::dependency_analyzer::DependencyAnalyzer::analyze_circular_dependencies(&graph);
         assert_eq!(analysis.unresolvable_cycles.len(), 1);
+
         assert_eq!(
             analysis.unresolvable_cycles[0].cycle_type,
             CircularDependencyType::ModuleConstants

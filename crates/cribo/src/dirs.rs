@@ -143,7 +143,8 @@ mod test {
         fs::write(program_data.join(CONFIG_FILE), "[bundler]\nsrc = [\"src\"]")?;
 
         assert_eq!(
-            locate_system_config_windows(context.path()).unwrap(),
+            locate_system_config_windows(context.path())
+                .expect("System config should exist after creating ProgramData directory"),
             program_data.join(CONFIG_FILE)
         );
 

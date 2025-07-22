@@ -7,37 +7,15 @@ use log::debug;
 use ruff_python_ast::{Expr, ModModule, Stmt};
 
 use crate::{
-    analyzers::types::{CollectedSymbols, SymbolAnalysis},
     code_generator::{circular_deps::SymbolDependencyGraph, context::HardDependency},
     cribo_graph::CriboGraph as DependencyGraph,
     types::{FxIndexMap, FxIndexSet},
-    visitors::{SymbolCollector, VariableCollector},
 };
 
 /// Symbol analyzer for processing collected symbol data
 pub struct SymbolAnalyzer;
 
 impl SymbolAnalyzer {
-    /// Analyze a module and return comprehensive symbol analysis
-    pub fn analyze_module(module: &ModModule) -> SymbolAnalysis {
-        // Run visitors to collect data
-        let symbols = SymbolCollector::analyze(module);
-        let variables = VariableCollector::analyze(module);
-
-        // Build symbol dependencies (simplified for now)
-        let symbol_dependencies = Self::build_symbol_dependencies(&symbols);
-
-        // Extract export information
-        let exports = Self::extract_exports(&symbols);
-
-        SymbolAnalysis {
-            symbols,
-            variables,
-            exports,
-            symbol_dependencies,
-        }
-    }
-
     /// Collect global symbols from modules (matching bundler's collect_global_symbols)
     pub fn collect_global_symbols(
         modules: &[(String, ModModule, std::path::PathBuf, String)],
@@ -71,48 +49,6 @@ impl SymbolAnalyzer {
         }
 
         global_symbols
-    }
-
-    /// Find which module defines a given symbol
-    pub fn find_symbol_module(
-        symbol: &str,
-        current_module: &str,
-        graph: &DependencyGraph,
-        circular_modules: &FxIndexSet<String>,
-    ) -> Option<String> {
-        // Helper closure to check if a module defines the symbol
-        let module_defines_symbol = |module_name: &str| -> bool {
-            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
-                for item_data in module_dep_graph.items.values() {
-                    let found = match &item_data.item_type {
-                        crate::cribo_graph::ItemType::FunctionDef { name } => name == symbol,
-                        crate::cribo_graph::ItemType::ClassDef { name } => name == symbol,
-                        crate::cribo_graph::ItemType::Assignment { targets } => {
-                            targets.contains(&symbol.to_string())
-                        }
-                        _ => false,
-                    };
-                    if found {
-                        return true;
-                    }
-                }
-            }
-            false
-        };
-
-        // First check if it's defined in the current module
-        if module_defines_symbol(current_module) {
-            return Some(current_module.to_string());
-        }
-
-        // Check other circular modules
-        circular_modules.iter().find_map(|module_name| {
-            if module_name != current_module && module_defines_symbol(module_name) {
-                Some(module_name.clone())
-            } else {
-                None
-            }
-        })
     }
 
     /// Build symbol dependency graph for circular modules
@@ -282,42 +218,6 @@ impl SymbolAnalyzer {
         }
 
         deps
-    }
-
-    /// Build symbol dependencies from collected symbols
-    fn build_symbol_dependencies(
-        symbols: &CollectedSymbols,
-    ) -> FxIndexMap<String, FxIndexSet<String>> {
-        let mut dependencies = FxIndexMap::default();
-
-        // For now, return empty dependencies
-        // This will be enhanced when we have the variable collector
-        for (name, _) in &symbols.global_symbols {
-            dependencies.insert(name.clone(), FxIndexSet::default());
-        }
-
-        dependencies
-    }
-
-    /// Extract export information from collected symbols
-    fn extract_exports(symbols: &CollectedSymbols) -> Option<crate::analyzers::types::ExportInfo> {
-        // Check if any symbols have explicit export information
-        let exported_symbols: Vec<String> = symbols
-            .global_symbols
-            .values()
-            .filter(|s| s.is_exported)
-            .map(|s| s.name.clone())
-            .collect();
-
-        if exported_symbols.is_empty() {
-            None
-        } else {
-            Some(crate::analyzers::types::ExportInfo {
-                exported_names: Some(exported_symbols),
-                is_dynamic: false,
-                re_exports: Vec::new(),
-            })
-        }
     }
 }
 
