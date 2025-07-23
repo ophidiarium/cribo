@@ -105,8 +105,14 @@ pub(super) fn expr_uses_importlib(expr: &Expr) -> bool {
         | Expr::BooleanLiteral(_)
         | Expr::NoneLiteral(_)
         | Expr::EllipsisLiteral(_) => false,
-        // FString needs special handling - for now, conservatively return false
-        Expr::FString(_fstring) => false,
+        // Check if any interpolated expressions in the f-string use importlib
+        Expr::FString(fstring) => fstring.value.elements().any(|element| {
+            if let ruff_python_ast::InterpolatedStringElement::Interpolation(expr_elem) = element {
+                expr_uses_importlib(&expr_elem.expression)
+            } else {
+                false
+            }
+        }),
         // Match expressions not available in this ruff version
         // Type expressions typically don't use importlib directly
         Expr::IpyEscapeCommand(_) => false, // IPython specific
@@ -722,9 +728,9 @@ pub(super) fn create_dotted_attribute_assignment(
 
     // Set the node index for transformation tracking
     if let Stmt::Assign(assign) = &mut stmt {
-        assign.node_index = bundler.transformation_context.create_new_node(format!(
-            "create_dotted_attribute_assignment({dotted_name})"
-        ));
+        assign.node_index = bundler
+            .transformation_context
+            .create_new_node(format!("create_dotted_attribute_assignment({dotted_name})"));
     }
 
     Ok(stmt)
