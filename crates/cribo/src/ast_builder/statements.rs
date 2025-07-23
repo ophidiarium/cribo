@@ -324,3 +324,20 @@ pub fn set_string_attribute(obj_name: &str, attr_name: &str, value: &str) -> Stm
         expressions::string_literal(value),
     )
 }
+
+/// Creates a statement to assign a list of string literals to an object's attribute.
+/// e.g., `obj.attr = ["item1", "item2", "item3"]`
+pub fn set_list_attribute(obj_name: &str, attr_name: &str, values: &[&str]) -> Stmt {
+    let list_elements: Vec<ruff_python_ast::Expr> = values
+        .iter()
+        .map(|value| expressions::string_literal(value))
+        .collect();
+    assign(
+        vec![expressions::attribute(
+            expressions::name(obj_name, ExprContext::Load),
+            attr_name,
+            ExprContext::Store,
+        )],
+        expressions::list(list_elements, ruff_python_ast::ExprContext::Load),
+    )
+}

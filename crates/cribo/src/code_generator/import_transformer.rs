@@ -772,19 +772,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             .modules_with_explicit_all
                                             .contains(&full_module_path)
                                     {
-                                        let target = expressions::attribute(
-                                            expressions::name(local_name, ExprContext::Load),
+                                        let export_strings: Vec<&str> =
+                                            filtered_exports.iter().map(|s| s.as_str()).collect();
+                                        self.deferred_imports.push(statements::set_list_attribute(
+                                            local_name,
                                             "__all__",
-                                            ExprContext::Store,
-                                        );
-                                        let list_elements: Vec<Expr> = filtered_exports
-                                            .iter()
-                                            .map(|name| expressions::string_literal(name.as_str()))
-                                            .collect();
-                                        let list_value =
-                                            expressions::list(list_elements, ExprContext::Load);
-                                        self.deferred_imports
-                                            .push(statements::assign(vec![target], list_value));
+                                            &export_strings,
+                                        ));
                                     }
 
                                     for symbol in filtered_exports {
