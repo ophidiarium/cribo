@@ -68,7 +68,7 @@ pub fn string_literal(value: &str) -> Expr {
     Expr::StringLiteral(ExprStringLiteral {
         value: StringLiteralValue::single(StringLiteral {
             range: TextRange::default(),
-            value: value.to_string().into_boxed_str(),
+            value: value.into(),
             flags: StringLiteralFlags::empty(),
             node_index: AtomicNodeIndex::dummy(),
         }),
@@ -133,7 +133,10 @@ pub fn call(func: Expr, args: Vec<Expr>, keywords: Vec<Keyword>) -> Expr {
 /// ```
 pub fn dotted_name(parts: &[&str], ctx: ExprContext) -> Expr {
     if parts.is_empty() {
-        panic!("Cannot create a dotted name: the 'parts' array must contain at least one string. Ensure the input is non-empty before calling this function.");
+        panic!(
+            "Cannot create a dotted name: the 'parts' array must contain at least one string. \
+             Ensure the input is non-empty before calling this function."
+        );
     }
 
     if parts.len() == 1 {
