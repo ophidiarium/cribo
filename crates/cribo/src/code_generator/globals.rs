@@ -1,4 +1,3 @@
-use cow_utils::CowUtils;
 use log::debug;
 use ruff_python_ast::{Expr, ExprContext, Stmt};
 
@@ -7,6 +6,18 @@ use crate::{
     semantic_bundler::ModuleGlobalInfo,
     types::FxIndexMap,
 };
+
+/// Sanitize a variable name for use in a Python identifier
+/// This ensures variable names only contain valid Python identifier characters
+fn sanitize_var_name(name: &str) -> String {
+    name.chars()
+        .map(|c| match c {
+            // Replace common invalid characters with underscore
+            c if c.is_alphanumeric() || c == '_' => c,
+            _ => '_',
+        })
+        .collect()
+}
 
 /// Transformer that lifts module-level globals to true global scope
 pub struct GlobalsLifter {
@@ -133,9 +144,12 @@ impl GlobalsLifter {
         for var_name in &global_info.module_level_vars {
             // Only lift variables that are actually used with global statements
             if global_info.global_declarations.contains_key(var_name) {
-                let module_name_sanitized = global_info.module_name.cow_replace(".", "_");
-                let module_name_sanitized = module_name_sanitized.cow_replace("-", "_");
-                let lifted_name = format!("_cribo_{module_name_sanitized}_{var_name}");
+                let module_name_sanitized =
+                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                        &global_info.module_name,
+                    );
+                let var_name_sanitized = sanitize_var_name(var_name);
+                let lifted_name = format!("_cribo_{module_name_sanitized}_{var_name_sanitized}");
 
                 debug!("Creating lifted declaration for {var_name} -> {lifted_name}");
 
