@@ -49,7 +49,8 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         }
     }
 
-    // Now analyze what namespaces are needed based on all initialized modules
+    // Now analyze what namespaces are needed and add wrapper module assignments
+    // Combined loop for better efficiency
     for module_name in &all_initialized_modules {
         if !module_name.contains('.') {
             continue;
@@ -77,15 +78,8 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                 }
             }
         }
-    }
 
-    // Add wrapper module assignments
-    for module_name in &all_initialized_modules {
-        if !module_name.contains('.') {
-            continue;
-        }
-
-        let parts: Vec<&str> = module_name.split('.').collect();
+        // Add wrapper module assignment for this module
         let parent = parts[..parts.len() - 1].join(".");
         let attr = parts[parts.len() - 1];
 
