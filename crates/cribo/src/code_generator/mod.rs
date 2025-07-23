@@ -13,6 +13,7 @@ pub mod globals;
 pub mod import_transformer;
 pub mod module_registry;
 pub mod module_transformer;
+pub mod namespace_manager;
 
 // Re-export the main bundler and key types
 pub use bundler::HybridStaticBundler;
