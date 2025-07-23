@@ -794,17 +794,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             &symbol,
                                             ExprContext::Store,
                                         );
-                                        let symbol_name = if let Some(renames) =
-                                            self.symbol_renames.get(&full_module_path)
-                                        {
-                                            if let Some(renamed) = renames.get(&symbol) {
-                                                renamed.clone()
-                                            } else {
-                                                symbol.clone()
-                                            }
-                                        } else {
-                                            symbol.clone()
-                                        };
+                                        let symbol_name = self
+                                            .symbol_renames
+                                            .get(&full_module_path)
+                                            .and_then(|renames| renames.get(&symbol))
+                                            .cloned()
+                                            .unwrap_or_else(|| symbol.clone());
                                         let value =
                                             expressions::name(&symbol_name, ExprContext::Load);
                                         self.deferred_imports
@@ -922,17 +917,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                 node_index: AtomicNodeIndex::dummy(),
                                                 // The symbol should use the renamed version if it
                                                 // exists
-                                                id: if let Some(renames) =
-                                                    self.symbol_renames.get(&full_module_path)
-                                                {
-                                                    if let Some(renamed) = renames.get(&symbol) {
-                                                        renamed.into()
-                                                    } else {
-                                                        symbol.into()
-                                                    }
-                                                } else {
-                                                    symbol.into()
-                                                },
+                                                id: self
+                                                    .symbol_renames
+                                                    .get(&full_module_path)
+                                                    .and_then(|renames| renames.get(&symbol))
+                                                    .cloned()
+                                                    .unwrap_or_else(|| symbol.clone())
+                                                    .into(),
                                                 ctx: ExprContext::Load,
                                                 range: TextRange::default(),
                                             })),
