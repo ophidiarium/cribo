@@ -21,8 +21,9 @@ use crate::{code_generator::bundler::HybridStaticBundler, types::FxIndexSet};
 /// as needed, while handling exclusions and avoiding redundant operations.
 ///
 /// **Note**: This is the complete 310-line implementation moved from bundler.rs to achieve
-/// Phase 7 token reduction. The implementation has been simplified to use helper methods
-/// from bundler for AST construction to avoid AST compatibility issues.
+/// Phase 7 token reduction. The implementation uses bundler helper methods where available
+/// (`create_namespace_module`, `create_dotted_attribute_assignment`) and direct AST
+/// construction for intermediate namespaces that require specific attribute assignments.
 pub(super) fn generate_submodule_attributes_with_exclusions(
     bundler: &HybridStaticBundler,
     sorted_modules: &[(String, PathBuf, Vec<String>)],
