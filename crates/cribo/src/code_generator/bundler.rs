@@ -8245,22 +8245,11 @@ impl<'a> HybridStaticBundler<'a> {
                 crate::code_generator::module_registry::get_init_function_name(synthetic_name);
 
             // Call the init function and get the result
-            let init_call = Expr::Call(ExprCall {
-                node_index: AtomicNodeIndex::dummy(),
-                func: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: init_func_name.clone().into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                arguments: Arguments {
-                    node_index: AtomicNodeIndex::dummy(),
-                    args: Box::from([]),
-                    keywords: Box::from([]),
-                    range: TextRange::default(),
-                },
-                range: TextRange::default(),
-            });
+            let init_call = expressions::call(
+                expressions::name(&init_func_name, ExprContext::Load),
+                vec![],
+                vec![],
+            );
 
             // Generate the appropriate assignment based on module type
             stmts.extend(self.generate_module_assignment_from_init(module_name, init_call));
@@ -8544,34 +8533,7 @@ impl<'a> HybridStaticBundler<'a> {
                 // Create the target expression
                 // For simple modules, this will be the module name directly
                 // For dotted modules (e.g., greetings.greeting), build the chain
-                let target = if parts.len() == 1 {
-                    // Simple module - use the name directly
-                    Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: parts[0].into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })
-                } else {
-                    // Dotted module - build the attribute chain
-                    let mut base = Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: parts[0].into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    });
-
-                    for part in &parts[1..] {
-                        base = Expr::Attribute(ExprAttribute {
-                            node_index: AtomicNodeIndex::dummy(),
-                            value: Box::new(base),
-                            attr: Identifier::new(&**part, TextRange::default()),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        });
-                    }
-                    base
-                };
+                let target = expressions::dotted_name(&parts, ExprContext::Load);
 
                 // Check if this specific symbol was already populated after deferred imports
                 // This happens for modules that had forward references and were populated later
@@ -8785,23 +8747,10 @@ impl<'a> HybridStaticBundler<'a> {
 
                     // Now add the symbol as an attribute (e.g., greetings.greeting.get_greeting =
                     // get_greeting)
-                    let attr_assignment = Stmt::Assign(StmtAssign {
-                        node_index: AtomicNodeIndex::dummy(),
-                        targets: vec![Expr::Attribute(ExprAttribute {
-                            node_index: AtomicNodeIndex::dummy(),
-                            value: Box::new(target),
-                            attr: Identifier::new(*symbol, TextRange::default()),
-                            ctx: ExprContext::Store,
-                            range: TextRange::default(),
-                        })],
-                        value: Box::new(Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: actual_symbol_name.into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        range: TextRange::default(),
-                    });
+                    let attr_assignment = statements::assign(
+                        vec![expressions::attribute(target, symbol, ExprContext::Store)],
+                        expressions::name(&actual_symbol_name, ExprContext::Load),
+                    );
 
                     result_stmts.push(attr_assignment);
                 }
@@ -8859,22 +8808,10 @@ impl<'a> HybridStaticBundler<'a> {
 
         if should_use_flattened {
             // Create assignment: target_name = flattened_name
-            return Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: target_name.into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: flattened_name.into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            });
+            return statements::simple_assign(
+                target_name,
+                expressions::name(&flattened_name, ExprContext::Load),
+            );
         }
 
         // For inlined modules, we need to return a vector of statements:
@@ -8885,44 +8822,17 @@ impl<'a> HybridStaticBundler<'a> {
         let _stmts: Vec<Stmt> = Vec::new();
 
         // First, create the empty namespace
-        let namespace_expr = Expr::Call(ExprCall {
-            node_index: AtomicNodeIndex::dummy(),
-            func: Box::new(Expr::Attribute(ExprAttribute {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: "types".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new("SimpleNamespace", TextRange::default()),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            arguments: Arguments {
-                node_index: AtomicNodeIndex::dummy(),
-                args: vec![].into(),
-                keywords: vec![].into(),
-                range: TextRange::default(),
-            },
-            range: TextRange::default(),
-        });
+        let namespace_expr = expressions::call(
+            expressions::dotted_name(&["types", "SimpleNamespace"], ExprContext::Load),
+            vec![],
+            vec![],
+        );
 
         // Create assignment for the namespace
 
         // For now, return just the namespace creation
         // The actual symbol population needs to happen after all symbols are available
-        Stmt::Assign(StmtAssign {
-            node_index: AtomicNodeIndex::dummy(),
-            targets: vec![Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: target_name.into(),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(namespace_expr),
-            range: TextRange::default(),
-        })
+        statements::simple_assign(target_name, namespace_expr)
     }
 
     /// Generate code to merge module attributes from the initialization result into a namespace
@@ -8946,27 +8856,11 @@ impl<'a> HybridStaticBundler<'a> {
         });
 
         // dir(source_module)
-        let dir_call = Expr::Call(ExprCall {
-            node_index: AtomicNodeIndex::dummy(),
-            func: Box::new(Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: "dir".into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            arguments: Arguments {
-                node_index: AtomicNodeIndex::dummy(),
-                args: Box::from([Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: source_module_name.into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })]),
-                keywords: Box::from([]),
-                range: TextRange::default(),
-            },
-            range: TextRange::default(),
-        });
+        let dir_call = expressions::call(
+            expressions::name("dir", ExprContext::Load),
+            vec![expressions::name(source_module_name, ExprContext::Load)],
+            vec![],
+        );
 
         // not attr.startswith('_')
         let condition = Expr::UnaryOp(ruff_python_ast::ExprUnaryOp {
@@ -9187,28 +9081,14 @@ impl<'a> HybridStaticBundler<'a> {
                              module.{original_name}"
                         );
                         // Add: module.<original_name> = <lifted_name>
-                        new_body.push(Stmt::Assign(StmtAssign {
-                            node_index: AtomicNodeIndex::dummy(),
-                            targets: vec![Expr::Attribute(ExprAttribute {
-                                node_index: AtomicNodeIndex::dummy(),
-                                value: Box::new(Expr::Name(ExprName {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    id: "module".into(),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                attr: Identifier::new(original_name, TextRange::default()),
-                                ctx: ExprContext::Store,
-                                range: TextRange::default(),
-                            })],
-                            value: Box::new(Expr::Name(ExprName {
-                                node_index: AtomicNodeIndex::dummy(),
-                                id: var_name.into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            range: TextRange::default(),
-                        }));
+                        new_body.push(statements::assign(
+                            vec![expressions::attribute(
+                                expressions::name("module", ExprContext::Load),
+                                original_name,
+                                ExprContext::Store,
+                            )],
+                            expressions::name(var_name, ExprContext::Load),
+                        ));
                     }
                 }
             }
@@ -9230,28 +9110,14 @@ impl<'a> HybridStaticBundler<'a> {
                              {var_name} -> module.{original_name}"
                         );
                         // Add: module.<original_name> = <lifted_name>
-                        new_body.push(Stmt::Assign(StmtAssign {
-                            node_index: AtomicNodeIndex::dummy(),
-                            targets: vec![Expr::Attribute(ExprAttribute {
-                                node_index: AtomicNodeIndex::dummy(),
-                                value: Box::new(Expr::Name(ExprName {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    id: "module".into(),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                attr: Identifier::new(original_name, TextRange::default()),
-                                ctx: ExprContext::Store,
-                                range: TextRange::default(),
-                            })],
-                            value: Box::new(Expr::Name(ExprName {
-                                node_index: AtomicNodeIndex::dummy(),
-                                id: var_name.into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            range: TextRange::default(),
-                        }));
+                        new_body.push(statements::assign(
+                            vec![expressions::attribute(
+                                expressions::name("module", ExprContext::Load),
+                                original_name,
+                                ExprContext::Store,
+                            )],
+                            expressions::name(var_name, ExprContext::Load),
+                        ));
                     }
                 }
             }
