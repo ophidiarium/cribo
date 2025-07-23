@@ -192,7 +192,7 @@ jobs:
           EOF
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@7edac99f961f18b581bbd960d59d049f04c0002f # v6
+        uses: astral-sh/setup-uv@2c7142f755d7b37bdaea8d226073714c732889fe # v6
         with:
           enable-cache: true
           ignore-nothing-to-cache: true
