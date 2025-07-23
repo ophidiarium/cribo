@@ -1,11 +1,12 @@
 use log::debug;
 use ruff_python_ast::{
-    ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier, ModModule, Stmt,
-    StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
+    ExceptHandler, Expr, ExprContext, Identifier, ModModule, Stmt, StmtClassDef, StmtFunctionDef,
+    StmtImport,
 };
 use ruff_text_size::TextRange;
 
 use crate::{
+    ast_builder::{expressions, statements},
     side_effects::is_safe_stdlib_module,
     types::{FxIndexMap, FxIndexSet},
 };
@@ -272,38 +273,11 @@ impl StdlibNormalizer {
         // e.g., "collections.abc.MutableMapping" becomes collections.abc.MutableMapping
         let parts: Vec<&str> = full_path.split('.').collect();
 
-        let mut value_expr = Expr::Name(ExprName {
-            node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-            id: parts[0].into(),
-            ctx: ExprContext::Load,
-            range: TextRange::default(),
-        });
+        // Use ast_builder to create the dotted name expression
+        let value_expr = expressions::dotted_name(&parts, ExprContext::Load);
 
-        // Build nested attribute access for remaining parts
-        for part in &parts[1..] {
-            value_expr = Expr::Attribute(ExprAttribute {
-                node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-                value: Box::new(value_expr),
-                attr: Identifier::new(*part, TextRange::default()),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            });
-        }
-
-        // Create the target (local_name)
-        let target = Expr::Name(ExprName {
-            node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-            id: local_name.into(),
-            ctx: ExprContext::Store,
-            range: TextRange::default(),
-        });
-
-        Stmt::Assign(StmtAssign {
-            node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-            targets: vec![target],
-            value: Box::new(value_expr),
-            range: TextRange::default(),
-        })
+        // Create assignment: local_name = full_path
+        statements::simple_assign(local_name, value_expr)
     }
 
     /// Collect stdlib aliases from import statement
@@ -488,22 +462,7 @@ impl StdlibNormalizer {
                     if canonical.contains('.') {
                         // Convert to attribute access (e.g., pathlib.Path)
                         let parts: Vec<&str> = canonical.split('.').collect();
-                        let mut result = Expr::Name(ExprName {
-                            node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-                            id: parts[0].into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        });
-                        for part in &parts[1..] {
-                            result = Expr::Attribute(ExprAttribute {
-                                node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-                                value: Box::new(result),
-                                attr: Identifier::new(*part, TextRange::default()),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            });
-                        }
-                        *expr = result;
+                        *expr = expressions::dotted_name(&parts, ExprContext::Load);
                     } else {
                         // Simple module name
                         name_expr.id = canonical.clone().into();

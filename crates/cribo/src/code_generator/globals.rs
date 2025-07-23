@@ -1,12 +1,12 @@
 use cow_utils::CowUtils;
 use log::debug;
-use ruff_python_ast::{
-    AtomicNodeIndex, Expr, ExprAttribute, ExprContext, ExprName, ExprNoneLiteral, Identifier, Stmt,
-    StmtAssign,
-};
-use ruff_text_size::TextRange;
+use ruff_python_ast::{Expr, ExprContext, Stmt};
 
-use crate::{semantic_bundler::ModuleGlobalInfo, types::FxIndexMap};
+use crate::{
+    ast_builder::{expressions, statements},
+    semantic_bundler::ModuleGlobalInfo,
+    types::FxIndexMap,
+};
 
 /// Transformer that lifts module-level globals to true global scope
 pub struct GlobalsLifter {
@@ -27,18 +27,11 @@ pub fn transform_globals_in_expr(expr: &mut Expr) {
                 && call_expr.arguments.keywords.is_empty()
             {
                 // Replace the entire expression with module.__dict__
-                *expr = Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "module".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("__dict__", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                });
+                *expr = expressions::attribute(
+                    expressions::name("module", ExprContext::Load),
+                    "__dict__",
+                    ExprContext::Load,
+                );
                 return;
             }
 
@@ -149,20 +142,10 @@ impl GlobalsLifter {
                 lifted_names.insert(var_name.clone(), lifted_name.clone());
 
                 // Create assignment: __cribo_module_var = None (will be set by init function)
-                lifted_declarations.push(Stmt::Assign(StmtAssign {
-                    node_index: AtomicNodeIndex::dummy(),
-                    targets: vec![Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: lifted_name.into(),
-                        ctx: ExprContext::Store,
-                        range: TextRange::default(),
-                    })],
-                    value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
-                        node_index: AtomicNodeIndex::dummy(),
-                        range: TextRange::default(),
-                    })),
-                    range: TextRange::default(),
-                }));
+                lifted_declarations.push(statements::simple_assign(
+                    &lifted_name,
+                    expressions::none_literal(),
+                ));
             }
         }
 
