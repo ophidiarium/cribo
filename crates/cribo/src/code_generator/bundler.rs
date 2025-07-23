@@ -1461,14 +1461,7 @@ impl<'a> HybridStaticBundler<'a> {
                     // renamed ones
                     result_stmts.push(statements::simple_assign(
                         local_name,
-                        expressions::call(
-                            expressions::dotted_name(
-                                &["types", "SimpleNamespace"],
-                                ExprContext::Load,
-                            ),
-                            vec![],
-                            vec![],
-                        ),
+                        expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
                     ));
 
                     // Add all the renamed symbols as attributes to the namespace
