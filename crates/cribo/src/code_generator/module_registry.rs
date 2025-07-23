@@ -6,11 +6,7 @@
 //! - Module initialization functions
 
 use log::debug;
-use ruff_python_ast::{
-    AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprName, Identifier, ModModule,
-    Stmt, StmtAssign, StmtImport, StmtImportFrom,
-};
-use ruff_text_size::TextRange;
+use ruff_python_ast::{Expr, ExprContext, ModModule, Stmt, StmtImport, StmtImportFrom};
 
 use crate::{
     ast_builder,
@@ -70,61 +66,22 @@ pub fn generate_module_init_call(
             let target_expr = if module_name.contains('.') {
                 // For dotted modules like models.base, create an attribute expression
                 let parts: Vec<&str> = module_name.split('.').collect();
-                let mut expr = Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: parts[0].into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                });
-
-                for (i, part) in parts[1..].iter().enumerate() {
-                    let ctx = if i == parts.len() - 2 {
-                        ExprContext::Store // Last part is Store context
-                    } else {
-                        ExprContext::Load
-                    };
-                    expr = Expr::Attribute(ExprAttribute {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: Box::new(expr),
-                        attr: Identifier::new(*part, TextRange::default()),
-                        ctx,
-                        range: TextRange::default(),
-                    });
-                }
-                expr
+                ast_builder::expressions::dotted_name(&parts, ExprContext::Store)
             } else {
                 // For simple modules, use direct name
-                Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: module_name.into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })
+                ast_builder::expressions::name(module_name, ExprContext::Store)
             };
 
             // Generate: module_name = <cribo_init_prefix>synthetic_name()
             // or: parent.child = <cribo_init_prefix>synthetic_name()
-            statements.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![target_expr],
-                value: Box::new(Expr::Call(ExprCall {
-                    node_index: AtomicNodeIndex::dummy(),
-                    func: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: init_func_name.into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    arguments: ruff_python_ast::Arguments {
-                        node_index: AtomicNodeIndex::dummy(),
-                        args: Box::from([]),
-                        keywords: Box::from([]),
-                        range: TextRange::default(),
-                    },
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+            statements.push(ast_builder::statements::assign(
+                vec![target_expr],
+                ast_builder::expressions::call(
+                    ast_builder::expressions::name(init_func_name, ExprContext::Load),
+                    vec![],
+                    vec![],
+                ),
+            ));
         }
     } else {
         statements.push(ast_builder::statements::pass());
@@ -289,28 +246,14 @@ pub fn create_assignments_for_inlined_imports(
                 // Add each symbol from the module to the namespace
                 for (original_name, renamed_name) in module_renames {
                     // base.original_name = renamed_name
-                    assignments.push(Stmt::Assign(StmtAssign {
-                        node_index: AtomicNodeIndex::dummy(),
-                        targets: vec![Expr::Attribute(ExprAttribute {
-                            node_index: AtomicNodeIndex::dummy(),
-                            value: Box::new(Expr::Name(ExprName {
-                                node_index: AtomicNodeIndex::dummy(),
-                                id: local_name.as_str().into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            attr: Identifier::new(original_name, TextRange::default()),
-                            ctx: ExprContext::Store,
-                            range: TextRange::default(),
-                        })],
-                        value: Box::new(Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: renamed_name.clone().into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        range: TextRange::default(),
-                    }));
+                    assignments.push(ast_builder::statements::assign(
+                        vec![ast_builder::expressions::attribute(
+                            ast_builder::expressions::name(local_name.as_str(), ExprContext::Load),
+                            original_name,
+                            ExprContext::Store,
+                        )],
+                        ast_builder::expressions::name(renamed_name, ExprContext::Load),
+                    ));
                 }
             }
         } else {
@@ -332,23 +275,11 @@ pub fn create_assignments_for_inlined_imports(
                      '{module_name}')"
                 );
 
-                let assignment = StmtAssign {
-                    node_index: AtomicNodeIndex::dummy(),
-                    targets: vec![Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: local_name.as_str().into(),
-                        ctx: ExprContext::Store,
-                        range: TextRange::default(),
-                    })],
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: actual_name.into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    range: TextRange::default(),
-                };
-                assignments.push(Stmt::Assign(assignment));
+                let assignment = ast_builder::statements::simple_assign(
+                    local_name.as_str(),
+                    ast_builder::expressions::name(actual_name, ExprContext::Load),
+                );
+                assignments.push(assignment);
             }
         }
     }
