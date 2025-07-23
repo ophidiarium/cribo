@@ -1405,7 +1405,7 @@ impl<'a> HybridStaticBundler<'a> {
     fn create_namespace_with_name(&self, var_name: &str, module_path: &str) -> Vec<Stmt> {
         // Create: var_name = types.SimpleNamespace()
         let types_simple_namespace_call =
-            expressions::call(self.simple_namespace_ctor(), vec![], vec![]);
+            expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]);
         let mut statements = vec![statements::simple_assign(
             var_name,
             types_simple_namespace_call,
@@ -1694,7 +1694,7 @@ impl<'a> HybridStaticBundler<'a> {
                 child,
                 ExprContext::Store,
             )],
-            expressions::call(self.simple_namespace_ctor(), vec![], vec![]),
+            expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
         );
 
         // Update the node index for tracking
@@ -2221,7 +2221,7 @@ impl<'a> HybridStaticBundler<'a> {
             // Create empty namespace = types.SimpleNamespace() to avoid forward reference errors
             return statements::simple_assign(
                 &namespace_var,
-                expressions::call(self.simple_namespace_ctor(), vec![], vec![]),
+                expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
             );
         }
         // Create a types.SimpleNamespace with all the module's symbols
@@ -2306,7 +2306,7 @@ impl<'a> HybridStaticBundler<'a> {
         // Create namespace = types.SimpleNamespace(**kwargs) assignment
         statements::assign(
             vec![expressions::name(&namespace_var, ExprContext::Store)],
-            expressions::call(self.simple_namespace_ctor(), vec![], keywords),
+            expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
         )
     }
 
@@ -6015,7 +6015,7 @@ impl<'a> HybridStaticBundler<'a> {
         // Create the namespace
         let mut statements = vec![statements::simple_assign(
             module_name,
-            expressions::call(self.simple_namespace_ctor(), vec![], vec![]),
+            expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
         )];
 
         // Set the __name__ attribute to match real module behavior
@@ -8215,11 +8215,6 @@ impl<'a> HybridStaticBundler<'a> {
         )
     }
 
-    /// Create a types.SimpleNamespace constructor expression
-    fn simple_namespace_ctor(&self) -> Expr {
-        expressions::dotted_name(&["types", "SimpleNamespace"], ExprContext::Load)
-    }
-
     /// Create module initialization statements for wrapper modules when they are imported
     fn create_module_initialization_for_import(&self, module_name: &str) -> Vec<Stmt> {
         let mut stmts = Vec::new();
@@ -8382,7 +8377,7 @@ impl<'a> HybridStaticBundler<'a> {
                 expressions::name(&flattened_name, ExprContext::Load)
             } else {
                 // Create empty namespace object
-                expressions::call(self.simple_namespace_ctor(), vec![], vec![])
+                expressions::call(expressions::simple_namespace_ctor(), vec![], vec![])
             };
 
             // Assign to the first part of the name
@@ -8804,7 +8799,8 @@ impl<'a> HybridStaticBundler<'a> {
         let _stmts: Vec<Stmt> = Vec::new();
 
         // First, create the empty namespace
-        let namespace_expr = expressions::call(self.simple_namespace_ctor(), vec![], vec![]);
+        let namespace_expr =
+            expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]);
 
         // Create assignment for the namespace
 
