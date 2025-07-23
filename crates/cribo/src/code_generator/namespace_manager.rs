@@ -154,9 +154,16 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
     }
 
     // Step 3: Sort module assignments by depth to ensure parents exist before children
-    module_assignments.sort_by_key(|(depth, parent, attr, name)| {
-        (*depth, parent.clone(), attr.clone(), name.clone())
-    });
+    module_assignments.sort_by(
+        |(depth_a, parent_a, attr_a, name_a), (depth_b, parent_b, attr_b, name_b)| {
+            (depth_a, parent_a.as_str(), attr_a.as_str(), name_a.as_str()).cmp(&(
+                depth_b,
+                parent_b.as_str(),
+                attr_b.as_str(),
+                name_b.as_str(),
+            ))
+        },
+    );
 
     // Step 4: Process all assignments in order
     for (depth, parent, attr, module_name) in module_assignments {
