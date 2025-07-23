@@ -14,7 +14,9 @@ use ruff_text_size::TextRange;
 
 use crate::{
     ast_builder::{expressions, statements},
-    code_generator::bundler::HybridStaticBundler,
+    code_generator::{
+        bundler::HybridStaticBundler, module_registry::sanitize_module_name_for_identifier,
+    },
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -698,7 +700,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         .contains_key(&full_module_path)
                     {
                         // Create assignment: local_name = full_module_path_with_underscores
-                        let namespace_var = full_module_path.cow_replace('.', "_").into_owned();
+                        let namespace_var = sanitize_module_name_for_identifier(&full_module_path);
                         log::debug!(
                             "  Creating namespace assignment: {local_name} = {namespace_var}"
                         );
