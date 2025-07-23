@@ -5,6 +5,7 @@
 #![cfg(feature = "bench")]
 
 pub mod analyzers;
+pub mod ast_builder;
 pub mod ast_indexer;
 pub mod code_generator;
 pub mod combine;
