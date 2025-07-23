@@ -133,7 +133,7 @@ pub fn call(func: Expr, args: Vec<Expr>, keywords: Vec<Keyword>) -> Expr {
 /// ```
 pub fn dotted_name(parts: &[&str], ctx: ExprContext) -> Expr {
     if parts.is_empty() {
-        panic!("Cannot create dotted name with empty parts");
+        panic!("Cannot create a dotted name: the 'parts' array must contain at least one string. Ensure the input is non-empty before calling this function.");
     }
 
     if parts.len() == 1 {
