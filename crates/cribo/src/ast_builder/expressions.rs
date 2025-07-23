@@ -139,11 +139,14 @@ pub fn dotted_name(parts: &[&str], ctx: ExprContext) -> Expr {
         );
     }
 
-    if parts.len() == 1 {
-        return name(parts[0], ctx);
-    }
-
-    let mut result = name(parts[0], ExprContext::Load);
+    let mut result = name(
+        parts[0],
+        if parts.len() == 1 {
+            ctx
+        } else {
+            ExprContext::Load
+        },
+    );
     for (i, &part) in parts.iter().enumerate().skip(1) {
         if i == parts.len() - 1 {
             result = attribute(result, part, ctx);
