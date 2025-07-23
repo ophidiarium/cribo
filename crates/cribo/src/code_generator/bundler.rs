@@ -6,10 +6,9 @@ use anyhow::Result;
 use cow_utils::CowUtils;
 use log::debug;
 use ruff_python_ast::{
-    Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprCall,
-    ExprContext, ExprName, ExprStringLiteral, Identifier, Keyword, ModModule, Stmt, StmtAssign,
-    StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom, StringLiteral, StringLiteralFlags,
-    StringLiteralValue, visitor::source_order::SourceOrderVisitor,
+    Alias, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName,
+    Identifier, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
+    StmtImportFrom, visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -1294,12 +1293,7 @@ impl<'a> HybridStaticBundler<'a> {
                     // For inlined modules, use the temporary variable directly
                     // Use direct module name for inlined modules
                     let module_var_name = full_module_path.clone();
-                    Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: module_var_name.into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })
+                    expressions::name(&module_var_name, ExprContext::Load)
                 } else if full_module_path.contains('.') {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = full_module_path.split('.').collect();
@@ -1355,30 +1349,10 @@ impl<'a> HybridStaticBundler<'a> {
                 let module_expr = if module_name.contains('.') {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = module_name.split('.').collect();
-                    let mut expr = Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: parts[0].into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    });
-                    for part in &parts[1..] {
-                        expr = Expr::Attribute(ExprAttribute {
-                            node_index: AtomicNodeIndex::dummy(),
-                            value: Box::new(expr),
-                            attr: Identifier::new(*part, TextRange::default()),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        });
-                    }
-                    expr
+                    expressions::dotted_name(&parts, ExprContext::Load)
                 } else {
                     // Top-level module
-                    Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: module_name.into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })
+                    expressions::name(module_name, ExprContext::Load)
                 };
 
                 let assignment = statements::simple_assign(
@@ -1927,18 +1901,11 @@ impl<'a> HybridStaticBundler<'a> {
             func_def.decorator_list = vec![Decorator {
                 range: TextRange::default(),
                 node_index: AtomicNodeIndex::dummy(),
-                expression: Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "functools".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("cache", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                }),
+                expression: expressions::attribute(
+                    expressions::name("functools", ExprContext::Load),
+                    "cache",
+                    ExprContext::Load,
+                ),
             }];
             return Ok(Stmt::FunctionDef(func_def));
         }
@@ -2248,12 +2215,7 @@ impl<'a> HybridStaticBundler<'a> {
             keywords.push(Keyword {
                 node_index: AtomicNodeIndex::dummy(),
                 arg: Some(Identifier::new(original_name, TextRange::default())),
-                value: Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: renamed_name.clone().into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                }),
+                value: expressions::name(renamed_name, ExprContext::Load),
                 range: TextRange::default(),
             });
         }
@@ -2281,12 +2243,7 @@ impl<'a> HybridStaticBundler<'a> {
                     keywords.push(Keyword {
                         node_index: AtomicNodeIndex::dummy(),
                         arg: Some(Identifier::new(export, TextRange::default())),
-                        value: Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: export.clone().into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        }),
+                        value: expressions::name(export, ExprContext::Load),
                         range: TextRange::default(),
                     });
                 }
@@ -4333,26 +4290,11 @@ impl<'a> HybridStaticBundler<'a> {
                         let init_func_name = &self.init_functions[synthetic_name];
 
                         // Generate a call to the init function
-                        let init_call = Stmt::Expr(ruff_python_ast::StmtExpr {
-                            node_index: AtomicNodeIndex::dummy(),
-                            value: Box::new(Expr::Call(ExprCall {
-                                node_index: AtomicNodeIndex::dummy(),
-                                func: Box::new(Expr::Name(ExprName {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    id: init_func_name.clone().into(),
-                                    ctx: ExprContext::Load,
-                                    range: TextRange::default(),
-                                })),
-                                arguments: Arguments {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    args: Box::from([]),
-                                    keywords: Box::from([]),
-                                    range: TextRange::default(),
-                                },
-                                range: TextRange::default(),
-                            })),
-                            range: TextRange::default(),
-                        });
+                        let init_call = statements::expr(expressions::call(
+                            expressions::name(init_func_name, ExprContext::Load),
+                            vec![],
+                            vec![],
+                        ));
                         final_body.push(init_call);
                     }
                 }
@@ -6761,18 +6703,11 @@ impl<'a> HybridStaticBundler<'a> {
                 // Special case: transform __name__ to module.__name__
                 if name_str == "__name__" && matches!(name_expr.ctx, ExprContext::Load) {
                     // Transform __name__ -> module.__name__
-                    *expr = Expr::Attribute(ExprAttribute {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: Box::new(Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: "module".into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new("__name__", TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    });
+                    *expr = expressions::attribute(
+                        expressions::name("module", ExprContext::Load),
+                        "__name__",
+                        ExprContext::Load,
+                    );
                 }
                 // If this is a module-level variable being read AND NOT a local variable AND NOT a
                 // builtin, transform to module.var
@@ -6783,18 +6718,11 @@ impl<'a> HybridStaticBundler<'a> {
                     && matches!(name_expr.ctx, ExprContext::Load)
                 {
                     // Transform foo -> module.foo
-                    *expr = Expr::Attribute(ExprAttribute {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: Box::new(Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: "module".into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new(name_str, TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    });
+                    *expr = expressions::attribute(
+                        expressions::name("module", ExprContext::Load),
+                        name_str,
+                        ExprContext::Load,
+                    );
                 }
             }
             Expr::Call(call) => {
@@ -8815,12 +8743,7 @@ impl<'a> HybridStaticBundler<'a> {
         //         setattr(namespace, attr, getattr(source_module, attr))
 
         let attr_var = "attr";
-        let loop_target = Expr::Name(ExprName {
-            node_index: AtomicNodeIndex::dummy(),
-            id: attr_var.into(),
-            ctx: ExprContext::Store,
-            range: TextRange::default(),
-        });
+        let loop_target = expressions::name(attr_var, ExprContext::Store);
 
         // dir(source_module)
         let dir_call = expressions::call(
@@ -8830,109 +8753,39 @@ impl<'a> HybridStaticBundler<'a> {
         );
 
         // not attr.startswith('_')
-        let condition = Expr::UnaryOp(ruff_python_ast::ExprUnaryOp {
-            node_index: AtomicNodeIndex::dummy(),
-            op: ruff_python_ast::UnaryOp::Not,
-            operand: Box::new(Expr::Call(ExprCall {
-                node_index: AtomicNodeIndex::dummy(),
-                func: Box::new(Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: attr_var.into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("startswith", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                arguments: Arguments {
-                    node_index: AtomicNodeIndex::dummy(),
-                    args: Box::from([Expr::StringLiteral(ExprStringLiteral {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: StringLiteralValue::single(StringLiteral {
-                            node_index: AtomicNodeIndex::dummy(),
-                            value: "_".into(),
-                            range: TextRange::default(),
-                            flags: StringLiteralFlags::empty(),
-                        }),
-                        range: TextRange::default(),
-                    })]),
-                    keywords: Box::from([]),
-                    range: TextRange::default(),
-                },
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        });
+        let condition = expressions::unary_op(
+            ruff_python_ast::UnaryOp::Not,
+            expressions::call(
+                expressions::attribute(
+                    expressions::name(attr_var, ExprContext::Load),
+                    "startswith",
+                    ExprContext::Load,
+                ),
+                vec![expressions::string_literal("_")],
+                vec![],
+            ),
+        );
 
         // getattr(source_module, attr)
-        let getattr_call = Expr::Call(ExprCall {
-            node_index: AtomicNodeIndex::dummy(),
-            func: Box::new(Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: "getattr".into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            arguments: Arguments {
-                node_index: AtomicNodeIndex::dummy(),
-                args: Box::from([
-                    Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: source_module_name.into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    }),
-                    Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: attr_var.into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    }),
-                ]),
-                keywords: Box::from([]),
-                range: TextRange::default(),
-            },
-            range: TextRange::default(),
-        });
+        let getattr_call = expressions::call(
+            expressions::name("getattr", ExprContext::Load),
+            vec![
+                expressions::name(source_module_name, ExprContext::Load),
+                expressions::name(attr_var, ExprContext::Load),
+            ],
+            vec![],
+        );
 
         // setattr(namespace, attr, getattr(...))
-        let setattr_call = Stmt::Expr(ruff_python_ast::StmtExpr {
-            node_index: AtomicNodeIndex::dummy(),
-            value: Box::new(Expr::Call(ExprCall {
-                node_index: AtomicNodeIndex::dummy(),
-                func: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: "setattr".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                arguments: Arguments {
-                    node_index: AtomicNodeIndex::dummy(),
-                    args: Box::from([
-                        Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: namespace_name.into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        }),
-                        Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: attr_var.into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        }),
-                        getattr_call,
-                    ]),
-                    keywords: Box::from([]),
-                    range: TextRange::default(),
-                },
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        });
+        let setattr_call = statements::expr(expressions::call(
+            expressions::name("setattr", ExprContext::Load),
+            vec![
+                expressions::name(namespace_name, ExprContext::Load),
+                expressions::name(attr_var, ExprContext::Load),
+                getattr_call,
+            ],
+            vec![],
+        ));
 
         // if not attr.startswith('_'): setattr(...)
         let if_stmt = Stmt::If(ruff_python_ast::StmtIf {
