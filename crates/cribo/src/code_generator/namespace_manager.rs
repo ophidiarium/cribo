@@ -6,14 +6,9 @@
 use std::path::PathBuf;
 
 use log::debug;
-use ruff_python_ast::{
-    Arguments, AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprName,
-    ExprStringLiteral, Identifier, Stmt, StmtAssign, StringLiteral, StringLiteralFlags,
-    StringLiteralValue,
-};
-use ruff_text_size::TextRange;
+use ruff_python_ast::{ExprContext, Stmt};
 
-use crate::{code_generator::bundler::HybridStaticBundler, types::FxIndexSet};
+use crate::{ast_builder, code_generator::bundler::HybridStaticBundler, types::FxIndexSet};
 
 /// Generates submodule attributes with exclusions for namespace organization.
 ///
@@ -248,78 +243,37 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
             }
 
             debug!("Creating intermediate namespace: {parent}.{attr} = types.SimpleNamespace()");
-            final_body.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: parent.clone().into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new(&attr, TextRange::default()),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Call(ExprCall {
-                    node_index: AtomicNodeIndex::dummy(),
-                    func: Box::new(Expr::Attribute(ExprAttribute {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: Box::new(Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: "types".into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new("SimpleNamespace", TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    arguments: Arguments {
-                        node_index: AtomicNodeIndex::dummy(),
-                        args: Box::from([]),
-                        keywords: Box::from([]),
-                        range: TextRange::default(),
-                    },
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+            // Create: parent.attr = types.SimpleNamespace()
+            final_body.push(ast_builder::statements::assign(
+                vec![ast_builder::expressions::attribute(
+                    ast_builder::expressions::name(&parent, ExprContext::Load),
+                    &attr,
+                    ExprContext::Store,
+                )],
+                ast_builder::expressions::call(
+                    ast_builder::expressions::attribute(
+                        ast_builder::expressions::name("types", ExprContext::Load),
+                        "SimpleNamespace",
+                        ExprContext::Load,
+                    ),
+                    vec![],
+                    vec![],
+                ),
+            ));
 
-            // Set the __name__ attribute
-            final_body.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Attribute(ExprAttribute {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: Box::new(Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: parent.clone().into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        })),
-                        attr: Identifier::new(&attr, TextRange::default()),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("__name__", TextRange::default()),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::StringLiteral(ExprStringLiteral {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: StringLiteralValue::single(StringLiteral {
-                        node_index: AtomicNodeIndex::dummy(),
-                        value: module_name.to_string().into(),
-                        range: TextRange::default(),
-                        flags: StringLiteralFlags::empty(),
-                    }),
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+            // Set the __name__ attribute: parent.attr.__name__ = module_name
+            final_body.push(ast_builder::statements::assign(
+                vec![ast_builder::expressions::attribute(
+                    ast_builder::expressions::attribute(
+                        ast_builder::expressions::name(&parent, ExprContext::Load),
+                        &attr,
+                        ExprContext::Load,
+                    ),
+                    "__name__",
+                    ExprContext::Store,
+                )],
+                ast_builder::expressions::string_literal(&module_name),
+            ));
 
             created_namespaces.insert(module_name);
         }

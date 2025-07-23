@@ -20,6 +20,7 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
+    ast_builder,
     code_generator::{
         bundler::HybridStaticBundler,
         context::ModuleTransformContext,
@@ -394,29 +395,16 @@ pub fn transform_module_to_init_function<'a>(
     if let Some(ref lifted_names) = lifted_names {
         for (original_name, lifted_name) in lifted_names {
             // global __cribo_module_var
-            body.push(Stmt::Global(StmtGlobal {
-                node_index: AtomicNodeIndex::dummy(),
-                names: vec![Identifier::new(lifted_name, TextRange::default())],
-                range: TextRange::default(),
-            }));
+            body.push(ast_builder::statements::global(vec![lifted_name]));
 
             // __cribo_module_var = original_var
-            body.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: lifted_name.clone().into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: original_name.clone().into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+            body.push(ast_builder::statements::assign(
+                vec![ast_builder::expressions::name(
+                    lifted_name,
+                    ExprContext::Store,
+                )],
+                ast_builder::expressions::name(original_name, ExprContext::Load),
+            ));
         }
     }
 
@@ -534,16 +522,9 @@ pub fn transform_module_to_init_function<'a>(
     }
 
     // Return the module object
-    body.push(Stmt::Return(StmtReturn {
-        node_index: AtomicNodeIndex::dummy(),
-        value: Some(Box::new(Expr::Name(ExprName {
-            node_index: AtomicNodeIndex::dummy(),
-            id: "module".into(),
-            ctx: ExprContext::Load,
-            range: TextRange::default(),
-        }))),
-        range: TextRange::default(),
-    }));
+    body.push(ast_builder::statements::return_stmt(Some(
+        ast_builder::expressions::name("module", ExprContext::Load),
+    )));
 
     // Create the init function WITHOUT decorator - we're not using module cache
     Ok(Stmt::FunctionDef(StmtFunctionDef {
@@ -577,34 +558,20 @@ fn transform_expr_for_module_vars(
             // Special case: transform __name__ to module.__name__
             if name.id.as_str() == "__name__" {
                 // Transform __name__ -> module.__name__
-                *expr = Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "module".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("__name__", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                });
+                *expr = ast_builder::expressions::attribute(
+                    ast_builder::expressions::name("module", ExprContext::Load),
+                    "__name__",
+                    ExprContext::Load,
+                );
             }
             // Check if this is a reference to a module-level variable
             else if module_level_vars.contains(name.id.as_str()) {
                 // Transform to module.var
-                *expr = Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "module".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new(name.id.as_str(), TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                });
+                *expr = ast_builder::expressions::attribute(
+                    ast_builder::expressions::name("module", ExprContext::Load),
+                    name.id.as_str(),
+                    ExprContext::Load,
+                );
             }
         }
         // Recursively handle other expressions
@@ -1134,18 +1101,11 @@ fn transform_expr_for_module_vars_with_locals(
             // Special case: transform __name__ to module.__name__
             if name_str == "__name__" && matches!(name_expr.ctx, ExprContext::Load) {
                 // Transform __name__ -> module.__name__
-                *expr = Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "module".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("__name__", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                });
+                *expr = ast_builder::expressions::attribute(
+                    ast_builder::expressions::name("module", ExprContext::Load),
+                    "__name__",
+                    ExprContext::Load,
+                );
             }
             // If this is a module-level variable being read AND NOT a local variable AND NOT a
             // builtin, transform to module.var
@@ -1156,18 +1116,11 @@ fn transform_expr_for_module_vars_with_locals(
                 && matches!(name_expr.ctx, ExprContext::Load)
             {
                 // Transform foo -> module.foo
-                *expr = Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "module".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new(name_str, TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                });
+                *expr = ast_builder::expressions::attribute(
+                    ast_builder::expressions::name("module", ExprContext::Load),
+                    name_str,
+                    ExprContext::Load,
+                );
             }
         }
         Expr::Call(call) => {
@@ -1243,69 +1196,31 @@ fn transform_expr_for_module_vars_with_locals(
 
 /// Create module object statements (types.SimpleNamespace)
 pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<Stmt> {
-    let module_call = Expr::Call(ExprCall {
-        node_index: AtomicNodeIndex::dummy(),
-        func: Box::new(Expr::Attribute(ExprAttribute {
-            node_index: AtomicNodeIndex::dummy(),
-            value: Box::new(Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: "types".into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            attr: Identifier::new("SimpleNamespace", TextRange::default()),
-            ctx: ExprContext::Load,
-            range: TextRange::default(),
-        })),
-        arguments: Arguments {
-            node_index: AtomicNodeIndex::dummy(),
-            args: Box::from([]),
-            keywords: Box::from([]),
-            range: TextRange::default(),
-        },
-        range: TextRange::default(),
-    });
+    let module_call = ast_builder::expressions::call(
+        ast_builder::expressions::attribute(
+            ast_builder::expressions::name("types", ExprContext::Load),
+            "SimpleNamespace",
+            ExprContext::Load,
+        ),
+        vec![],
+        vec![],
+    );
 
     vec![
         // module = types.SimpleNamespace()
-        Stmt::Assign(StmtAssign {
-            node_index: AtomicNodeIndex::dummy(),
-            targets: vec![Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: "module".into(),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(module_call),
-            range: TextRange::default(),
-        }),
+        ast_builder::statements::assign(
+            vec![ast_builder::expressions::name("module", ExprContext::Store)],
+            module_call,
+        ),
         // module.__name__ = "module_name"
-        Stmt::Assign(StmtAssign {
-            node_index: AtomicNodeIndex::dummy(),
-            targets: vec![Expr::Attribute(ExprAttribute {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: "module".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new("__name__", TextRange::default()),
-                ctx: ExprContext::Store,
-                range: TextRange::default(),
-            })],
-            value: Box::new(Expr::StringLiteral(ExprStringLiteral {
-                node_index: AtomicNodeIndex::dummy(),
-                value: StringLiteralValue::single(StringLiteral {
-                    node_index: AtomicNodeIndex::dummy(),
-                    range: TextRange::default(),
-                    value: module_name.to_string().into_boxed_str(),
-                    flags: StringLiteralFlags::empty(),
-                }),
-                range: TextRange::default(),
-            })),
-            range: TextRange::default(),
-        }),
+        ast_builder::statements::assign(
+            vec![ast_builder::expressions::attribute(
+                ast_builder::expressions::name("module", ExprContext::Load),
+                "__name__",
+                ExprContext::Store,
+            )],
+            ast_builder::expressions::string_literal(module_name),
+        ),
     ]
 }
 
@@ -1346,38 +1261,21 @@ fn create_namespace_for_inlined_submodule(
     let mut stmts = Vec::new();
 
     // Create a types.SimpleNamespace() for the inlined module
-    stmts.push(Stmt::Assign(StmtAssign {
-        node_index: AtomicNodeIndex::dummy(),
-        targets: vec![Expr::Name(ExprName {
-            node_index: AtomicNodeIndex::dummy(),
-            id: attr_name.into(),
-            ctx: ExprContext::Store,
-            range: TextRange::default(),
-        })],
-        value: Box::new(Expr::Call(ExprCall {
-            node_index: AtomicNodeIndex::dummy(),
-            func: Box::new(Expr::Attribute(ExprAttribute {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: "types".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new("SimpleNamespace", TextRange::default()),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            arguments: Arguments {
-                node_index: AtomicNodeIndex::dummy(),
-                args: Box::from([]),
-                keywords: Box::from([]),
-                range: TextRange::default(),
-            },
-            range: TextRange::default(),
-        })),
-        range: TextRange::default(),
-    }));
+    stmts.push(ast_builder::statements::assign(
+        vec![ast_builder::expressions::name(
+            attr_name,
+            ExprContext::Store,
+        )],
+        ast_builder::expressions::call(
+            ast_builder::expressions::attribute(
+                ast_builder::expressions::name("types", ExprContext::Load),
+                "SimpleNamespace",
+                ExprContext::Load,
+            ),
+            vec![],
+            vec![],
+        ),
+    ));
 
     // Get the module exports for this inlined module
     let exported_symbols = bundler
@@ -1451,28 +1349,14 @@ fn create_namespace_for_inlined_submodule(
 
             // attr_name.symbol = renamed_symbol
             log::debug!("Creating namespace assignment: {attr_name}.{symbol} = {renamed_symbol}");
-            stmts.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: attr_name.into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new(&symbol, TextRange::default()),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: renamed_symbol.into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+            stmts.push(ast_builder::statements::assign(
+                vec![ast_builder::expressions::attribute(
+                    ast_builder::expressions::name(attr_name, ExprContext::Load),
+                    &symbol,
+                    ExprContext::Store,
+                )],
+                ast_builder::expressions::name(&renamed_symbol, ExprContext::Load),
+            ));
         }
     } else {
         // If no explicit exports, we still need to check if this module defines symbols

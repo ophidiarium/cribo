@@ -6,6 +6,7 @@ use log::{debug, info};
 
 // Module declarations - keeping only what's needed for the binary
 mod analyzers;
+mod ast_builder;
 mod ast_indexer;
 mod code_generator;
 mod combine;

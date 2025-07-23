@@ -8,11 +8,14 @@
 use log::debug;
 use ruff_python_ast::{
     AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprName, Identifier, ModModule,
-    Stmt, StmtAssign, StmtImport, StmtImportFrom, StmtPass,
+    Stmt, StmtAssign, StmtImport, StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
-use crate::types::{FxIndexMap, FxIndexSet};
+use crate::{
+    ast_builder,
+    types::{FxIndexMap, FxIndexSet},
+};
 
 /// Generate registries and hook
 pub fn generate_registries_and_hook() -> Vec<Stmt> {
@@ -45,53 +48,23 @@ pub fn generate_module_init_call(
             debug!("Module '{module_name}' is a parent namespace - generating merge code");
 
             // First, create a variable to hold the init result
-            statements.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: INIT_RESULT_VAR.into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Call(ExprCall {
-                    node_index: AtomicNodeIndex::dummy(),
-                    func: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: init_func_name.into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    arguments: ruff_python_ast::Arguments {
-                        node_index: AtomicNodeIndex::dummy(),
-                        args: Box::from([]),
-                        keywords: Box::from([]),
-                        range: TextRange::default(),
-                    },
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+            statements.push(ast_builder::statements::simple_assign(
+                INIT_RESULT_VAR,
+                ast_builder::expressions::call(
+                    ast_builder::expressions::name(init_func_name, ExprContext::Load),
+                    vec![],
+                    vec![],
+                ),
+            ));
 
             // Generate the merge attributes code
             generate_merge_module_attributes(&mut statements, module_name, INIT_RESULT_VAR);
 
             // Assign the init result to the module variable
-            statements.push(Stmt::Assign(StmtAssign {
-                node_index: AtomicNodeIndex::dummy(),
-                targets: vec![Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: module_name.into(),
-                    ctx: ExprContext::Store,
-                    range: TextRange::default(),
-                })],
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: INIT_RESULT_VAR.into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                range: TextRange::default(),
-            }));
+            statements.push(ast_builder::statements::simple_assign(
+                module_name,
+                ast_builder::expressions::name(INIT_RESULT_VAR, ExprContext::Load),
+            ));
         } else {
             // Direct assignment for modules that aren't parent namespaces
             let target_expr = if module_name.contains('.') {
@@ -154,10 +127,7 @@ pub fn generate_module_init_call(
             }));
         }
     } else {
-        statements.push(Stmt::Pass(StmtPass {
-            node_index: AtomicNodeIndex::dummy(),
-            range: TextRange::default(),
-        }));
+        statements.push(ast_builder::statements::pass());
     }
 
     statements
@@ -254,48 +224,22 @@ pub fn check_local_name_conflict(ast: &ModModule, name: &str) -> bool {
 
 /// Create a module attribute assignment statement
 pub fn create_module_attr_assignment(module_var: &str, attr_name: &str) -> Stmt {
-    Stmt::Assign(StmtAssign {
-        node_index: AtomicNodeIndex::dummy(),
-        targets: vec![Expr::Attribute(ExprAttribute {
-            node_index: AtomicNodeIndex::dummy(),
-            value: Box::new(Expr::Name(ExprName {
-                node_index: AtomicNodeIndex::dummy(),
-                id: module_var.into(),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            attr: Identifier::new(attr_name, TextRange::default()),
-            ctx: ExprContext::Store,
-            range: TextRange::default(),
-        })],
-        value: Box::new(Expr::Name(ExprName {
-            node_index: AtomicNodeIndex::dummy(),
-            id: attr_name.into(),
-            ctx: ExprContext::Load,
-            range: TextRange::default(),
-        })),
-        range: TextRange::default(),
-    })
+    ast_builder::statements::assign(
+        vec![ast_builder::expressions::attribute(
+            ast_builder::expressions::name(module_var, ExprContext::Load),
+            attr_name,
+            ExprContext::Store,
+        )],
+        ast_builder::expressions::name(attr_name, ExprContext::Load),
+    )
 }
 
 /// Create a reassignment statement (original_name = renamed_name)
 pub fn create_reassignment(original_name: &str, renamed_name: &str) -> Stmt {
-    Stmt::Assign(StmtAssign {
-        node_index: AtomicNodeIndex::dummy(),
-        targets: vec![Expr::Name(ExprName {
-            node_index: AtomicNodeIndex::dummy(),
-            id: original_name.into(),
-            ctx: ExprContext::Store,
-            range: TextRange::default(),
-        })],
-        value: Box::new(Expr::Name(ExprName {
-            node_index: AtomicNodeIndex::dummy(),
-            id: renamed_name.into(),
-            ctx: ExprContext::Load,
-            range: TextRange::default(),
-        })),
-        range: TextRange::default(),
-    })
+    ast_builder::statements::simple_assign(
+        original_name,
+        ast_builder::expressions::name(renamed_name, ExprContext::Load),
+    )
 }
 
 /// Create assignments for inlined imports
