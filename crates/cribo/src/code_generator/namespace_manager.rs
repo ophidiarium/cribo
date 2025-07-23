@@ -251,11 +251,7 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                     ExprContext::Store,
                 )],
                 ast_builder::expressions::call(
-                    ast_builder::expressions::attribute(
-                        ast_builder::expressions::name("types", ExprContext::Load),
-                        "SimpleNamespace",
-                        ExprContext::Load,
-                    ),
+                    ast_builder::expressions::simple_namespace_ctor(),
                     vec![],
                     vec![],
                 ),

@@ -323,3 +323,18 @@ pub fn slice(lower: Option<Expr>, upper: Option<Expr>, step: Option<Expr>) -> Ex
         node_index: AtomicNodeIndex::dummy(),
     })
 }
+
+/// Creates a types.SimpleNamespace constructor expression.
+///
+/// This is a common pattern used throughout the bundling process for creating
+/// namespace objects.
+///
+/// # Example
+/// ```rust
+/// // Creates: `types.SimpleNamespace`
+/// let ctor = simple_namespace_ctor();
+/// ```
+#[inline]
+pub(crate) fn simple_namespace_ctor() -> Expr {
+    dotted_name(&["types", "SimpleNamespace"], ExprContext::Load)
+}

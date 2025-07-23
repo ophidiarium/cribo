@@ -4,16 +4,18 @@ use std::path::Path;
 
 use cow_utils::CowUtils;
 use ruff_python_ast::{
-    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext,
-    ExprFString, ExprList, ExprName, ExprNoneLiteral, ExprStringLiteral, FString, FStringFlags,
-    FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
-    InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign, StmtImportFrom,
-    StringLiteral, StringLiteralFlags, StringLiteralValue,
+    AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext, ExprFString,
+    ExprName, FString, FStringFlags, FStringValue, Identifier, InterpolatedElement,
+    InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt,
+    StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
 use crate::{
-    code_generator::bundler::HybridStaticBundler,
+    ast_builder::{expressions, statements},
+    code_generator::{
+        bundler::HybridStaticBundler, module_registry::sanitize_module_name_for_identifier,
+    },
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -697,26 +699,14 @@ impl<'a> RecursiveImportTransformer<'a> {
                         .contains_key(&full_module_path)
                     {
                         // Create assignment: local_name = full_module_path_with_underscores
-                        let namespace_var = full_module_path.cow_replace('.', "_").into_owned();
+                        let namespace_var = sanitize_module_name_for_identifier(&full_module_path);
                         log::debug!(
                             "  Creating namespace assignment: {local_name} = {namespace_var}"
                         );
-                        result_stmts.push(Stmt::Assign(StmtAssign {
-                            node_index: AtomicNodeIndex::dummy(),
-                            targets: vec![Expr::Name(ExprName {
-                                node_index: AtomicNodeIndex::dummy(),
-                                id: local_name.into(),
-                                ctx: ExprContext::Store,
-                                range: TextRange::default(),
-                            })],
-                            value: Box::new(Expr::Name(ExprName {
-                                node_index: AtomicNodeIndex::dummy(),
-                                id: namespace_var.into(),
-                                ctx: ExprContext::Load,
-                                range: TextRange::default(),
-                            })),
-                            range: TextRange::default(),
-                        }));
+                        result_stmts.push(statements::simple_assign(
+                            local_name,
+                            expressions::name(&namespace_var, ExprContext::Load),
+                        ));
                         handled_any = true;
                     } else {
                         // This is importing an inlined submodule
@@ -745,41 +735,16 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                                 // Create the namespace and populate it as deferred imports
                                 // Create: local_name = types.SimpleNamespace()
-                                self.deferred_imports.push(Stmt::Assign(StmtAssign {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    targets: vec![Expr::Name(ExprName {
-                                        node_index: AtomicNodeIndex::dummy(),
-                                        id: local_name.into(),
-                                        ctx: ExprContext::Store,
-                                        range: TextRange::default(),
-                                    })],
-                                    value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
-                                        node_index: AtomicNodeIndex::dummy(),
-                                        func: Box::new(Expr::Attribute(ExprAttribute {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            value: Box::new(Expr::Name(ExprName {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                id: "types".into(),
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            })),
-                                            attr: Identifier::new(
-                                                "SimpleNamespace",
-                                                TextRange::default(),
-                                            ),
-                                            ctx: ExprContext::Load,
-                                            range: TextRange::default(),
-                                        })),
-                                        arguments: Arguments {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            args: Box::from([]),
-                                            keywords: Box::from([]),
-                                            range: TextRange::default(),
-                                        },
-                                        range: TextRange::default(),
-                                    })),
-                                    range: TextRange::default(),
-                                }));
+                                let types_simple_namespace_call = expressions::call(
+                                    expressions::simple_namespace_ctor(),
+                                    vec![],
+                                    vec![],
+                                );
+                                self.deferred_imports.push(statements::simple_assign(
+                                    local_name,
+                                    types_simple_namespace_call,
+                                ));
+                                self.created_namespace_objects = true;
 
                                 // Now add the exported symbols from the inlined module to the
                                 // namespace
@@ -806,90 +771,32 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             .modules_with_explicit_all
                                             .contains(&full_module_path)
                                     {
-                                        self.deferred_imports.push(Stmt::Assign(StmtAssign {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            targets: vec![Expr::Attribute(ExprAttribute {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                value: Box::new(Expr::Name(ExprName {
-                                                    node_index: AtomicNodeIndex::dummy(),
-                                                    id: local_name.into(),
-                                                    ctx: ExprContext::Load,
-                                                    range: TextRange::default(),
-                                                })),
-                                                attr: Identifier::new(
-                                                    "__all__",
-                                                    TextRange::default(),
-                                                ),
-                                                ctx: ExprContext::Store,
-                                                range: TextRange::default(),
-                                            })],
-                                            value: Box::new(Expr::List(ExprList {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                elts: filtered_exports
-                                                    .iter()
-                                                    .map(|name| {
-                                                        Expr::StringLiteral(ExprStringLiteral {
-                                                            node_index: AtomicNodeIndex::dummy(),
-                                                            value: StringLiteralValue::single(
-                                                                StringLiteral {
-                                                                    node_index:
-                                                                        AtomicNodeIndex::dummy(),
-                                                                    value: name.as_str().into(),
-                                                                    flags:
-                                                                        StringLiteralFlags::empty(),
-                                                                    range: TextRange::default(),
-                                                                },
-                                                            ),
-                                                            range: TextRange::default(),
-                                                        })
-                                                    })
-                                                    .collect(),
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            })),
-                                            range: TextRange::default(),
-                                        }));
+                                        let export_strings: Vec<&str> =
+                                            filtered_exports.iter().map(|s| s.as_str()).collect();
+                                        self.deferred_imports.push(statements::set_list_attribute(
+                                            local_name,
+                                            "__all__",
+                                            &export_strings,
+                                        ));
                                     }
 
                                     for symbol in filtered_exports {
                                         // local_name.symbol = symbol
-                                        self.deferred_imports.push(Stmt::Assign(StmtAssign {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            targets: vec![Expr::Attribute(ExprAttribute {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                value: Box::new(Expr::Name(ExprName {
-                                                    node_index: AtomicNodeIndex::dummy(),
-                                                    id: local_name.into(),
-                                                    ctx: ExprContext::Load,
-                                                    range: TextRange::default(),
-                                                })),
-                                                attr: Identifier::new(
-                                                    &symbol,
-                                                    TextRange::default(),
-                                                ),
-                                                ctx: ExprContext::Store,
-                                                range: TextRange::default(),
-                                            })],
-                                            value: Box::new(Expr::Name(ExprName {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                // The symbol should use the renamed version if it
-                                                // exists
-                                                id: if let Some(renames) =
-                                                    self.symbol_renames.get(&full_module_path)
-                                                {
-                                                    if let Some(renamed) = renames.get(&symbol) {
-                                                        renamed.into()
-                                                    } else {
-                                                        symbol.into()
-                                                    }
-                                                } else {
-                                                    symbol.clone().into()
-                                                },
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            })),
-                                            range: TextRange::default(),
-                                        }));
+                                        let target = expressions::attribute(
+                                            expressions::name(local_name, ExprContext::Load),
+                                            &symbol,
+                                            ExprContext::Store,
+                                        );
+                                        let symbol_name = self
+                                            .symbol_renames
+                                            .get(&full_module_path)
+                                            .and_then(|renames| renames.get(&symbol))
+                                            .cloned()
+                                            .unwrap_or_else(|| symbol.clone());
+                                        let value =
+                                            expressions::name(&symbol_name, ExprContext::Load);
+                                        self.deferred_imports
+                                            .push(statements::assign(vec![target], value));
                                     }
                                 }
                             } else {
@@ -900,41 +807,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 );
 
                                 // Create: local_name = types.SimpleNamespace()
-                                result_stmts.push(Stmt::Assign(StmtAssign {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    targets: vec![Expr::Name(ExprName {
-                                        node_index: AtomicNodeIndex::dummy(),
-                                        id: local_name.into(),
-                                        ctx: ExprContext::Store,
-                                        range: TextRange::default(),
-                                    })],
-                                    value: Box::new(Expr::Call(ruff_python_ast::ExprCall {
-                                        node_index: AtomicNodeIndex::dummy(),
-                                        func: Box::new(Expr::Attribute(ExprAttribute {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            value: Box::new(Expr::Name(ExprName {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                id: "types".into(),
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            })),
-                                            attr: Identifier::new(
-                                                "SimpleNamespace",
-                                                TextRange::default(),
-                                            ),
-                                            ctx: ExprContext::Load,
-                                            range: TextRange::default(),
-                                        })),
-                                        arguments: Arguments {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            args: Box::from([]),
-                                            keywords: Box::from([]),
-                                            range: TextRange::default(),
-                                        },
-                                        range: TextRange::default(),
-                                    })),
-                                    range: TextRange::default(),
-                                }));
+                                result_stmts.push(statements::simple_assign(
+                                    local_name,
+                                    expressions::call(
+                                        expressions::simple_namespace_ctor(),
+                                        vec![],
+                                        vec![],
+                                    ),
+                                ));
+                                self.created_namespace_objects = true;
 
                                 // Now add the exported symbols from the inlined module to the
                                 // namespace
@@ -961,90 +842,31 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             .modules_with_explicit_all
                                             .contains(&full_module_path)
                                     {
-                                        result_stmts.push(Stmt::Assign(StmtAssign {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            targets: vec![Expr::Attribute(ExprAttribute {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                value: Box::new(Expr::Name(ExprName {
-                                                    node_index: AtomicNodeIndex::dummy(),
-                                                    id: local_name.into(),
-                                                    ctx: ExprContext::Load,
-                                                    range: TextRange::default(),
-                                                })),
-                                                attr: Identifier::new(
-                                                    "__all__",
-                                                    TextRange::default(),
-                                                ),
-                                                ctx: ExprContext::Store,
-                                                range: TextRange::default(),
-                                            })],
-                                            value: Box::new(Expr::List(ExprList {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                elts: filtered_exports
-                                                    .iter()
-                                                    .map(|name| {
-                                                        Expr::StringLiteral(ExprStringLiteral {
-                                                            node_index: AtomicNodeIndex::dummy(),
-                                                            value: StringLiteralValue::single(
-                                                                StringLiteral {
-                                                                    node_index:
-                                                                        AtomicNodeIndex::dummy(),
-                                                                    value: name.as_str().into(),
-                                                                    flags:
-                                                                        StringLiteralFlags::empty(),
-                                                                    range: TextRange::default(),
-                                                                },
-                                                            ),
-                                                            range: TextRange::default(),
-                                                        })
-                                                    })
-                                                    .collect(),
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            })),
-                                            range: TextRange::default(),
-                                        }));
+                                        let export_strings: Vec<&str> =
+                                            filtered_exports.iter().map(|s| s.as_str()).collect();
+                                        result_stmts.push(statements::set_list_attribute(
+                                            local_name,
+                                            "__all__",
+                                            &export_strings,
+                                        ));
                                     }
 
                                     for symbol in filtered_exports {
                                         // local_name.symbol = symbol
-                                        result_stmts.push(Stmt::Assign(StmtAssign {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            targets: vec![Expr::Attribute(ExprAttribute {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                value: Box::new(Expr::Name(ExprName {
-                                                    node_index: AtomicNodeIndex::dummy(),
-                                                    id: local_name.into(),
-                                                    ctx: ExprContext::Load,
-                                                    range: TextRange::default(),
-                                                })),
-                                                attr: Identifier::new(
-                                                    &symbol,
-                                                    TextRange::default(),
-                                                ),
-                                                ctx: ExprContext::Store,
-                                                range: TextRange::default(),
-                                            })],
-                                            value: Box::new(Expr::Name(ExprName {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                // The symbol should use the renamed version if it
-                                                // exists
-                                                id: if let Some(renames) =
-                                                    self.symbol_renames.get(&full_module_path)
-                                                {
-                                                    if let Some(renamed) = renames.get(&symbol) {
-                                                        renamed.into()
-                                                    } else {
-                                                        symbol.into()
-                                                    }
-                                                } else {
-                                                    symbol.into()
-                                                },
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            })),
-                                            range: TextRange::default(),
-                                        }));
+                                        let target = expressions::attribute(
+                                            expressions::name(local_name, ExprContext::Load),
+                                            &symbol,
+                                            ExprContext::Store,
+                                        );
+                                        let symbol_name = self
+                                            .symbol_renames
+                                            .get(&full_module_path)
+                                            .and_then(|renames| renames.get(&symbol))
+                                            .cloned()
+                                            .unwrap_or_else(|| symbol.clone());
+                                        let value =
+                                            expressions::name(&symbol_name, ExprContext::Load);
+                                        result_stmts.push(statements::assign(vec![target], value));
                                     }
                                 }
                             }
@@ -1063,41 +885,14 @@ impl<'a> RecursiveImportTransformer<'a> {
                             // This mimics what happens in non-entry modules
 
                             // First create the empty namespace
-                            result_stmts.push(Stmt::Assign(StmtAssign {
-                                node_index: AtomicNodeIndex::dummy(),
-                                targets: vec![Expr::Name(ExprName {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    id: local_name.into(),
-                                    ctx: ExprContext::Store,
-                                    range: TextRange::default(),
-                                })],
-                                value: Box::new(Expr::Call(ExprCall {
-                                    node_index: AtomicNodeIndex::dummy(),
-                                    func: Box::new(Expr::Attribute(ExprAttribute {
-                                        node_index: AtomicNodeIndex::dummy(),
-                                        value: Box::new(Expr::Name(ExprName {
-                                            node_index: AtomicNodeIndex::dummy(),
-                                            id: "types".into(),
-                                            ctx: ExprContext::Load,
-                                            range: TextRange::default(),
-                                        })),
-                                        attr: Identifier::new(
-                                            "SimpleNamespace",
-                                            TextRange::default(),
-                                        ),
-                                        ctx: ExprContext::Load,
-                                        range: TextRange::default(),
-                                    })),
-                                    arguments: Arguments {
-                                        node_index: AtomicNodeIndex::dummy(),
-                                        args: Box::from([]),
-                                        keywords: Box::from([]),
-                                        range: TextRange::default(),
-                                    },
-                                    range: TextRange::default(),
-                                })),
-                                range: TextRange::default(),
-                            }));
+                            result_stmts.push(statements::simple_assign(
+                                local_name,
+                                expressions::call(
+                                    expressions::simple_namespace_ctor(),
+                                    vec![],
+                                    vec![],
+                                ),
+                            ));
 
                             // Track this as a local variable, not an import alias
                             self.local_variables.insert(local_name.to_string());
@@ -1160,23 +955,10 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                             // Create assignment: local_name = actual_name
                             if local_name != actual_name {
-                                let assign = Stmt::Assign(StmtAssign {
-                                    targets: vec![Expr::Name(ExprName {
-                                        id: local_name.into(),
-                                        ctx: ExprContext::Store,
-                                        range: TextRange::default(),
-                                        node_index: AtomicNodeIndex::dummy(),
-                                    })],
-                                    value: Box::new(Expr::Name(ExprName {
-                                        id: actual_name.into(),
-                                        ctx: ExprContext::Load,
-                                        range: TextRange::default(),
-                                        node_index: AtomicNodeIndex::dummy(),
-                                    })),
-                                    range: TextRange::default(),
-                                    node_index: AtomicNodeIndex::dummy(),
-                                });
-                                assignments.push(assign);
+                                assignments.push(statements::simple_assign(
+                                    local_name,
+                                    expressions::name(actual_name, ExprContext::Load),
+                                ));
                             }
                         }
                         return assignments;
@@ -1829,22 +1611,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                 crate::code_generator::module_registry::get_init_function_name(synthetic_name);
 
             // Create init function call
-            Expr::Call(ExprCall {
-                node_index: AtomicNodeIndex::dummy(),
-                func: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: init_func_name.into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                arguments: Arguments {
-                    node_index: AtomicNodeIndex::dummy(),
-                    args: Box::from([]),
-                    keywords: Box::from([]),
-                    range: TextRange::default(),
-                },
-                range: TextRange::default(),
-            })
+            expressions::call(
+                expressions::name(&init_func_name, ExprContext::Load),
+                vec![],
+                vec![],
+            )
         } else if self.bundler.inlined_modules.contains(module_name) {
             // This is an inlined module - create namespace object
             self.create_namespace_call_for_inlined_module(
@@ -1854,10 +1625,7 @@ impl<'a> RecursiveImportTransformer<'a> {
         } else {
             // This module wasn't bundled - shouldn't happen for static imports
             log::warn!("Module '{module_name}' referenced in static import but not bundled");
-            Expr::NoneLiteral(ExprNoneLiteral {
-                node_index: AtomicNodeIndex::dummy(),
-                range: TextRange::default(),
-            })
+            expressions::none_literal()
         }
     }
 
@@ -1899,12 +1667,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                 keywords.push(Keyword {
                     node_index: AtomicNodeIndex::dummy(),
                     arg: Some(Identifier::new(original_name, TextRange::default())),
-                    value: Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: renamed_name.clone().into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    }),
+                    value: expressions::name(renamed_name, ExprContext::Load),
                     range: TextRange::default(),
                 });
             }
@@ -1935,12 +1698,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     keywords.push(Keyword {
                         node_index: AtomicNodeIndex::dummy(),
                         arg: Some(Identifier::new(export, TextRange::default())),
-                        value: Expr::Name(ExprName {
-                            node_index: AtomicNodeIndex::dummy(),
-                            id: export.clone().into(),
-                            ctx: ExprContext::Load,
-                            range: TextRange::default(),
-                        }),
+                        value: expressions::name(export, ExprContext::Load),
                         range: TextRange::default(),
                     });
                 }
@@ -1948,27 +1706,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
 
         // Create types.SimpleNamespace(**kwargs) call
-        Expr::Call(ExprCall {
-            node_index: AtomicNodeIndex::dummy(),
-            func: Box::new(Expr::Attribute(ExprAttribute {
-                node_index: AtomicNodeIndex::dummy(),
-                value: Box::new(Expr::Name(ExprName {
-                    node_index: AtomicNodeIndex::dummy(),
-                    id: "types".into(),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                })),
-                attr: Identifier::new("SimpleNamespace", TextRange::default()),
-                ctx: ExprContext::Load,
-                range: TextRange::default(),
-            })),
-            arguments: Arguments {
-                node_index: AtomicNodeIndex::dummy(),
-                args: Box::from([]),
-                keywords: keywords.into_boxed_slice(),
-                range: TextRange::default(),
-            },
-            range: TextRange::default(),
-        })
+        expressions::call(expressions::simple_namespace_ctor(), vec![], keywords)
     }
 }

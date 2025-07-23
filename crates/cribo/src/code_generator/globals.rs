@@ -1,12 +1,23 @@
-use cow_utils::CowUtils;
 use log::debug;
-use ruff_python_ast::{
-    AtomicNodeIndex, Expr, ExprAttribute, ExprContext, ExprName, ExprNoneLiteral, Identifier, Stmt,
-    StmtAssign,
-};
-use ruff_text_size::TextRange;
+use ruff_python_ast::{Expr, ExprContext, Stmt};
 
-use crate::{semantic_bundler::ModuleGlobalInfo, types::FxIndexMap};
+use crate::{
+    ast_builder::{expressions, statements},
+    semantic_bundler::ModuleGlobalInfo,
+    types::FxIndexMap,
+};
+
+/// Sanitize a variable name for use in a Python identifier
+/// This ensures variable names only contain valid Python identifier characters
+fn sanitize_var_name(name: &str) -> String {
+    name.chars()
+        .map(|c| match c {
+            // Replace common invalid characters with underscore
+            c if c.is_alphanumeric() || c == '_' => c,
+            _ => '_',
+        })
+        .collect()
+}
 
 /// Transformer that lifts module-level globals to true global scope
 pub struct GlobalsLifter {
@@ -27,18 +38,11 @@ pub fn transform_globals_in_expr(expr: &mut Expr) {
                 && call_expr.arguments.keywords.is_empty()
             {
                 // Replace the entire expression with module.__dict__
-                *expr = Expr::Attribute(ExprAttribute {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: Box::new(Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: "module".into(),
-                        ctx: ExprContext::Load,
-                        range: TextRange::default(),
-                    })),
-                    attr: Identifier::new("__dict__", TextRange::default()),
-                    ctx: ExprContext::Load,
-                    range: TextRange::default(),
-                });
+                *expr = expressions::attribute(
+                    expressions::name("module", ExprContext::Load),
+                    "__dict__",
+                    ExprContext::Load,
+                );
                 return;
             }
 
@@ -140,29 +144,22 @@ impl GlobalsLifter {
         for var_name in &global_info.module_level_vars {
             // Only lift variables that are actually used with global statements
             if global_info.global_declarations.contains_key(var_name) {
-                let module_name_sanitized = global_info.module_name.cow_replace(".", "_");
-                let module_name_sanitized = module_name_sanitized.cow_replace("-", "_");
-                let lifted_name = format!("_cribo_{module_name_sanitized}_{var_name}");
+                let module_name_sanitized =
+                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                        &global_info.module_name,
+                    );
+                let var_name_sanitized = sanitize_var_name(var_name);
+                let lifted_name = format!("_cribo_{module_name_sanitized}_{var_name_sanitized}");
 
                 debug!("Creating lifted declaration for {var_name} -> {lifted_name}");
 
                 lifted_names.insert(var_name.clone(), lifted_name.clone());
 
                 // Create assignment: __cribo_module_var = None (will be set by init function)
-                lifted_declarations.push(Stmt::Assign(StmtAssign {
-                    node_index: AtomicNodeIndex::dummy(),
-                    targets: vec![Expr::Name(ExprName {
-                        node_index: AtomicNodeIndex::dummy(),
-                        id: lifted_name.into(),
-                        ctx: ExprContext::Store,
-                        range: TextRange::default(),
-                    })],
-                    value: Box::new(Expr::NoneLiteral(ExprNoneLiteral {
-                        node_index: AtomicNodeIndex::dummy(),
-                        range: TextRange::default(),
-                    })),
-                    range: TextRange::default(),
-                }));
+                lifted_declarations.push(statements::simple_assign(
+                    &lifted_name,
+                    expressions::none_literal(),
+                ));
             }
         }
 

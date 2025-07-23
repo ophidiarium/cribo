@@ -1197,11 +1197,7 @@ fn transform_expr_for_module_vars_with_locals(
 /// Create module object statements (types.SimpleNamespace)
 pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<Stmt> {
     let module_call = ast_builder::expressions::call(
-        ast_builder::expressions::attribute(
-            ast_builder::expressions::name("types", ExprContext::Load),
-            "SimpleNamespace",
-            ExprContext::Load,
-        ),
+        ast_builder::expressions::simple_namespace_ctor(),
         vec![],
         vec![],
     );
@@ -1267,11 +1263,7 @@ fn create_namespace_for_inlined_submodule(
             ExprContext::Store,
         )],
         ast_builder::expressions::call(
-            ast_builder::expressions::attribute(
-                ast_builder::expressions::name("types", ExprContext::Load),
-                "SimpleNamespace",
-                ExprContext::Load,
-            ),
+            ast_builder::expressions::simple_namespace_ctor(),
             vec![],
             vec![],
         ),
