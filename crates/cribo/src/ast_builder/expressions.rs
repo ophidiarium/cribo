@@ -334,6 +334,7 @@ pub fn slice(lower: Option<Expr>, upper: Option<Expr>, step: Option<Expr>) -> Ex
 /// // Creates: `types.SimpleNamespace`
 /// let ctor = simple_namespace_ctor();
 /// ```
-pub fn simple_namespace_ctor() -> Expr {
+#[inline]
+pub(crate) fn simple_namespace_ctor() -> Expr {
     dotted_name(&["types", "SimpleNamespace"], ExprContext::Load)
 }
