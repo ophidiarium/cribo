@@ -271,10 +271,8 @@ impl StdlibNormalizer {
     fn create_assignment_statement(&self, local_name: &str, full_path: &str) -> Stmt {
         // Parse the full path to create attribute access
         // e.g., "collections.abc.MutableMapping" becomes collections.abc.MutableMapping
-        let parts: Vec<&str> = full_path.split('.').collect();
-
-        // Use ast_builder to create the dotted name expression
-        let value_expr = expressions::dotted_name(&parts, ExprContext::Load);
+        let value_expr =
+            expressions::dotted_name(&full_path.split('.').collect::<Vec<_>>(), ExprContext::Load);
 
         // Create assignment: local_name = full_path
         statements::simple_assign(local_name, value_expr)
