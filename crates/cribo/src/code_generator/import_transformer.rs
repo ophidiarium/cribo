@@ -745,6 +745,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     local_name,
                                     types_simple_namespace_call,
                                 ));
+                                self.created_namespace_objects = true;
 
                                 // Now add the exported symbols from the inlined module to the
                                 // namespace
@@ -826,6 +827,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         vec![],
                                     ),
                                 ));
+                                self.created_namespace_objects = true;
 
                                 // Now add the exported symbols from the inlined module to the
                                 // namespace
