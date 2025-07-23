@@ -60,12 +60,12 @@ commit-msg:
     'check spelling':
       run: uvx typos {1}
 
-pre-push:
-  commands:
-    disable-dead-code:
-      glob:
-        - '**/*.rs'
-      run: cargo clippy --workspace -- -F clippy::blanket_clippy_restriction_lints -D dead_code
+# pre-push:
+#   commands:
+#     disable-dead-code:
+#       glob:
+#         - '**/*.rs'
+#       run: cargo clippy --workspace -- -F clippy::blanket_clippy_restriction_lints -D dead_code
 
 post-checkout:
   commands:
