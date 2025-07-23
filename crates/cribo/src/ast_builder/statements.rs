@@ -311,3 +311,16 @@ pub fn class_def(name: &str, arguments: Option<Arguments>, body: Vec<Stmt>) -> S
         node_index: AtomicNodeIndex::dummy(),
     })
 }
+
+/// Creates a statement to assign a string literal to an object's attribute.
+/// e.g., `obj.attr = "value"`
+pub fn set_string_attribute(obj_name: &str, attr_name: &str, value: &str) -> Stmt {
+    assign(
+        vec![expressions::attribute(
+            expressions::name(obj_name, ExprContext::Load),
+            attr_name,
+            ExprContext::Store,
+        )],
+        expressions::string_literal(value),
+    )
+}

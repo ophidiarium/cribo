@@ -7811,38 +7811,26 @@ impl<'a> HybridStaticBundler<'a> {
         ctx.inlined_stmts.push(Stmt::ClassDef(class_def_clone));
 
         // Set the __module__ attribute to preserve the original module name
-        let module_attr_stmt = statements::assign(
-            vec![expressions::attribute(
-                expressions::name(&renamed_name, ExprContext::Load),
-                "__module__",
-                ExprContext::Store,
-            )],
-            expressions::string_literal(module_name),
-        );
-        ctx.inlined_stmts.push(module_attr_stmt);
+        ctx.inlined_stmts.push(statements::set_string_attribute(
+            &renamed_name,
+            "__module__",
+            module_name,
+        ));
 
         // If the class was renamed, also set __name__ to preserve the original class name
         if renamed_name != class_name {
-            let name_attr_stmt = statements::assign(
-                vec![expressions::attribute(
-                    expressions::name(&renamed_name, ExprContext::Load),
-                    "__name__",
-                    ExprContext::Store,
-                )],
-                expressions::string_literal(&class_name),
-            );
-            ctx.inlined_stmts.push(name_attr_stmt);
+            ctx.inlined_stmts.push(statements::set_string_attribute(
+                &renamed_name,
+                "__name__",
+                &class_name,
+            ));
 
             // Set __qualname__ to match __name__ for proper repr()
-            let qualname_attr_stmt = statements::assign(
-                vec![expressions::attribute(
-                    expressions::name(&renamed_name, ExprContext::Load),
-                    "__qualname__",
-                    ExprContext::Store,
-                )],
-                expressions::string_literal(&class_name),
-            );
-            ctx.inlined_stmts.push(qualname_attr_stmt);
+            ctx.inlined_stmts.push(statements::set_string_attribute(
+                &renamed_name,
+                "__qualname__",
+                &class_name,
+            ));
         }
     }
 
