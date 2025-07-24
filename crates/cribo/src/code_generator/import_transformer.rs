@@ -526,16 +526,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                     }
 
                     // Resolve relative imports first
-                    let resolved_module = if let Some(module_path) = self.module_path {
-                        self.bundler.resolve_relative_import_with_context(
-                            import_from,
-                            self.module_name,
-                            Some(module_path),
-                        )
-                    } else {
-                        self.bundler
-                            .resolve_relative_import(import_from, self.module_name)
-                    };
+                    let resolved_module = resolve_relative_import_with_context(
+                        import_from,
+                        self.module_name,
+                        self.module_path,
+                        self.bundler.entry_path.as_deref(),
+                        &self.bundler.bundled_modules,
+                    );
 
                     if let Some(resolved) = &resolved_module {
                         // Track aliases for imported symbols (non-importlib)
@@ -616,16 +613,13 @@ impl<'a> RecursiveImportTransformer<'a> {
         );
 
         // Resolve relative imports
-        let resolved_module = if let Some(module_path) = self.module_path {
-            self.bundler.resolve_relative_import_with_context(
-                import_from,
-                self.module_name,
-                Some(module_path),
-            )
-        } else {
-            self.bundler
-                .resolve_relative_import(import_from, self.module_name)
-        };
+        let resolved_module = resolve_relative_import_with_context(
+            import_from,
+            self.module_name,
+            self.module_path,
+            self.bundler.entry_path.as_deref(),
+            &self.bundler.bundled_modules,
+        );
 
         log::debug!(
             "handle_import_from: resolved_module={:?}, is_wrapper_init={}, current_module={}",
@@ -1886,7 +1880,13 @@ fn rewrite_import_from(
         import_from.module.as_ref().map(|m| m.as_str()),
         current_module
     );
-    let resolved_module_name = bundler.resolve_relative_import(&import_from, current_module);
+    let resolved_module_name = resolve_relative_import_with_context(
+        &import_from,
+        current_module,
+        None,
+        bundler.entry_path.as_deref(),
+        &bundler.bundled_modules,
+    );
 
     let Some(module_name) = resolved_module_name else {
         // If we can't resolve the module, return the original import
@@ -2005,5 +2005,202 @@ fn rewrite_import_from(
                 bundler.create_namespace_with_name(local_name, full_module_path)
             },
         )
+    }
+}
+
+/// Resolve a relative import with context
+///
+/// This function resolves relative imports (e.g., `from . import foo` or `from ..bar import baz`)
+/// to absolute module names based on the current module and its file path.
+///
+/// # Arguments
+/// * `import_from` - The import statement to resolve
+/// * `current_module` - The name of the module containing the import
+/// * `module_path` - Optional path to the module file (used to detect __init__.py)
+/// * `entry_path` - Optional entry point path for the bundle
+/// * `bundled_modules` - Set of all bundled module names
+///
+/// # Returns
+/// The resolved absolute module name, or None if the import cannot be resolved
+pub fn resolve_relative_import_with_context(
+    import_from: &StmtImportFrom,
+    current_module: &str,
+    module_path: Option<&Path>,
+    entry_path: Option<&str>,
+    bundled_modules: &FxIndexSet<String>,
+) -> Option<String> {
+    log::debug!(
+        "Resolving relative import: level={}, module={:?}, current_module={}",
+        import_from.level,
+        import_from.module,
+        current_module
+    );
+
+    if import_from.level > 0 {
+        // This is a relative import
+        let mut parts: Vec<&str> = current_module.split('.').collect();
+
+        // Special handling for different module types
+        if parts.len() == 1 && import_from.level == 1 {
+            // For single-component modules with level 1 imports, we need to determine
+            // if this is a root-level module or a package __init__ file
+
+            // Check if current module is a package __init__.py file
+            let is_package_init = if let Some(path) = module_path {
+                path.file_name()
+                    .and_then(|f| f.to_str())
+                    .map(|f| f == "__init__.py")
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            // Check if this module is the entry module and is __init__.py
+            let is_entry_init = current_module
+                == entry_path
+                    .map(Path::new)
+                    .and_then(Path::file_stem)
+                    .and_then(std::ffi::OsStr::to_str)
+                    .unwrap_or("")
+                && is_package_init;
+
+            if is_entry_init {
+                // This is the entry __init__.py - relative imports should resolve within the
+                // package but without the package prefix
+                log::debug!(
+                    "Module '{current_module}' is the entry __init__.py, clearing parts for \
+                     relative import"
+                );
+                parts.clear();
+            } else {
+                // Check if this module is in the bundled_modules to
+                // determine if it's a package
+                let is_package = bundled_modules
+                    .iter()
+                    .any(|m| m.starts_with(&format!("{current_module}.")));
+
+                if is_package {
+                    // This is a package __init__ file - level 1 imports stay in the package
+                    log::debug!(
+                        "Module '{current_module}' is a package, keeping parts for relative import"
+                    );
+                    // Keep parts as is
+                } else {
+                    // This is a root-level module - level 1 imports are siblings
+                    log::debug!(
+                        "Module '{current_module}' is root-level, clearing parts for relative \
+                         import"
+                    );
+                    parts.clear();
+                }
+            }
+        } else {
+            // For modules with multiple components (e.g., "greetings.greeting")
+            // Special handling: if this module represents a package __init__.py file,
+            // the first level doesn't remove anything (stays in the package)
+            // Subsequent levels go up the hierarchy
+
+            // Check if current module is a package __init__.py file
+            let is_package_init = if let Some(path) = module_path {
+                path.file_name()
+                    .and_then(|f| f.to_str())
+                    .map(|f| f == "__init__.py")
+                    .unwrap_or(false)
+            } else {
+                // Fallback: check if module has submodules
+                bundled_modules
+                    .iter()
+                    .any(|m| m.starts_with(&format!("{current_module}.")))
+            };
+
+            let levels_to_remove = if is_package_init {
+                // For package __init__.py files, the first dot stays in the package
+                // So we remove (level - 1) parts
+                import_from.level.saturating_sub(1)
+            } else {
+                // For regular modules, remove 'level' parts
+                import_from.level
+            };
+
+            log::debug!(
+                "Relative import resolution: current_module={}, is_package_init={}, level={}, \
+                 levels_to_remove={}, parts={:?}",
+                current_module,
+                is_package_init,
+                import_from.level,
+                levels_to_remove,
+                parts
+            );
+
+            for _ in 0..levels_to_remove {
+                if parts.is_empty() {
+                    log::debug!("Invalid relative import - ran out of parent levels");
+                    return None; // Invalid relative import
+                }
+                parts.pop();
+            }
+        }
+
+        // Add the module name if specified
+        if let Some(ref module) = import_from.module {
+            parts.push(module.as_str());
+        }
+
+        let resolved = parts.join(".");
+
+        // Handle the case where relative import resolves to empty or just the package itself
+        // This happens with "from . import something" in a package __init__.py
+        if resolved.is_empty() {
+            // For "from . import X" in a package, the resolved module is the current package
+            // We need to check if we're in a package __init__.py
+            if import_from.level == 1 && import_from.module.is_none() {
+                // This is "from . import X" - we need to determine the parent package
+                // For a module like "requests.utils", the parent is "requests"
+                // For a module like "__init__", it's the current directory
+                if current_module.contains('.') {
+                    // Module has a parent package - extract it
+                    let parent_parts: Vec<&str> = current_module.split('.').collect();
+                    let parent = parent_parts[..parent_parts.len() - 1].join(".");
+                    log::debug!(
+                        "Relative import 'from . import' in module '{current_module}' - returning \
+                         parent package '{parent}'"
+                    );
+                    return Some(parent);
+                } else if current_module == "__init__" {
+                    // This is a package __init__.py doing "from . import X"
+                    // The package name should be derived from the directory
+                    log::debug!(
+                        "Relative import 'from . import' in __init__ module - this case needs \
+                         special handling"
+                    );
+                    // For now, we'll return None and let it be handled elsewhere
+                    return None;
+                } else {
+                    // Single-level module doing "from . import X" - this is importing from the
+                    // same directory We need to return empty string to
+                    // indicate current directory
+                    log::debug!(
+                        "Relative import 'from . import' in root-level module '{current_module}' \
+                         - returning empty for current directory"
+                    );
+                    return Some(String::new());
+                }
+            }
+            log::debug!("Invalid relative import - resolved to empty module");
+            return None;
+        }
+
+        // Check for potential circular import
+        if resolved == current_module {
+            log::warn!("Potential circular import detected: {current_module} importing itself");
+        }
+
+        log::debug!("Resolved relative import to: {resolved}");
+        Some(resolved)
+    } else {
+        // Not a relative import
+        let resolved = import_from.module.as_ref().map(|m| m.as_str().to_string());
+        log::debug!("Not a relative import, resolved to: {resolved:?}");
+        resolved
     }
 }
