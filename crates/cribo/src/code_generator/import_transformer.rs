@@ -1746,7 +1746,7 @@ fn rewrite_import_with_renames(
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
                     // If there's no alias, we need to handle the dotted name specially
-                    if alias.asname.is_none() && module_name.contains('.') {
+                    if alias.asname.is_none() {
                         // Create assignments for each level of nesting
                         bundler.create_dotted_assignments(&parts, &mut result_stmts);
                     } else {
