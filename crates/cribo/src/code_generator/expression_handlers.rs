@@ -530,8 +530,64 @@ pub(super) fn rewrite_aliases_in_expr_impl(
             rewrite_aliases_in_expr_impl(&mut named_expr.target, alias_to_canonical);
             rewrite_aliases_in_expr_impl(&mut named_expr.value, alias_to_canonical);
         }
-        Expr::FString(_fstring_expr) => {
-            // FString handling is complex - skip for now
+        Expr::FString(fstring) => {
+            // Handle f-string interpolations by transforming each expression element
+            let mut new_elements = Vec::new();
+            let mut any_changed = false;
+
+            for element in fstring.value.elements() {
+                match element {
+                    ruff_python_ast::InterpolatedStringElement::Literal(lit_elem) => {
+                        // Literal elements don't contain expressions, so just clone them
+                        new_elements.push(ruff_python_ast::InterpolatedStringElement::Literal(
+                            lit_elem.clone(),
+                        ));
+                    }
+                    ruff_python_ast::InterpolatedStringElement::Interpolation(expr_elem) => {
+                        // Clone the expression and rewrite aliases in it
+                        let mut new_expr = (*expr_elem.expression).clone();
+                        let old_expr_debug = format!("{new_expr:?}");
+                        rewrite_aliases_in_expr_impl(&mut new_expr, alias_to_canonical);
+                        let new_expr_debug = format!("{new_expr:?}");
+
+                        if old_expr_debug != new_expr_debug {
+                            any_changed = true;
+                        }
+
+                        // Create a new interpolation element with the rewritten expression
+                        let new_element = ruff_python_ast::InterpolatedElement {
+                            node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
+                            expression: Box::new(new_expr),
+                            debug_text: expr_elem.debug_text.clone(),
+                            conversion: expr_elem.conversion,
+                            format_spec: expr_elem.format_spec.clone(),
+                            range: expr_elem.range,
+                        };
+
+                        new_elements.push(
+                            ruff_python_ast::InterpolatedStringElement::Interpolation(new_element),
+                        );
+                    }
+                }
+            }
+
+            // If any expressions were changed, rebuild the f-string
+            if any_changed {
+                let new_fstring = ruff_python_ast::FString {
+                    node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
+                    elements: ruff_python_ast::InterpolatedStringElements::from(new_elements),
+                    range: ruff_text_size::TextRange::default(),
+                    flags: ruff_python_ast::FStringFlags::empty(),
+                };
+
+                let new_value = ruff_python_ast::FStringValue::single(new_fstring);
+
+                *expr = Expr::FString(ruff_python_ast::ExprFString {
+                    node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
+                    value: new_value,
+                    range: fstring.range,
+                });
+            }
         }
         // For literal expressions and other complex types, no rewriting needed
         _ => {}
