@@ -526,23 +526,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                     }
 
                     // Resolve relative imports first
-                    let resolved_module = if let Some(module_path) = self.module_path {
-                        resolve_relative_import_with_context(
-                            import_from,
-                            self.module_name,
-                            Some(module_path),
-                            self.bundler.entry_path.as_deref(),
-                            &self.bundler.bundled_modules,
-                        )
-                    } else {
-                        resolve_relative_import_with_context(
-                            import_from,
-                            self.module_name,
-                            None,
-                            self.bundler.entry_path.as_deref(),
-                            &self.bundler.bundled_modules,
-                        )
-                    };
+                    let resolved_module = resolve_relative_import_with_context(
+                        import_from,
+                        self.module_name,
+                        self.module_path,
+                        self.bundler.entry_path.as_deref(),
+                        &self.bundler.bundled_modules,
+                    );
 
                     if let Some(resolved) = &resolved_module {
                         // Track aliases for imported symbols (non-importlib)
@@ -623,23 +613,13 @@ impl<'a> RecursiveImportTransformer<'a> {
         );
 
         // Resolve relative imports
-        let resolved_module = if let Some(module_path) = self.module_path {
-            resolve_relative_import_with_context(
-                import_from,
-                self.module_name,
-                Some(module_path),
-                self.bundler.entry_path.as_deref(),
-                &self.bundler.bundled_modules,
-            )
-        } else {
-            resolve_relative_import_with_context(
-                import_from,
-                self.module_name,
-                None,
-                self.bundler.entry_path.as_deref(),
-                &self.bundler.bundled_modules,
-            )
-        };
+        let resolved_module = resolve_relative_import_with_context(
+            import_from,
+            self.module_name,
+            self.module_path,
+            self.bundler.entry_path.as_deref(),
+            &self.bundler.bundled_modules,
+        );
 
         log::debug!(
             "handle_import_from: resolved_module={:?}, is_wrapper_init={}, current_module={}",
