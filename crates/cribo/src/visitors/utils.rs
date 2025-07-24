@@ -51,15 +51,6 @@ fn extract_strings_from_elements(elts: &[Expr]) -> ExtractedExports {
     }
 }
 
-/// Extract a string value from an expression if it's a string literal
-pub fn extract_string_from_expr(expr: &Expr) -> Option<String> {
-    if let Expr::StringLiteral(string_lit) = expr {
-        Some(string_lit.value.to_str().to_string())
-    } else {
-        None
-    }
-}
-
 /// Collect all top-level symbols from a module
 /// This includes functions, classes, and variable assignments (including private ones)
 /// Used when no explicit __all__ is defined
