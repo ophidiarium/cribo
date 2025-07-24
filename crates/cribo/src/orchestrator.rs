@@ -1657,6 +1657,7 @@ impl BundleOrchestrator {
             semantic_bundler: &self.semantic_bundler,
             circular_dep_analysis: params.circular_dep_analysis,
             tree_shaker: params.tree_shaker,
+            python_version: self.config.python_version().unwrap_or(10),
         })?;
 
         // Generate Python code from AST

@@ -1838,6 +1838,9 @@ impl<'a> HybridStaticBundler<'a> {
     pub fn bundle_modules(&mut self, params: BundleParams<'_>) -> Result<ModModule> {
         let mut final_body = Vec::new();
 
+        // Extract the Python version from params
+        let python_version = params.python_version;
+
         // Store tree shaking decisions if provided
         if let Some(shaker) = params.tree_shaker {
             // Extract all kept symbols from the tree shaker
@@ -2691,6 +2694,7 @@ impl<'a> HybridStaticBundler<'a> {
                         module_path,
                         global_info,
                         semantic_bundler: Some(semantic_ctx.semantic_bundler),
+                        python_version,
                     };
                     // Generate init function with empty symbol_renames for now
                     let empty_renames = FxIndexMap::default();
@@ -3403,6 +3407,7 @@ impl<'a> HybridStaticBundler<'a> {
                     module_path,
                     global_info,
                     semantic_bundler: Some(semantic_ctx.semantic_bundler),
+                    python_version,
                 };
                 // Always use cached init functions to ensure modules are only initialized once
                 let init_function = self.transform_module_to_cache_init_function(
