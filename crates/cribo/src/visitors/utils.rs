@@ -1,6 +1,6 @@
 //! Shared utilities for visitor implementations
 
-use ruff_python_ast::{Expr, ExprList, ExprStringLiteral, ExprTuple, ModModule, Stmt};
+use ruff_python_ast::{Expr, ExprList, ExprStringLiteral, ExprTuple};
 
 /// Result of extracting exports from an expression
 #[derive(Debug)]
@@ -49,46 +49,6 @@ fn extract_strings_from_elements(elts: &[Expr]) -> ExtractedExports {
         names: Some(names),
         is_dynamic: false,
     }
-}
-
-/// Collect all top-level symbols from a module
-/// This includes functions, classes, and variable assignments (including private ones)
-/// Used when no explicit __all__ is defined
-pub fn collect_all_top_level_symbols(module: &ModModule) -> Vec<String> {
-    let mut symbols = Vec::new();
-
-    for stmt in &module.body {
-        match stmt {
-            Stmt::FunctionDef(func) => {
-                symbols.push(func.name.to_string());
-            }
-            Stmt::ClassDef(class) => {
-                symbols.push(class.name.to_string());
-            }
-            Stmt::Assign(assign) => {
-                // Include ALL variable assignments (including private ones starting with _)
-                // This ensures module state variables like _config, _logger are available
-                for target in &assign.targets {
-                    if let Expr::Name(name) = target
-                        && name.id.as_str() != "__all__"
-                    {
-                        symbols.push(name.id.to_string());
-                    }
-                }
-            }
-            Stmt::AnnAssign(ann_assign) => {
-                // Include ALL annotated assignments (including private ones)
-                if let Expr::Name(name) = ann_assign.target.as_ref() {
-                    symbols.push(name.id.to_string());
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Sort symbols for deterministic output
-    symbols.sort();
-    symbols
 }
 
 #[cfg(test)]
