@@ -2067,38 +2067,17 @@ impl<'a> HybridStaticBundler<'a> {
             let module_exports = if let Some(exported_names) = export_info.exported_names {
                 Some(exported_names)
             } else {
-                // If no __all__, collect all top-level symbols (including private ones for module
-                // state)
-                let mut symbols = Vec::new();
-                for stmt in &ast.body {
-                    match stmt {
-                        Stmt::FunctionDef(func) => {
-                            symbols.push(func.name.to_string());
-                        }
-                        Stmt::ClassDef(class) => {
-                            symbols.push(class.name.to_string());
-                        }
-                        Stmt::Assign(assign) => {
-                            // Include ALL variable assignments (including private ones starting
-                            // with _) This ensures module state
-                            // variables like _config, _logger are available
-                            for target in &assign.targets {
-                                if let Expr::Name(name) = target
-                                    && name.id.as_str() != "__all__"
-                                {
-                                    symbols.push(name.id.to_string());
-                                }
-                            }
-                        }
-                        Stmt::AnnAssign(ann_assign) => {
-                            // Include ALL annotated assignments (including private ones)
-                            if let Expr::Name(name) = ann_assign.target.as_ref() {
-                                symbols.push(name.id.to_string());
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+                // If no __all__, collect all top-level symbols using SymbolCollector
+                let collected = crate::visitors::symbol_collector::SymbolCollector::analyze(ast);
+                let mut symbols: Vec<_> = collected
+                    .global_symbols
+                    .values()
+                    .filter(|s| {
+                        !matches!(s.kind, crate::analyzers::types::SymbolKind::Import { .. })
+                            && s.name != "__all__"
+                    })
+                    .map(|s| s.name.clone())
+                    .collect();
 
                 if symbols.is_empty() {
                     None
