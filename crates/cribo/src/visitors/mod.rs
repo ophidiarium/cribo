@@ -7,8 +7,10 @@ mod export_collector;
 mod import_discovery;
 mod side_effect_detector;
 mod symbol_collector;
+mod utils;
 mod variable_collector;
 
+pub use export_collector::ExportCollector;
 pub use import_discovery::{
     DiscoveredImport, ImportDiscoveryVisitor, ImportLocation, ImportType, ScopeElement,
 };
