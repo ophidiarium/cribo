@@ -31,23 +31,27 @@ pub fn extract_string_list_from_expr(expr: &Expr) -> ExtractedExports {
 
 /// Extract strings from a slice of expressions
 fn extract_strings_from_elements(elts: &[Expr]) -> ExtractedExports {
-    let mut names = Vec::new();
+    let maybe_names: Option<Vec<String>> = elts
+        .iter()
+        .map(|elt| {
+            if let Expr::StringLiteral(ExprStringLiteral { value, .. }) = elt {
+                Some(value.to_str().to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
 
-    for elt in elts {
-        if let Expr::StringLiteral(ExprStringLiteral { value, .. }) = elt {
-            names.push(value.to_str().to_string());
-        } else {
-            // Non-literal element found
-            return ExtractedExports {
-                names: None,
-                is_dynamic: true,
-            };
+    if let Some(names) = maybe_names {
+        ExtractedExports {
+            names: Some(names),
+            is_dynamic: false,
         }
-    }
-
-    ExtractedExports {
-        names: Some(names),
-        is_dynamic: false,
+    } else {
+        ExtractedExports {
+            names: None,
+            is_dynamic: true,
+        }
     }
 }
 
