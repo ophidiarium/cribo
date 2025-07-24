@@ -9,7 +9,7 @@ input_file: crates/cribo/tests/fixtures/builtin_types/main.py
 import functools
 import types
 @functools.cache
-def __cribo_init___cribo_211418_compat_module():
+def __cribo_init___cribo_97f65c_compat_module():
     module = types.SimpleNamespace()
     module.__name__ = 'compat_module'
     """Module with side effects that assigns builtin types to variables.\n\nThis minimal test case reproduces the bug where builtin types are incorrectly\ntransformed to module.str, module.int, etc. when the bundler wraps modules\nwith side effects in init functions.\n"""
@@ -26,7 +26,7 @@ def __cribo_init___cribo_211418_compat_module():
     module.numeric_types = numeric_types
     return module
 """Test that builtin type assignments work in modules with side effects."""
-compat_module = __cribo_init___cribo_211418_compat_module()
+compat_module = __cribo_init___cribo_97f65c_compat_module()
 builtin_str = compat_module.builtin_str
 builtin_int = compat_module.builtin_int
 basestring = compat_module.basestring
