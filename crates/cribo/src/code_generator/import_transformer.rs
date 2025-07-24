@@ -2058,9 +2058,9 @@ pub fn resolve_relative_import_with_context(
             // Check if this module is the entry module and is __init__.py
             let is_entry_init = current_module
                 == entry_path
-                    .as_ref()
-                    .and_then(|p| Path::new(p).file_stem())
-                    .and_then(|s| s.to_str())
+                    .map(Path::new)
+                    .and_then(Path::file_stem)
+                    .and_then(std::ffi::OsStr::to_str)
                     .unwrap_or("")
                 && is_package_init;
 
