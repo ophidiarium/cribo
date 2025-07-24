@@ -80,6 +80,9 @@ pub fn transform_module_to_init_function<'a>(
 
     // Track imports from inlined modules before transformation
     let mut imports_from_inlined = Vec::new();
+    let entry_path = bundler.entry_path.as_deref();
+    let bundled_modules = &bundler.bundled_modules;
+
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
             // Resolve the module to check if it's inlined
@@ -87,8 +90,8 @@ pub fn transform_module_to_init_function<'a>(
                 import_from,
                 ctx.module_name,
                 Some(ctx.module_path),
-                bundler.entry_path.as_deref(),
-                &bundler.bundled_modules,
+                entry_path,
+                bundled_modules,
             );
 
             if let Some(ref module) = resolved_module {
