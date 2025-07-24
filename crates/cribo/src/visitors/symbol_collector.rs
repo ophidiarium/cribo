@@ -7,12 +7,13 @@
 //! - Export information (__all__)
 
 use ruff_python_ast::{
-    Expr, ExprList, ExprStringLiteral, ExprTuple, ModModule, Stmt, StmtAnnAssign, StmtAssign,
-    StmtClassDef, StmtFunctionDef, StmtGlobal, StmtImport, StmtImportFrom,
+    Expr, ModModule, Stmt, StmtAnnAssign, StmtAssign, StmtClassDef, StmtFunctionDef, StmtGlobal,
+    StmtImport, StmtImportFrom,
     visitor::{Visitor, walk_stmt},
 };
 use ruff_text_size::{Ranged, TextRange};
 
+use super::utils::extract_string_list_from_expr;
 use crate::{
     analyzers::types::{CollectedSymbols, ScopePath, SymbolInfo, SymbolKind},
     types::FxIndexSet,
@@ -253,30 +254,10 @@ impl SymbolCollector {
 
     /// Extract __all__ exports from assignment
     fn extract_all_exports(&mut self, value: &Expr) {
-        let exports = match value {
-            Expr::List(ExprList { elts, .. }) | Expr::Tuple(ExprTuple { elts, .. }) => {
-                self.extract_string_list(elts)
-            }
-            _ => None,
-        };
-
-        if let Some(exports) = exports {
+        let result = extract_string_list_from_expr(value);
+        if let Some(exports) = result.names {
             self.module_exports = Some(exports);
         }
-    }
-
-    /// Extract a list of strings from expressions
-    fn extract_string_list(&self, elts: &[Expr]) -> Option<Vec<String>> {
-        let mut strings = Vec::new();
-        for elt in elts {
-            if let Expr::StringLiteral(ExprStringLiteral { value, .. }) = elt {
-                strings.push(value.to_str().to_string());
-            } else {
-                // Non-literal in __all__, treat as dynamic
-                return None;
-            }
-        }
-        Some(strings)
     }
 }
 

@@ -8,6 +8,7 @@ use ruff_python_ast::{
     visitor::{Visitor, walk_stmt},
 };
 
+use super::utils::extract_string_list_from_expr;
 use crate::analyzers::types::{ExportInfo, ReExport};
 
 /// Visitor that collects export information from a module
@@ -56,48 +57,11 @@ impl ExportCollector {
 
     /// Extract string list from __all__ assignment
     fn extract_all_exports(&mut self, expr: &Expr) -> Option<Vec<String>> {
-        match expr {
-            Expr::List(list) => {
-                let mut names = Vec::new();
-                for item in &list.elts {
-                    if let Some(name) = Self::extract_string_from_expr(item) {
-                        names.push(name);
-                    } else {
-                        // Non-literal in __all__, mark as dynamic
-                        self.has_dynamic_all = true;
-                        return None;
-                    }
-                }
-                Some(names)
-            }
-            Expr::Tuple(tuple) => {
-                let mut names = Vec::new();
-                for item in &tuple.elts {
-                    if let Some(name) = Self::extract_string_from_expr(item) {
-                        names.push(name);
-                    } else {
-                        // Non-literal in __all__, mark as dynamic
-                        self.has_dynamic_all = true;
-                        return None;
-                    }
-                }
-                Some(names)
-            }
-            _ => {
-                // Dynamic __all__ assignment
-                self.has_dynamic_all = true;
-                None
-            }
+        let result = extract_string_list_from_expr(expr);
+        if result.is_dynamic {
+            self.has_dynamic_all = true;
         }
-    }
-
-    /// Extract a string value from an expression if it's a string literal
-    fn extract_string_from_expr(expr: &Expr) -> Option<String> {
-        if let Expr::StringLiteral(string_lit) = expr {
-            Some(string_lit.value.to_str().to_string())
-        } else {
-            None
-        }
+        result.names
     }
 
     /// Check if this is a re-export pattern in __init__.py
