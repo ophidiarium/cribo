@@ -6,14 +6,14 @@ This document outlines the discrepancies between the proposed refactoring in `fu
 
 The following functions were identified as candidates for extraction in `further-split.md` but remain fully implemented in `bundler.rs`. They are sorted by their approximate line count (from largest to smallest).
 
-- `rewrite_import_from` (~150 lines)
-- `rewrite_import_with_renames` (~150 lines)
-- `resolve_relative_import_with_context` (~100 lines)
+- ✅ `rewrite_import_from` (~150 lines)
+- ✅ `rewrite_import_with_renames` (~150 lines)
+- ✅ `resolve_relative_import_with_context` (~100 lines)
 - `transform_namespace_package_imports` (~80 lines)
-- `collect_module_renames` (~80 lines)
+- 🛑 `collect_module_renames` (~80 lines)
 - `create_namespace_for_inlined_module_static` (~80 lines)
 - `ensure_namespace_exists` (~50 lines)
-- `extract_all_exports` (~50 lines)
+- ✅ `extract_all_exports` (~50 lines)
 - `handle_imports_from_inlined_module_with_context` (~50 lines)
 - `add_hoisted_imports` (~50 lines)
 - `collect_imports_from_module` (~40 lines)

@@ -33,6 +33,7 @@ use crate::{
     side_effects::{is_safe_stdlib_module, module_has_side_effects},
     transformation_context::TransformationContext,
     types::{FxIndexMap, FxIndexSet},
+    visitors::ExportCollector,
 };
 
 /// Parameters for transforming functions with lifted globals
@@ -766,74 +767,6 @@ impl<'a> HybridStaticBundler<'a> {
     fn is_valid_python_identifier(name: &str) -> bool {
         // Use ruff's identifier validation which handles Unicode and keywords
         ruff_python_stdlib::identifiers::is_identifier(name)
-    }
-
-    /// Extract __all__ exports from a module
-    /// Returns:
-    /// - has_explicit_all: true if __all__ is explicitly defined
-    /// - exports: Some(vec) if there are exports, None if no exports
-    fn extract_all_exports(&self, ast: &ModModule) -> (bool, Option<Vec<String>>) {
-        // First, look for explicit __all__
-        for stmt in &ast.body {
-            let Stmt::Assign(assign) = stmt else {
-                continue;
-            };
-
-            // Look for __all__ = [...]
-            if assign.targets.len() != 1 {
-                continue;
-            }
-
-            let Expr::Name(name) = &assign.targets[0] else {
-                continue;
-            };
-
-            if name.id.as_str() == "__all__" {
-                return (
-                    true,
-                    expression_handlers::extract_string_list_from_expr(self, &assign.value),
-                );
-            }
-        }
-
-        // If no __all__, collect all top-level symbols (including private ones for module state)
-        let mut symbols = Vec::new();
-        for stmt in &ast.body {
-            match stmt {
-                Stmt::FunctionDef(func) => {
-                    symbols.push(func.name.to_string());
-                }
-                Stmt::ClassDef(class) => {
-                    symbols.push(class.name.to_string());
-                }
-                Stmt::Assign(assign) => {
-                    // Include ALL variable assignments (including private ones starting with _)
-                    // This ensures module state variables like _config, _logger are available
-                    for target in &assign.targets {
-                        if let Expr::Name(name) = target
-                            && name.id.as_str() != "__all__"
-                        {
-                            symbols.push(name.id.to_string());
-                        }
-                    }
-                }
-                Stmt::AnnAssign(ann_assign) => {
-                    // Include ALL annotated assignments (including private ones)
-                    if let Expr::Name(name) = ann_assign.target.as_ref() {
-                        symbols.push(name.id.to_string());
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        if symbols.is_empty() {
-            (false, None)
-        } else {
-            // Sort symbols for deterministic output
-            symbols.sort();
-            (false, Some(symbols))
-        }
     }
 
     /// Collect future imports from an AST
@@ -1832,7 +1765,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Extract attribute path from expression
-
     /// Process entry module statement
     fn process_entry_module_statement(
         &mut self,
@@ -2124,11 +2056,38 @@ impl<'a> HybridStaticBundler<'a> {
                 continue;
             }
 
-            // Extract __all__ exports from the module
-            let (has_explicit_all, module_exports) = self.extract_all_exports(ast);
+            // Extract __all__ exports from the module using ExportCollector
+            let export_info = ExportCollector::analyze(ast);
+            let has_explicit_all = export_info.exported_names.is_some();
             if has_explicit_all {
                 self.modules_with_explicit_all.insert(module_name.clone());
             }
+
+            // Convert export info to the format expected by the bundler
+            let module_exports = if let Some(exported_names) = export_info.exported_names {
+                Some(exported_names)
+            } else {
+                // If no __all__, collect all top-level symbols using SymbolCollector
+                let collected = crate::visitors::symbol_collector::SymbolCollector::analyze(ast);
+                let mut symbols: Vec<_> = collected
+                    .global_symbols
+                    .values()
+                    .filter(|s| {
+                        !matches!(s.kind, crate::analyzers::types::SymbolKind::Import { .. })
+                            && s.name != "__all__"
+                    })
+                    .map(|s| s.name.clone())
+                    .collect();
+
+                if symbols.is_empty() {
+                    None
+                } else {
+                    // Sort symbols for deterministic output
+                    symbols.sort();
+                    Some(symbols)
+                }
+            };
+
             module_exports_map.insert(module_name.clone(), module_exports.clone());
 
             // Check if module is imported as a namespace
