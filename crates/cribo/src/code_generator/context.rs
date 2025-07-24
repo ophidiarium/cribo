@@ -35,6 +35,7 @@ pub struct ModuleTransformContext<'a> {
     pub module_path: &'a Path,
     pub global_info: Option<crate::semantic_bundler::ModuleGlobalInfo>,
     pub semantic_bundler: Option<&'a SemanticBundler>,
+    pub python_version: u8,
 }
 
 /// Context for inlining modules
@@ -78,4 +79,6 @@ pub struct BundleParams<'a> {
     pub semantic_bundler: &'a SemanticBundler, // Semantic analysis results
     pub circular_dep_analysis: Option<&'a crate::analyzers::types::CircularDependencyAnalysis>, /* Circular dependency analysis */
     pub tree_shaker: Option<&'a crate::tree_shaking::TreeShaker>, // Tree shaking analysis
+    pub python_version: u8,                                       /* Target Python version for
+                                                                   * builtin checks */
 }

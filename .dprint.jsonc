@@ -1,56 +1,56 @@
 {
-    // Inspired by https://github.com/microsoft/typescript-go/blob/main/.dprint.jsonc
-    "indentWidth": 4,
-    "lineWidth": 1000,
-    "newLineKind": "auto",
-    "useTabs": false,
-    "yaml": {
-        "printWidth": 120,
-        "indentWidth": 2,
-        "quotes": "preferSingle",
-        "formatComments": true,
-        "trimTrailingWhitespaces": true,
-        "preferSingleLine": false,
-        "braceSpacing": true,
-        "bracketSpacing": false
-    },
-    "json": {
-        // This would be good to do in known-JSONC files, but VS Code warns on trailing commas.
-        "trailingCommas": "never"
-    },
-    "exec": {
-        "cwd": "${configDir}",
-        "commands": [
-            {
-                "command": "rustfmt --edition 2024",
-                "exts": [
-                    "rs"
-                ]
-            }
+  // Inspired by https://github.com/microsoft/typescript-go/blob/main/.dprint.jsonc
+  "indentWidth": 4,
+  "lineWidth": 1000,
+  "newLineKind": "auto",
+  "useTabs": false,
+  "yaml": {
+    "printWidth": 120,
+    "indentWidth": 2,
+    "quotes": "preferSingle",
+    "formatComments": true,
+    "trimTrailingWhitespaces": true,
+    "preferSingleLine": false,
+    "braceSpacing": true,
+    "bracketSpacing": false
+  },
+  "json": {
+    // This would be good to do in known-JSONC files, but VS Code warns on trailing commas.
+    "trailingCommas": "never"
+  },
+  "exec": {
+    "cwd": "${configDir}",
+    "commands": [
+      {
+        "command": "rustfmt --edition 2024",
+        "exts": [
+          "rs"
         ]
-    },
-    "ruff": {
-        "preview": true
-    },
-    "markdown": {
-        "lineWidth": 200,
-        "emphasisKind": "asterisks",
-        "strongKind": "asterisks"
-    },
-    "excludes": [
-        "**/.git",
-        "**/node_modules",
-        "**/*-lock.json",
-        "**/testdata",
-        "_submodules/**"
-    ],
-    // Note: if adding new languages, make sure settings.template.json is updated too.
-    "plugins": [
-        "https://plugins.dprint.dev/json-0.20.0.wasm",
-        "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.5.1.wasm",
-        "https://plugins.dprint.dev/ruff-0.3.9.wasm",
-        "https://plugins.dprint.dev/toml-0.7.0.wasm",
-        "https://plugins.dprint.dev/exec-0.5.1.json",
-        "https://plugins.dprint.dev/markdown-0.18.0.wasm"
+      }
     ]
+  },
+  "ruff": {
+    "preview": true
+  },
+  "markdown": {
+    "lineWidth": 200,
+    "emphasisKind": "asterisks",
+    "strongKind": "asterisks"
+  },
+  "excludes": [
+    "**/.git",
+    "**/node_modules",
+    "**/*-lock.json",
+    "**/testdata",
+    "_submodules/**"
+  ],
+  // Note: if adding new languages, make sure settings.template.json is updated too.
+  "plugins": [
+    "https://plugins.dprint.dev/exec-0.5.1.json@492414e39dea4dccc07b4af796d2f4efdb89e84bae2bd4e1e924c0cc050855bf",
+    "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.5.1.wasm",
+    "https://plugins.dprint.dev/ruff-0.4.3.wasm",
+    "https://plugins.dprint.dev/toml-0.7.0.wasm",
+    "https://plugins.dprint.dev/exec-0.5.1.json",
+    "https://plugins.dprint.dev/markdown-0.19.0.wasm"
+  ]
 }
