@@ -321,7 +321,11 @@ pub fn transform_module_to_init_function<'a>(
                     } else {
                         rustc_hash::FxHashSet::default()
                     };
-                    transform_expr_for_module_vars(&mut assign_clone.value, &module_level_vars);
+                    transform_expr_for_module_vars(
+                        &mut assign_clone.value,
+                        &module_level_vars,
+                        ctx.python_version,
+                    );
 
                     // For simple assignments, also set as module attribute if it should be
                     // exported
@@ -394,7 +398,11 @@ pub fn transform_module_to_init_function<'a>(
                 } else {
                     rustc_hash::FxHashSet::default()
                 };
-                transform_stmt_for_module_vars(&mut stmt_clone, &module_level_vars);
+                transform_stmt_for_module_vars(
+                    &mut stmt_clone,
+                    &module_level_vars,
+                    ctx.python_version,
+                );
                 body.push(stmt_clone);
             }
         }
@@ -561,6 +569,7 @@ pub fn transform_module_to_init_function<'a>(
 fn transform_expr_for_module_vars(
     expr: &mut Expr,
     module_level_vars: &rustc_hash::FxHashSet<String>,
+    python_version: u8,
 ) {
     match expr {
         Expr::Name(name) if name.ctx == ExprContext::Load => {
@@ -574,7 +583,14 @@ fn transform_expr_for_module_vars(
                 );
             }
             // Check if this is a reference to a module-level variable
-            else if module_level_vars.contains(name.id.as_str()) {
+            // BUT exclude Python builtins from transformation
+            else if module_level_vars.contains(name.id.as_str())
+                && !ruff_python_stdlib::builtins::is_python_builtin(
+                    name.id.as_str(),
+                    python_version,
+                    false,
+                )
+            {
                 // Transform to module.var
                 *expr = ast_builder::expressions::attribute(
                     ast_builder::expressions::name("module", ExprContext::Load),
@@ -585,134 +601,158 @@ fn transform_expr_for_module_vars(
         }
         // Recursively handle other expressions
         Expr::Call(call) => {
-            transform_expr_for_module_vars(&mut call.func, module_level_vars);
+            transform_expr_for_module_vars(&mut call.func, module_level_vars, python_version);
             for arg in &mut call.arguments.args {
-                transform_expr_for_module_vars(arg, module_level_vars);
+                transform_expr_for_module_vars(arg, module_level_vars, python_version);
             }
             for kw in &mut call.arguments.keywords {
-                transform_expr_for_module_vars(&mut kw.value, module_level_vars);
+                transform_expr_for_module_vars(&mut kw.value, module_level_vars, python_version);
             }
         }
         Expr::Attribute(attr) => {
-            transform_expr_for_module_vars(&mut attr.value, module_level_vars);
+            transform_expr_for_module_vars(&mut attr.value, module_level_vars, python_version);
         }
         Expr::BinOp(binop) => {
-            transform_expr_for_module_vars(&mut binop.left, module_level_vars);
-            transform_expr_for_module_vars(&mut binop.right, module_level_vars);
+            transform_expr_for_module_vars(&mut binop.left, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut binop.right, module_level_vars, python_version);
         }
         Expr::UnaryOp(unop) => {
-            transform_expr_for_module_vars(&mut unop.operand, module_level_vars);
+            transform_expr_for_module_vars(&mut unop.operand, module_level_vars, python_version);
         }
         Expr::If(if_expr) => {
-            transform_expr_for_module_vars(&mut if_expr.test, module_level_vars);
-            transform_expr_for_module_vars(&mut if_expr.body, module_level_vars);
-            transform_expr_for_module_vars(&mut if_expr.orelse, module_level_vars);
+            transform_expr_for_module_vars(&mut if_expr.test, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut if_expr.body, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut if_expr.orelse, module_level_vars, python_version);
         }
         Expr::List(list) => {
             for elem in &mut list.elts {
-                transform_expr_for_module_vars(elem, module_level_vars);
+                transform_expr_for_module_vars(elem, module_level_vars, python_version);
             }
         }
         Expr::Tuple(tuple) => {
             for elem in &mut tuple.elts {
-                transform_expr_for_module_vars(elem, module_level_vars);
+                transform_expr_for_module_vars(elem, module_level_vars, python_version);
             }
         }
         Expr::Dict(dict) => {
             for item in &mut dict.items {
                 if let Some(key) = &mut item.key {
-                    transform_expr_for_module_vars(key, module_level_vars);
+                    transform_expr_for_module_vars(key, module_level_vars, python_version);
                 }
-                transform_expr_for_module_vars(&mut item.value, module_level_vars);
+                transform_expr_for_module_vars(&mut item.value, module_level_vars, python_version);
             }
         }
         Expr::Subscript(sub) => {
-            transform_expr_for_module_vars(&mut sub.value, module_level_vars);
-            transform_expr_for_module_vars(&mut sub.slice, module_level_vars);
+            transform_expr_for_module_vars(&mut sub.value, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut sub.slice, module_level_vars, python_version);
         }
         Expr::Set(set) => {
             for elem in &mut set.elts {
-                transform_expr_for_module_vars(elem, module_level_vars);
+                transform_expr_for_module_vars(elem, module_level_vars, python_version);
             }
         }
         Expr::Lambda(lambda) => {
             // Note: Lambda parameters create a new scope, so we don't transform them
-            transform_expr_for_module_vars(&mut lambda.body, module_level_vars);
+            transform_expr_for_module_vars(&mut lambda.body, module_level_vars, python_version);
         }
         Expr::Compare(cmp) => {
-            transform_expr_for_module_vars(&mut cmp.left, module_level_vars);
+            transform_expr_for_module_vars(&mut cmp.left, module_level_vars, python_version);
             for comp in &mut cmp.comparators {
-                transform_expr_for_module_vars(comp, module_level_vars);
+                transform_expr_for_module_vars(comp, module_level_vars, python_version);
             }
         }
         Expr::BoolOp(boolop) => {
             for value in &mut boolop.values {
-                transform_expr_for_module_vars(value, module_level_vars);
+                transform_expr_for_module_vars(value, module_level_vars, python_version);
             }
         }
         Expr::ListComp(comp) => {
-            transform_expr_for_module_vars(&mut comp.elt, module_level_vars);
+            transform_expr_for_module_vars(&mut comp.elt, module_level_vars, python_version);
             for generator in &mut comp.generators {
-                transform_expr_for_module_vars(&mut generator.iter, module_level_vars);
+                transform_expr_for_module_vars(
+                    &mut generator.iter,
+                    module_level_vars,
+                    python_version,
+                );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars);
+                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
                 }
             }
         }
         Expr::SetComp(comp) => {
-            transform_expr_for_module_vars(&mut comp.elt, module_level_vars);
+            transform_expr_for_module_vars(&mut comp.elt, module_level_vars, python_version);
             for generator in &mut comp.generators {
-                transform_expr_for_module_vars(&mut generator.iter, module_level_vars);
+                transform_expr_for_module_vars(
+                    &mut generator.iter,
+                    module_level_vars,
+                    python_version,
+                );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars);
+                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
                 }
             }
         }
         Expr::DictComp(comp) => {
-            transform_expr_for_module_vars(&mut comp.key, module_level_vars);
-            transform_expr_for_module_vars(&mut comp.value, module_level_vars);
+            transform_expr_for_module_vars(&mut comp.key, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut comp.value, module_level_vars, python_version);
             for generator in &mut comp.generators {
-                transform_expr_for_module_vars(&mut generator.iter, module_level_vars);
+                transform_expr_for_module_vars(
+                    &mut generator.iter,
+                    module_level_vars,
+                    python_version,
+                );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars);
+                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
                 }
             }
         }
         Expr::Generator(r#gen) => {
-            transform_expr_for_module_vars(&mut r#gen.elt, module_level_vars);
+            transform_expr_for_module_vars(&mut r#gen.elt, module_level_vars, python_version);
             for generator in &mut r#gen.generators {
-                transform_expr_for_module_vars(&mut generator.iter, module_level_vars);
+                transform_expr_for_module_vars(
+                    &mut generator.iter,
+                    module_level_vars,
+                    python_version,
+                );
                 for if_clause in &mut generator.ifs {
-                    transform_expr_for_module_vars(if_clause, module_level_vars);
+                    transform_expr_for_module_vars(if_clause, module_level_vars, python_version);
                 }
             }
         }
         Expr::Await(await_expr) => {
-            transform_expr_for_module_vars(&mut await_expr.value, module_level_vars);
+            transform_expr_for_module_vars(
+                &mut await_expr.value,
+                module_level_vars,
+                python_version,
+            );
         }
         Expr::Yield(yield_expr) => {
             if let Some(ref mut value) = yield_expr.value {
-                transform_expr_for_module_vars(value, module_level_vars);
+                transform_expr_for_module_vars(value, module_level_vars, python_version);
             }
         }
         Expr::YieldFrom(yield_from) => {
-            transform_expr_for_module_vars(&mut yield_from.value, module_level_vars);
+            transform_expr_for_module_vars(
+                &mut yield_from.value,
+                module_level_vars,
+                python_version,
+            );
         }
         Expr::Starred(starred) => {
-            transform_expr_for_module_vars(&mut starred.value, module_level_vars);
+            transform_expr_for_module_vars(&mut starred.value, module_level_vars, python_version);
         }
         Expr::Named(named) => {
-            transform_expr_for_module_vars(&mut named.value, module_level_vars);
+            transform_expr_for_module_vars(&mut named.value, module_level_vars, python_version);
         }
         Expr::Slice(slice) => {
             if let Some(ref mut lower) = slice.lower {
-                transform_expr_for_module_vars(lower, module_level_vars);
+                transform_expr_for_module_vars(lower, module_level_vars, python_version);
             }
             if let Some(ref mut upper) = slice.upper {
-                transform_expr_for_module_vars(upper, module_level_vars);
+                transform_expr_for_module_vars(upper, module_level_vars, python_version);
             }
             if let Some(ref mut step) = slice.step {
-                transform_expr_for_module_vars(step, module_level_vars);
+                transform_expr_for_module_vars(step, module_level_vars, python_version);
             }
         }
         Expr::FString(_fstring) => {
@@ -738,151 +778,196 @@ fn transform_expr_for_module_vars(
 fn transform_stmt_for_module_vars(
     stmt: &mut Stmt,
     module_level_vars: &rustc_hash::FxHashSet<String>,
+    python_version: u8,
 ) {
     match stmt {
         Stmt::FunctionDef(nested_func) => {
             // Recursively transform nested functions
-            transform_nested_function_for_module_vars(nested_func, module_level_vars);
+            transform_nested_function_for_module_vars(
+                nested_func,
+                module_level_vars,
+                python_version,
+            );
         }
         Stmt::Assign(assign) => {
             // Transform assignment targets and values
             for target in &mut assign.targets {
-                transform_expr_for_module_vars(target, module_level_vars);
+                transform_expr_for_module_vars(target, module_level_vars, python_version);
             }
-            transform_expr_for_module_vars(&mut assign.value, module_level_vars);
+            transform_expr_for_module_vars(&mut assign.value, module_level_vars, python_version);
         }
         Stmt::Expr(expr_stmt) => {
-            transform_expr_for_module_vars(&mut expr_stmt.value, module_level_vars);
+            transform_expr_for_module_vars(&mut expr_stmt.value, module_level_vars, python_version);
         }
         Stmt::Return(return_stmt) => {
             if let Some(value) = &mut return_stmt.value {
-                transform_expr_for_module_vars(value, module_level_vars);
+                transform_expr_for_module_vars(value, module_level_vars, python_version);
             }
         }
         Stmt::If(if_stmt) => {
-            transform_expr_for_module_vars(&mut if_stmt.test, module_level_vars);
+            transform_expr_for_module_vars(&mut if_stmt.test, module_level_vars, python_version);
             for stmt in &mut if_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
+                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
             }
             for clause in &mut if_stmt.elif_else_clauses {
                 if let Some(condition) = &mut clause.test {
-                    transform_expr_for_module_vars(condition, module_level_vars);
+                    transform_expr_for_module_vars(condition, module_level_vars, python_version);
                 }
                 for stmt in &mut clause.body {
-                    transform_stmt_for_module_vars(stmt, module_level_vars);
+                    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
                 }
             }
         }
         Stmt::For(for_stmt) => {
-            transform_expr_for_module_vars(&mut for_stmt.target, module_level_vars);
-            transform_expr_for_module_vars(&mut for_stmt.iter, module_level_vars);
+            transform_expr_for_module_vars(&mut for_stmt.target, module_level_vars, python_version);
+            transform_expr_for_module_vars(&mut for_stmt.iter, module_level_vars, python_version);
             for stmt in &mut for_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
+                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
             }
             for stmt in &mut for_stmt.orelse {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
+                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
             }
         }
         Stmt::While(while_stmt) => {
-            transform_expr_for_module_vars(&mut while_stmt.test, module_level_vars);
+            transform_expr_for_module_vars(&mut while_stmt.test, module_level_vars, python_version);
             for stmt in &mut while_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
+                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
             }
             for stmt in &mut while_stmt.orelse {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
+                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
             }
         }
         Stmt::With(with_stmt) => {
             for item in &mut with_stmt.items {
-                transform_expr_for_module_vars(&mut item.context_expr, module_level_vars);
+                transform_expr_for_module_vars(
+                    &mut item.context_expr,
+                    module_level_vars,
+                    python_version,
+                );
                 if let Some(ref mut optional_vars) = item.optional_vars {
-                    transform_expr_for_module_vars(optional_vars, module_level_vars);
+                    transform_expr_for_module_vars(
+                        optional_vars,
+                        module_level_vars,
+                        python_version,
+                    );
                 }
             }
             for stmt in &mut with_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
+                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
             }
         }
         Stmt::Try(try_stmt) => {
             for stmt in &mut try_stmt.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
+                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
             }
             for handler in &mut try_stmt.handlers {
                 let ExceptHandler::ExceptHandler(except_handler) = handler;
                 if let Some(ref mut type_) = except_handler.type_ {
-                    transform_expr_for_module_vars(type_, module_level_vars);
+                    transform_expr_for_module_vars(type_, module_level_vars, python_version);
                 }
                 for stmt in &mut except_handler.body {
-                    transform_stmt_for_module_vars(stmt, module_level_vars);
+                    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
                 }
             }
             for stmt in &mut try_stmt.orelse {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
+                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
             }
             for stmt in &mut try_stmt.finalbody {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
+                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
             }
         }
         Stmt::Raise(raise_stmt) => {
             if let Some(ref mut exc) = raise_stmt.exc {
-                transform_expr_for_module_vars(exc, module_level_vars);
+                transform_expr_for_module_vars(exc, module_level_vars, python_version);
             }
             if let Some(ref mut cause) = raise_stmt.cause {
-                transform_expr_for_module_vars(cause, module_level_vars);
+                transform_expr_for_module_vars(cause, module_level_vars, python_version);
             }
         }
         Stmt::ClassDef(class_def) => {
             // Transform decorators
             for decorator in &mut class_def.decorator_list {
-                transform_expr_for_module_vars(&mut decorator.expression, module_level_vars);
+                transform_expr_for_module_vars(
+                    &mut decorator.expression,
+                    module_level_vars,
+                    python_version,
+                );
             }
             // Transform class arguments (base classes and keyword arguments)
             if let Some(ref mut arguments) = class_def.arguments {
                 for arg in arguments.args.iter_mut() {
-                    transform_expr_for_module_vars(arg, module_level_vars);
+                    transform_expr_for_module_vars(arg, module_level_vars, python_version);
                 }
                 for keyword in arguments.keywords.iter_mut() {
-                    transform_expr_for_module_vars(&mut keyword.value, module_level_vars);
+                    transform_expr_for_module_vars(
+                        &mut keyword.value,
+                        module_level_vars,
+                        python_version,
+                    );
                 }
             }
             // Transform class body
             for stmt in &mut class_def.body {
-                transform_stmt_for_module_vars(stmt, module_level_vars);
+                transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
             }
         }
         Stmt::AugAssign(aug_assign) => {
-            transform_expr_for_module_vars(&mut aug_assign.target, module_level_vars);
-            transform_expr_for_module_vars(&mut aug_assign.value, module_level_vars);
+            transform_expr_for_module_vars(
+                &mut aug_assign.target,
+                module_level_vars,
+                python_version,
+            );
+            transform_expr_for_module_vars(
+                &mut aug_assign.value,
+                module_level_vars,
+                python_version,
+            );
         }
         Stmt::AnnAssign(ann_assign) => {
-            transform_expr_for_module_vars(&mut ann_assign.target, module_level_vars);
-            transform_expr_for_module_vars(&mut ann_assign.annotation, module_level_vars);
+            transform_expr_for_module_vars(
+                &mut ann_assign.target,
+                module_level_vars,
+                python_version,
+            );
+            transform_expr_for_module_vars(
+                &mut ann_assign.annotation,
+                module_level_vars,
+                python_version,
+            );
             if let Some(ref mut value) = ann_assign.value {
-                transform_expr_for_module_vars(value, module_level_vars);
+                transform_expr_for_module_vars(value, module_level_vars, python_version);
             }
         }
         Stmt::Delete(delete_stmt) => {
             for target in &mut delete_stmt.targets {
-                transform_expr_for_module_vars(target, module_level_vars);
+                transform_expr_for_module_vars(target, module_level_vars, python_version);
             }
         }
         Stmt::Match(match_stmt) => {
-            transform_expr_for_module_vars(&mut match_stmt.subject, module_level_vars);
+            transform_expr_for_module_vars(
+                &mut match_stmt.subject,
+                module_level_vars,
+                python_version,
+            );
             // Match cases have complex patterns that may need specialized handling
             // For now, we'll focus on transforming the guard expressions and bodies
             for case in &mut match_stmt.cases {
                 if let Some(ref mut guard) = case.guard {
-                    transform_expr_for_module_vars(guard, module_level_vars);
+                    transform_expr_for_module_vars(guard, module_level_vars, python_version);
                 }
                 for stmt in &mut case.body {
-                    transform_stmt_for_module_vars(stmt, module_level_vars);
+                    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
                 }
             }
         }
         Stmt::Assert(assert_stmt) => {
-            transform_expr_for_module_vars(&mut assert_stmt.test, module_level_vars);
+            transform_expr_for_module_vars(
+                &mut assert_stmt.test,
+                module_level_vars,
+                python_version,
+            );
             if let Some(ref mut msg) = assert_stmt.msg {
-                transform_expr_for_module_vars(msg, module_level_vars);
+                transform_expr_for_module_vars(msg, module_level_vars, python_version);
             }
         }
         Stmt::TypeAlias(_)
@@ -903,6 +988,7 @@ fn transform_stmt_for_module_vars(
 fn transform_nested_function_for_module_vars(
     func_def: &mut StmtFunctionDef,
     module_level_vars: &rustc_hash::FxHashSet<String>,
+    python_version: u8,
 ) {
     // Collect local variables defined in this function
     let mut local_vars = rustc_hash::FxHashSet::default();
@@ -929,7 +1015,12 @@ fn transform_nested_function_for_module_vars(
 
     // Transform the function body, excluding local variables
     for stmt in &mut func_def.body {
-        transform_stmt_for_module_vars_with_locals(stmt, module_level_vars, &local_vars);
+        transform_stmt_for_module_vars_with_locals(
+            stmt,
+            module_level_vars,
+            &local_vars,
+            python_version,
+        );
     }
 }
 
@@ -1015,21 +1106,32 @@ fn transform_stmt_for_module_vars_with_locals(
     stmt: &mut Stmt,
     module_level_vars: &rustc_hash::FxHashSet<String>,
     local_vars: &rustc_hash::FxHashSet<String>,
+    python_version: u8,
 ) {
     match stmt {
         Stmt::FunctionDef(nested_func) => {
             // Recursively transform nested functions
-            transform_nested_function_for_module_vars(nested_func, module_level_vars);
+            transform_nested_function_for_module_vars(
+                nested_func,
+                module_level_vars,
+                python_version,
+            );
         }
         Stmt::Assign(assign) => {
             // Transform assignment targets and values
             for target in &mut assign.targets {
-                transform_expr_for_module_vars_with_locals(target, module_level_vars, local_vars);
+                transform_expr_for_module_vars_with_locals(
+                    target,
+                    module_level_vars,
+                    local_vars,
+                    python_version,
+                );
             }
             transform_expr_for_module_vars_with_locals(
                 &mut assign.value,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
         }
         Stmt::Expr(expr_stmt) => {
@@ -1037,11 +1139,17 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut expr_stmt.value,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
         }
         Stmt::Return(return_stmt) => {
             if let Some(value) = &mut return_stmt.value {
-                transform_expr_for_module_vars_with_locals(value, module_level_vars, local_vars);
+                transform_expr_for_module_vars_with_locals(
+                    value,
+                    module_level_vars,
+                    local_vars,
+                    python_version,
+                );
             }
         }
         Stmt::If(if_stmt) => {
@@ -1049,9 +1157,15 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut if_stmt.test,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
             for stmt in &mut if_stmt.body {
-                transform_stmt_for_module_vars_with_locals(stmt, module_level_vars, local_vars);
+                transform_stmt_for_module_vars_with_locals(
+                    stmt,
+                    module_level_vars,
+                    local_vars,
+                    python_version,
+                );
             }
             for clause in &mut if_stmt.elif_else_clauses {
                 if let Some(condition) = &mut clause.test {
@@ -1059,10 +1173,16 @@ fn transform_stmt_for_module_vars_with_locals(
                         condition,
                         module_level_vars,
                         local_vars,
+                        python_version,
                     );
                 }
                 for stmt in &mut clause.body {
-                    transform_stmt_for_module_vars_with_locals(stmt, module_level_vars, local_vars);
+                    transform_stmt_for_module_vars_with_locals(
+                        stmt,
+                        module_level_vars,
+                        local_vars,
+                        python_version,
+                    );
                 }
             }
         }
@@ -1071,14 +1191,21 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut for_stmt.target,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
             transform_expr_for_module_vars_with_locals(
                 &mut for_stmt.iter,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
             for stmt in &mut for_stmt.body {
-                transform_stmt_for_module_vars_with_locals(stmt, module_level_vars, local_vars);
+                transform_stmt_for_module_vars_with_locals(
+                    stmt,
+                    module_level_vars,
+                    local_vars,
+                    python_version,
+                );
             }
         }
         Stmt::While(while_stmt) => {
@@ -1086,9 +1213,15 @@ fn transform_stmt_for_module_vars_with_locals(
                 &mut while_stmt.test,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
             for stmt in &mut while_stmt.body {
-                transform_stmt_for_module_vars_with_locals(stmt, module_level_vars, local_vars);
+                transform_stmt_for_module_vars_with_locals(
+                    stmt,
+                    module_level_vars,
+                    local_vars,
+                    python_version,
+                );
             }
         }
         _ => {
@@ -1102,6 +1235,7 @@ fn transform_expr_for_module_vars_with_locals(
     expr: &mut Expr,
     module_level_vars: &rustc_hash::FxHashSet<String>,
     local_vars: &rustc_hash::FxHashSet<String>,
+    python_version: u8,
 ) {
     match expr {
         Expr::Name(name_expr) => {
@@ -1120,8 +1254,7 @@ fn transform_expr_for_module_vars_with_locals(
             // builtin, transform to module.var
             else if module_level_vars.contains(name_str)
                 && !local_vars.contains(name_str)
-                && !ruff_python_stdlib::builtins::python_builtins(u8::MAX, false)
-                    .any(|b| b == name_str)
+                && !ruff_python_stdlib::builtins::is_python_builtin(name_str, python_version, false)
                 && matches!(name_expr.ctx, ExprContext::Load)
             {
                 // Transform foo -> module.foo
@@ -1137,15 +1270,22 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut call.func,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
             for arg in &mut call.arguments.args {
-                transform_expr_for_module_vars_with_locals(arg, module_level_vars, local_vars);
+                transform_expr_for_module_vars_with_locals(
+                    arg,
+                    module_level_vars,
+                    local_vars,
+                    python_version,
+                );
             }
             for keyword in &mut call.arguments.keywords {
                 transform_expr_for_module_vars_with_locals(
                     &mut keyword.value,
                     module_level_vars,
                     local_vars,
+                    python_version,
                 );
             }
         }
@@ -1154,28 +1294,41 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut binop.left,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
             transform_expr_for_module_vars_with_locals(
                 &mut binop.right,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
         }
         Expr::Dict(dict) => {
             for item in &mut dict.items {
                 if let Some(key) = &mut item.key {
-                    transform_expr_for_module_vars_with_locals(key, module_level_vars, local_vars);
+                    transform_expr_for_module_vars_with_locals(
+                        key,
+                        module_level_vars,
+                        local_vars,
+                        python_version,
+                    );
                 }
                 transform_expr_for_module_vars_with_locals(
                     &mut item.value,
                     module_level_vars,
                     local_vars,
+                    python_version,
                 );
             }
         }
         Expr::List(list_expr) => {
             for elem in &mut list_expr.elts {
-                transform_expr_for_module_vars_with_locals(elem, module_level_vars, local_vars);
+                transform_expr_for_module_vars_with_locals(
+                    elem,
+                    module_level_vars,
+                    local_vars,
+                    python_version,
+                );
             }
         }
         Expr::Attribute(attr) => {
@@ -1183,6 +1336,7 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut attr.value,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
         }
         Expr::Subscript(subscript) => {
@@ -1190,11 +1344,13 @@ fn transform_expr_for_module_vars_with_locals(
                 &mut subscript.value,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
             transform_expr_for_module_vars_with_locals(
                 &mut subscript.slice,
                 module_level_vars,
                 local_vars,
+                python_version,
             );
         }
         _ => {

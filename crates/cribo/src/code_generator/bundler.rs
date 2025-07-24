@@ -121,6 +121,8 @@ pub struct HybridStaticBundler<'a> {
     /// Track which namespace symbols have been populated after deferred imports
     /// Format: (module_name, symbol_name)
     pub(crate) symbols_populated_after_deferred: FxIndexSet<(String, String)>,
+    /// Target Python version for builtin checks
+    pub(crate) python_version: u8,
 }
 
 impl<'a> std::fmt::Debug for HybridStaticBundler<'a> {
@@ -176,6 +178,7 @@ impl<'a> HybridStaticBundler<'a> {
             namespaces_with_initial_symbols: FxIndexSet::default(),
             namespace_assignments_made: FxIndexSet::default(),
             symbols_populated_after_deferred: FxIndexSet::default(),
+            python_version: 10, // Default to Python 3.10
         }
     }
 
@@ -1838,6 +1841,9 @@ impl<'a> HybridStaticBundler<'a> {
     pub fn bundle_modules(&mut self, params: BundleParams<'_>) -> Result<ModModule> {
         let mut final_body = Vec::new();
 
+        // Store the Python version from params
+        self.python_version = params.python_version;
+
         // Store tree shaking decisions if provided
         if let Some(shaker) = params.tree_shaker {
             // Extract all kept symbols from the tree shaker
@@ -2691,6 +2697,7 @@ impl<'a> HybridStaticBundler<'a> {
                         module_path,
                         global_info,
                         semantic_bundler: Some(semantic_ctx.semantic_bundler),
+                        python_version: self.python_version,
                     };
                     // Generate init function with empty symbol_renames for now
                     let empty_renames = FxIndexMap::default();
@@ -3403,6 +3410,7 @@ impl<'a> HybridStaticBundler<'a> {
                     module_path,
                     global_info,
                     semantic_bundler: Some(semantic_ctx.semantic_bundler),
+                    python_version: self.python_version,
                 };
                 // Always use cached init functions to ensure modules are only initialized once
                 let init_function = self.transform_module_to_cache_init_function(
