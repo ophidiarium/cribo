@@ -682,15 +682,7 @@ pub(super) fn create_namespace_attribute(
             child,
             ExprContext::Store,
         )],
-        expressions::call(
-            expressions::attribute(
-                expressions::name("types", ExprContext::Load),
-                "SimpleNamespace",
-                ExprContext::Load,
-            ),
-            vec![],
-            vec![],
-        ),
+        expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
     );
 
     // Set the node index for transformation tracking
