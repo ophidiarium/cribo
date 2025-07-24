@@ -227,8 +227,148 @@ pub(super) fn resolve_import_aliases_in_expr(
             resolve_import_aliases_in_expr(&mut sub.value, import_aliases);
             resolve_import_aliases_in_expr(&mut sub.slice, import_aliases);
         }
-        // Add other expression types as needed
-        _ => {} // For now, only handle basic cases
+        Expr::List(list) => {
+            for elem in &mut list.elts {
+                resolve_import_aliases_in_expr(elem, import_aliases);
+            }
+        }
+        Expr::Tuple(tuple) => {
+            for elem in &mut tuple.elts {
+                resolve_import_aliases_in_expr(elem, import_aliases);
+            }
+        }
+        Expr::Set(set) => {
+            for elem in &mut set.elts {
+                resolve_import_aliases_in_expr(elem, import_aliases);
+            }
+        }
+        Expr::Dict(dict) => {
+            for item in &mut dict.items {
+                if let Some(ref mut key) = item.key {
+                    resolve_import_aliases_in_expr(key, import_aliases);
+                }
+                resolve_import_aliases_in_expr(&mut item.value, import_aliases);
+            }
+        }
+        Expr::ListComp(comp) => {
+            resolve_import_aliases_in_expr(&mut comp.elt, import_aliases);
+            for generator in &mut comp.generators {
+                resolve_import_aliases_in_expr(&mut generator.iter, import_aliases);
+                for if_clause in &mut generator.ifs {
+                    resolve_import_aliases_in_expr(if_clause, import_aliases);
+                }
+            }
+        }
+        Expr::SetComp(comp) => {
+            resolve_import_aliases_in_expr(&mut comp.elt, import_aliases);
+            for generator in &mut comp.generators {
+                resolve_import_aliases_in_expr(&mut generator.iter, import_aliases);
+                for if_clause in &mut generator.ifs {
+                    resolve_import_aliases_in_expr(if_clause, import_aliases);
+                }
+            }
+        }
+        Expr::DictComp(comp) => {
+            resolve_import_aliases_in_expr(&mut comp.key, import_aliases);
+            resolve_import_aliases_in_expr(&mut comp.value, import_aliases);
+            for generator in &mut comp.generators {
+                resolve_import_aliases_in_expr(&mut generator.iter, import_aliases);
+                for if_clause in &mut generator.ifs {
+                    resolve_import_aliases_in_expr(if_clause, import_aliases);
+                }
+            }
+        }
+        Expr::Generator(gen_expr) => {
+            resolve_import_aliases_in_expr(&mut gen_expr.elt, import_aliases);
+            for generator in &mut gen_expr.generators {
+                resolve_import_aliases_in_expr(&mut generator.iter, import_aliases);
+                for if_clause in &mut generator.ifs {
+                    resolve_import_aliases_in_expr(if_clause, import_aliases);
+                }
+            }
+        }
+        Expr::BoolOp(bool_op) => {
+            for value in &mut bool_op.values {
+                resolve_import_aliases_in_expr(value, import_aliases);
+            }
+        }
+        Expr::UnaryOp(unary) => {
+            resolve_import_aliases_in_expr(&mut unary.operand, import_aliases);
+        }
+        Expr::BinOp(bin_op) => {
+            resolve_import_aliases_in_expr(&mut bin_op.left, import_aliases);
+            resolve_import_aliases_in_expr(&mut bin_op.right, import_aliases);
+        }
+        Expr::Compare(cmp) => {
+            resolve_import_aliases_in_expr(&mut cmp.left, import_aliases);
+            for comparator in &mut cmp.comparators {
+                resolve_import_aliases_in_expr(comparator, import_aliases);
+            }
+        }
+        Expr::If(if_exp) => {
+            resolve_import_aliases_in_expr(&mut if_exp.test, import_aliases);
+            resolve_import_aliases_in_expr(&mut if_exp.body, import_aliases);
+            resolve_import_aliases_in_expr(&mut if_exp.orelse, import_aliases);
+        }
+        Expr::Lambda(lambda) => {
+            if let Some(ref mut params) = lambda.parameters {
+                for arg in &mut params.args {
+                    if let Some(ref mut default) = arg.default {
+                        resolve_import_aliases_in_expr(default, import_aliases);
+                    }
+                }
+            }
+            resolve_import_aliases_in_expr(&mut lambda.body, import_aliases);
+        }
+        Expr::Await(await_expr) => {
+            resolve_import_aliases_in_expr(&mut await_expr.value, import_aliases);
+        }
+        Expr::Yield(yield_expr) => {
+            if let Some(ref mut value) = yield_expr.value {
+                resolve_import_aliases_in_expr(value, import_aliases);
+            }
+        }
+        Expr::YieldFrom(yield_from) => {
+            resolve_import_aliases_in_expr(&mut yield_from.value, import_aliases);
+        }
+        Expr::Starred(starred) => {
+            resolve_import_aliases_in_expr(&mut starred.value, import_aliases);
+        }
+        Expr::Named(named) => {
+            resolve_import_aliases_in_expr(&mut named.target, import_aliases);
+            resolve_import_aliases_in_expr(&mut named.value, import_aliases);
+        }
+        Expr::Slice(slice) => {
+            if let Some(ref mut lower) = slice.lower {
+                resolve_import_aliases_in_expr(lower, import_aliases);
+            }
+            if let Some(ref mut upper) = slice.upper {
+                resolve_import_aliases_in_expr(upper, import_aliases);
+            }
+            if let Some(ref mut step) = slice.step {
+                resolve_import_aliases_in_expr(step, import_aliases);
+            }
+        }
+        Expr::FString(fstring) => {
+            // Handle f-string interpolations
+            for element in fstring.value.elements() {
+                if let ruff_python_ast::InterpolatedStringElement::Interpolation(interp) = element {
+                    let mut expr_clone = (*interp.expression).clone();
+                    resolve_import_aliases_in_expr(&mut expr_clone, import_aliases);
+                    // Note: We can't modify the expression in-place here due to the iterator
+                    // This would require a more complex transformation
+                }
+            }
+        }
+        // Literals don't need alias resolution
+        Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::IpyEscapeCommand(_)
+        | Expr::TString(_) => {}
     }
 }
 

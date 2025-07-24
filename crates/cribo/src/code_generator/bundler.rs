@@ -1794,14 +1794,20 @@ impl<'a> HybridStaticBundler<'a> {
 
                     // Apply renames to function annotations (parameters and return type)
                     if let Some(ref mut returns) = func_def_clone.returns {
-                        Self::resolve_import_aliases_in_expr(returns, &ctx.import_aliases);
+                        expression_handlers::resolve_import_aliases_in_expr(
+                            returns,
+                            &ctx.import_aliases,
+                        );
                         self.rewrite_aliases_in_expr(returns, &module_renames);
                     }
 
                     // Apply renames to parameter annotations
                     for param in &mut func_def_clone.parameters.args {
                         if let Some(ref mut annotation) = param.parameter.annotation {
-                            Self::resolve_import_aliases_in_expr(annotation, &ctx.import_aliases);
+                            expression_handlers::resolve_import_aliases_in_expr(
+                                annotation,
+                                &ctx.import_aliases,
+                            );
                             self.rewrite_aliases_in_expr(annotation, &module_renames);
                         }
                     }
@@ -7077,34 +7083,6 @@ impl<'a> HybridStaticBundler<'a> {
         reordered
     }
 
-    /// Resolve import aliases in an expression
-    fn resolve_import_aliases_in_expr(
-        expr: &mut Expr,
-        import_aliases: &FxIndexMap<String, String>,
-    ) {
-        match expr {
-            Expr::Name(name_expr) => {
-                let name_str = name_expr.id.as_str();
-                if let Some(actual_name) = import_aliases.get(name_str) {
-                    name_expr.id = actual_name.clone().into();
-                }
-            }
-            Expr::Attribute(attr) => {
-                Self::resolve_import_aliases_in_expr(&mut attr.value, import_aliases);
-            }
-            Expr::Call(call) => {
-                Self::resolve_import_aliases_in_expr(&mut call.func, import_aliases);
-                for arg in &mut call.arguments.args {
-                    Self::resolve_import_aliases_in_expr(arg, import_aliases);
-                }
-                for keyword in &mut call.arguments.keywords {
-                    Self::resolve_import_aliases_in_expr(&mut keyword.value, import_aliases);
-                }
-            }
-            _ => {}
-        }
-    }
-
     /// Rewrite aliases in an expression
     fn rewrite_aliases_in_expr(
         &self,
@@ -7121,15 +7099,21 @@ impl<'a> HybridStaticBundler<'a> {
     ) {
         match stmt {
             Stmt::Expr(expr_stmt) => {
-                Self::resolve_import_aliases_in_expr(&mut expr_stmt.value, import_aliases);
+                expression_handlers::resolve_import_aliases_in_expr(
+                    &mut expr_stmt.value,
+                    import_aliases,
+                );
             }
             Stmt::Assign(assign) => {
-                Self::resolve_import_aliases_in_expr(&mut assign.value, import_aliases);
+                expression_handlers::resolve_import_aliases_in_expr(
+                    &mut assign.value,
+                    import_aliases,
+                );
                 // Don't transform targets - we only resolve aliases in expressions
             }
             Stmt::Return(ret_stmt) => {
                 if let Some(value) = &mut ret_stmt.value {
-                    Self::resolve_import_aliases_in_expr(value, import_aliases);
+                    expression_handlers::resolve_import_aliases_in_expr(value, import_aliases);
                 }
             }
             _ => {}
@@ -7328,7 +7312,10 @@ impl<'a> HybridStaticBundler<'a> {
         }
 
         // Apply existing renames to the RHS value BEFORE creating new rename for LHS
-        Self::resolve_import_aliases_in_expr(&mut assign_clone.value, &ctx.import_aliases);
+        expression_handlers::resolve_import_aliases_in_expr(
+            &mut assign_clone.value,
+            &ctx.import_aliases,
+        );
         self.rewrite_aliases_in_expr(&mut assign_clone.value, module_renames);
 
         // Now create a new rename for the LHS
