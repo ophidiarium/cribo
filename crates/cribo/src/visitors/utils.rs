@@ -112,9 +112,7 @@ mod tests {
         let parsed = parse_module(code).expect("Failed to parse");
         let module = parsed.into_syntax();
 
-        if let Some(stmt) = module.body.first()
-            && let ruff_python_ast::Stmt::Expr(expr_stmt) = stmt
-        {
+        if let Some(ruff_python_ast::Stmt::Expr(expr_stmt)) = module.body.first() {
             let result = extract_string_list_from_expr(&expr_stmt.value);
             assert!(!result.is_dynamic);
             assert_eq!(
@@ -134,9 +132,7 @@ mod tests {
         let parsed = parse_module(code).expect("Failed to parse");
         let module = parsed.into_syntax();
 
-        if let Some(stmt) = module.body.first()
-            && let ruff_python_ast::Stmt::Expr(expr_stmt) = stmt
-        {
+        if let Some(ruff_python_ast::Stmt::Expr(expr_stmt)) = module.body.first() {
             let result = extract_string_list_from_expr(&expr_stmt.value);
             assert!(result.is_dynamic);
             assert_eq!(result.names, None);
