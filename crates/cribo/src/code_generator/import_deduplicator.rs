@@ -454,22 +454,21 @@ pub(super) fn log_unused_imports_details(
 pub(super) fn trim_unused_imports_from_modules(
     bundler: &mut HybridStaticBundler,
     modules: &[(String, ModModule, PathBuf, String)],
-    _graph: &DependencyGraph,
+    graph: &DependencyGraph,
     _tree_shaker: Option<&TreeShaker>,
 ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
     let mut result = Vec::new();
 
     for (module_name, module_ast, module_path, module_content) in modules.iter() {
         let mut module_ast = module_ast.clone();
-        // For now, skip unused import analysis - would need to get the module from graph
-        // and check if it's __init__.py
-        let unused_imports = Vec::new();
-        // TODO: Implement proper unused import detection
-        // let module_dep_graph = graph.get_module(module_name)?;
-        // let unused_imports = crate::analyzers::ImportAnalyzer::find_unused_imports_in_module(
-        //     &module_dep_graph,
-        //     module_path.file_name().unwrap_or_default() == "__init__.py",
-        // );
+        // Get unused imports from the dependency graph
+        let module_dep_graph = graph.get_module_by_name(module_name).ok_or_else(|| {
+            anyhow::anyhow!("Module {} not found in dependency graph", module_name)
+        })?;
+        let unused_imports = crate::analyzers::ImportAnalyzer::find_unused_imports_in_module(
+            module_dep_graph,
+            module_path.file_name().unwrap_or_default() == "__init__.py",
+        );
 
         if !unused_imports.is_empty() {
             log_unused_imports_details(&unused_imports);
