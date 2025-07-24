@@ -6,7 +6,7 @@ use cow_utils::CowUtils;
 use ruff_python_ast::{
     AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext, ExprFString,
     ExprName, FString, FStringFlags, FStringValue, Identifier, InterpolatedElement,
-    InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt,
+    InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt, StmtImport,
     StmtImportFrom,
 };
 use ruff_text_size::TextRange;
@@ -461,9 +461,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
                     }
 
-                    let result = self
-                        .bundler
-                        .rewrite_import_with_renames(import_stmt.clone(), self.symbol_renames);
+                    let result = rewrite_import_with_renames(
+                        self.bundler,
+                        import_stmt.clone(),
+                        self.symbol_renames,
+                    );
                     log::debug!(
                         "rewrite_import_with_renames for module '{}': import {:?} -> {} statements",
                         self.module_name,
@@ -1040,7 +1042,8 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // Otherwise, use standard transformation
         let empty_renames = FxIndexMap::default();
-        self.bundler.rewrite_import_from(
+        rewrite_import_from(
+            self.bundler,
             import_from.clone(),
             self.module_name,
             &empty_renames,
@@ -1708,5 +1711,299 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // Create types.SimpleNamespace(**kwargs) call
         expressions::call(expressions::simple_namespace_ctor(), vec![], keywords)
+    }
+}
+
+/// Rewrite import with renames
+fn rewrite_import_with_renames(
+    bundler: &HybridStaticBundler,
+    import_stmt: StmtImport,
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+) -> Vec<Stmt> {
+    // Check each import individually
+    let mut result_stmts = Vec::new();
+    let mut handled_all = true;
+
+    for alias in &import_stmt.names {
+        let module_name = alias.name.as_str();
+
+        // Check if this is a dotted import (e.g., greetings.greeting)
+        if module_name.contains('.') {
+            // Handle dotted imports specially
+            let parts: Vec<&str> = module_name.split('.').collect();
+
+            // Check if the full module is bundled
+            if bundler.bundled_modules.contains(module_name) {
+                if bundler.module_registry.contains_key(module_name) {
+                    // Create all parent namespaces if needed (e.g., for a.b.c.d, create a, a.b,
+                    // a.b.c)
+                    bundler.create_parent_namespaces(&parts, &mut result_stmts);
+
+                    // Initialize the module at import time
+                    result_stmts
+                        .extend(bundler.create_module_initialization_for_import(module_name));
+
+                    let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+                    // If there's no alias, we need to handle the dotted name specially
+                    if alias.asname.is_none() {
+                        // Create assignments for each level of nesting
+                        bundler.create_dotted_assignments(&parts, &mut result_stmts);
+                    } else {
+                        // For aliased imports or non-dotted imports, just assign to the target
+                        // Skip self-assignments - the module is already initialized
+                        if target_name.as_str() != module_name {
+                            result_stmts.push(bundler.create_module_reference_assignment(
+                                target_name.as_str(),
+                                module_name,
+                            ));
+                        }
+                    }
+                } else {
+                    // Module was inlined - create a namespace object
+                    let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+                    // For dotted imports, we need to create the parent namespaces
+                    if alias.asname.is_none() && module_name.contains('.') {
+                        // For non-aliased dotted imports like "import a.b.c"
+                        // Create all parent namespace objects AND the leaf namespace
+                        bundler.create_all_namespace_objects(&parts, &mut result_stmts);
+
+                        // Populate ALL namespace levels with their symbols, not just the leaf
+                        // For "import greetings.greeting", populate both "greetings" and
+                        // "greetings.greeting"
+                        for i in 1..=parts.len() {
+                            let partial_module = parts[..i].join(".");
+                            // Only populate if this module was actually bundled and has exports
+                            if bundler.bundled_modules.contains(&partial_module) {
+                                bundler.populate_namespace_with_module_symbols_with_renames(
+                                    &partial_module,
+                                    &partial_module,
+                                    &mut result_stmts,
+                                    symbol_renames,
+                                );
+                            }
+                        }
+                    } else {
+                        // For simple imports or aliased imports, create namespace object with
+                        // the module's exports
+
+                        // Check if namespace already exists
+                        if !bundler.created_namespaces.contains(target_name.as_str()) {
+                            let namespace_stmt = bundler.create_namespace_object_for_module(
+                                target_name.as_str(),
+                                module_name,
+                            );
+                            result_stmts.push(namespace_stmt);
+                        } else {
+                            log::debug!(
+                                "Skipping namespace creation for '{}' - already created globally",
+                                target_name.as_str()
+                            );
+                        }
+
+                        // Always populate the namespace with symbols
+                        bundler.populate_namespace_with_module_symbols_with_renames(
+                            target_name.as_str(),
+                            module_name,
+                            &mut result_stmts,
+                            symbol_renames,
+                        );
+                    }
+                }
+            } else {
+                handled_all = false;
+                continue;
+            }
+        } else {
+            // Non-dotted import - handle as before
+            if !bundler.bundled_modules.contains(module_name) {
+                handled_all = false;
+                continue;
+            }
+
+            if bundler.module_registry.contains_key(module_name) {
+                // Module uses wrapper approach - need to initialize it now
+                let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+                // First, ensure the module is initialized
+                result_stmts.extend(bundler.create_module_initialization_for_import(module_name));
+
+                // Then create assignment if needed (skip self-assignments)
+                if target_name.as_str() != module_name {
+                    result_stmts.push(
+                        bundler
+                            .create_module_reference_assignment(target_name.as_str(), module_name),
+                    );
+                }
+            } else {
+                // Module was inlined - create a namespace object
+                let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
+
+                // Create namespace object with the module's exports
+                // Check if namespace already exists
+                if !bundler.created_namespaces.contains(target_name.as_str()) {
+                    let namespace_stmt = bundler
+                        .create_namespace_object_for_module(target_name.as_str(), module_name);
+                    result_stmts.push(namespace_stmt);
+                } else {
+                    log::debug!(
+                        "Skipping namespace creation for '{}' - already created globally",
+                        target_name.as_str()
+                    );
+                }
+
+                // Always populate the namespace with symbols
+                bundler.populate_namespace_with_module_symbols_with_renames(
+                    target_name.as_str(),
+                    module_name,
+                    &mut result_stmts,
+                    symbol_renames,
+                );
+            }
+        }
+    }
+
+    if handled_all {
+        result_stmts
+    } else {
+        // Keep original import for non-bundled modules
+        vec![Stmt::Import(import_stmt)]
+    }
+}
+
+/// Rewrite import from statement with proper handling for bundled modules
+fn rewrite_import_from(
+    bundler: &HybridStaticBundler,
+    import_from: StmtImportFrom,
+    current_module: &str,
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    inside_wrapper_init: bool,
+) -> Vec<Stmt> {
+    // Resolve relative imports to absolute module names
+    log::debug!(
+        "rewrite_import_from: Processing import {:?} in module '{}'",
+        import_from.module.as_ref().map(|m| m.as_str()),
+        current_module
+    );
+    let resolved_module_name = bundler.resolve_relative_import(&import_from, current_module);
+
+    let Some(module_name) = resolved_module_name else {
+        // If we can't resolve the module, return the original import
+        log::warn!(
+            "Could not resolve module name for import {:?}, keeping original import",
+            import_from.module.as_ref().map(|m| m.as_str())
+        );
+        return vec![Stmt::ImportFrom(import_from)];
+    };
+
+    if !bundler.bundled_modules.contains(&module_name) {
+        log::debug!(
+            "Module '{module_name}' not found in bundled modules, checking if inlined or \
+             importing submodules"
+        );
+
+        // Check if this module is inlined
+        if bundler.inlined_modules.contains(&module_name) {
+            log::debug!(
+                "Module '{module_name}' is an inlined module, \
+                 inside_wrapper_init={inside_wrapper_init}"
+            );
+            // Handle imports from inlined modules
+            return bundler.handle_imports_from_inlined_module(
+                &import_from,
+                &module_name,
+                symbol_renames,
+            );
+        }
+
+        // Check if we're importing submodules from a namespace package
+        // e.g., from greetings import greeting where greeting is actually greetings.greeting
+        let mut has_bundled_submodules = false;
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let full_module_path = format!("{module_name}.{imported_name}");
+            if bundler.bundled_modules.contains(&full_module_path) {
+                has_bundled_submodules = true;
+                break;
+            }
+        }
+
+        if !has_bundled_submodules {
+            log::debug!(
+                "No bundled submodules found for module '{module_name}', checking if it's a \
+                 wrapper module"
+            );
+
+            // Check if this module is in the module_registry (wrapper module)
+            if bundler.module_registry.contains_key(&module_name) {
+                log::debug!("Module '{module_name}' is a wrapper module in module_registry");
+                // This is a wrapper module, we need to transform it
+                return bundler.transform_bundled_import_from_multiple_with_context(
+                    import_from,
+                    &module_name,
+                    inside_wrapper_init,
+                );
+            }
+
+            // No bundled submodules, keep original import
+            // For relative imports from non-bundled modules, convert to absolute import
+            if import_from.level > 0 {
+                let mut absolute_import = import_from.clone();
+                absolute_import.level = 0;
+                absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
+                return vec![Stmt::ImportFrom(absolute_import)];
+            }
+            return vec![Stmt::ImportFrom(import_from)];
+        }
+
+        // We have bundled submodules, need to transform them
+        log::debug!("Module '{module_name}' has bundled submodules, transforming imports");
+        // Transform each submodule import
+        return bundler.transform_namespace_package_imports(
+            import_from,
+            &module_name,
+            symbol_renames,
+        );
+    }
+
+    log::debug!(
+        "Transforming bundled import from module: {module_name}, is wrapper: {}",
+        bundler.module_registry.contains_key(&module_name)
+    );
+
+    // Check if this module is in the registry (wrapper approach)
+    // or if it was inlined
+    if bundler.module_registry.contains_key(&module_name) {
+        // Module uses wrapper approach - transform to sys.modules access
+        // For relative imports, we need to create an absolute import
+        let mut absolute_import = import_from.clone();
+        if import_from.level > 0 {
+            // Convert relative import to absolute
+            absolute_import.level = 0;
+            absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
+        }
+        bundler.transform_bundled_import_from_multiple_with_context(
+            absolute_import,
+            &module_name,
+            inside_wrapper_init,
+        )
+    } else {
+        // Module was inlined - create assignments for imported symbols
+        log::debug!(
+            "Module '{module_name}' was inlined, creating assignments for imported symbols"
+        );
+        #[allow(clippy::too_many_arguments)]
+        crate::code_generator::module_registry::create_assignments_for_inlined_imports(
+            import_from,
+            &module_name,
+            symbol_renames,
+            &bundler.module_registry,
+            &bundler.inlined_modules,
+            &bundler.bundled_modules,
+            |local_name, full_module_path| {
+                bundler.create_namespace_with_name(local_name, full_module_path)
+            },
+        )
     }
 }
