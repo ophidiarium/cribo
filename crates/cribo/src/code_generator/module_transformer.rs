@@ -26,7 +26,10 @@ use crate::{
         context::ModuleTransformContext,
         globals::{GlobalsLifter, transform_globals_in_stmt},
         import_deduplicator,
-        import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
+        import_transformer::{
+            RecursiveImportTransformer, RecursiveImportTransformerParams,
+            resolve_relative_import_with_context,
+        },
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -77,13 +80,18 @@ pub fn transform_module_to_init_function<'a>(
 
     // Track imports from inlined modules before transformation
     let mut imports_from_inlined = Vec::new();
+    let entry_path = bundler.entry_path.as_deref();
+    let bundled_modules = &bundler.bundled_modules;
+
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
             // Resolve the module to check if it's inlined
-            let resolved_module = bundler.resolve_relative_import_with_context(
+            let resolved_module = resolve_relative_import_with_context(
                 import_from,
                 ctx.module_name,
                 Some(ctx.module_path),
+                entry_path,
+                bundled_modules,
             );
 
             if let Some(ref module) = resolved_module {
