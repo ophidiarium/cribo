@@ -7,10 +7,11 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use ruff_python_ast::{Alias, Expr, ModModule, Stmt, StmtImport, StmtImportFrom};
-use rustc_hash::FxHashSet;
 
 use super::{bundler::HybridStaticBundler, expression_handlers};
-use crate::{cribo_graph::CriboGraph as DependencyGraph, tree_shaking::TreeShaker};
+use crate::{
+    cribo_graph::CriboGraph as DependencyGraph, tree_shaking::TreeShaker, types::FxIndexSet,
+};
 
 /// Check if a statement uses importlib
 pub(super) fn stmt_uses_importlib(stmt: &Stmt) -> bool {
@@ -503,8 +504,8 @@ pub(super) fn trim_unused_imports_from_modules(
 pub(super) fn collect_unique_imports(
     _bundler: &HybridStaticBundler,
     statements: &[Stmt],
-) -> FxHashSet<String> {
-    let mut imports = FxHashSet::default();
+) -> FxIndexSet<String> {
+    let mut imports = FxIndexSet::default();
 
     for stmt in statements {
         match stmt {
