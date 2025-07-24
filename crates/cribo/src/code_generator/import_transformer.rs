@@ -14,7 +14,8 @@ use ruff_text_size::TextRange;
 use crate::{
     ast_builder::{expressions, statements},
     code_generator::{
-        bundler::HybridStaticBundler, module_registry::sanitize_module_name_for_identifier,
+        bundler::HybridStaticBundler, import_deduplicator,
+        module_registry::sanitize_module_name_for_identifier,
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -212,7 +213,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             // First check if this is an import statement that needs transformation
             let is_import = matches!(&stmts[i], Stmt::Import(_) | Stmt::ImportFrom(_));
             let is_hoisted = if is_import {
-                self.bundler.is_hoisted_import(&stmts[i])
+                import_deduplicator::is_hoisted_import(self.bundler, &stmts[i])
             } else {
                 false
             };
@@ -427,7 +428,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     /// Transform a statement, potentially returning multiple statements
     fn transform_statement(&mut self, stmt: &mut Stmt) -> Vec<Stmt> {
         // Check if it's a hoisted import before matching
-        let is_hoisted = self.bundler.is_hoisted_import(stmt);
+        let is_hoisted = import_deduplicator::is_hoisted_import(self.bundler, stmt);
 
         match stmt {
             Stmt::Import(import_stmt) => {

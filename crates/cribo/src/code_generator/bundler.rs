@@ -6,8 +6,8 @@ use anyhow::Result;
 use cow_utils::CowUtils;
 use log::debug;
 use ruff_python_ast::{
-    Alias, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName,
-    Identifier, Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
+    Alias, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprContext, ExprName, Identifier,
+    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
     StmtImportFrom, visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
@@ -21,6 +21,7 @@ use crate::{
             BundleParams, HardDependency, InlineContext, ModuleTransformContext,
             ProcessGlobalsParams, SemanticContext,
         },
+        expression_handlers, import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{INIT_RESULT_VAR, generate_unique_name},
         namespace_manager,
@@ -116,214 +117,6 @@ pub struct HybridStaticBundler<'a> {
     /// Track which namespace symbols have been populated after deferred imports
     /// Format: (module_name, symbol_name)
     pub(crate) symbols_populated_after_deferred: FxIndexSet<(String, String)>,
-}
-
-// Implementation block for importlib detection methods
-impl<'a> HybridStaticBundler<'a> {
-    /// Check if a statement uses importlib
-    fn stmt_uses_importlib(stmt: &Stmt) -> bool {
-        match stmt {
-            Stmt::Expr(expr_stmt) => Self::expr_uses_importlib(&expr_stmt.value),
-            Stmt::Assign(assign) => Self::expr_uses_importlib(&assign.value),
-            Stmt::AugAssign(aug_assign) => Self::expr_uses_importlib(&aug_assign.value),
-            Stmt::AnnAssign(ann_assign) => ann_assign
-                .value
-                .as_ref()
-                .is_some_and(|v| Self::expr_uses_importlib(v)),
-            Stmt::FunctionDef(func_def) => func_def.body.iter().any(Self::stmt_uses_importlib),
-            Stmt::ClassDef(class_def) => class_def.body.iter().any(Self::stmt_uses_importlib),
-            Stmt::If(if_stmt) => {
-                Self::expr_uses_importlib(&if_stmt.test)
-                    || if_stmt.body.iter().any(Self::stmt_uses_importlib)
-                    || if_stmt.elif_else_clauses.iter().any(|clause| {
-                        clause.test.as_ref().is_some_and(Self::expr_uses_importlib)
-                            || clause.body.iter().any(Self::stmt_uses_importlib)
-                    })
-            }
-            Stmt::While(while_stmt) => {
-                Self::expr_uses_importlib(&while_stmt.test)
-                    || while_stmt.body.iter().any(Self::stmt_uses_importlib)
-                    || while_stmt.orelse.iter().any(Self::stmt_uses_importlib)
-            }
-            Stmt::For(for_stmt) => {
-                Self::expr_uses_importlib(&for_stmt.iter)
-                    || for_stmt.body.iter().any(Self::stmt_uses_importlib)
-                    || for_stmt.orelse.iter().any(Self::stmt_uses_importlib)
-            }
-            Stmt::With(with_stmt) => {
-                with_stmt.items.iter().any(|item| {
-                    Self::expr_uses_importlib(&item.context_expr)
-                        || item
-                            .optional_vars
-                            .as_ref()
-                            .is_some_and(|v| Self::expr_uses_importlib(v))
-                }) || with_stmt.body.iter().any(Self::stmt_uses_importlib)
-            }
-            Stmt::Try(try_stmt) => {
-                try_stmt.body.iter().any(Self::stmt_uses_importlib)
-                    || try_stmt.handlers.iter().any(|handler| match handler {
-                        ExceptHandler::ExceptHandler(eh) => {
-                            eh.body.iter().any(Self::stmt_uses_importlib)
-                        }
-                    })
-                    || try_stmt.orelse.iter().any(Self::stmt_uses_importlib)
-                    || try_stmt.finalbody.iter().any(Self::stmt_uses_importlib)
-            }
-            Stmt::Assert(assert_stmt) => {
-                Self::expr_uses_importlib(&assert_stmt.test)
-                    || assert_stmt
-                        .msg
-                        .as_ref()
-                        .is_some_and(|v| Self::expr_uses_importlib(v))
-            }
-            Stmt::Return(ret) => ret
-                .value
-                .as_ref()
-                .is_some_and(|v| Self::expr_uses_importlib(v)),
-            Stmt::Raise(raise_stmt) => {
-                raise_stmt
-                    .exc
-                    .as_ref()
-                    .is_some_and(|v| Self::expr_uses_importlib(v))
-                    || raise_stmt
-                        .cause
-                        .as_ref()
-                        .is_some_and(|v| Self::expr_uses_importlib(v))
-            }
-            Stmt::Delete(del) => del.targets.iter().any(Self::expr_uses_importlib),
-            // Statements that don't contain expressions
-            Stmt::Import(_) | Stmt::ImportFrom(_) => false, /* Already handled by import */
-            // transformation
-            Stmt::Pass(_) | Stmt::Break(_) | Stmt::Continue(_) => false,
-            Stmt::Global(_) | Stmt::Nonlocal(_) => false,
-            // Match and TypeAlias need special handling
-            Stmt::Match(match_stmt) => {
-                Self::expr_uses_importlib(&match_stmt.subject)
-                    || match_stmt
-                        .cases
-                        .iter()
-                        .any(|case| case.body.iter().any(Self::stmt_uses_importlib))
-            }
-            Stmt::TypeAlias(type_alias) => Self::expr_uses_importlib(&type_alias.value),
-            Stmt::IpyEscapeCommand(_) => false, // IPython specific, unlikely to use importlib
-        }
-    }
-
-    /// Check if an expression uses importlib
-    fn expr_uses_importlib(expr: &Expr) -> bool {
-        match expr {
-            Expr::Name(name) => name.id.as_str() == "importlib",
-            Expr::Attribute(attr) => Self::expr_uses_importlib(&attr.value),
-            Expr::Call(call) => {
-                Self::expr_uses_importlib(&call.func)
-                    || call.arguments.args.iter().any(Self::expr_uses_importlib)
-                    || call
-                        .arguments
-                        .keywords
-                        .iter()
-                        .any(|kw| Self::expr_uses_importlib(&kw.value))
-            }
-            Expr::Subscript(sub) => {
-                Self::expr_uses_importlib(&sub.value) || Self::expr_uses_importlib(&sub.slice)
-            }
-            Expr::Tuple(tuple) => tuple.elts.iter().any(Self::expr_uses_importlib),
-            Expr::List(list) => list.elts.iter().any(Self::expr_uses_importlib),
-            Expr::Set(set) => set.elts.iter().any(Self::expr_uses_importlib),
-            Expr::Dict(dict) => dict.items.iter().any(|item| {
-                item.key.as_ref().is_some_and(Self::expr_uses_importlib)
-                    || Self::expr_uses_importlib(&item.value)
-            }),
-            Expr::ListComp(comp) => {
-                Self::expr_uses_importlib(&comp.elt)
-                    || comp.generators.iter().any(|generator| {
-                        Self::expr_uses_importlib(&generator.iter)
-                            || generator.ifs.iter().any(Self::expr_uses_importlib)
-                    })
-            }
-            Expr::SetComp(comp) => {
-                Self::expr_uses_importlib(&comp.elt)
-                    || comp.generators.iter().any(|generator| {
-                        Self::expr_uses_importlib(&generator.iter)
-                            || generator.ifs.iter().any(Self::expr_uses_importlib)
-                    })
-            }
-            Expr::DictComp(comp) => {
-                Self::expr_uses_importlib(&comp.key)
-                    || Self::expr_uses_importlib(&comp.value)
-                    || comp.generators.iter().any(|generator| {
-                        Self::expr_uses_importlib(&generator.iter)
-                            || generator.ifs.iter().any(Self::expr_uses_importlib)
-                    })
-            }
-            Expr::Generator(generator_exp) => {
-                Self::expr_uses_importlib(&generator_exp.elt)
-                    || generator_exp.generators.iter().any(|g| {
-                        Self::expr_uses_importlib(&g.iter)
-                            || g.ifs.iter().any(Self::expr_uses_importlib)
-                    })
-            }
-            Expr::BoolOp(bool_op) => bool_op.values.iter().any(Self::expr_uses_importlib),
-            Expr::UnaryOp(unary) => Self::expr_uses_importlib(&unary.operand),
-            Expr::BinOp(bin_op) => {
-                Self::expr_uses_importlib(&bin_op.left) || Self::expr_uses_importlib(&bin_op.right)
-            }
-            Expr::Compare(cmp) => {
-                Self::expr_uses_importlib(&cmp.left)
-                    || cmp.comparators.iter().any(Self::expr_uses_importlib)
-            }
-            Expr::If(if_exp) => {
-                Self::expr_uses_importlib(&if_exp.test)
-                    || Self::expr_uses_importlib(&if_exp.body)
-                    || Self::expr_uses_importlib(&if_exp.orelse)
-            }
-            Expr::Lambda(lambda) => {
-                // Check default parameter values
-                lambda.parameters.as_ref().is_some_and(|params| {
-                    params.args.iter().any(|arg| {
-                        arg.default
-                            .as_ref()
-                            .is_some_and(|d| Self::expr_uses_importlib(d))
-                    })
-                }) || Self::expr_uses_importlib(&lambda.body)
-            }
-            Expr::Await(await_expr) => Self::expr_uses_importlib(&await_expr.value),
-            Expr::Yield(yield_expr) => yield_expr
-                .value
-                .as_ref()
-                .is_some_and(|v| Self::expr_uses_importlib(v)),
-            Expr::YieldFrom(yield_from) => Self::expr_uses_importlib(&yield_from.value),
-            Expr::Starred(starred) => Self::expr_uses_importlib(&starred.value),
-            Expr::Named(named) => {
-                Self::expr_uses_importlib(&named.target) || Self::expr_uses_importlib(&named.value)
-            }
-            Expr::Slice(slice) => {
-                slice
-                    .lower
-                    .as_ref()
-                    .is_some_and(|l| Self::expr_uses_importlib(l))
-                    || slice
-                        .upper
-                        .as_ref()
-                        .is_some_and(|u| Self::expr_uses_importlib(u))
-                    || slice
-                        .step
-                        .as_ref()
-                        .is_some_and(|s| Self::expr_uses_importlib(s))
-            }
-            // Literals don't use importlib
-            Expr::StringLiteral(_)
-            | Expr::BytesLiteral(_)
-            | Expr::NumberLiteral(_)
-            | Expr::BooleanLiteral(_)
-            | Expr::NoneLiteral(_)
-            | Expr::EllipsisLiteral(_) => false,
-            // F-strings and T-strings are unlikely to directly use importlib
-            Expr::FString(_) => false,
-            Expr::TString(_) => false,
-            // IPython specific, unlikely to use importlib
-            Expr::IpyEscapeCommand(_) => false,
-        }
-    }
 }
 
 impl<'a> std::fmt::Debug for HybridStaticBundler<'a> {
@@ -488,47 +281,6 @@ impl<'a> HybridStaticBundler<'a> {
 
         let mut assigner = NodeIndexAssigner { bundler: self };
         assigner.visit_mod(&ruff_python_ast::Mod::Module(module.clone()));
-    }
-
-    /// Check if a statement is a hoisted import
-    pub fn is_hoisted_import(&self, stmt: &Stmt) -> bool {
-        match stmt {
-            Stmt::ImportFrom(import_from) => {
-                if let Some(ref module) = import_from.module {
-                    let module_name = module.as_str();
-                    // Check if this is a __future__ import (always hoisted)
-                    if module_name == "__future__" {
-                        return true;
-                    }
-                    // Check if this is a stdlib import that we've hoisted
-                    if is_safe_stdlib_module(module_name) {
-                        // Check if this exact import is in our hoisted stdlib imports
-                        return self.is_import_in_hoisted_stdlib(module_name);
-                    }
-                    // We no longer hoist third-party imports, so they should never be considered
-                    // hoisted Only stdlib and __future__ imports are hoisted
-                }
-                false
-            }
-            Stmt::Import(import_stmt) => {
-                // Check if any of the imported modules are hoisted (stdlib or third-party)
-                import_stmt.names.iter().any(|alias| {
-                    let module_name = alias.name.as_str();
-                    // Check stdlib imports
-                    if is_safe_stdlib_module(module_name) {
-                        self.stdlib_import_statements.iter().any(|hoisted| {
-                            matches!(hoisted, Stmt::Import(hoisted_import)
-                                if hoisted_import.names.iter().any(|h| h.name == alias.name))
-                        })
-                    }
-                    // We no longer hoist third-party imports
-                    else {
-                        false
-                    }
-                })
-            }
-            _ => false,
-        }
     }
 
     /// Resolve a relative import with context
@@ -1231,7 +983,8 @@ impl<'a> HybridStaticBundler<'a> {
                                     func_name.id.as_str(),
                                 )
                             {
-                                let attr_path = self.extract_attribute_path(attr);
+                                let attr_path =
+                                    expression_handlers::extract_attribute_path(self, attr);
                                 attr_path == full_module_path
                             } else {
                                 false
@@ -1270,7 +1023,8 @@ impl<'a> HybridStaticBundler<'a> {
                                     func_name.id.as_str(),
                                 )
                             {
-                                let attr_path = self.extract_attribute_path(attr);
+                                let attr_path =
+                                    expression_handlers::extract_attribute_path(self, attr);
                                 attr_path == full_module_path
                             } else {
                                 false
@@ -1326,7 +1080,8 @@ impl<'a> HybridStaticBundler<'a> {
                             // Check if the target matches our module
                             match &assign.targets[0] {
                                 Expr::Attribute(attr) => {
-                                    let attr_path = self.extract_attribute_path(attr);
+                                    let attr_path =
+                                        expression_handlers::extract_attribute_path(self, attr);
                                     attr_path == module_name
                                 }
                                 Expr::Name(name) => name.id.as_str() == module_name,
@@ -1520,7 +1275,10 @@ impl<'a> HybridStaticBundler<'a> {
             };
 
             if name.id.as_str() == "__all__" {
-                return (true, self.extract_string_list_from_expr(&assign.value));
+                return (
+                    true,
+                    expression_handlers::extract_string_list_from_expr(self, &assign.value),
+                );
             }
         }
 
@@ -1562,56 +1320,6 @@ impl<'a> HybridStaticBundler<'a> {
             symbols.sort();
             (false, Some(symbols))
         }
-    }
-
-    fn extract_string_list_from_expr(&self, expr: &Expr) -> Option<Vec<String>> {
-        match expr {
-            Expr::List(list_expr) => {
-                let mut exports = Vec::new();
-                for element in &list_expr.elts {
-                    if let Expr::StringLiteral(string_lit) = element {
-                        let string_value = string_lit.value.to_str();
-                        exports.push(string_value.to_string());
-                    }
-                }
-                Some(exports)
-            }
-            Expr::Tuple(tuple_expr) => {
-                let mut exports = Vec::new();
-                for element in &tuple_expr.elts {
-                    if let Expr::StringLiteral(string_lit) = element {
-                        let string_value = string_lit.value.to_str();
-                        exports.push(string_value.to_string());
-                    }
-                }
-                Some(exports)
-            }
-            _ => None, // Other expressions like computed lists are not supported
-        }
-    }
-
-    /// Add a regular stdlib import (e.g., "sys", "types")
-    /// This creates an import statement and adds it to the tracked imports
-    fn add_stdlib_import(&mut self, module_name: &str) {
-        // Check if we already have this import to avoid duplicates
-        let already_imported = self.stdlib_import_statements.iter().any(|stmt| {
-            if let Stmt::Import(import_stmt) = stmt {
-                import_stmt
-                    .names
-                    .iter()
-                    .any(|alias| alias.name.as_str() == module_name)
-            } else {
-                false
-            }
-        });
-
-        if already_imported {
-            log::debug!("Stdlib import '{module_name}' already exists, skipping");
-            return;
-        }
-
-        let import_stmt = statements::import(vec![other::alias(module_name, None)]);
-        self.stdlib_import_statements.push(import_stmt);
     }
 
     /// Collect future imports from an AST
@@ -1999,7 +1707,7 @@ impl<'a> HybridStaticBundler<'a> {
                 Stmt::Import(import_stmt) => {
                     // Imports have already been transformed by RecursiveImportTransformer
                     // Include them in the inlined output
-                    if !self.is_hoisted_import(&stmt) {
+                    if !import_deduplicator::is_hoisted_import(self, &stmt) {
                         log::debug!(
                             "Including non-hoisted import in inlined module '{}': {:?}",
                             module_name,
@@ -2015,7 +1723,7 @@ impl<'a> HybridStaticBundler<'a> {
                 Stmt::ImportFrom(_) => {
                     // Imports have already been transformed by RecursiveImportTransformer
                     // Include them in the inlined output
-                    if !self.is_hoisted_import(&stmt) {
+                    if !import_deduplicator::is_hoisted_import(self, &stmt) {
                         ctx.inlined_stmts.push(stmt.clone());
                     }
                 }
@@ -2086,14 +1794,20 @@ impl<'a> HybridStaticBundler<'a> {
 
                     // Apply renames to function annotations (parameters and return type)
                     if let Some(ref mut returns) = func_def_clone.returns {
-                        Self::resolve_import_aliases_in_expr(returns, &ctx.import_aliases);
+                        expression_handlers::resolve_import_aliases_in_expr(
+                            returns,
+                            &ctx.import_aliases,
+                        );
                         self.rewrite_aliases_in_expr(returns, &module_renames);
                     }
 
                     // Apply renames to parameter annotations
                     for param in &mut func_def_clone.parameters.args {
                         if let Some(ref mut annotation) = param.parameter.annotation {
-                            Self::resolve_import_aliases_in_expr(annotation, &ctx.import_aliases);
+                            expression_handlers::resolve_import_aliases_in_expr(
+                                annotation,
+                                &ctx.import_aliases,
+                            );
                             self.rewrite_aliases_in_expr(annotation, &module_renames);
                         }
                     }
@@ -2326,7 +2040,8 @@ impl<'a> HybridStaticBundler<'a> {
             {
                 // Handle attribute assignments like schemas.user = ...
                 if let Expr::Attribute(target_attr) = &assign.targets[0] {
-                    let target_path = self.extract_attribute_path(target_attr);
+                    let target_path =
+                        expression_handlers::extract_attribute_path(self, target_attr);
 
                     // Handle init function calls
                     if let Expr::Call(call) = &assign.value.as_ref()
@@ -2354,7 +2069,7 @@ impl<'a> HybridStaticBundler<'a> {
                     }
                     // Handle attribute assignments like User = services.auth.manager.User
                     else if let Expr::Attribute(attr) = &assign.value.as_ref() {
-                        let attr_path = self.extract_attribute_path(attr);
+                        let attr_path = expression_handlers::extract_attribute_path(self, attr);
                         let key = format!("{target_str} = {attr_path}");
                         seen_assignments.insert(key);
                     }
@@ -2400,7 +2115,8 @@ impl<'a> HybridStaticBundler<'a> {
                     if assign.targets.len() == 1
                         && let Expr::Attribute(target_attr) = &assign.targets[0]
                     {
-                        let target_path = self.extract_attribute_path(target_attr);
+                        let target_path =
+                            expression_handlers::extract_attribute_path(self, target_attr);
 
                         // Check if value is an init function call
                         if let Expr::Call(call) = &assign.value.as_ref()
@@ -2462,7 +2178,8 @@ impl<'a> HybridStaticBundler<'a> {
                                 let key = if let Expr::Attribute(attr) = &assign.value.as_ref() {
                                     // Extract the full attribute path (e.g.,
                                     // services.auth.manager.User)
-                                    let attr_path = self.extract_attribute_path(attr);
+                                    let attr_path =
+                                        expression_handlers::extract_attribute_path(self, attr);
                                     format!("{target_str} = {attr_path}")
                                 } else {
                                     // Fallback to debug format for other types
@@ -2601,36 +2318,6 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Extract attribute path from expression
-    fn extract_attribute_path(&self, attr: &ExprAttribute) -> String {
-        let mut parts = Vec::new();
-        let mut current = attr;
-
-        loop {
-            parts.push(current.attr.as_str());
-            match &*current.value {
-                Expr::Attribute(parent_attr) => current = parent_attr,
-                Expr::Name(name) => {
-                    parts.push(name.id.as_str());
-                    break;
-                }
-                _ => break,
-            }
-        }
-
-        parts.reverse();
-        parts.join(".")
-    }
-
-    /// Check if two expressions are equal
-    fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
-        match (expr1, expr2) {
-            (Expr::Name(n1), Expr::Name(n2)) => n1.id == n2.id,
-            (Expr::Attribute(a1), Expr::Attribute(a2)) => {
-                a1.attr == a2.attr && Self::expr_equals(&a1.value, &a2.value)
-            }
-            _ => false,
-        }
-    }
 
     /// Process entry module statement
     fn process_entry_module_statement(
@@ -3005,7 +2692,7 @@ impl<'a> HybridStaticBundler<'a> {
                 "Need to create {} namespace statements - adding types import",
                 self.required_namespaces.len()
             );
-            self.add_stdlib_import("types");
+            import_deduplicator::add_stdlib_import(self, "types");
 
             // Create namespace statements immediately after identifying them
             // This ensures namespaces exist before any module code that might reference them
@@ -3090,7 +2777,7 @@ impl<'a> HybridStaticBundler<'a> {
 
         if needs_types_for_inlined_imports {
             log::debug!("Adding types import for inlined module imports in entry module");
-            self.add_stdlib_import("types");
+            import_deduplicator::add_stdlib_import(self, "types");
         }
 
         // Collect imports from ALL modules (after normalization) for hoisting
@@ -3105,19 +2792,19 @@ impl<'a> HybridStaticBundler<'a> {
         // functools will be added later only if we use module cache
         if !wrapper_modules.is_empty() {
             log::debug!("Adding types import for wrapper modules");
-            self.add_stdlib_import("types");
+            import_deduplicator::add_stdlib_import(self, "types");
         }
 
         // If we have namespace imports, inject types as stdlib dependency
         if !self.namespace_imported_modules.is_empty() {
             log::debug!("Adding types import for namespace imports");
-            self.add_stdlib_import("types");
+            import_deduplicator::add_stdlib_import(self, "types");
         }
 
         // If entry module has direct imports or dotted imports that need namespace objects
         if needs_types_for_entry_imports {
             log::debug!("Adding types import for namespace objects in entry module");
-            self.add_stdlib_import("types");
+            import_deduplicator::add_stdlib_import(self, "types");
         }
 
         // We'll add types import later if we actually create namespace objects for importlib
@@ -3311,7 +2998,7 @@ impl<'a> HybridStaticBundler<'a> {
         // transform
         if has_wrapper_modules {
             log::debug!("Adding functools import for module cache decorators");
-            self.add_stdlib_import("functools");
+            import_deduplicator::add_stdlib_import(self, "functools");
         }
 
         if use_module_cache_for_wrappers {
@@ -3462,7 +3149,7 @@ impl<'a> HybridStaticBundler<'a> {
                         if is_safe_stdlib_module(module_name) && alias.asname.is_none() {
                             // This is a normalized stdlib import (no alias), ensure it's
                             // hoisted
-                            self.add_stdlib_import(module_name);
+                            import_deduplicator::add_stdlib_import(self, module_name);
                         }
                     }
                 }
@@ -3808,7 +3495,7 @@ impl<'a> HybridStaticBundler<'a> {
                                     && existing_target.id.as_str() == target_name
                                 {
                                     // Check if the values are the same
-                                    return Self::expr_equals(
+                                    return expression_handlers::expr_equals(
                                         &existing_assign.value,
                                         &assign.value,
                                     );
@@ -3828,7 +3515,8 @@ impl<'a> HybridStaticBundler<'a> {
                             && let Expr::Name(target) = &assign.targets[0]
                         {
                             if let Expr::Attribute(attr) = &assign.value.as_ref() {
-                                let attr_path = self.extract_attribute_path(attr);
+                                let attr_path =
+                                    expression_handlers::extract_attribute_path(self, attr);
                                 log::debug!(
                                     "Adding to all_deferred_imports: {} = {} (from inlined module \
                                      '{}')",
@@ -4837,7 +4525,7 @@ impl<'a> HybridStaticBundler<'a> {
             // Track if namespace objects were created
             if created_namespace_objects {
                 log::debug!("Namespace objects were created, adding types import");
-                self.add_stdlib_import("types");
+                import_deduplicator::add_stdlib_import(self, "types");
             }
 
             // If importlib was transformed, remove importlib import
@@ -4867,7 +4555,7 @@ impl<'a> HybridStaticBundler<'a> {
 
             // Process statements in order
             for stmt in &ast.body {
-                let is_hoisted = self.is_hoisted_import(stmt);
+                let is_hoisted = import_deduplicator::is_hoisted_import(self, stmt);
                 if is_hoisted {
                     continue;
                 }
@@ -4930,7 +4618,7 @@ impl<'a> HybridStaticBundler<'a> {
                                                 {
                                                     // Check if it's the same assignment
                                                     existing_target.id == target.id
-                                                        && Self::expr_equals(
+                                                        && expression_handlers::expr_equals(
                                                             &existing.value,
                                                             &assign.value,
                                                         )
@@ -4947,7 +4635,10 @@ impl<'a> HybridStaticBundler<'a> {
                                 }
                                 // Check attribute assignments like schemas.user = ...
                                 Expr::Attribute(target_attr) => {
-                                    let target_path = self.extract_attribute_path(target_attr);
+                                    let target_path = expression_handlers::extract_attribute_path(
+                                        self,
+                                        target_attr,
+                                    );
 
                                     // Check if this is a module init assignment
                                     if let Expr::Call(call) = &assign.value.as_ref()
@@ -4971,7 +4662,7 @@ impl<'a> HybridStaticBundler<'a> {
                                                 )
                                             {
                                                 let existing_path =
-                                                    self.extract_attribute_path(existing_attr);
+                                                    expression_handlers::extract_attribute_path(self, existing_attr);
                                                 if existing_path == target_path {
                                                     log::debug!(
                                                         "Found duplicate module init in \
@@ -5049,7 +4740,7 @@ impl<'a> HybridStaticBundler<'a> {
                     && let Expr::Name(target) = &assign.targets[0]
                     && let Expr::Attribute(attr) = &assign.value.as_ref()
                 {
-                    let attr_path = self.extract_attribute_path(attr);
+                    let attr_path = expression_handlers::extract_attribute_path(self, attr);
                     log::debug!(
                         "Entry module deferred import: {} = {}",
                         target.id.as_str(),
@@ -5072,7 +4763,7 @@ impl<'a> HybridStaticBundler<'a> {
                                     && existing_target.id.as_str() == target_name
                                 {
                                     // Check if the values are the same
-                                    return Self::expr_equals(
+                                    return expression_handlers::expr_equals(
                                         &existing_assign.value,
                                         &assign.value,
                                     );
@@ -5082,7 +4773,8 @@ impl<'a> HybridStaticBundler<'a> {
                         }
                         Expr::Attribute(target_attr) => {
                             // For attribute assignments like schemas.user = ...
-                            let target_path = self.extract_attribute_path(target_attr);
+                            let target_path =
+                                expression_handlers::extract_attribute_path(self, target_attr);
 
                             // Check if this is a module init assignment
                             if let Expr::Call(call) = &assign.value.as_ref()
@@ -5106,7 +4798,10 @@ impl<'a> HybridStaticBundler<'a> {
                                         )
                                     {
                                         let existing_path =
-                                            self.extract_attribute_path(existing_attr);
+                                            expression_handlers::extract_attribute_path(
+                                                self,
+                                                existing_attr,
+                                            );
                                         if existing_path == target_path {
                                             log::debug!(
                                                 "Found duplicate module init in entry deferred \
@@ -5223,7 +4918,7 @@ impl<'a> HybridStaticBundler<'a> {
         // Add hoisted imports at the beginning of final_body
         // This is done here after all transformations to ensure we capture all needed imports
         let mut hoisted_imports = Vec::new();
-        self.add_hoisted_imports(&mut hoisted_imports);
+        import_deduplicator::add_hoisted_imports(self, &mut hoisted_imports);
 
         // Note: Namespace statements are now created earlier, before module inlining
         // to ensure they exist when module code references them
@@ -5259,74 +4954,6 @@ impl<'a> HybridStaticBundler<'a> {
         Ok(result)
     }
 
-    /// Add hoisted imports to the final body
-    fn add_hoisted_imports(&self, final_body: &mut Vec<Stmt>) {
-        // Future imports first - combine all into a single import statement
-        if !self.future_imports.is_empty() {
-            // Sort future imports for deterministic output
-            let mut sorted_imports: Vec<String> = self.future_imports.iter().cloned().collect();
-            sorted_imports.sort();
-
-            let aliases: Vec<Alias> = sorted_imports
-                .into_iter()
-                .map(|import| other::alias(&import, None))
-                .collect();
-
-            final_body.push(statements::import_from(Some("__future__"), aliases, 0));
-        }
-
-        // Then stdlib from imports - deduplicated and sorted by module name
-        let mut sorted_modules: Vec<_> = self.stdlib_import_from_map.iter().collect();
-        sorted_modules.sort_by_key(|(module_name, _)| *module_name);
-
-        for (module_name, imported_names) in sorted_modules {
-            // Skip importlib if it was fully transformed
-            if module_name == "importlib" && self.importlib_fully_transformed {
-                log::debug!("Skipping importlib from hoisted imports as it was fully transformed");
-                continue;
-            }
-
-            // Sort the imported names for deterministic output
-            let mut sorted_names: Vec<(String, Option<String>)> = imported_names
-                .iter()
-                .map(|(name, alias)| (name.clone(), alias.clone()))
-                .collect();
-            sorted_names.sort_by_key(|(name, _)| name.clone());
-
-            let aliases: Vec<Alias> = sorted_names
-                .into_iter()
-                .map(|(name, alias_opt)| other::alias(&name, alias_opt.as_deref()))
-                .collect();
-
-            final_body.push(statements::import_from(Some(module_name), aliases, 0));
-        }
-
-        // IMPORTANT: Only safe stdlib imports are hoisted to the bundle top level.
-        // Third-party imports are NEVER hoisted because they may have side effects
-        // (e.g., registering plugins, modifying global state, network calls).
-        // Third-party imports remain in their original location to preserve execution order.
-
-        // Regular stdlib import statements - deduplicated and sorted by module name
-        let mut seen_modules = FxIndexSet::default();
-        let mut unique_imports = Vec::new();
-
-        for stmt in &self.stdlib_import_statements {
-            if let Stmt::Import(import_stmt) = stmt {
-                self.collect_unique_imports(import_stmt, &mut seen_modules, &mut unique_imports);
-            }
-        }
-
-        // Sort by module name for deterministic output
-        unique_imports.sort_by_key(|(module_name, _)| module_name.clone());
-
-        for (_, import_stmt) in unique_imports {
-            final_body.push(import_stmt);
-        }
-
-        // NOTE: We do NOT hoist third-party regular import statements for the same reason
-        // as above - they may have side effects and should remain in their original context.
-    }
-
     /// Remove importlib import if it's unused after transformation
     fn remove_unused_importlib(&self, ast: &mut ModModule) {
         // Check if importlib is actually used in the code
@@ -5334,7 +4961,7 @@ impl<'a> HybridStaticBundler<'a> {
 
         // Check all expressions in the AST for importlib usage
         for stmt in &ast.body {
-            if Self::stmt_uses_importlib(stmt) {
+            if import_deduplicator::stmt_uses_importlib(stmt) {
                 importlib_used = true;
                 break;
             }
@@ -5831,50 +5458,6 @@ impl<'a> HybridStaticBundler<'a> {
             }
         }
         false
-    }
-
-    /// Check if a specific module is in our hoisted stdlib imports
-    fn is_import_in_hoisted_stdlib(&self, module_name: &str) -> bool {
-        // Check if module is in our from imports map
-        if self.stdlib_import_from_map.contains_key(module_name) {
-            return true;
-        }
-
-        // Check if module is in our regular import statements
-        self.stdlib_import_statements.iter().any(|hoisted| {
-            matches!(hoisted, Stmt::Import(hoisted_import)
-                if hoisted_import.names.iter().any(|alias| alias.name.as_str() == module_name))
-        })
-    }
-
-    /// Collect unique imports from an import statement
-    fn collect_unique_imports(
-        &self,
-        import_stmt: &StmtImport,
-        seen_modules: &mut FxIndexSet<String>,
-        unique_imports: &mut Vec<(String, Stmt)>,
-    ) {
-        for alias in &import_stmt.names {
-            let module_name = alias.name.as_str();
-            if seen_modules.contains(module_name) {
-                continue;
-            }
-            seen_modules.insert(module_name.to_string());
-            // Create import statement preserving the original alias
-            unique_imports.push((
-                module_name.to_string(),
-                Stmt::Import(StmtImport {
-                    node_index: AtomicNodeIndex::dummy(),
-                    names: vec![Alias {
-                        node_index: AtomicNodeIndex::dummy(),
-                        name: Identifier::new(module_name, TextRange::default()),
-                        asname: alias.asname.clone(),
-                        range: TextRange::default(),
-                    }],
-                    range: TextRange::default(),
-                }),
-            ));
-        }
     }
 
     /// Ensure a namespace exists, creating it and any parent namespaces if needed
@@ -6859,14 +6442,16 @@ impl<'a> HybridStaticBundler<'a> {
                 // Transform assignments to use lifted names if they're in a function with global
                 // declarations
                 for target in &mut assign.targets {
-                    self.transform_expr_for_lifted_globals(
+                    expression_handlers::transform_expr_for_lifted_globals(
+                        self,
                         target,
                         lifted_names,
                         global_info,
                         current_function_globals,
                     );
                 }
-                self.transform_expr_for_lifted_globals(
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
                     &mut assign.value,
                     lifted_names,
                     global_info,
@@ -6874,7 +6459,8 @@ impl<'a> HybridStaticBundler<'a> {
                 );
             }
             Stmt::Expr(expr_stmt) => {
-                self.transform_expr_for_lifted_globals(
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
                     &mut expr_stmt.value,
                     lifted_names,
                     global_info,
@@ -6882,7 +6468,8 @@ impl<'a> HybridStaticBundler<'a> {
                 );
             }
             Stmt::If(if_stmt) => {
-                self.transform_expr_for_lifted_globals(
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
                     &mut if_stmt.test,
                     lifted_names,
                     global_info,
@@ -6898,7 +6485,8 @@ impl<'a> HybridStaticBundler<'a> {
                 }
                 for clause in &mut if_stmt.elif_else_clauses {
                     if let Some(test_expr) = &mut clause.test {
-                        self.transform_expr_for_lifted_globals(
+                        expression_handlers::transform_expr_for_lifted_globals(
+                            self,
                             test_expr,
                             lifted_names,
                             global_info,
@@ -6916,7 +6504,8 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
             Stmt::While(while_stmt) => {
-                self.transform_expr_for_lifted_globals(
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
                     &mut while_stmt.test,
                     lifted_names,
                     global_info,
@@ -6932,13 +6521,15 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
             Stmt::For(for_stmt) => {
-                self.transform_expr_for_lifted_globals(
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
                     &mut for_stmt.target,
                     lifted_names,
                     global_info,
                     current_function_globals,
                 );
-                self.transform_expr_for_lifted_globals(
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
                     &mut for_stmt.iter,
                     lifted_names,
                     global_info,
@@ -6955,7 +6546,8 @@ impl<'a> HybridStaticBundler<'a> {
             }
             Stmt::Return(return_stmt) => {
                 if let Some(value) = &mut return_stmt.value {
-                    self.transform_expr_for_lifted_globals(
+                    expression_handlers::transform_expr_for_lifted_globals(
+                        self,
                         value,
                         lifted_names,
                         global_info,
@@ -6976,13 +6568,15 @@ impl<'a> HybridStaticBundler<'a> {
             }
             Stmt::AugAssign(aug_assign) => {
                 // Transform augmented assignments to use lifted names
-                self.transform_expr_for_lifted_globals(
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
                     &mut aug_assign.target,
                     lifted_names,
                     global_info,
                     current_function_globals,
                 );
-                self.transform_expr_for_lifted_globals(
+                expression_handlers::transform_expr_for_lifted_globals(
+                    self,
                     &mut aug_assign.value,
                     lifted_names,
                     global_info,
@@ -6991,153 +6585,6 @@ impl<'a> HybridStaticBundler<'a> {
             }
             _ => {
                 // Other statement types handled as needed
-            }
-        }
-    }
-
-    /// Transform an expression to use lifted globals
-    fn transform_expr_for_lifted_globals(
-        &self,
-        expr: &mut Expr,
-        lifted_names: &FxIndexMap<String, String>,
-        global_info: &crate::semantic_bundler::ModuleGlobalInfo,
-        in_function_with_globals: Option<&FxIndexSet<String>>,
-    ) {
-        match expr {
-            Expr::Name(name_expr) => {
-                // Transform if this is a lifted global and we're in a function that declares it
-                // global
-                if let Some(function_globals) = in_function_with_globals
-                    && function_globals.contains(name_expr.id.as_str())
-                    && let Some(lifted_name) = lifted_names.get(name_expr.id.as_str())
-                {
-                    name_expr.id = lifted_name.clone().into();
-                }
-            }
-            Expr::Call(call) => {
-                self.transform_expr_for_lifted_globals(
-                    &mut call.func,
-                    lifted_names,
-                    global_info,
-                    in_function_with_globals,
-                );
-                for arg in &mut call.arguments.args {
-                    self.transform_expr_for_lifted_globals(
-                        arg,
-                        lifted_names,
-                        global_info,
-                        in_function_with_globals,
-                    );
-                }
-            }
-            Expr::Attribute(attr) => {
-                self.transform_expr_for_lifted_globals(
-                    &mut attr.value,
-                    lifted_names,
-                    global_info,
-                    in_function_with_globals,
-                );
-            }
-            Expr::FString(_) => {
-                self.transform_fstring_for_lifted_globals(
-                    expr,
-                    lifted_names,
-                    global_info,
-                    in_function_with_globals,
-                );
-            }
-            Expr::BinOp(binop) => {
-                self.transform_expr_for_lifted_globals(
-                    &mut binop.left,
-                    lifted_names,
-                    global_info,
-                    in_function_with_globals,
-                );
-                self.transform_expr_for_lifted_globals(
-                    &mut binop.right,
-                    lifted_names,
-                    global_info,
-                    in_function_with_globals,
-                );
-            }
-            Expr::UnaryOp(unaryop) => {
-                self.transform_expr_for_lifted_globals(
-                    &mut unaryop.operand,
-                    lifted_names,
-                    global_info,
-                    in_function_with_globals,
-                );
-            }
-            Expr::Compare(compare) => {
-                self.transform_expr_for_lifted_globals(
-                    &mut compare.left,
-                    lifted_names,
-                    global_info,
-                    in_function_with_globals,
-                );
-                for comparator in &mut compare.comparators {
-                    self.transform_expr_for_lifted_globals(
-                        comparator,
-                        lifted_names,
-                        global_info,
-                        in_function_with_globals,
-                    );
-                }
-            }
-            Expr::Subscript(subscript) => {
-                self.transform_expr_for_lifted_globals(
-                    &mut subscript.value,
-                    lifted_names,
-                    global_info,
-                    in_function_with_globals,
-                );
-                self.transform_expr_for_lifted_globals(
-                    &mut subscript.slice,
-                    lifted_names,
-                    global_info,
-                    in_function_with_globals,
-                );
-            }
-            Expr::List(list_expr) => {
-                for elem in &mut list_expr.elts {
-                    self.transform_expr_for_lifted_globals(
-                        elem,
-                        lifted_names,
-                        global_info,
-                        in_function_with_globals,
-                    );
-                }
-            }
-            Expr::Tuple(tuple_expr) => {
-                for elem in &mut tuple_expr.elts {
-                    self.transform_expr_for_lifted_globals(
-                        elem,
-                        lifted_names,
-                        global_info,
-                        in_function_with_globals,
-                    );
-                }
-            }
-            Expr::Dict(dict_expr) => {
-                for item in &mut dict_expr.items {
-                    if let Some(key) = &mut item.key {
-                        self.transform_expr_for_lifted_globals(
-                            key,
-                            lifted_names,
-                            global_info,
-                            in_function_with_globals,
-                        );
-                    }
-                    self.transform_expr_for_lifted_globals(
-                        &mut item.value,
-                        lifted_names,
-                        global_info,
-                        in_function_with_globals,
-                    );
-                }
-            }
-            _ => {
-                // Other expressions handled as needed
             }
         }
     }
@@ -7636,34 +7083,6 @@ impl<'a> HybridStaticBundler<'a> {
         reordered
     }
 
-    /// Resolve import aliases in an expression
-    fn resolve_import_aliases_in_expr(
-        expr: &mut Expr,
-        import_aliases: &FxIndexMap<String, String>,
-    ) {
-        match expr {
-            Expr::Name(name_expr) => {
-                let name_str = name_expr.id.as_str();
-                if let Some(actual_name) = import_aliases.get(name_str) {
-                    name_expr.id = actual_name.clone().into();
-                }
-            }
-            Expr::Attribute(attr) => {
-                Self::resolve_import_aliases_in_expr(&mut attr.value, import_aliases);
-            }
-            Expr::Call(call) => {
-                Self::resolve_import_aliases_in_expr(&mut call.func, import_aliases);
-                for arg in &mut call.arguments.args {
-                    Self::resolve_import_aliases_in_expr(arg, import_aliases);
-                }
-                for keyword in &mut call.arguments.keywords {
-                    Self::resolve_import_aliases_in_expr(&mut keyword.value, import_aliases);
-                }
-            }
-            _ => {}
-        }
-    }
-
     /// Rewrite aliases in an expression
     fn rewrite_aliases_in_expr(
         &self,
@@ -7680,15 +7099,21 @@ impl<'a> HybridStaticBundler<'a> {
     ) {
         match stmt {
             Stmt::Expr(expr_stmt) => {
-                Self::resolve_import_aliases_in_expr(&mut expr_stmt.value, import_aliases);
+                expression_handlers::resolve_import_aliases_in_expr(
+                    &mut expr_stmt.value,
+                    import_aliases,
+                );
             }
             Stmt::Assign(assign) => {
-                Self::resolve_import_aliases_in_expr(&mut assign.value, import_aliases);
+                expression_handlers::resolve_import_aliases_in_expr(
+                    &mut assign.value,
+                    import_aliases,
+                );
                 // Don't transform targets - we only resolve aliases in expressions
             }
             Stmt::Return(ret_stmt) => {
                 if let Some(value) = &mut ret_stmt.value {
-                    Self::resolve_import_aliases_in_expr(value, import_aliases);
+                    expression_handlers::resolve_import_aliases_in_expr(value, import_aliases);
                 }
             }
             _ => {}
@@ -7887,7 +7312,10 @@ impl<'a> HybridStaticBundler<'a> {
         }
 
         // Apply existing renames to the RHS value BEFORE creating new rename for LHS
-        Self::resolve_import_aliases_in_expr(&mut assign_clone.value, &ctx.import_aliases);
+        expression_handlers::resolve_import_aliases_in_expr(
+            &mut assign_clone.value,
+            &ctx.import_aliases,
+        );
         self.rewrite_aliases_in_expr(&mut assign_clone.value, module_renames);
 
         // Now create a new rename for the LHS
@@ -8931,106 +8359,6 @@ impl<'a> HybridStaticBundler<'a> {
             }
             _ => {}
         }
-    }
-
-    /// Transform f-string expressions for lifted globals
-    fn transform_fstring_for_lifted_globals(
-        &self,
-        expr: &mut Expr,
-        lifted_names: &FxIndexMap<String, String>,
-        global_info: &crate::semantic_bundler::ModuleGlobalInfo,
-        in_function_with_globals: Option<&FxIndexSet<String>>,
-    ) {
-        if let Expr::FString(fstring) = expr {
-            let fstring_range = fstring.range;
-            let mut transformed_elements = Vec::new();
-            let mut any_transformed = false;
-
-            for element in fstring.value.elements() {
-                match element {
-                    ruff_python_ast::InterpolatedStringElement::Literal(lit_elem) => {
-                        // Literal elements stay the same
-                        transformed_elements.push(
-                            ruff_python_ast::InterpolatedStringElement::Literal(lit_elem.clone()),
-                        );
-                    }
-                    ruff_python_ast::InterpolatedStringElement::Interpolation(expr_elem) => {
-                        let (new_element, was_transformed) = self.transform_fstring_expression(
-                            expr_elem,
-                            lifted_names,
-                            global_info,
-                            in_function_with_globals,
-                        );
-                        transformed_elements.push(
-                            ruff_python_ast::InterpolatedStringElement::Interpolation(new_element),
-                        );
-                        if was_transformed {
-                            any_transformed = true;
-                        }
-                    }
-                }
-            }
-
-            // If any expressions were transformed, we need to rebuild the f-string
-            if any_transformed {
-                // Create a new FString with our transformed elements
-                let new_fstring = ruff_python_ast::FString {
-                    node_index: AtomicNodeIndex::dummy(),
-                    elements: ruff_python_ast::InterpolatedStringElements::from(
-                        transformed_elements,
-                    ),
-                    range: TextRange::default(),
-                    flags: ruff_python_ast::FStringFlags::empty(),
-                };
-
-                // Create a new FStringValue containing our FString
-                let new_value = ruff_python_ast::FStringValue::single(new_fstring);
-
-                // Replace the entire expression with the new f-string
-                *expr = Expr::FString(ruff_python_ast::ExprFString {
-                    node_index: AtomicNodeIndex::dummy(),
-                    value: new_value,
-                    range: fstring_range,
-                });
-
-                log::debug!("Transformed f-string expressions for lifted globals");
-            }
-        }
-    }
-
-    /// Transform a single f-string expression element
-    fn transform_fstring_expression(
-        &self,
-        expr_elem: &ruff_python_ast::InterpolatedElement,
-        lifted_names: &FxIndexMap<String, String>,
-        global_info: &crate::semantic_bundler::ModuleGlobalInfo,
-        in_function_with_globals: Option<&FxIndexSet<String>>,
-    ) -> (ruff_python_ast::InterpolatedElement, bool) {
-        // Clone and transform the expression
-        let mut new_expr = (*expr_elem.expression).clone();
-        let old_expr_str = format!("{new_expr:?}");
-
-        self.transform_expr_for_lifted_globals(
-            &mut new_expr,
-            lifted_names,
-            global_info,
-            in_function_with_globals,
-        );
-
-        let new_expr_str = format!("{new_expr:?}");
-        let was_transformed = old_expr_str != new_expr_str;
-
-        // Create a new expression element with the transformed expression
-        let new_element = ruff_python_ast::InterpolatedElement {
-            node_index: AtomicNodeIndex::dummy(),
-            expression: Box::new(new_expr),
-            debug_text: expr_elem.debug_text.clone(),
-            conversion: expr_elem.conversion,
-            format_spec: expr_elem.format_spec.clone(),
-            range: expr_elem.range,
-        };
-
-        (new_element, was_transformed)
     }
 
     /// Check if there are cross-module inheritance forward references

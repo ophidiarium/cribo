@@ -25,6 +25,7 @@ use crate::{
         bundler::HybridStaticBundler,
         context::ModuleTransformContext,
         globals::{GlobalsLifter, transform_globals_in_stmt},
+        import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
     },
     types::{FxIndexMap, FxIndexSet},
@@ -215,7 +216,7 @@ pub fn transform_module_to_init_function<'a>(
         match &stmt {
             Stmt::Import(_import_stmt) => {
                 // Skip imports that are already hoisted
-                if !bundler.is_hoisted_import(&stmt) {
+                if !import_deduplicator::is_hoisted_import(bundler, &stmt) {
                     body.push(stmt.clone());
                 }
             }
@@ -226,7 +227,7 @@ pub fn transform_module_to_init_function<'a>(
                 }
 
                 // Skip imports that are already hoisted
-                if !bundler.is_hoisted_import(&stmt) {
+                if !import_deduplicator::is_hoisted_import(bundler, &stmt) {
                     body.push(stmt.clone());
                 }
 

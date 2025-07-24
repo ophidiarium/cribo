@@ -9,7 +9,9 @@
 pub mod bundler;
 pub mod circular_deps;
 pub mod context;
+pub mod expression_handlers;
 pub mod globals;
+pub mod import_deduplicator;
 pub mod import_transformer;
 pub mod module_registry;
 pub mod module_transformer;
