@@ -469,167 +469,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
-    /// Rewrite import with renames
-    pub fn rewrite_import_with_renames(
-        &self,
-        import_stmt: StmtImport,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-    ) -> Vec<Stmt> {
-        // Check each import individually
-        let mut result_stmts = Vec::new();
-        let mut handled_all = true;
-
-        for alias in &import_stmt.names {
-            let module_name = alias.name.as_str();
-
-            // Check if this is a dotted import (e.g., greetings.greeting)
-            if module_name.contains('.') {
-                // Handle dotted imports specially
-                let parts: Vec<&str> = module_name.split('.').collect();
-
-                // Check if the full module is bundled
-                if self.bundled_modules.contains(module_name) {
-                    if self.module_registry.contains_key(module_name) {
-                        // Create all parent namespaces if needed (e.g., for a.b.c.d, create a, a.b,
-                        // a.b.c)
-                        self.create_parent_namespaces(&parts, &mut result_stmts);
-
-                        // Initialize the module at import time
-                        result_stmts
-                            .extend(self.create_module_initialization_for_import(module_name));
-
-                        let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
-
-                        // If there's no alias, we need to handle the dotted name specially
-                        if alias.asname.is_none() && module_name.contains('.') {
-                            // Create assignments for each level of nesting
-                            self.create_dotted_assignments(&parts, &mut result_stmts);
-                        } else {
-                            // For aliased imports or non-dotted imports, just assign to the target
-                            // Skip self-assignments - the module is already initialized
-                            if target_name.as_str() != module_name {
-                                result_stmts.push(self.create_module_reference_assignment(
-                                    target_name.as_str(),
-                                    module_name,
-                                ));
-                            }
-                        }
-                    } else {
-                        // Module was inlined - create a namespace object
-                        let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
-
-                        // For dotted imports, we need to create the parent namespaces
-                        if alias.asname.is_none() && module_name.contains('.') {
-                            // For non-aliased dotted imports like "import a.b.c"
-                            // Create all parent namespace objects AND the leaf namespace
-                            self.create_all_namespace_objects(&parts, &mut result_stmts);
-
-                            // Populate ALL namespace levels with their symbols, not just the leaf
-                            // For "import greetings.greeting", populate both "greetings" and
-                            // "greetings.greeting"
-                            for i in 1..=parts.len() {
-                                let partial_module = parts[..i].join(".");
-                                // Only populate if this module was actually bundled and has exports
-                                if self.bundled_modules.contains(&partial_module) {
-                                    self.populate_namespace_with_module_symbols_with_renames(
-                                        &partial_module,
-                                        &partial_module,
-                                        &mut result_stmts,
-                                        symbol_renames,
-                                    );
-                                }
-                            }
-                        } else {
-                            // For simple imports or aliased imports, create namespace object with
-                            // the module's exports
-
-                            // Check if namespace already exists
-                            if !self.created_namespaces.contains(target_name.as_str()) {
-                                let namespace_stmt = self.create_namespace_object_for_module(
-                                    target_name.as_str(),
-                                    module_name,
-                                );
-                                result_stmts.push(namespace_stmt);
-                            } else {
-                                log::debug!(
-                                    "Skipping namespace creation for '{}' - already created \
-                                     globally",
-                                    target_name.as_str()
-                                );
-                            }
-
-                            // Always populate the namespace with symbols
-                            self.populate_namespace_with_module_symbols_with_renames(
-                                target_name.as_str(),
-                                module_name,
-                                &mut result_stmts,
-                                symbol_renames,
-                            );
-                        }
-                    }
-                } else {
-                    handled_all = false;
-                    continue;
-                }
-            } else {
-                // Non-dotted import - handle as before
-                if !self.bundled_modules.contains(module_name) {
-                    handled_all = false;
-                    continue;
-                }
-
-                if self.module_registry.contains_key(module_name) {
-                    // Module uses wrapper approach - need to initialize it now
-                    let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
-
-                    // First, ensure the module is initialized
-                    result_stmts.extend(self.create_module_initialization_for_import(module_name));
-
-                    // Then create assignment if needed (skip self-assignments)
-                    if target_name.as_str() != module_name {
-                        result_stmts.push(
-                            self.create_module_reference_assignment(
-                                target_name.as_str(),
-                                module_name,
-                            ),
-                        );
-                    }
-                } else {
-                    // Module was inlined - create a namespace object
-                    let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
-
-                    // Create namespace object with the module's exports
-                    // Check if namespace already exists
-                    if !self.created_namespaces.contains(target_name.as_str()) {
-                        let namespace_stmt = self
-                            .create_namespace_object_for_module(target_name.as_str(), module_name);
-                        result_stmts.push(namespace_stmt);
-                    } else {
-                        log::debug!(
-                            "Skipping namespace creation for '{}' - already created globally",
-                            target_name.as_str()
-                        );
-                    }
-
-                    // Always populate the namespace with symbols
-                    self.populate_namespace_with_module_symbols_with_renames(
-                        target_name.as_str(),
-                        module_name,
-                        &mut result_stmts,
-                        symbol_renames,
-                    );
-                }
-            }
-        }
-
-        if handled_all {
-            result_stmts
-        } else {
-            // Keep original import for non-bundled modules
-            vec![Stmt::Import(import_stmt)]
-        }
-    }
-
     /// Resolve relative import
     pub fn resolve_relative_import(
         &self,
@@ -754,145 +593,8 @@ impl<'a> HybridStaticBundler<'a> {
         false
     }
 
-    /// Rewrite import from statement with proper handling for bundled modules
-    pub fn rewrite_import_from(
-        &self,
-        import_from: StmtImportFrom,
-        current_module: &str,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-        inside_wrapper_init: bool,
-    ) -> Vec<Stmt> {
-        // Resolve relative imports to absolute module names
-        log::debug!(
-            "rewrite_import_from: Processing import {:?} in module '{}'",
-            import_from.module.as_ref().map(|m| m.as_str()),
-            current_module
-        );
-        let resolved_module_name = self.resolve_relative_import(&import_from, current_module);
-
-        let Some(module_name) = resolved_module_name else {
-            // If we can't resolve the module, return the original import
-            log::warn!(
-                "Could not resolve module name for import {:?}, keeping original import",
-                import_from.module.as_ref().map(|m| m.as_str())
-            );
-            return vec![Stmt::ImportFrom(import_from)];
-        };
-
-        if !self.bundled_modules.contains(&module_name) {
-            log::debug!(
-                "Module '{module_name}' not found in bundled modules, checking if inlined or \
-                 importing submodules"
-            );
-
-            // Check if this module is inlined
-            if self.inlined_modules.contains(&module_name) {
-                log::debug!(
-                    "Module '{module_name}' is an inlined module, \
-                     inside_wrapper_init={inside_wrapper_init}"
-                );
-                // Handle imports from inlined modules
-                return self.handle_imports_from_inlined_module(
-                    &import_from,
-                    &module_name,
-                    symbol_renames,
-                );
-            }
-
-            // Check if we're importing submodules from a namespace package
-            // e.g., from greetings import greeting where greeting is actually greetings.greeting
-            let mut has_bundled_submodules = false;
-            for alias in &import_from.names {
-                let imported_name = alias.name.as_str();
-                let full_module_path = format!("{module_name}.{imported_name}");
-                if self.bundled_modules.contains(&full_module_path) {
-                    has_bundled_submodules = true;
-                    break;
-                }
-            }
-
-            if !has_bundled_submodules {
-                log::debug!(
-                    "No bundled submodules found for module '{module_name}', checking if it's a \
-                     wrapper module"
-                );
-
-                // Check if this module is in the module_registry (wrapper module)
-                if self.module_registry.contains_key(&module_name) {
-                    log::debug!("Module '{module_name}' is a wrapper module in module_registry");
-                    // This is a wrapper module, we need to transform it
-                    return self.transform_bundled_import_from_multiple_with_context(
-                        import_from,
-                        &module_name,
-                        inside_wrapper_init,
-                    );
-                }
-
-                // No bundled submodules, keep original import
-                // For relative imports from non-bundled modules, convert to absolute import
-                if import_from.level > 0 {
-                    let mut absolute_import = import_from.clone();
-                    absolute_import.level = 0;
-                    absolute_import.module =
-                        Some(Identifier::new(&module_name, TextRange::default()));
-                    return vec![Stmt::ImportFrom(absolute_import)];
-                }
-                return vec![Stmt::ImportFrom(import_from)];
-            }
-
-            // We have bundled submodules, need to transform them
-            log::debug!("Module '{module_name}' has bundled submodules, transforming imports");
-            // Transform each submodule import
-            return self.transform_namespace_package_imports(
-                import_from,
-                &module_name,
-                symbol_renames,
-            );
-        }
-
-        log::debug!(
-            "Transforming bundled import from module: {module_name}, is wrapper: {}",
-            self.module_registry.contains_key(&module_name)
-        );
-
-        // Check if this module is in the registry (wrapper approach)
-        // or if it was inlined
-        if self.module_registry.contains_key(&module_name) {
-            // Module uses wrapper approach - transform to sys.modules access
-            // For relative imports, we need to create an absolute import
-            let mut absolute_import = import_from.clone();
-            if import_from.level > 0 {
-                // Convert relative import to absolute
-                absolute_import.level = 0;
-                absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
-            }
-            self.transform_bundled_import_from_multiple_with_context(
-                absolute_import,
-                &module_name,
-                inside_wrapper_init,
-            )
-        } else {
-            // Module was inlined - create assignments for imported symbols
-            log::debug!(
-                "Module '{module_name}' was inlined, creating assignments for imported symbols"
-            );
-            #[allow(clippy::too_many_arguments)]
-            crate::code_generator::module_registry::create_assignments_for_inlined_imports(
-                import_from,
-                &module_name,
-                symbol_renames,
-                &self.module_registry,
-                &self.inlined_modules,
-                &self.bundled_modules,
-                |local_name, full_module_path| {
-                    self.create_namespace_with_name(local_name, full_module_path)
-                },
-            )
-        }
-    }
-
     /// Transform bundled import from statement with context
-    fn transform_bundled_import_from_multiple_with_context(
+    pub(super) fn transform_bundled_import_from_multiple_with_context(
         &self,
         import_from: StmtImportFrom,
         module_name: &str,
@@ -1131,7 +833,11 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create a namespace object with __name__ attribute
-    fn create_namespace_with_name(&self, var_name: &str, module_path: &str) -> Vec<Stmt> {
+    pub(super) fn create_namespace_with_name(
+        &self,
+        var_name: &str,
+        module_path: &str,
+    ) -> Vec<Stmt> {
         // Create: var_name = types.SimpleNamespace()
         let types_simple_namespace_call =
             expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]);
@@ -1153,7 +859,7 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Transform imports from namespace packages
-    fn transform_namespace_package_imports(
+    pub(super) fn transform_namespace_package_imports(
         &self,
         import_from: StmtImportFrom,
         module_name: &str,
@@ -7544,7 +7250,11 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
 // Helper methods for import rewriting
 impl<'a> HybridStaticBundler<'a> {
     /// Create a module reference assignment
-    fn create_module_reference_assignment(&self, target_name: &str, module_name: &str) -> Stmt {
+    pub(super) fn create_module_reference_assignment(
+        &self,
+        target_name: &str,
+        module_name: &str,
+    ) -> Stmt {
         // Simply assign the module reference: target_name = module_name
         statements::simple_assign(
             target_name,
@@ -7553,7 +7263,7 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create module initialization statements for wrapper modules when they are imported
-    fn create_module_initialization_for_import(&self, module_name: &str) -> Vec<Stmt> {
+    pub(super) fn create_module_initialization_for_import(&self, module_name: &str) -> Vec<Stmt> {
         let mut stmts = Vec::new();
 
         // Check if this is a wrapper module that needs initialization
@@ -7624,7 +7334,7 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create parent namespaces for dotted imports
-    fn create_parent_namespaces(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
+    pub(super) fn create_parent_namespaces(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
         for i in 1..parts.len() {
             let parent_path = parts[..i].join(".");
 
@@ -7659,7 +7369,7 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create dotted attribute assignments for imports
-    fn create_dotted_assignments(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
+    pub(super) fn create_dotted_assignments(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
         // For import a.b.c.d, we need:
         // a.b = <module a.b>
         // a.b.c = <module a.b.c>
@@ -7684,7 +7394,11 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create all namespace objects including the leaf for a dotted import
-    fn create_all_namespace_objects(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
+    pub(super) fn create_all_namespace_objects(
+        &self,
+        parts: &[&str],
+        result_stmts: &mut Vec<Stmt>,
+    ) {
         // For "import a.b.c", we need to create namespace objects for "a", "a.b", and "a.b.c"
         for i in 1..=parts.len() {
             let partial_module = parts[..i].join(".");
@@ -7731,7 +7445,7 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Populate a namespace with symbols from an inlined module using a specific target name
-    fn populate_namespace_with_module_symbols_with_renames(
+    pub(super) fn populate_namespace_with_module_symbols_with_renames(
         &self,
         target_name: &str,
         module_name: &str,
@@ -8114,7 +7828,11 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Create a namespace object for an inlined module
-    fn create_namespace_object_for_module(&self, target_name: &str, module_name: &str) -> Stmt {
+    pub(super) fn create_namespace_object_for_module(
+        &self,
+        target_name: &str,
+        module_name: &str,
+    ) -> Stmt {
         // Check if we should use a flattened namespace instead of creating an empty one
         let flattened_name = module_name.cow_replace('.', "_").into_owned();
         let should_use_flattened = self.inlined_modules.contains(module_name)
