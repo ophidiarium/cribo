@@ -508,105 +508,52 @@ impl<'a> HybridStaticBundler<'a> {
                     "Importing submodule '{imported_name}' from '{module_name}' via from import"
                 );
 
-                // When inside a wrapper init, we need to initialize modules we're importing from
-                if inside_wrapper_init {
-                    // First, ensure the parent module is initialized if it's a wrapper module
-                    // Special case: if current module is a submodule of the module we're importing
-                    // from, don't try to initialize the parent (it's already
-                    // being initialized)
-                    let is_submodule_of_target = current_module
-                        .map(|curr| curr.starts_with(&format!("{module_name}.")))
-                        .unwrap_or(false);
+                // Determine if current module is a submodule of the target module
+                let is_submodule_of_target = current_module
+                    .map(|curr| curr.starts_with(&format!("{module_name}.")))
+                    .unwrap_or(false);
 
-                    if self.module_registry.contains_key(module_name)
-                        && !locally_initialized.contains(module_name)
-                        && current_module != Some(module_name) // Prevent self-initialization
-                        && !is_submodule_of_target
-                    // Prevent parent initialization from submodule
-                    {
-                        assignments
-                            .extend(self.create_module_initialization_for_import(module_name));
-                        locally_initialized.insert(module_name.to_string());
-                    }
-                    // Then ensure the submodule is initialized if it's a wrapper module
-                    if self.module_registry.contains_key(&full_module_path)
-                        && !locally_initialized.contains(&full_module_path)
-                    {
-                        // Check if we already have this module initialization in assignments
-                        let already_initialized = assignments.iter().any(|stmt| {
-                            if let Stmt::Assign(assign) = stmt
-                                && assign.targets.len() == 1
-                                && let Expr::Attribute(attr) = &assign.targets[0]
-                                && let Expr::Call(call) = &assign.value.as_ref()
-                                && let Expr::Name(func_name) = &call.func.as_ref()
-                                && crate::code_generator::module_registry::is_init_function(
-                                    func_name.id.as_str(),
-                                )
-                            {
-                                let attr_path =
-                                    expression_handlers::extract_attribute_path(self, attr);
-                                attr_path == full_module_path
-                            } else {
-                                false
-                            }
-                        });
+                // Check if parent module should be initialized
+                let should_initialize_parent = self.module_registry.contains_key(module_name)
+                    && !locally_initialized.contains(module_name)
+                    && current_module != Some(module_name) // Prevent self-initialization
+                    && !is_submodule_of_target; // Prevent parent initialization from submodule
 
-                        if !already_initialized {
-                            assignments.extend(
-                                self.create_module_initialization_for_import(&full_module_path),
-                            );
+                if should_initialize_parent {
+                    // Initialize parent module
+                    assignments.extend(self.create_module_initialization_for_import(module_name));
+                    locally_initialized.insert(module_name.to_string());
+                }
+
+                // Check if submodule should be initialized
+                if self.module_registry.contains_key(&full_module_path)
+                    && !locally_initialized.contains(&full_module_path)
+                {
+                    // Check if we already have this module initialization in assignments
+                    let already_initialized = assignments.iter().any(|stmt| {
+                        if let Stmt::Assign(assign) = stmt
+                            && assign.targets.len() == 1
+                            && let Expr::Attribute(attr) = &assign.targets[0]
+                            && let Expr::Call(call) = &assign.value.as_ref()
+                            && let Expr::Name(func_name) = &call.func.as_ref()
+                            && crate::code_generator::module_registry::is_init_function(
+                                func_name.id.as_str(),
+                            )
+                        {
+                            let attr_path = expression_handlers::extract_attribute_path(self, attr);
+                            attr_path == full_module_path
+                        } else {
+                            false
                         }
-                        locally_initialized.insert(full_module_path.clone());
-                        initialized_modules.insert(full_module_path.clone());
-                    }
-                } else {
-                    // Not inside wrapper init - normal lazy initialization
-                    let is_submodule_of_target = current_module
-                        .map(|curr| curr.starts_with(&format!("{module_name}.")))
-                        .unwrap_or(false);
+                    });
 
-                    if self.module_registry.contains_key(module_name)
-                        && !locally_initialized.contains(module_name)
-                        && current_module != Some(module_name) // Prevent self-initialization
-                        && !is_submodule_of_target
-                    // Prevent parent initialization from submodule
-                    {
-                        // Initialize parent module if needed
-                        assignments
-                            .extend(self.create_module_initialization_for_import(module_name));
-                        locally_initialized.insert(module_name.to_string());
+                    if !already_initialized {
+                        assignments.extend(
+                            self.create_module_initialization_for_import(&full_module_path),
+                        );
                     }
-                    if self.module_registry.contains_key(&full_module_path)
-                        && !locally_initialized.contains(&full_module_path)
-                    {
-                        // Check if we already have this module initialization in assignments
-                        let already_initialized = assignments.iter().any(|stmt| {
-                            if let Stmt::Assign(assign) = stmt
-                                && assign.targets.len() == 1
-                                && let Expr::Attribute(attr) = &assign.targets[0]
-                                && let Expr::Call(call) = &assign.value.as_ref()
-                                && let Expr::Name(func_name) = &call.func.as_ref()
-                                && crate::code_generator::module_registry::is_init_function(
-                                    func_name.id.as_str(),
-                                )
-                            {
-                                let attr_path =
-                                    expression_handlers::extract_attribute_path(self, attr);
-                                attr_path == full_module_path
-                            } else {
-                                false
-                            }
-                        });
-
-                        if !already_initialized {
-                            // Initialize submodule if needed
-                            assignments.extend(
-                                self.create_module_initialization_for_import(&full_module_path),
-                            );
-                        }
-                        locally_initialized.insert(full_module_path.clone());
-                        initialized_modules.insert(full_module_path.clone());
-                    }
+                    locally_initialized.insert(full_module_path.clone());
+                    initialized_modules.insert(full_module_path.clone());
                 }
 
                 // Build the direct namespace reference
@@ -654,8 +601,8 @@ impl<'a> HybridStaticBundler<'a> {
                     {
                         // This is a submodule that needs initialization
                         log::debug!(
-                            "Special case: module '{module_name}' importing its own submodule '{imported_name}' - \
-                             initializing submodule first"
+                            "Special case: module '{module_name}' importing its own submodule \
+                             '{imported_name}' - initializing submodule first"
                         );
 
                         // Initialize the submodule
