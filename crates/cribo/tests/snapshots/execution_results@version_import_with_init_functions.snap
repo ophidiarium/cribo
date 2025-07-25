@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/version_import_with_init_functions/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "User agent: mypackage/3.0.0\nVersion from package: 3.0.0",
+    stderr: "",
+}

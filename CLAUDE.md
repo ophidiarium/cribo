@@ -160,32 +160,13 @@ cribo --entry main.py --stdout -vv
 
 **ALL TESTS THAT EXIST ON MAIN BRANCH ARE ALWAYS WORKING! YOU MUST NEVER DOUBLE CHECK THAT! THERE ARE NO "PRE-EXISTING ISSUES"! DON'T SPEND TIME ON SEARCHING FOR AN ESCAPE HATCH - DO INVESTIGATE TO FIND THE ROOT CAUSE OF A PROBLEM**
 
-### MANDATORY GITHUB INTERACTION RULES
-
-**ABSOLUTE RULE**: NEVER use web API calls or direct GitHub API without authentication
-
-**REQUIRED TOOLS** (in order of preference):
-
-1. **GitHub MCP tools**: `mcp__github__*` functions (authenticated, no rate limits)
-2. **GitHub CLI**: `gh` commands (authenticated via CLI)
-3. **NEVER**: Direct API calls, web scraping, or unauthenticated requests
-
-**EXAMPLES**:
-✅ **Correct**: `mcp__github__get_pull_request` or `gh pr view`
-❌ **Wrong**: Direct API calls to `api.github.com`
-
-**PR Creation**: Always use `mcp__github__create_pull_request` or `gh pr create`
-**PR Status**: Always use `mcp__github__get_pull_request` or `gh pr view`
-**Comments**: Always use `mcp__github__add_issue_comment` or `gh pr comment`
-
 ### MANDATORY GIT FLOW TODO TEMPLATE
 
 **CRITICAL**: Use this exact template for ANY git operation
 
 #### Phase 0: Pre-Work Baseline (MANDATORY)
 
-- [ ] **GitHub Tools Check**: Verify `gh` CLI authenticated and MCP tools available
-- [ ] **git MCP**: set current working directory for git MCP
+- [ ] **GitHub Tools Check**: Verify `gh` CLI authenticated
 - [ ] **Dependencies**: Run `cargo nextest run --workspace` for clean starting state
 
 #### Phase 1: Feature Branch Creation & Implementation
@@ -199,67 +180,10 @@ cribo --entry main.py --stdout -vv
 
 #### Phase 2: PR Creation
 
-- [ ] **Use MCP/gh CLI**: `mcp__github__create_pull_request` or `gh pr create`
+- [ ] **Use gh CLI**: `gh pr create`
 - [ ] Include comprehensive description (Summary, Changes, Test Results)
 - [ ] Add coverage impact note if significant
 - [ ] Add performance impact note if benchmarks show changes
-- [ ] **IMMEDIATE status check**: `mcp__github__get_pull_request_status`
-- [ ] **Verify ALL CI GREEN**: No failed GitHub Actions allowed
-
-#### Phase 3: CI Monitoring (CRITICAL)
-
-- [ ] **Monitor initial CI**: `mcp__github__get_pull_request_status` every few minutes
-- [ ] **Verify specific checks**: Build ✅, Tests ✅, Coverage ✅, Clippy ✅
-- [ ] **If ANY red check**: STOP, investigate, fix before proceeding
-- [ ] **Coverage CI**: Must show patch coverage >80%
-- [ ] **Wait for all GREEN**: Do not proceed until ALL checks pass
-
-#### Phase 4: Code Review Response Cycle
-
-- [ ] **Check for comments**: `mcp__github__get_pull_request` for review comments
-- [ ] **For EACH comment**:
-  - [ ] Read and understand fully
-  - [ ] Implement requested change
-  - [ ] Test the change locally
-  - [ ] Commit with descriptive message
-- [ ] **After fixes**: Push and verify CI still GREEN
-- [ ] **Re-check status**: `mcp__github__get_pull_request_status`
-- [ ] **Ensure coverage**: Still meets 80% patch requirement
-
-#### Phase 5: Pre-Merge Verification (ENHANCED)
-
-- [ ] **Final status check**: `mcp__github__get_pull_request_status`
-- [ ] **Verify ALL criteria**:
-  - [ ] `"mergeable": true`
-  - [ ] `"statusCheckRollup": {"state": "SUCCESS"}`
-  - [ ] `"reviewDecision": "APPROVED"`
-  - [ ] Coverage CI showing GREEN
-  - [ ] No pending or failed checks
-- [ ] **NEVER merge with failed/pending checks**
-
-#### Phase 6: Merge and Cleanup (CRITICAL FINAL STEPS)
-
-- [ ] **Merge via MCP/gh**: `mcp__github__merge_pull_request` or `gh pr merge`
-- [ ] **IMMEDIATELY switch**: `git checkout main`
-- [ ] **Pull latest**: `git pull origin main`
-- [ ] **Verify state**: `git status` shows "up to date with origin/main"
-- [ ] **Delete branch**: `git branch -d <branch-name>`
-- [ ] **Final verification**: `git status` shows clean working tree
-
-#### Phase 7: Post-Merge Validation
-
-- [ ] **Coverage check**: `cargo coverage-text` on main
-- [ ] **Test validation**: `cargo test --workspace` on main
-- [ ] **Clippy check**: `cargo clippy --workspace --all-targets` on main
-- [ ] **Verify no regressions**: Compare with baseline measurements
-- [ ] **Mark todos complete**: All git flow items ✅
-
-**ABSOLUTE RULES**:
-
-- NEVER use unauthenticated GitHub API calls
-- NEVER merge with failed CI checks
-- NEVER skip coverage verification
-- NEVER declare success without full validation suite
 
 ## Rule: Use Worktree, Not Checkout
 
@@ -328,20 +252,6 @@ cargo bench-compare
 
 # View detailed HTML report
 ./scripts/bench.sh --open
-```
-
-#### MANDATORY PR Status Commands
-
-```bash
-# PRIMARY: Use MCP for comprehensive status
-mcp__github__get_pull_request_status --owner=ophidiarium --repo=cribo --pullNumber=<NUM>
-
-# SECONDARY: Use gh CLI for detailed breakdown
-gh pr checks <PR-number>
-gh pr view <PR-number> --json state,mergeable,statusCheckRollup,reviewDecision
-
-# VERIFICATION: Get individual check details
-gh run list --repo=ophidiarium/cribo --branch=<branch-name>
 ```
 
 ### Context Preservation Rules
@@ -507,14 +417,6 @@ Under no circumstances should you justify a design or implementation by citing "
 - Continuously re-validate against `.clippy.toml` whenever generating new code or applying automated fixes—do not assume a one-time check is sufficient.
 - Log each check and violation in clear comments or warnings within the pull request or code review context so that maintainers immediately see why a disallowed construct was rejected.
 
-#### Git Operations
-
-**MANDATORY**: Always use MCP Git tools instead of direct bash git commands for all git operations.
-
-- **Use MCP Git tools**: Prefer `mcp__git__*` tools (e.g., `mcp__git__status`, `mcp__git__add`, `mcp__git__commit`) over bash `git` commands
-- **Better integration**: MCP Git tools provide better integration with the development environment and error handling
-- **Consistent workflow**: This ensures consistent git operations across all development workflows
-
 #### Immediate Code Removal Over Deprecation
 
 **MANDATORY**: Since cribo only exposes a binary CLI interface (not a library API), unused methods and functions MUST be removed immediately rather than annotated with deprecation markers.
@@ -537,8 +439,6 @@ When implementing or researching functionality, follow this order:
 2. **SECOND**: Use Context7 for external libraries (only if local docs insufficient)
 
 3. **FINAL**: Use GitHub MCP tools for implementation patterns (only when steps 1&2 insufficient)
-   - ALWAYS prefer GitHub search tools (like `mcp__github__search_code`) over other methods when accessing GitHub repositories
-   - When searching large repos, use specific path and filename filters to avoid token limit errors
 
 #### Reference Patterns from Established Repositories
 
@@ -549,38 +449,6 @@ When implementing functionality, consult these high-quality repositories:
 - **[web-infra-dev/rspack](https://github.com/web-infra-dev/rspack)** - For module graph construction, dependency resolution
 
 Check `references/` directory for local clones of above and some other examples
-
-#### Docs-Manager MCP Tools (`mcp__docs-manager__*`)
-
-**Fully Working Documentation Tools** (USE THESE):
-
-- ✅ **`mcp__docs-manager__list_documents`** - List all markdown documents
-  - Use for: Discovering available documentation files
-  - Example: `mcp__docs-manager__list_documents` or `mcp__docs-manager__list_documents --path=docs`
-  - Returns relative paths to all documents
-- ✅ **`mcp__docs-manager__read_document`** - Read complete document content
-  - Use for: Examining markdown files including frontmatter
-  - Example: `mcp__docs-manager__read_document --path=README.md`
-  - Returns full content with proper formatting
-- ✅ **`mcp__docs-manager__search_documents`** - Search document content
-  - Use for: Finding documents containing specific text or concepts
-  - Example: `mcp__docs-manager__search_documents --query=bundling`
-  - Searches both content and frontmatter across all documents
-- ✅ **`mcp__docs-manager__write_document`** - Create new documents
-  - Use for: Creating new markdown documentation files
-  - Example: `mcp__docs-manager__write_document --path=new-doc.md --content="# Title\nContent"`
-  - Can create parent directories automatically
-- ✅ **`mcp__docs-manager__edit_document`** - Apply precise edits
-  - Use for: Making targeted changes to existing documents
-  - Example: `mcp__docs-manager__edit_document --path=doc.md --edits=[...]`
-  - Provides git-style diff output showing changes
-
-**Docs-Manager Recommendations**:
-
-- **Use for core documentation workflows**: Reading, writing, editing, listing, and searching work excellently
-- **Use filesystem MCP tools instead**: For folder creation, file moves, and renames until implemented
-- **Consider path-specific queries**: For large repositories to avoid token limits
-- **Excellent for content management**: High-quality diff output and comprehensive search capabilities
 
 #### MANDATORY: Final Validation Before Claiming Success
 
@@ -639,8 +507,6 @@ The text between BEGIN_BODY/END_BODY is what you must act on.
 
 4. Commit & push
 
-Use `mcp__git__git_add`, `mcp__git__git_commit` and `mcp__git__git_push` MCP tools.
-
 5.Reply directly to that comment
 
 - DO NOT create a new review
@@ -655,8 +521,6 @@ gh api repos/ophidiarium/cribo/pulls/<PR#>/comments/<COMMENT_ID>/replies \
 *Replace `<hash>` with the short commit SHA.*
 
 **Follow these five steps exactly to process a GitHub review comment.**
-
-NOTE: if asked to attend all comments use `mcp__github__get_pull_request_comments` to fetch comments, organized them, but then attend each one systematically following this workflow.
 
 ## 🧠 WORKFLOW MEMORY AIDS
 
