@@ -820,6 +820,60 @@ impl<'a> HybridStaticBundler<'a> {
         ruff_python_stdlib::identifiers::is_identifier(name)
     }
 
+    /// Check if a module accesses attributes on imported modules at module level
+    fn module_accesses_imported_attributes(&self, ast: &ModModule) -> bool {
+        use ruff_python_ast::visitor::{Visitor, walk_expr, walk_stmt};
+
+        struct AttributeAccessChecker {
+            has_attribute_access: bool,
+            in_function_or_class: bool,
+        }
+
+        impl<'a> Visitor<'a> for AttributeAccessChecker {
+            fn visit_stmt(&mut self, stmt: &'a Stmt) {
+                match stmt {
+                    // Skip function and class bodies - we only care about module-level code
+                    Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
+                        // Don't recurse into function or class bodies
+                    }
+                    _ => {
+                        // Continue visiting for other statements
+                        walk_stmt(self, stmt);
+                    }
+                }
+            }
+
+            fn visit_expr(&mut self, expr: &'a Expr) {
+                if self.has_attribute_access {
+                    return; // Already found one
+                }
+
+                match expr {
+                    // Check for attribute access on names (e.g., mod_c.C_CONSTANT)
+                    Expr::Attribute(attr) => {
+                        if let Expr::Name(_) = &*attr.value {
+                            // This is an attribute access on a name at module level
+                            self.has_attribute_access = true;
+                            return;
+                        }
+                    }
+                    _ => {}
+                }
+
+                // Continue walking
+                walk_expr(self, expr);
+            }
+        }
+
+        let mut checker = AttributeAccessChecker {
+            has_attribute_access: false,
+            in_function_or_class: false,
+        };
+
+        checker.visit_body(&ast.body);
+        checker.has_attribute_access
+    }
+
     /// Collect future imports from an AST
     fn collect_future_imports_from_ast(&mut self, ast: &ModModule) {
         for stmt in &ast.body {
@@ -2166,6 +2220,11 @@ impl<'a> HybridStaticBundler<'a> {
             // and circular dependencies can all be handled through static transformation
             let has_side_effects = module_has_side_effects(ast);
 
+            // Check if this module is in a circular dependency and accesses imported module
+            // attributes
+            let needs_wrapping_for_circular = self.circular_modules.contains(module_name)
+                && self.module_accesses_imported_attributes(ast);
+
             // Check if this module has an invalid identifier (can't be imported normally)
             // These modules are likely imported via importlib and need to be wrapped
             // Note: Module names with dots are valid (e.g., "core.utils.helpers"), so we only
@@ -2173,11 +2232,16 @@ impl<'a> HybridStaticBundler<'a> {
             let module_base_name = module_name.split('.').next_back().unwrap_or(module_name);
             let has_invalid_identifier = !Self::is_valid_python_identifier(module_base_name);
 
-            if has_side_effects || has_invalid_identifier {
+            if has_side_effects || has_invalid_identifier || needs_wrapping_for_circular {
                 if has_invalid_identifier {
                     log::debug!(
                         "Module '{module_name}' has invalid Python identifier - using wrapper \
                          approach"
+                    );
+                } else if needs_wrapping_for_circular {
+                    log::debug!(
+                        "Module '{module_name}' is in circular dependency and accesses imported \
+                         attributes - using wrapper approach"
                     );
                 } else {
                     log::debug!("Module '{module_name}' has side effects - using wrapper approach");
