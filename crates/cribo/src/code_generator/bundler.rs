@@ -377,10 +377,11 @@ impl<'a> HybridStaticBundler<'a> {
             };
 
             // Check if the source symbol was tree-shaken
-            if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
+            if let Some(kept_symbols) = self.tree_shaking_keep_symbols.as_ref()
                 && !kept_symbols.contains(&(module_name.to_string(), imported_name.to_string())) {
                     log::debug!(
-                        "Skipping import assignment for tree-shaken symbol '{imported_name}' from module '{module_name}'"
+                        "Skipping import assignment for tree-shaken symbol '{imported_name}' from \
+                         module '{module_name}'"
                     );
                     continue;
                 }
