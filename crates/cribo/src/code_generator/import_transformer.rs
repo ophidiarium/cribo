@@ -985,7 +985,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                         return vec![];
                     } else {
                         // For entry module, return the imports immediately
-                        return import_stmts;
+                        if !import_stmts.is_empty() {
+                            return import_stmts;
+                        }
+                        // If handle_imports_from_inlined_module returned empty (e.g., for submodule
+                        // imports), fall through to check if we need to
+                        // handle it differently
+                        log::debug!(
+                            "  handle_imports_from_inlined_module returned empty for entry \
+                             module, checking for submodule imports"
+                        );
                     }
                 }
             }
@@ -1880,6 +1889,16 @@ fn rewrite_import_from(
         import_from.module.as_ref().map(|m| m.as_str()),
         current_module
     );
+    log::debug!(
+        "  Importing names: {:?}",
+        import_from
+            .names
+            .iter()
+            .map(|a| (a.name.as_str(), a.asname.as_ref().map(|n| n.as_str())))
+            .collect::<Vec<_>>()
+    );
+    log::debug!("  bundled_modules size: {}", bundler.bundled_modules.len());
+    log::debug!("  inlined_modules size: {}", bundler.inlined_modules.len());
     let resolved_module_name = resolve_relative_import_with_context(
         &import_from,
         current_module,
@@ -1899,9 +1918,49 @@ fn rewrite_import_from(
 
     if !bundler.bundled_modules.contains(&module_name) {
         log::debug!(
+            "  bundled_modules contains: {:?}",
+            bundler.bundled_modules.iter().collect::<Vec<_>>()
+        );
+        log::debug!(
             "Module '{module_name}' not found in bundled modules, checking if inlined or \
              importing submodules"
         );
+
+        // First check if we're importing bundled submodules from a namespace package
+        // This check MUST come before the inlined module check
+        // e.g., from greetings import greeting where greeting is actually greetings.greeting
+        let mut has_bundled_submodules = false;
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let full_module_path = format!("{module_name}.{imported_name}");
+            log::debug!("  Checking if '{full_module_path}' is in bundled_modules");
+            if bundler.bundled_modules.contains(&full_module_path) {
+                log::debug!("    -> YES, it's bundled");
+                has_bundled_submodules = true;
+                break;
+            } else {
+                log::debug!("    -> NO, not bundled");
+            }
+        }
+
+        if has_bundled_submodules {
+            // We have bundled submodules, need to transform them
+            log::debug!("Module '{module_name}' has bundled submodules, transforming imports");
+            log::debug!("  Found bundled submodules:");
+            for alias in &import_from.names {
+                let imported_name = alias.name.as_str();
+                let full_module_path = format!("{module_name}.{imported_name}");
+                if bundler.bundled_modules.contains(&full_module_path) {
+                    log::debug!("    - {full_module_path}");
+                }
+            }
+            // Transform each submodule import
+            return bundler.transform_namespace_package_imports(
+                import_from,
+                &module_name,
+                symbol_renames,
+            );
+        }
 
         // Check if this module is inlined
         if bundler.inlined_modules.contains(&module_name) {
@@ -1917,54 +1976,26 @@ fn rewrite_import_from(
             );
         }
 
-        // Check if we're importing submodules from a namespace package
-        // e.g., from greetings import greeting where greeting is actually greetings.greeting
-        let mut has_bundled_submodules = false;
-        for alias in &import_from.names {
-            let imported_name = alias.name.as_str();
-            let full_module_path = format!("{module_name}.{imported_name}");
-            if bundler.bundled_modules.contains(&full_module_path) {
-                has_bundled_submodules = true;
-                break;
-            }
-        }
-
-        if !has_bundled_submodules {
-            log::debug!(
-                "No bundled submodules found for module '{module_name}', checking if it's a \
-                 wrapper module"
+        // Check if this module is in the module_registry (wrapper module)
+        if bundler.module_registry.contains_key(&module_name) {
+            log::debug!("Module '{module_name}' is a wrapper module in module_registry");
+            // This is a wrapper module, we need to transform it
+            return bundler.transform_bundled_import_from_multiple_with_context(
+                import_from,
+                &module_name,
+                inside_wrapper_init,
             );
-
-            // Check if this module is in the module_registry (wrapper module)
-            if bundler.module_registry.contains_key(&module_name) {
-                log::debug!("Module '{module_name}' is a wrapper module in module_registry");
-                // This is a wrapper module, we need to transform it
-                return bundler.transform_bundled_import_from_multiple_with_context(
-                    import_from,
-                    &module_name,
-                    inside_wrapper_init,
-                );
-            }
-
-            // No bundled submodules, keep original import
-            // For relative imports from non-bundled modules, convert to absolute import
-            if import_from.level > 0 {
-                let mut absolute_import = import_from.clone();
-                absolute_import.level = 0;
-                absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
-                return vec![Stmt::ImportFrom(absolute_import)];
-            }
-            return vec![Stmt::ImportFrom(import_from)];
         }
 
-        // We have bundled submodules, need to transform them
-        log::debug!("Module '{module_name}' has bundled submodules, transforming imports");
-        // Transform each submodule import
-        return bundler.transform_namespace_package_imports(
-            import_from,
-            &module_name,
-            symbol_renames,
-        );
+        // No bundled submodules, keep original import
+        // For relative imports from non-bundled modules, convert to absolute import
+        if import_from.level > 0 {
+            let mut absolute_import = import_from.clone();
+            absolute_import.level = 0;
+            absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
+            return vec![Stmt::ImportFrom(absolute_import)];
+        }
+        return vec![Stmt::ImportFrom(import_from)];
     }
 
     log::debug!(
@@ -1989,6 +2020,31 @@ fn rewrite_import_from(
             inside_wrapper_init,
         )
     } else {
+        // Module was inlined - but first check if we're importing bundled submodules
+        // e.g., from my_package import utils where my_package.utils is a bundled module
+        let mut has_bundled_submodules = false;
+        for alias in &import_from.names {
+            let imported_name = alias.name.as_str();
+            let full_module_path = format!("{module_name}.{imported_name}");
+            if bundler.bundled_modules.contains(&full_module_path) {
+                has_bundled_submodules = true;
+                break;
+            }
+        }
+
+        if has_bundled_submodules {
+            log::debug!(
+                "Inlined module '{module_name}' has bundled submodules, using \
+                 transform_namespace_package_imports"
+            );
+            // Use namespace package imports for bundled submodules
+            return bundler.transform_namespace_package_imports(
+                import_from,
+                &module_name,
+                symbol_renames,
+            );
+        }
+
         // Module was inlined - create assignments for imported symbols
         log::debug!(
             "Module '{module_name}' was inlined, creating assignments for imported symbols"

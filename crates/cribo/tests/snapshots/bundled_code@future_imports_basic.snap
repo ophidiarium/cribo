@@ -63,7 +63,6 @@ def __cribo_init___cribo_41d36f_mypackage_core():
     def _transform_data(data: typing.Dict[str, typing.Any]) -> typing.List[str]:
         """Transform data into list format."""
         return [f"{k}={v}" for k, v in data.items()]
-    module._transform_data = _transform_data
     ProcessingResult = typing.Dict[str, typing.Any]
     module.ProcessingResult = ProcessingResult
     return module

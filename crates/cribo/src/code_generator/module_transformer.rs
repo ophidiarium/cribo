@@ -239,20 +239,8 @@ pub fn transform_module_to_init_function<'a>(
                     body.push(stmt.clone());
                 }
 
-                // Create module attribute assignments for imported names
-                // This ensures that imported symbols are accessible outside the wrapper
-                for alias in &import_from.names {
-                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-
-                    // Check if this symbol should be exported
-                    if bundler.should_export_symbol(local_name, ctx.module_name) {
-                        body.push(
-                            crate::code_generator::module_registry::create_module_attr_assignment(
-                                "module", local_name,
-                            ),
-                        );
-                    }
-                }
+                // Module attribute assignments for imported names are already handled by
+                // process_body_recursive in the bundler, so we don't need to add them here
             }
             Stmt::ClassDef(class_def) => {
                 // Add class definition

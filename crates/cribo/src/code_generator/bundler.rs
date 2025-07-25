@@ -335,6 +335,18 @@ impl<'a> HybridStaticBundler<'a> {
             let imported_name = alias.name.as_str();
             let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
+            // First check if we're importing a submodule (e.g., from package import submodule)
+            let full_module_path = format!("{module_name}.{imported_name}");
+            if self.bundled_modules.contains(&full_module_path) {
+                // This is importing a submodule, not a symbol
+                // This should be handled by transform_namespace_package_imports instead
+                log::debug!(
+                    "Skipping submodule import '{imported_name}' from '{module_name}' - should be \
+                     handled elsewhere"
+                );
+                continue;
+            }
+
             // Check if this is likely a re-export from a package __init__.py
             let is_package_reexport = self.is_package_init_reexport(module_name, imported_name);
 
@@ -554,20 +566,36 @@ impl<'a> HybridStaticBundler<'a> {
                 }
 
                 // Build the direct namespace reference
+                log::debug!(
+                    "Building namespace reference for '{}' (is_inlined: {}, has_dot: {})",
+                    full_module_path,
+                    self.inlined_modules.contains(&full_module_path),
+                    full_module_path.contains('.')
+                );
                 let namespace_expr = if self.inlined_modules.contains(&full_module_path) {
                     // For inlined modules, use the temporary variable directly
                     // Use direct module name for inlined modules
                     let module_var_name = full_module_path.clone();
+                    log::debug!("Using inlined module var name: {module_var_name}");
                     expressions::name(&module_var_name, ExprContext::Load)
                 } else if full_module_path.contains('.') {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = full_module_path.split('.').collect();
+                    log::debug!("Creating dotted name for nested module: {parts:?}");
                     expressions::dotted_name(&parts, ExprContext::Load)
                 } else {
                     // Top-level module
+                    log::debug!(
+                        "Creating simple name for top-level module: {full_module_path}"
+                    );
                     expressions::name(&full_module_path, ExprContext::Load)
                 };
 
+                log::debug!(
+                    "Creating submodule import assignment: {} = {:?}",
+                    target_name.as_str(),
+                    namespace_expr
+                );
                 assignments.push(statements::simple_assign(
                     target_name.as_str(),
                     namespace_expr,
@@ -683,11 +711,25 @@ impl<'a> HybridStaticBundler<'a> {
 
             if self.bundled_modules.contains(&full_module_path) {
                 if self.module_registry.contains_key(&full_module_path) {
-                    // Wrapper module - create direct module reference
-                    result_stmts.push(statements::simple_assign(
-                        local_name,
-                        expressions::name(&full_module_path, ExprContext::Load),
-                    ));
+                    // Wrapper module - ensure it's initialized first, then create reference
+                    // First ensure parent module is initialized if it's also a wrapper
+                    if self.module_registry.contains_key(module_name) {
+                        result_stmts
+                            .extend(self.create_module_initialization_for_import(module_name));
+                    }
+                    // Initialize the wrapper module if needed
+                    result_stmts
+                        .extend(self.create_module_initialization_for_import(&full_module_path));
+
+                    // Create assignment using dotted name since it's a nested module
+                    let module_expr = if full_module_path.contains('.') {
+                        let parts: Vec<&str> = full_module_path.split('.').collect();
+                        expressions::dotted_name(&parts, ExprContext::Load)
+                    } else {
+                        expressions::name(&full_module_path, ExprContext::Load)
+                    };
+
+                    result_stmts.push(statements::simple_assign(local_name, module_expr));
                 } else {
                     // Inlined module - create a namespace object for it
                     log::debug!(
@@ -1998,6 +2040,7 @@ impl<'a> HybridStaticBundler<'a> {
         // Track bundled modules
         for (module_name, _, _, _) in &modules {
             self.bundled_modules.insert(module_name.clone());
+            log::debug!("Tracking bundled module: '{module_name}'");
         }
 
         // Check which modules are imported directly (e.g., import module_name)
@@ -2076,8 +2119,10 @@ impl<'a> HybridStaticBundler<'a> {
                     .global_symbols
                     .values()
                     .filter(|s| {
-                        !matches!(s.kind, crate::analyzers::types::SymbolKind::Import { .. })
-                            && s.name != "__all__"
+                        // Include all public symbols (not starting with underscore)
+                        // except __all__ itself
+                        // Special case: __version__ is conventionally exported
+                        s.name != "__all__" && (!s.name.starts_with('_') || s.name == "__version__")
                     })
                     .map(|s| s.name.clone())
                     .collect();
@@ -6756,7 +6801,22 @@ impl<'a> HybridStaticBundler<'a> {
         let Some(name) = self.extract_simple_assign_target(assign) else {
             return;
         };
-        if !self.should_inline_symbol(&name, module_name, ctx.module_exports_map) {
+
+        // Special handling for circular modules: include private module-level variables
+        // that may be used by public functions
+        let is_circular_module = self.circular_modules.contains(module_name);
+        let is_single_underscore_private = name.starts_with('_') && !name.starts_with("__");
+
+        // For circular modules, we need special handling of private variables
+        if is_circular_module && is_single_underscore_private {
+            // For circular modules, we always include single-underscore private module-level
+            // variables because they might be used by functions that are part of the
+            // circular dependency
+            log::debug!(
+                "Including private variable '{name}' from circular module '{module_name}'"
+            );
+        } else if !self.should_inline_symbol(&name, module_name, ctx.module_exports_map) {
+            // For all other cases, use the standard inlining check
             return;
         }
 

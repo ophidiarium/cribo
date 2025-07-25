@@ -121,6 +121,7 @@ def __cribo_init___cribo_1f9e6c_models_user():
     """User models module - imports from core and base, no circular dependencies"""
     models.base = __cribo_init___cribo_0a162a_models_base()
     BaseLogger = models.base.Logger
+    module.BaseLogger = BaseLogger
     process = "process_string"
     module.process = process
     validate = {"action": "validate"}
@@ -207,6 +208,7 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
     """Authentication manager - imports from core and models only, no circular dependencies"""
     core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
     DBConnection = core.database.connection.Connection
+    module.DBConnection = DBConnection
     process = [1, 2, 3]
     module.process = process
     validate = None
@@ -267,6 +269,7 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
         def process_auth(self, username, data):
             return process(f"{username}:{data}")
     module.AuthManager = AuthManager
+    module.sanitize = sanitize
     return module
 @functools.cache
 def __cribo_init___cribo_df9c8d_core_database_connection():
