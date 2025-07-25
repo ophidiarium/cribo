@@ -8036,9 +8036,9 @@ impl<'a> HybridStaticBundler<'a> {
                             if attr.attr.as_str().starts_with("__")
                                 && attr.attr.as_str().ends_with("__")
                             {
-                                let key = (base.id.to_string(), attr.attr.to_string());
                                 // Only keep if we haven't seen this assignment before
-                                seen_assignments.insert(key)
+                                seen_assignments
+                                    .insert((base.id.to_string(), attr.attr.to_string()))
                             } else {
                                 // Don't deduplicate regular attributes
                                 true
