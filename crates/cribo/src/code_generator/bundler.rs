@@ -7330,10 +7330,10 @@ impl<'a> HybridStaticBundler<'a> {
             let all_assignment_exists = result_stmts.iter().any(|stmt| {
                 if let Stmt::Assign(assign) = stmt
                     && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                        && let Expr::Name(base) = attr.value.as_ref() {
-                            return base.id.as_str() == target_name
-                                && attr.attr.as_str() == "__all__";
-                        }
+                    && let Expr::Name(base) = attr.value.as_ref()
+                {
+                    return base.id.as_str() == target_name && attr.attr.as_str() == "__all__";
+                }
                 false
             });
 
@@ -8027,8 +8027,8 @@ impl<'a> HybridStaticBundler<'a> {
 
         for stmt in stmts {
             let should_keep = match &stmt {
-                Stmt::Assign(assign) if assign.targets.len() == 1 => {
-                    if let Expr::Attribute(attr) = &assign.targets[0] {
+                Stmt::Assign(assign) => {
+                    if let [Expr::Attribute(attr)] = assign.targets.as_slice() {
                         if let Expr::Name(base) = attr.value.as_ref() {
                             // Only deduplicate special namespace attributes like __all__,
                             // __version__, etc. These are the ones that
