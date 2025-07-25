@@ -1884,12 +1884,12 @@ fn has_bundled_submodules(
     for alias in &import_from.names {
         let imported_name = alias.name.as_str();
         let full_module_path = format!("{module_name}.{imported_name}");
-        log::debug!("  Checking if '{full_module_path}' is in bundled_modules");
+        log::trace!("  Checking if '{full_module_path}' is in bundled_modules");
         if bundler.bundled_modules.contains(&full_module_path) {
-            log::debug!("    -> YES, it's bundled");
+            log::trace!("    -> YES, it's bundled");
             return true;
         } else {
-            log::debug!("    -> NO, not bundled");
+            log::trace!("    -> NO, not bundled");
         }
     }
     false
@@ -1917,8 +1917,8 @@ fn rewrite_import_from(
             .map(|a| (a.name.as_str(), a.asname.as_ref().map(|n| n.as_str())))
             .collect::<Vec<_>>()
     );
-    log::debug!("  bundled_modules size: {}", bundler.bundled_modules.len());
-    log::debug!("  inlined_modules size: {}", bundler.inlined_modules.len());
+    log::trace!("  bundled_modules size: {}", bundler.bundled_modules.len());
+    log::trace!("  inlined_modules size: {}", bundler.inlined_modules.len());
     let resolved_module_name = resolve_relative_import_with_context(
         &import_from,
         current_module,
@@ -1937,7 +1937,7 @@ fn rewrite_import_from(
     };
 
     if !bundler.bundled_modules.contains(&module_name) {
-        log::debug!(
+        log::trace!(
             "  bundled_modules contains: {:?}",
             bundler.bundled_modules.iter().collect::<Vec<_>>()
         );
