@@ -21,10 +21,9 @@ def __cribo_init___cribo_244765_compat_module():
     module.__name__ = 'compat_module'
     """\nModule that mimics requests.compat structure.\nNo __all__ defined, so all non-underscore symbols should be exported.\n"""
     _ver = sys.version_info
-    module._ver = _ver
-    is_py2 = module._ver[0] == 2
+    is_py2 = _ver[0] == 2
     module.is_py2 = is_py2
-    is_py3 = module._ver[0] == 3
+    is_py3 = _ver[0] == 3
     module.is_py3 = is_py3
     has_simplejson = False
     module.has_simplejson = has_simplejson
@@ -53,7 +52,6 @@ def __cribo_init___cribo_244765_compat_module():
                 except ImportError:
                     pass
         return chardet
-    module._resolve_char_detection = _resolve_char_detection
     chardet = _resolve_char_detection()
     module.chardet = chardet
     builtin_str = str
@@ -61,7 +59,6 @@ def __cribo_init___cribo_244765_compat_module():
     basestring = str, bytes
     module.basestring = basestring
     _internal_cache = {}
-    module._internal_cache = _internal_cache
 
     def get_encoding_from_headers(headers):
         """Dummy function to test function exports."""

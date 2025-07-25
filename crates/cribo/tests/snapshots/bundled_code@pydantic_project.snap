@@ -23,6 +23,9 @@ def __cribo_init___cribo_f275a8_schemas_user():
     module.Optional = Optional
     """User schema definitions using Pydantic."""
     from pydantic import BaseModel, EmailStr, Field
+    module.BaseModel = BaseModel
+    module.EmailStr = EmailStr
+    module.Field = Field
 
     class UserSchema(BaseModel):
         """User model with Pydantic validation."""

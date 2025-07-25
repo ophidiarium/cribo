@@ -15,7 +15,6 @@ core.database = types.SimpleNamespace()
 core.utils = types.SimpleNamespace()
 models = types.SimpleNamespace()
 models.__name__ = 'models'
-_module_config = None
 CORE_MODEL_VERSION = "1.0.0"
 class BaseModel:
     """Base model class."""
@@ -158,8 +157,7 @@ def __cribo_init___cribo_1f0c3d_core_database_connection():
     get_base_model = models.get_base_model
     module.get_base_model = get_base_model
     _connection_types = ["standard", "pooled", "async"]
-    module._connection_types = _connection_types
-    CONNECTION_METADATA = {"supported_types": module._connection_types, "validator": helper_validate.__name__, "processor": process_user.__name__, "core_version": CORE_MODEL_VERSION, "model_config": DEFAULT_MODEL_CONFIG}
+    CONNECTION_METADATA = {"supported_types": _connection_types, "validator": helper_validate.__name__, "processor": process_user.__name__, "core_version": CORE_MODEL_VERSION, "model_config": DEFAULT_MODEL_CONFIG}
     module.CONNECTION_METADATA = CONNECTION_METADATA
 
     class Connection:
@@ -191,6 +189,8 @@ def __cribo_init___cribo_1f0c3d_core_database_connection():
             info["config"] = get_full_config()
         return info
     module.get_connection_info = get_connection_info
+    module.process_user = process_user
+    module.CORE_MODEL_VERSION = CORE_MODEL_VERSION
     return module
 @functools.cache
 def __cribo_init___cribo_782908_core_database():

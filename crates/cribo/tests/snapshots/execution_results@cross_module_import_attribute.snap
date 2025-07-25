@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/cross_module_import_attribute/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Loading version module...\nLoading utils module...\nVersion from utils: 1.2.3\nDirect __version__ access: 1.2.3",
+    stderr: "",
+}
