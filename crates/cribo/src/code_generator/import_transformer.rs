@@ -1986,10 +1986,11 @@ fn rewrite_import_from(
         if bundler.module_registry.contains_key(&module_name) {
             log::debug!("Module '{module_name}' is a wrapper module in module_registry");
             // This is a wrapper module, we need to transform it
-            return bundler.transform_bundled_import_from_multiple_with_context(
+            return bundler.transform_bundled_import_from_multiple_with_current_module(
                 import_from,
                 &module_name,
                 inside_wrapper_init,
+                Some(current_module),
             );
         }
 
@@ -2020,10 +2021,11 @@ fn rewrite_import_from(
             absolute_import.level = 0;
             absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
         }
-        bundler.transform_bundled_import_from_multiple_with_context(
+        bundler.transform_bundled_import_from_multiple_with_current_module(
             absolute_import,
             &module_name,
             inside_wrapper_init,
+            Some(current_module),
         )
     } else {
         // Module was inlined - but first check if we're importing bundled submodules

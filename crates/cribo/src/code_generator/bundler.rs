@@ -432,6 +432,22 @@ impl<'a> HybridStaticBundler<'a> {
         module_name: &str,
         inside_wrapper_init: bool,
     ) -> Vec<Stmt> {
+        self.transform_bundled_import_from_multiple_with_current_module(
+            import_from,
+            module_name,
+            inside_wrapper_init,
+            None,
+        )
+    }
+
+    /// Transform bundled import from statement with context and current module
+    pub(super) fn transform_bundled_import_from_multiple_with_current_module(
+        &self,
+        import_from: StmtImportFrom,
+        module_name: &str,
+        inside_wrapper_init: bool,
+        current_module: Option<&str>,
+    ) -> Vec<Stmt> {
         log::debug!(
             "transform_bundled_import_from_multiple: module_name={}, imports={:?}, \
              inside_wrapper_init={}",
@@ -495,8 +511,18 @@ impl<'a> HybridStaticBundler<'a> {
                 // When inside a wrapper init, we need to initialize modules we're importing from
                 if inside_wrapper_init {
                     // First, ensure the parent module is initialized if it's a wrapper module
+                    // Special case: if current module is a submodule of the module we're importing
+                    // from, don't try to initialize the parent (it's already
+                    // being initialized)
+                    let is_submodule_of_target = current_module
+                        .map(|curr| curr.starts_with(&format!("{module_name}.")))
+                        .unwrap_or(false);
+
                     if self.module_registry.contains_key(module_name)
                         && !locally_initialized.contains(module_name)
+                        && current_module != Some(module_name) // Prevent self-initialization
+                        && !is_submodule_of_target
+                    // Prevent parent initialization from submodule
                     {
                         assignments
                             .extend(self.create_module_initialization_for_import(module_name));
@@ -535,8 +561,15 @@ impl<'a> HybridStaticBundler<'a> {
                     }
                 } else {
                     // Not inside wrapper init - normal lazy initialization
+                    let is_submodule_of_target = current_module
+                        .map(|curr| curr.starts_with(&format!("{module_name}.")))
+                        .unwrap_or(false);
+
                     if self.module_registry.contains_key(module_name)
                         && !locally_initialized.contains(module_name)
+                        && current_module != Some(module_name) // Prevent self-initialization
+                        && !is_submodule_of_target
+                    // Prevent parent initialization from submodule
                     {
                         // Initialize parent module if needed
                         assignments
@@ -611,9 +644,42 @@ impl<'a> HybridStaticBundler<'a> {
                 ));
             } else {
                 // Regular attribute import
+                // Special case: if we're inside the wrapper init of a module importing its own
+                // submodule
+                if inside_wrapper_init && current_module == Some(module_name) {
+                    // Check if this is actually a submodule
+                    let full_submodule_path = format!("{module_name}.{imported_name}");
+                    if self.bundled_modules.contains(&full_submodule_path)
+                        && self.module_registry.contains_key(&full_submodule_path)
+                    {
+                        // This is a submodule that needs initialization
+                        log::debug!(
+                            "Special case: module '{module_name}' importing its own submodule '{imported_name}' - \
+                             initializing submodule first"
+                        );
+
+                        // Initialize the submodule
+                        assignments.extend(
+                            self.create_module_initialization_for_import(&full_submodule_path),
+                        );
+                        locally_initialized.insert(full_submodule_path.clone());
+
+                        // Now create the assignment from the parent namespace
+                        let module_expr = expressions::name(module_name, ExprContext::Load);
+                        let assignment = statements::simple_assign(
+                            target_name.as_str(),
+                            expressions::attribute(module_expr, imported_name, ExprContext::Load),
+                        );
+                        assignments.push(assignment);
+                        continue; // Skip the rest of the regular attribute handling
+                    }
+                }
+
                 // Ensure the module is initialized first if it's a wrapper module
                 if self.module_registry.contains_key(module_name)
                     && !locally_initialized.contains(module_name)
+                    && current_module != Some(module_name)
+                // Prevent self-initialization
                 {
                     // Check if this module is already initialized in any deferred imports
                     let module_init_exists = assignments.iter().any(|stmt| {
@@ -910,16 +976,17 @@ impl<'a> HybridStaticBundler<'a> {
 
                 // Check for attribute access on names (e.g., mod_c.C_CONSTANT)
                 if let Expr::Attribute(attr) = expr
-                    && let Expr::Name(name_expr) = &*attr.value {
-                        // Check if this name is one of our imported circular modules
-                        if self
-                            .imported_circular_modules
-                            .contains(name_expr.id.as_str())
-                        {
-                            self.has_circular_attribute_access = true;
-                            return;
-                        }
+                    && let Expr::Name(name_expr) = &*attr.value
+                {
+                    // Check if this name is one of our imported circular modules
+                    if self
+                        .imported_circular_modules
+                        .contains(name_expr.id.as_str())
+                    {
+                        self.has_circular_attribute_access = true;
+                        return;
                     }
+                }
 
                 // Continue walking
                 walk_expr(self, expr);
