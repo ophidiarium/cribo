@@ -7351,7 +7351,7 @@ impl<'a> HybridStaticBundler<'a> {
 
                 result_stmts.push(statements::assign(
                     vec![expressions::attribute(
-                        all_target.clone(),
+                        all_target,
                         "__all__",
                         ExprContext::Store,
                     )],
