@@ -585,9 +585,7 @@ impl<'a> HybridStaticBundler<'a> {
                     expressions::dotted_name(&parts, ExprContext::Load)
                 } else {
                     // Top-level module
-                    log::debug!(
-                        "Creating simple name for top-level module: {full_module_path}"
-                    );
+                    log::debug!("Creating simple name for top-level module: {full_module_path}");
                     expressions::name(&full_module_path, ExprContext::Load)
                 };
 
@@ -2121,8 +2119,11 @@ impl<'a> HybridStaticBundler<'a> {
                     .filter(|s| {
                         // Include all public symbols (not starting with underscore)
                         // except __all__ itself
-                        // Special case: __version__ is conventionally exported
-                        s.name != "__all__" && (!s.name.starts_with('_') || s.name == "__version__")
+                        // Dunder names (e.g., __version__, __author__, __doc__) are conventionally
+                        // public
+                        s.name != "__all__"
+                            && (!s.name.starts_with('_')
+                                || (s.name.starts_with("__") && s.name.ends_with("__")))
                     })
                     .map(|s| s.name.clone())
                     .collect();
@@ -6812,9 +6813,7 @@ impl<'a> HybridStaticBundler<'a> {
             // For circular modules, we always include single-underscore private module-level
             // variables because they might be used by functions that are part of the
             // circular dependency
-            log::debug!(
-                "Including private variable '{name}' from circular module '{module_name}'"
-            );
+            log::debug!("Including private variable '{name}' from circular module '{module_name}'");
         } else if !self.should_inline_symbol(&name, module_name, ctx.module_exports_map) {
             // For all other cases, use the standard inlining check
             return;
