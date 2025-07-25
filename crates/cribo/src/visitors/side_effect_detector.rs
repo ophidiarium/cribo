@@ -93,8 +93,13 @@ impl SideEffectDetector {
 
     /// Helper to collect names from import-from statements
     fn collect_import_from_names(&mut self, import_from: &ruff_python_ast::StmtImportFrom) {
-        // Skip imports that don't have side effects
-        if !crate::side_effects::from_import_has_side_effects(import_from) {
+        // For relative imports (level > 0), we always need to track the imported names
+        // because they could be first-party modules that might not exist yet
+        // when the assignment is executed (e.g., in circular dependencies)
+        let is_relative_import = import_from.level > 0;
+
+        // Skip imports that don't have side effects, unless it's a relative import
+        if !is_relative_import && !crate::side_effects::from_import_has_side_effects(import_from) {
             return;
         }
 
