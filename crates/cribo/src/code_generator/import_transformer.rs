@@ -1875,6 +1875,26 @@ fn rewrite_import_with_renames(
     }
 }
 
+/// Check if an import statement is importing bundled submodules
+fn has_bundled_submodules(
+    import_from: &StmtImportFrom,
+    module_name: &str,
+    bundler: &HybridStaticBundler,
+) -> bool {
+    for alias in &import_from.names {
+        let imported_name = alias.name.as_str();
+        let full_module_path = format!("{module_name}.{imported_name}");
+        log::debug!("  Checking if '{full_module_path}' is in bundled_modules");
+        if bundler.bundled_modules.contains(&full_module_path) {
+            log::debug!("    -> YES, it's bundled");
+            return true;
+        } else {
+            log::debug!("    -> NO, not bundled");
+        }
+    }
+    false
+}
+
 /// Rewrite import from statement with proper handling for bundled modules
 fn rewrite_import_from(
     bundler: &HybridStaticBundler,
@@ -1929,21 +1949,7 @@ fn rewrite_import_from(
         // First check if we're importing bundled submodules from a namespace package
         // This check MUST come before the inlined module check
         // e.g., from greetings import greeting where greeting is actually greetings.greeting
-        let mut has_bundled_submodules = false;
-        for alias in &import_from.names {
-            let imported_name = alias.name.as_str();
-            let full_module_path = format!("{module_name}.{imported_name}");
-            log::debug!("  Checking if '{full_module_path}' is in bundled_modules");
-            if bundler.bundled_modules.contains(&full_module_path) {
-                log::debug!("    -> YES, it's bundled");
-                has_bundled_submodules = true;
-                break;
-            } else {
-                log::debug!("    -> NO, not bundled");
-            }
-        }
-
-        if has_bundled_submodules {
+        if has_bundled_submodules(&import_from, &module_name, bundler) {
             // We have bundled submodules, need to transform them
             log::debug!("Module '{module_name}' has bundled submodules, transforming imports");
             log::debug!("  Found bundled submodules:");
@@ -2022,17 +2028,7 @@ fn rewrite_import_from(
     } else {
         // Module was inlined - but first check if we're importing bundled submodules
         // e.g., from my_package import utils where my_package.utils is a bundled module
-        let mut has_bundled_submodules = false;
-        for alias in &import_from.names {
-            let imported_name = alias.name.as_str();
-            let full_module_path = format!("{module_name}.{imported_name}");
-            if bundler.bundled_modules.contains(&full_module_path) {
-                has_bundled_submodules = true;
-                break;
-            }
-        }
-
-        if has_bundled_submodules {
+        if has_bundled_submodules(&import_from, &module_name, bundler) {
             log::debug!(
                 "Inlined module '{module_name}' has bundled submodules, using \
                  transform_namespace_package_imports"
