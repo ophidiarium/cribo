@@ -820,6 +820,121 @@ impl<'a> HybridStaticBundler<'a> {
         ruff_python_stdlib::identifiers::is_identifier(name)
     }
 
+    /// Check if a module accesses attributes on imported modules at module level
+    /// where those imported modules are part of the same circular dependency
+    fn module_accesses_imported_attributes(&self, ast: &ModModule, module_name: &str) -> bool {
+        use ruff_python_ast::visitor::{Visitor, walk_expr, walk_stmt};
+
+        // First, collect all module-level imports and their names
+        let mut imported_module_names = FxIndexSet::default();
+
+        for stmt in &ast.body {
+            match stmt {
+                Stmt::Import(import_stmt) => {
+                    for alias in &import_stmt.names {
+                        let imported_as = alias.asname.as_ref().unwrap_or(&alias.name);
+                        let imported_module = &alias.name;
+                        // Check if this imported module is in the circular dependency
+                        if self.circular_modules.contains(imported_module.as_str()) {
+                            imported_module_names.insert(imported_as.to_string());
+                        }
+                    }
+                }
+                Stmt::ImportFrom(import_from) => {
+                    // Handle relative imports within the same package
+                    let resolved_module = if import_from.level > 0 {
+                        // This is a relative import - resolve it based on the current module
+                        if let Some(parent_idx) = module_name.rfind('.') {
+                            let parent = &module_name[..parent_idx];
+                            if let Some(module) = &import_from.module {
+                                // from .submodule import something
+                                format!("{parent}.{module}")
+                            } else {
+                                // from . import something
+                                parent.to_string()
+                            }
+                        } else {
+                            continue; // Can't resolve relative import
+                        }
+                    } else if let Some(module) = &import_from.module {
+                        module.to_string()
+                    } else {
+                        continue; // Invalid import
+                    };
+
+                    // Check if we're importing the module itself (from x import y where y is a
+                    // module)
+                    for alias in &import_from.names {
+                        let name = alias.name.as_str();
+                        let imported_as = alias.asname.as_ref().unwrap_or(&alias.name);
+                        // Check if this could be a module import
+                        let potential_module = format!("{resolved_module}.{name}");
+                        if self.circular_modules.contains(&potential_module) {
+                            imported_module_names.insert(imported_as.to_string());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // If no circular modules are imported, no need to check further
+        if imported_module_names.is_empty() {
+            return false;
+        }
+
+        // Now check if we access attributes on any of these imported circular modules
+        struct AttributeAccessChecker<'a> {
+            has_circular_attribute_access: bool,
+            imported_circular_modules: &'a FxIndexSet<String>,
+        }
+
+        impl<'a> Visitor<'a> for AttributeAccessChecker<'a> {
+            fn visit_stmt(&mut self, stmt: &'a Stmt) {
+                match stmt {
+                    // Skip function and class bodies - we only care about module-level code
+                    Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
+                        // Don't recurse into function or class bodies
+                    }
+                    _ => {
+                        // Continue visiting for other statements
+                        walk_stmt(self, stmt);
+                    }
+                }
+            }
+
+            fn visit_expr(&mut self, expr: &'a Expr) {
+                if self.has_circular_attribute_access {
+                    return; // Already found one
+                }
+
+                // Check for attribute access on names (e.g., mod_c.C_CONSTANT)
+                if let Expr::Attribute(attr) = expr
+                    && let Expr::Name(name_expr) = &*attr.value {
+                        // Check if this name is one of our imported circular modules
+                        if self
+                            .imported_circular_modules
+                            .contains(name_expr.id.as_str())
+                        {
+                            self.has_circular_attribute_access = true;
+                            return;
+                        }
+                    }
+
+                // Continue walking
+                walk_expr(self, expr);
+            }
+        }
+
+        let mut checker = AttributeAccessChecker {
+            has_circular_attribute_access: false,
+            imported_circular_modules: &imported_module_names,
+        };
+
+        checker.visit_body(&ast.body);
+        checker.has_circular_attribute_access
+    }
+
     /// Collect future imports from an AST
     fn collect_future_imports_from_ast(&mut self, ast: &ModModule) {
         for stmt in &ast.body {
@@ -2166,6 +2281,11 @@ impl<'a> HybridStaticBundler<'a> {
             // and circular dependencies can all be handled through static transformation
             let has_side_effects = module_has_side_effects(ast);
 
+            // Check if this module is in a circular dependency and accesses imported module
+            // attributes
+            let needs_wrapping_for_circular = self.circular_modules.contains(module_name)
+                && self.module_accesses_imported_attributes(ast, module_name);
+
             // Check if this module has an invalid identifier (can't be imported normally)
             // These modules are likely imported via importlib and need to be wrapped
             // Note: Module names with dots are valid (e.g., "core.utils.helpers"), so we only
@@ -2173,11 +2293,16 @@ impl<'a> HybridStaticBundler<'a> {
             let module_base_name = module_name.split('.').next_back().unwrap_or(module_name);
             let has_invalid_identifier = !Self::is_valid_python_identifier(module_base_name);
 
-            if has_side_effects || has_invalid_identifier {
+            if has_side_effects || has_invalid_identifier || needs_wrapping_for_circular {
                 if has_invalid_identifier {
                     log::debug!(
                         "Module '{module_name}' has invalid Python identifier - using wrapper \
                          approach"
+                    );
+                } else if needs_wrapping_for_circular {
+                    log::debug!(
+                        "Module '{module_name}' is in circular dependency and accesses imported \
+                         attributes - using wrapper approach"
                     );
                 } else {
                     log::debug!("Module '{module_name}' has side effects - using wrapper approach");
