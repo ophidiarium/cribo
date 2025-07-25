@@ -7329,14 +7329,11 @@ impl<'a> HybridStaticBundler<'a> {
             // Check if __all__ assignment already exists for this namespace
             let all_assignment_exists = result_stmts.iter().any(|stmt| {
                 if let Stmt::Assign(assign) = stmt
-                    && assign.targets.len() == 1
-                    && let Expr::Attribute(attr) = &assign.targets[0]
-                {
-                    // Check if this is the same __all__ assignment target
-                    if let Expr::Name(base) = attr.value.as_ref() {
-                        return base.id.as_str() == target_name && attr.attr.as_str() == "__all__";
-                    }
-                }
+                    && let [Expr::Attribute(attr)] = assign.targets.as_slice()
+                        && let Expr::Name(base) = attr.value.as_ref() {
+                            return base.id.as_str() == target_name
+                                && attr.attr.as_str() == "__all__";
+                        }
                 false
             });
 
