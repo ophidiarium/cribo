@@ -378,13 +378,14 @@ impl<'a> HybridStaticBundler<'a> {
 
             // Check if the source symbol was tree-shaken
             if let Some(kept_symbols) = self.tree_shaking_keep_symbols.as_ref()
-                && !kept_symbols.contains(&(module_name.to_string(), imported_name.to_string())) {
-                    log::debug!(
-                        "Skipping import assignment for tree-shaken symbol '{imported_name}' from \
-                         module '{module_name}'"
-                    );
-                    continue;
-                }
+                && !kept_symbols.contains(&(module_name.to_string(), imported_name.to_string()))
+            {
+                log::debug!(
+                    "Skipping import assignment for tree-shaken symbol '{imported_name}' from \
+                     module '{module_name}'"
+                );
+                continue;
+            }
 
             // Only create assignment if the names are different
             if local_name != renamed_symbol {
@@ -4474,6 +4475,10 @@ impl<'a> HybridStaticBundler<'a> {
             final_body = self.fix_forward_references_in_statements(final_body);
         }
 
+        // Deduplicate namespace assignments that may have been created multiple times
+        // This happens when processing imports like `import mypackage` and `import mypackage.utils`
+        final_body = self.deduplicate_namespace_assignments(final_body);
+
         let mut result = ModModule {
             node_index: self.create_transformed_node("Bundled module root".to_string()),
             range: TextRange::default(),
@@ -7321,28 +7326,46 @@ impl<'a> HybridStaticBundler<'a> {
                 self.tree_shaking_keep_symbols.as_ref(),
             );
 
-            // Create __all__ = [...] assignment with filtered exports
-            let all_list = expressions::list(
-                filtered_exports
-                    .iter()
-                    .map(|name| expressions::string_literal(name.as_str()))
-                    .collect(),
-                ExprContext::Load,
-            );
+            // Check if __all__ assignment already exists for this namespace
+            let all_assignment_exists = result_stmts.iter().any(|stmt| {
+                if let Stmt::Assign(assign) = stmt
+                    && assign.targets.len() == 1
+                    && let Expr::Attribute(attr) = &assign.targets[0]
+                {
+                    // Check if this is the same __all__ assignment target
+                    if let Expr::Name(base) = attr.value.as_ref() {
+                        return base.id.as_str() == target_name && attr.attr.as_str() == "__all__";
+                    }
+                }
+                false
+            });
 
-            result_stmts.push(statements::assign(
-                vec![expressions::attribute(
-                    all_target,
-                    "__all__",
-                    ExprContext::Store,
-                )],
-                all_list,
-            ));
+            if all_assignment_exists {
+                log::debug!("Skipping duplicate __all__ assignment for namespace '{target_name}'");
+            } else {
+                // Create __all__ = [...] assignment with filtered exports
+                let all_list = expressions::list(
+                    filtered_exports
+                        .iter()
+                        .map(|name| expressions::string_literal(name.as_str()))
+                        .collect(),
+                    ExprContext::Load,
+                );
 
-            log::info!(
-                "Created __all__ assignment for namespace '{target_name}' with exports: \
-                 {filtered_exports:?}"
-            );
+                result_stmts.push(statements::assign(
+                    vec![expressions::attribute(
+                        all_target.clone(),
+                        "__all__",
+                        ExprContext::Store,
+                    )],
+                    all_list,
+                ));
+
+                log::info!(
+                    "Created __all__ assignment for namespace '{target_name}' with exports: \
+                     {filtered_exports:?}"
+                );
+            }
 
             // Skip individual symbol assignments if this namespace was already created with initial
             // symbols
@@ -7996,6 +8019,51 @@ impl<'a> HybridStaticBundler<'a> {
             }
         }
         false
+    }
+
+    /// Deduplicate namespace assignments (e.g., mypackage.__all__ = [...])
+    /// This is needed when the same namespace is populated multiple times
+    /// (e.g., when both `import mypackage` and `import mypackage.utils` are processed)
+    fn deduplicate_namespace_assignments(&self, stmts: Vec<Stmt>) -> Vec<Stmt> {
+        let mut seen_assignments: indexmap::IndexSet<(String, String)> = indexmap::IndexSet::new();
+        let mut result = Vec::new();
+
+        for stmt in stmts {
+            let should_keep = match &stmt {
+                Stmt::Assign(assign) if assign.targets.len() == 1 => {
+                    if let Expr::Attribute(attr) = &assign.targets[0] {
+                        if let Expr::Name(base) = attr.value.as_ref() {
+                            // Only deduplicate special namespace attributes like __all__,
+                            // __version__, etc. These are the ones that
+                            // get duplicated when processing parent/child modules
+                            if attr.attr.as_str().starts_with("__")
+                                && attr.attr.as_str().ends_with("__")
+                            {
+                                let key = (base.id.to_string(), attr.attr.to_string());
+                                // Only keep if we haven't seen this assignment before
+                                seen_assignments.insert(key)
+                            } else {
+                                // Don't deduplicate regular attributes
+                                true
+                            }
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    }
+                }
+                _ => true,
+            };
+
+            if should_keep {
+                result.push(stmt);
+            } else {
+                log::debug!("Deduplicating duplicate namespace assignment");
+            }
+        }
+
+        result
     }
 
     /// Fix forward reference issues by reordering statements
