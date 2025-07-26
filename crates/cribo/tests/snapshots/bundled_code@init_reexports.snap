@@ -49,6 +49,7 @@ def __cribo_init___cribo_de6c46_mypackage_config():
 def __cribo_init___cribo_a81151_mypackage():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage'
+    global format_data, helper_function, process_data
     """\nPackage initialization with re-exports.\n\nThis __init__.py demonstrates the pattern where imports are made but not directly used\nwithin this file - they are re-exports for the package interface.\nThese imports should NOT be stripped as unused, even though they don't appear\nto be used within this file itself.\n"""
     mypackage.config = __cribo_init___cribo_de6c46_mypackage_config()
     config = mypackage.config.config
