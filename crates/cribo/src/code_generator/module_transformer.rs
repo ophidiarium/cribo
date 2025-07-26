@@ -95,23 +95,18 @@ pub fn transform_module_to_init_function<'a>(
             );
 
             if let Some(ref module) = resolved_module {
-                // Check if the module is bundled (either inlined or wrapper)
-                let is_bundled = bundler.inlined_modules.contains(module)
-                    || bundler.module_registry.contains_key(module);
+                // Check if the module is inlined (NOT wrapper modules)
+                // Only inlined modules have their symbols in global scope
+                let is_inlined = bundler.inlined_modules.contains(module);
 
-                debug!(
-                    "Checking if resolved module '{}' is bundled (inlined: {}, wrapper: {})",
-                    module,
-                    bundler.inlined_modules.contains(module),
-                    bundler.module_registry.contains_key(module)
-                );
+                debug!("Checking if resolved module '{module}' is inlined: {is_inlined}");
 
-                if is_bundled {
-                    // Track all imported names from this bundled module
+                if is_inlined {
+                    // Track all imported names from this inlined module
                     for alias in &import_from.names {
                         let imported_name = alias.name.as_str();
                         debug!(
-                            "Tracking imported name '{imported_name}' from bundled module \
+                            "Tracking imported name '{imported_name}' from inlined module \
                              '{module}'"
                         );
                         imports_from_inlined.push(imported_name.to_string());
@@ -131,6 +126,32 @@ pub fn transform_module_to_init_function<'a>(
 
     // Store deferred imports to add after module body
     let deferred_imports_to_add = wrapper_deferred_imports.clone();
+
+    // Add global declarations for symbols imported from inlined modules
+    // This is necessary because the symbols are defined in the global scope
+    // but we need to access them inside the init function
+    if !imports_from_inlined.is_empty() {
+        // Deduplicate and sort the imported names for deterministic output
+        let mut unique_imports: Vec<String> = imports_from_inlined
+            .iter()
+            .collect::<FxIndexSet<_>>()
+            .into_iter()
+            .cloned()
+            .collect();
+        unique_imports.sort();
+        debug!(
+            "Adding global declaration for imported symbols from inlined modules: \
+             {unique_imports:?}"
+        );
+        body.push(Stmt::Global(StmtGlobal {
+            node_index: AtomicNodeIndex::dummy(),
+            names: unique_imports
+                .iter()
+                .map(|name| Identifier::new(name, TextRange::default()))
+                .collect(),
+            range: TextRange::default(),
+        }));
+    }
 
     // IMPORTANT: Add import alias assignments FIRST, before processing the module body
     // This ensures that aliases like 'helper_validate = validate' are available when

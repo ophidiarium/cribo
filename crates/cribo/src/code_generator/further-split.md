@@ -22,7 +22,6 @@ The bundler contains several distinct functional areas that can be cleanly separ
 - `bundle_modules`: ~1,500+ lines (main orchestration)
 - `inline_module`: ~600+ lines
 - `rewrite_import_from`: ~500+ lines
-- `transform_bundled_import_from_multiple_with_context`: ~400+ lines
 - `handle_imports_from_inlined_module_with_context`: ~350+ lines
 
 ## Proposed Split Strategy
@@ -64,7 +63,6 @@ Extract all import resolution and rewriting logic:
 - rewrite_import_from()
 - rewrite_import_with_renames()
 - rewrite_import_in_stmt_multiple_with_full_context()
-- transform_bundled_import_from_multiple_with_context()
 - handle_imports_from_inlined_module()
 - handle_imports_from_inlined_module_with_context()
 - transform_namespace_package_imports()

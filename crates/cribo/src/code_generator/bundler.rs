@@ -360,20 +360,11 @@ impl<'a> HybridStaticBundler<'a> {
                 imported_name.to_string()
             } else {
                 // Not a re-export, check normal renames
-                if let Some(module_renames) = symbol_renames.get(module_name) {
-                    module_renames
-                        .get(imported_name)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            // If no rename found, use the default pattern
-                            let module_suffix = module_name.cow_replace('.', "_").into_owned();
-                            format!("{imported_name}_{module_suffix}")
-                        })
-                } else {
-                    // If no rename map, use the default pattern
-                    let module_suffix = module_name.cow_replace('.', "_").into_owned();
-                    format!("{imported_name}_{module_suffix}")
-                }
+                symbol_renames
+                    .get(module_name)
+                    .and_then(|renames| renames.get(imported_name))
+                    .cloned()
+                    .unwrap_or_else(|| imported_name.to_string())
             };
 
             // Check if the source symbol was tree-shaken
@@ -423,21 +414,6 @@ impl<'a> HybridStaticBundler<'a> {
             }
         }
         false
-    }
-
-    /// Transform bundled import from statement with context
-    pub(super) fn transform_bundled_import_from_multiple_with_context(
-        &self,
-        import_from: StmtImportFrom,
-        module_name: &str,
-        inside_wrapper_init: bool,
-    ) -> Vec<Stmt> {
-        self.transform_bundled_import_from_multiple_with_current_module(
-            import_from,
-            module_name,
-            inside_wrapper_init,
-            None,
-        )
     }
 
     /// Transform bundled import from statement with context and current module
