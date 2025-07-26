@@ -255,6 +255,7 @@ impl<'a> SemanticModelBuilder<'a> {
 
             // Only include symbols that are actual definitions (not imports) and not builtins
             // and are not private (unless they are dunder methods)
+            log::trace!("Processing binding '{}' with kind {:?}", name, binding.kind);
             match &binding.kind {
                 BindingKind::ClassDefinition(_) => {
                     if !name.starts_with('_') || name.starts_with("__") {
@@ -275,8 +276,16 @@ impl<'a> SemanticModelBuilder<'a> {
                         symbols.insert(name.to_string());
                     }
                 }
-                // Skip imports, builtins, and other binding types for symbol extraction
-                BindingKind::Builtin | BindingKind::Import(_) | BindingKind::FromImport(_) => {
+                BindingKind::FromImport(_) => {
+                    // Include FromImport symbols as exports
+                    // This is important for __init__.py files that re-export symbols
+                    if !name.starts_with('_') || name.starts_with("__") {
+                        log::trace!("Adding from-import symbol: {name}");
+                        symbols.insert(name.to_string());
+                    }
+                }
+                // Skip regular imports and builtins
+                BindingKind::Builtin | BindingKind::Import(_) => {
                     log::trace!("Skipping import/builtin binding: {name}");
                 }
                 _ => {
@@ -497,10 +506,34 @@ impl SemanticBundler {
             );
         }
 
-        // Register symbols in global registry (simplified for now)
+        // Register symbols in global registry, but only those that are defined locally
+        // Skip FromImport symbols to avoid incorrect conflict resolution
         for symbol in &exported_symbols {
-            self.global_symbols
-                .register_symbol(symbol.clone(), module_id);
+            // Check if this symbol is a FromImport by looking at the semantic model
+            let is_from_import = if let Some((_name, binding_id)) = semantic_model
+                .global_scope()
+                .bindings()
+                .find(|(n, _)| *n == symbol.as_str())
+            {
+                matches!(
+                    semantic_model.bindings[binding_id].kind,
+                    BindingKind::FromImport(_)
+                )
+            } else {
+                false
+            };
+
+            if !is_from_import {
+                self.global_symbols
+                    .register_symbol(symbol.clone(), module_id);
+            } else {
+                log::debug!(
+                    "Skipping registration of FromImport symbol '{}' from module {} for conflict \
+                     resolution",
+                    symbol,
+                    module_id.as_u32()
+                );
+            }
         }
 
         // Store module semantic info
