@@ -246,6 +246,7 @@ models_base = types.SimpleNamespace()
 def __cribo_init___cribo_6ccb3a_services_auth_manager():
     module = types.SimpleNamespace()
     module.__name__ = 'services.auth.manager'
+    global Connection, base
     DBConnection = Connection_5
     Optional = typing.Optional
     module.Optional = Optional

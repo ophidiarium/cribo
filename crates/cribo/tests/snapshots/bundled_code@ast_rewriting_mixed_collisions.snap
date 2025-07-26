@@ -258,6 +258,7 @@ _cribo_services_auth_manager_result = None
 def __cribo_init___cribo_ee1d45_services_auth_manager():
     module = types.SimpleNamespace()
     module.__name__ = 'services.auth.manager'
+    global Connection, base
     DBConnection = Connection_6
     Optional = typing.Optional
     module.Optional = Optional

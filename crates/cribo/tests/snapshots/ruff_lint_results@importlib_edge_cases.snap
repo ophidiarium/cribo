@@ -1,6 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
-input_file: crates/cribo/tests/fixtures/xfail_importlib_edge_cases/main.py
+input_file: crates/cribo/tests/fixtures/importlib_edge_cases/main.py
 ---
 RuffLintResults {
     f401_violations: [],
