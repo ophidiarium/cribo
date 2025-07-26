@@ -99,9 +99,7 @@ pub fn transform_module_to_init_function<'a>(
                 // Only inlined modules have their symbols in global scope
                 let is_inlined = bundler.inlined_modules.contains(module);
 
-                debug!(
-                    "Checking if resolved module '{module}' is inlined: {is_inlined}"
-                );
+                debug!("Checking if resolved module '{module}' is inlined: {is_inlined}");
 
                 if is_inlined {
                     // Track all imported names from this inlined module
@@ -136,13 +134,14 @@ pub fn transform_module_to_init_function<'a>(
         // Deduplicate and sort the imported names for deterministic output
         let mut unique_imports: Vec<String> = imports_from_inlined
             .iter()
-            .cloned()
             .collect::<FxIndexSet<_>>()
             .into_iter()
+            .cloned()
             .collect();
         unique_imports.sort();
         debug!(
-            "Adding global declaration for imported symbols from inlined modules: {unique_imports:?}"
+            "Adding global declaration for imported symbols from inlined modules: \
+             {unique_imports:?}"
         );
         body.push(Stmt::Global(StmtGlobal {
             node_index: AtomicNodeIndex::dummy(),
