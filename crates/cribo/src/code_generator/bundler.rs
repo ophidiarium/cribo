@@ -365,14 +365,14 @@ impl<'a> HybridStaticBundler<'a> {
                         .get(imported_name)
                         .cloned()
                         .unwrap_or_else(|| {
-                            // If no rename found, use the default pattern
-                            let module_suffix = module_name.cow_replace('.', "_").into_owned();
-                            format!("{imported_name}_{module_suffix}")
+                            // If no rename found, the symbol wasn't renamed during inlining
+                            // Use the original name
+                            imported_name.to_string()
                         })
                 } else {
-                    // If no rename map, use the default pattern
-                    let module_suffix = module_name.cow_replace('.', "_").into_owned();
-                    format!("{imported_name}_{module_suffix}")
+                    // If no rename map for this module, the symbol wasn't renamed
+                    // Use the original name
+                    imported_name.to_string()
                 }
             };
 
