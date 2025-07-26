@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/module_attribute_fstring/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Version: 1.0.0",
+    stderr: "",
+}
