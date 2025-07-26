@@ -416,21 +416,6 @@ impl<'a> HybridStaticBundler<'a> {
         false
     }
 
-    /// Transform bundled import from statement with context
-    pub(super) fn transform_bundled_import_from_multiple_with_context(
-        &self,
-        import_from: StmtImportFrom,
-        module_name: &str,
-        inside_wrapper_init: bool,
-    ) -> Vec<Stmt> {
-        self.transform_bundled_import_from_multiple_with_current_module(
-            import_from,
-            module_name,
-            inside_wrapper_init,
-            None,
-        )
-    }
-
     /// Transform bundled import from statement with context and current module
     pub(super) fn transform_bundled_import_from_multiple_with_current_module(
         &self,
