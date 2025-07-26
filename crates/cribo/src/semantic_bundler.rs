@@ -508,20 +508,17 @@ impl SemanticBundler {
 
         // Register symbols in global registry, but only those that are defined locally
         // Skip FromImport symbols to avoid incorrect conflict resolution
+
+        // Build a lookup map for O(1) access to binding information
+        let binding_lookup: FxIndexMap<&str, BindingId> =
+            semantic_model.global_scope().bindings().collect();
+
         for symbol in &exported_symbols {
             // Check if this symbol is a FromImport by looking at the semantic model
-            let is_from_import = if let Some((_name, binding_id)) = semantic_model
-                .global_scope()
-                .bindings()
-                .find(|(n, _)| *n == symbol.as_str())
-            {
-                matches!(
-                    semantic_model.bindings[binding_id].kind,
-                    BindingKind::FromImport(_)
-                )
-            } else {
-                false
-            };
+            let is_from_import = binding_lookup
+                .get(symbol.as_str())
+                .map(|&id| matches!(semantic_model.bindings[id].kind, BindingKind::FromImport(_)))
+                .unwrap_or(false);
 
             if !is_from_import {
                 self.global_symbols
