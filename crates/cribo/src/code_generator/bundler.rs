@@ -360,20 +360,11 @@ impl<'a> HybridStaticBundler<'a> {
                 imported_name.to_string()
             } else {
                 // Not a re-export, check normal renames
-                if let Some(module_renames) = symbol_renames.get(module_name) {
-                    module_renames
-                        .get(imported_name)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            // If no rename found, the symbol wasn't renamed during inlining
-                            // Use the original name
-                            imported_name.to_string()
-                        })
-                } else {
-                    // If no rename map for this module, the symbol wasn't renamed
-                    // Use the original name
-                    imported_name.to_string()
-                }
+                symbol_renames
+                    .get(module_name)
+                    .and_then(|renames| renames.get(imported_name))
+                    .cloned()
+                    .unwrap_or_else(|| imported_name.to_string())
             };
 
             // Check if the source symbol was tree-shaken
