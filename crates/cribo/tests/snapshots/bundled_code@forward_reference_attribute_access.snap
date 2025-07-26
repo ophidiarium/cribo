@@ -10,6 +10,7 @@ import json
 import types
 mymodule = types.SimpleNamespace()
 mymodule.__name__ = 'mymodule'
+MyError = None
 JSONDecodeError = json.JSONDecodeError
 class MyError(Exception):
     """Base error class"""
