@@ -390,7 +390,7 @@ def __cribo_init___cribo_ee1d45_services_auth_manager():
     global _cribo_services_auth_manager_result
     _cribo_services_auth_manager_result = result
     return module
-__cribo_init___cribo_ee1d45_services_auth_manager()
+services.auth.manager = __cribo_init___cribo_ee1d45_services_auth_manager()
 core_validate = validate_6
 UserLogger = Logger_2
 util_process = process_6
@@ -402,7 +402,6 @@ models_base.Logger = Logger_1
 models_base.result = result_2
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
-services.auth.manager = __cribo_init___cribo_ee1d45_services_auth_manager()
 auth_process = services.auth.manager.process
 auth_validate = services.auth.manager.validate
 UserModel = User_2

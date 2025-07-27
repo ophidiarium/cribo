@@ -112,8 +112,6 @@ pub struct HybridStaticBundler<'a> {
     pub(crate) tree_shaking_keep_symbols: Option<indexmap::IndexSet<(String, String)>>,
     /// Whether to use the module cache model for circular dependencies
     pub(crate) use_module_cache: bool,
-    /// Whether modules are initialized upfront (true when circular deps exist)
-    pub(crate) modules_initialized_upfront: bool,
     /// Track namespaces that were created with initial symbols
     /// These don't need symbol population via populate_namespace_with_module_symbols_with_renames
     pub(crate) namespaces_with_initial_symbols: FxIndexSet<String>,
@@ -175,7 +173,6 @@ impl<'a> HybridStaticBundler<'a> {
             tree_shaking_keep_symbols: None,
             use_module_cache: true, /* Enable module cache by default for circular
                                      * dependencies */
-            modules_initialized_upfront: false,
             namespaces_with_initial_symbols: FxIndexSet::default(),
             namespace_assignments_made: FxIndexSet::default(),
             symbols_populated_after_deferred: FxIndexSet::default(),
@@ -2643,8 +2640,6 @@ impl<'a> HybridStaticBundler<'a> {
                 "Detected circular dependencies in wrapper modules - will use module cache \
                  approach"
             );
-            // Track that modules will be initialized upfront
-            self.modules_initialized_upfront = true;
         }
 
         // Add functools import for module cache decorators when we have wrapper modules to
@@ -7246,25 +7241,6 @@ impl<'a> HybridStaticBundler<'a> {
 
         // Check if this is a wrapper module that needs initialization
         if let Some(synthetic_name) = self.module_registry.get(module_name) {
-            // When modules are initialized upfront (circular deps exist), all wrapped modules
-            // (except entry module and its submodules) are initialized during the sorted module
-            // phase. Skip re-initialization to avoid duplicates.
-            if self.modules_initialized_upfront {
-                // Check if this module would have been included in sorted module initialization
-                // Sorted modules exclude: 1) entry module, 2) submodules of entry module
-                let is_entry_or_submodule = module_name == self.entry_module_name
-                    || (module_name.starts_with(&self.entry_module_name)
-                        && module_name.as_bytes().get(self.entry_module_name.len()) == Some(&b'.'));
-
-                if !is_entry_or_submodule {
-                    log::debug!(
-                        "Skipping module initialization for '{module_name}' - already initialized \
-                         in sorted module phase"
-                    );
-                    return stmts;
-                }
-            }
-
             // Generate the init call
             let init_func_name =
                 crate::code_generator::module_registry::get_init_function_name(synthetic_name);
