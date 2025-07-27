@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.6](https://github.com/ophidiarium/cribo/compare/v0.5.5...v0.5.6) (2025-07-27)
+
+
+### Bug Fixes
+
+* **bundler:** handle __version__ export and eliminate duplicate module assignments ([#213](https://github.com/ophidiarium/cribo/issues/213)) ([1148f14](https://github.com/ophidiarium/cribo/commit/1148f144a21b3538e63af7e664441d93f77e568d))
+* **bundler:** handle circular dependencies with module-level attribute access ([cd08b97](https://github.com/ophidiarium/cribo/commit/cd08b97ed2f5c638777025f28075961d9fbb94c5))
+* **bundler:** handle circular dependencies with module-level attribute access ([#219](https://github.com/ophidiarium/cribo/issues/219)) ([f65e292](https://github.com/ophidiarium/cribo/commit/f65e292eaf91a1d249dfa216c3801ee9ac275fb6))
+* **bundler:** prevent duplicate namespace assignments when processing parent modules ([#216](https://github.com/ophidiarium/cribo/issues/216)) ([b1d0873](https://github.com/ophidiarium/cribo/commit/b1d08738a2b7349db96e593660d41a1f46a64bda))
+* **bundler:** prevent transformation of Python builtins to module attributes ([#212](https://github.com/ophidiarium/cribo/issues/212)) ([4ccc19b](https://github.com/ophidiarium/cribo/commit/4ccc19bfc52cbab4fe895c7534635f77c840ef0b))
+* **bundler:** resolve forward reference issues in cross-module dependencies ([#197](https://github.com/ophidiarium/cribo/issues/197)) ([328995d](https://github.com/ophidiarium/cribo/commit/328995d365dfad2656aac605903cc8994b2c63b1))
+* **bundler:** skip import assignments for tree-shaken symbols ([#214](https://github.com/ophidiarium/cribo/issues/214)) ([74874e4](https://github.com/ophidiarium/cribo/commit/74874e44ce41358b7695a36119d54c6781f2368b))
+* **bundler:** wrap modules in circular deps that access imported attributes ([#218](https://github.com/ophidiarium/cribo/issues/218)) ([1cd1815](https://github.com/ophidiarium/cribo/commit/1cd18151bbc9f44f92ba6a31c2e4764a4b7d9e35))
+* use original name and declare global ([#221](https://github.com/ophidiarium/cribo/issues/221)) ([18bd9e7](https://github.com/ophidiarium/cribo/commit/18bd9e7b612caef3938fd2d3c81dcf8d7f5c4110))
+
 ## [0.5.5](https://github.com/ophidiarium/cribo/compare/v0.5.4...v0.5.5) (2025-07-01)
 
 
