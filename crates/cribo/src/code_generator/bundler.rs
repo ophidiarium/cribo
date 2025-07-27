@@ -7253,12 +7253,13 @@ impl<'a> HybridStaticBundler<'a> {
                 // Check if this module would have been included in sorted module initialization
                 // Sorted modules exclude: 1) entry module, 2) submodules of entry module
                 let is_entry_or_submodule = module_name == self.entry_module_name
-                    || module_name.starts_with(&format!("{}.", self.entry_module_name));
+                    || (module_name.starts_with(&self.entry_module_name)
+                        && module_name.as_bytes().get(self.entry_module_name.len()) == Some(&b'.'));
 
                 if !is_entry_or_submodule {
                     log::debug!(
-                        "Skipping module initialization for '{module_name}' - already initialized in sorted \
-                         module phase"
+                        "Skipping module initialization for '{module_name}' - already initialized \
+                         in sorted module phase"
                     );
                     return stmts;
                 }

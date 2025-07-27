@@ -12,7 +12,7 @@ mypackage = types.SimpleNamespace()
 mypackage.__name__ = 'mypackage'
 mypackage.utils = types.SimpleNamespace()
 @functools.cache
-def __cribo_init___cribo_cdc208_mypackage_utils():
+def __cribo_init___cribo_35f1d1_mypackage_utils():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage.utils'
     global __version__
@@ -37,7 +37,7 @@ def process_data():
 """Core module that creates circular dependency."""
 """Version information module."""
 mypackage.get_full_info = get_full_info
-mypackage.utils = __cribo_init___cribo_cdc208_mypackage_utils()
+mypackage.utils = __cribo_init___cribo_35f1d1_mypackage_utils()
 """Test cross-module attribute import with circular dependencies that require init functions."""
 mypackage.__all__ = ['get_full_info']
 print(mypackage.get_full_info())
