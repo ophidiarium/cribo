@@ -629,6 +629,8 @@ fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
                 // Report duplicate global assignments (but not in class methods)
                 (!line.starts_with("    ") && line.contains(" = ") && !line.contains("self."))
                 )
+                // Allow duplicate init function calls since they're cached with @functools.cache
+                && !line.contains("__cribo_init_")
         })
         .collect();
 
