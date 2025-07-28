@@ -268,15 +268,12 @@ pub fn transform_module_to_init_function<'a>(
                 body.push(stmt.clone());
                 // Set as module attribute - include all module-scope symbols
                 let symbol_name = class_def.name.to_string();
-                // Check if this symbol is in module_scope_symbols if available, otherwise use
-                // export check
-                let should_include = if let Some(scope_symbols) = module_scope_symbols {
-                    scope_symbols.contains(&symbol_name)
-                } else {
-                    bundler.should_export_symbol(&symbol_name, ctx.module_name)
-                };
-
-                if should_include {
+                if should_include_symbol(
+                    bundler,
+                    &symbol_name,
+                    ctx.module_name,
+                    module_scope_symbols,
+                ) {
                     body.push(
                         crate::code_generator::module_registry::create_module_attr_assignment(
                             "module",
@@ -302,15 +299,12 @@ pub fn transform_module_to_init_function<'a>(
 
                 // Set as module attribute - include all module-scope symbols
                 let symbol_name = func_def.name.to_string();
-                // Check if this symbol is in module_scope_symbols if available, otherwise use
-                // export check
-                let should_include = if let Some(scope_symbols) = module_scope_symbols {
-                    scope_symbols.contains(&symbol_name)
-                } else {
-                    bundler.should_export_symbol(&symbol_name, ctx.module_name)
-                };
-
-                if should_include {
+                if should_include_symbol(
+                    bundler,
+                    &symbol_name,
+                    ctx.module_name,
+                    module_scope_symbols,
+                ) {
                     body.push(
                         crate::code_generator::module_registry::create_module_attr_assignment(
                             "module",
@@ -363,13 +357,11 @@ pub fn transform_module_to_init_function<'a>(
                             name, ctx.module_name, imports_from_inlined
                         );
                         if imports_from_inlined.contains(&name) {
-                            // This was imported from an inlined module, check if it should be
-                            // included
-                            let should_include = if let Some(scope_symbols) = module_scope_symbols {
-                                scope_symbols.contains(&name)
-                            } else {
-                                true // If no scope info, include imported symbols
-                            };
+                            // This was imported from an inlined module
+                            // Use a special case: if no scope info available, include imported
+                            // symbols
+                            let should_include = module_scope_symbols
+                                .is_none_or(|symbols| symbols.contains(&name));
 
                             if should_include {
                                 debug!("Exporting imported symbol '{name}' as module attribute");
@@ -378,13 +370,10 @@ pub fn transform_module_to_init_function<'a>(
                         } else if let Some(name) = bundler.extract_simple_assign_target(assign) {
                             // Check if this variable is used by exported functions
                             if vars_used_by_exported_functions.contains(&name) {
-                                // Also check if it should be included based on module_scope_symbols
-                                let should_include =
-                                    if let Some(scope_symbols) = module_scope_symbols {
-                                        scope_symbols.contains(&name)
-                                    } else {
-                                        true // If no scope info, include vars used by exported functions
-                                    };
+                                // Use a special case: if no scope info available, include vars used
+                                // by exported functions
+                                let should_include = module_scope_symbols
+                                    .is_none_or(|symbols| symbols.contains(&name));
 
                                 if should_include {
                                     debug!("Exporting '{name}' as it's used by exported functions");
@@ -1448,6 +1437,19 @@ pub fn transform_ast_with_lifted_globals(
     bundler.transform_ast_with_lifted_globals(ast, lifted_names, global_info);
 }
 
+/// Helper function to determine if a symbol should be included in the module namespace
+fn should_include_symbol(
+    bundler: &HybridStaticBundler,
+    symbol_name: &str,
+    module_name: &str,
+    module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
+) -> bool {
+    module_scope_symbols.map_or_else(
+        || bundler.should_export_symbol(symbol_name, module_name),
+        |symbols| symbols.contains(symbol_name),
+    )
+}
+
 /// Add module attribute assignment if the symbol should be exported
 fn add_module_attr_if_exported(
     bundler: &HybridStaticBundler,
@@ -1456,22 +1458,14 @@ fn add_module_attr_if_exported(
     body: &mut Vec<Stmt>,
     module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
 ) {
-    if let Some(name) = bundler.extract_simple_assign_target(assign) {
-        // Check if this symbol is in module_scope_symbols if available, otherwise use export check
-        let should_include = if let Some(scope_symbols) = module_scope_symbols {
-            scope_symbols.contains(&name)
-        } else {
-            bundler.should_export_symbol(&name, module_name)
-        };
-
-        if should_include {
+    if let Some(name) = bundler.extract_simple_assign_target(assign)
+        && should_include_symbol(bundler, &name, module_name, module_scope_symbols) {
             body.push(
                 crate::code_generator::module_registry::create_module_attr_assignment(
                     "module", &name,
                 ),
             );
         }
-    }
 }
 
 /// Create namespace for inlined submodule
