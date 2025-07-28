@@ -44,7 +44,7 @@ class CustomJSONError(BaseException, JSONDecodeError):
         return mypkg.compat.JSONDecodeError.__reduce__(self)
 BaseException.__module__ = 'mypkg.exceptions'
 CustomJSONError.__module__ = 'mypkg.exceptions'
-__cribo_init___cribo_4089db_mypkg_compat()
+mypkg.compat = __cribo_init___cribo_4089db_mypkg_compat()
 mypkg.__all__ = ['CustomJSONError']
 mypkg.CustomJSONError = CustomJSONError
 try:
