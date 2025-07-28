@@ -1068,6 +1068,16 @@ impl<'a> HybridStaticBundler<'a> {
 
             // Process all exported symbols from the module
             for symbol in &module_info.exported_symbols {
+                // Skip if this symbol is actually a submodule
+                let full_submodule_path = format!("{module_name}.{symbol}");
+                if self.bundled_modules.contains(&full_submodule_path) {
+                    log::debug!(
+                        "Skipping '{symbol}' from module '{module_name}' rename map - it's a \
+                         submodule"
+                    );
+                    continue;
+                }
+
                 if let Some(new_name) = semantic_ctx.symbol_registry.get_rename(&module_id, symbol)
                 {
                     module_renames.insert(symbol.to_string(), new_name.to_string());
@@ -1104,6 +1114,16 @@ impl<'a> HybridStaticBundler<'a> {
                     // Add any symbols from __all__ that aren't already in module_renames
                     for export in all_exports {
                         if !module_renames.contains_key(export) {
+                            // Check if this is actually a submodule
+                            let full_submodule_path = format!("{module_name}.{export}");
+                            if self.bundled_modules.contains(&full_submodule_path) {
+                                log::debug!(
+                                    "Module '{module_name}': skipping export '{export}' from \
+                                     __all__ - it's a submodule, not a symbol"
+                                );
+                                continue;
+                            }
+
                             // This is a re-exported symbol - use the original name
                             module_renames.insert(export.clone(), export.clone());
                             log::debug!(
@@ -4079,6 +4099,16 @@ impl<'a> HybridStaticBundler<'a> {
                             continue;
                         }
 
+                        // Check if this symbol is actually a submodule
+                        let full_submodule_path = format!("{module_name}.{original_name}");
+                        if self.bundled_modules.contains(&full_submodule_path) {
+                            log::debug!(
+                                "Skipping namespace assignment for '{original_name}' in module \
+                                 '{module_name}' - it's a submodule, not a symbol"
+                            );
+                            continue;
+                        }
+
                         // Create assignment: namespace.original_name = renamed_name
                         let assign_stmt = statements::assign(
                             vec![expressions::attribute(
@@ -4597,6 +4627,10 @@ impl<'a> HybridStaticBundler<'a> {
         // Deduplicate namespace assignments that may have been created multiple times
         // This happens when processing imports like `import mypackage` and `import mypackage.utils`
         final_body = self.deduplicate_namespace_assignments(final_body);
+
+        // Also deduplicate function definitions that may have been duplicated by forward reference
+        // fixes
+        final_body = self.deduplicate_function_definitions(final_body);
 
         let mut result = ModModule {
             node_index: self.create_transformed_node("Bundled module root".to_string()),
@@ -7535,6 +7569,16 @@ impl<'a> HybridStaticBundler<'a> {
                     continue;
                 }
 
+                // Check if this symbol is actually a submodule
+                let full_submodule_path = format!("{module_name}.{symbol}");
+                if self.bundled_modules.contains(&full_submodule_path) {
+                    log::debug!(
+                        "Skipping namespace assignment for '{symbol}' in module '{module_name}' - \
+                         it's a submodule, not a symbol"
+                    );
+                    continue;
+                }
+
                 // Get the renamed symbol if it exists
                 let actual_symbol_name =
                     if let Some(module_renames) = symbol_renames.get(module_name) {
@@ -8080,6 +8124,7 @@ impl<'a> HybridStaticBundler<'a> {
         // First, collect all class positions and assignment positions
         let mut class_positions = FxIndexMap::default();
         let mut assignment_positions = FxIndexMap::default();
+        let mut namespace_init_positions = FxIndexMap::default();
 
         for (idx, stmt) in statements.iter().enumerate() {
             match stmt {
@@ -8093,23 +8138,33 @@ impl<'a> HybridStaticBundler<'a> {
                     {
                         assignment_positions.insert(target.id.to_string(), idx);
                     }
+                    // Also check for namespace init assignments like:
+                    // mypkg.compat = __cribo_init_...()
+                    if assign.targets.len() == 1
+                        && let Expr::Attribute(attr) = &assign.targets[0]
+                        && let Expr::Call(call) = assign.value.as_ref()
+                        && let Expr::Name(func_name) = call.func.as_ref()
+                        && func_name.id.starts_with("__cribo_init_")
+                    {
+                        // Extract the namespace path (e.g., "mypkg.compat")
+                        let namespace_path = expr_to_dotted_name(&Expr::Attribute(attr.clone()));
+                        namespace_init_positions.insert(namespace_path, idx);
+                    }
                 }
                 _ => {}
             }
         }
 
         // Now check for forward references
-        for stmt in statements {
+        for (idx, stmt) in statements.iter().enumerate() {
             if let Stmt::ClassDef(class_def) = stmt
                 && let Some(arguments) = &class_def.arguments
             {
                 let class_name = class_def.name.as_str();
-                let class_pos = class_positions
-                    .get(class_name)
-                    .copied()
-                    .unwrap_or(usize::MAX);
+                let class_pos = idx;
 
                 for base in &arguments.args {
+                    // Check simple name references
                     if let Expr::Name(name_expr) = base {
                         let base_name = name_expr.id.as_str();
 
@@ -8128,6 +8183,28 @@ impl<'a> HybridStaticBundler<'a> {
                             && let Some(&base_pos) = class_positions.get(base_name)
                             && base_pos > class_pos
                         {
+                            return true;
+                        }
+                    }
+                    // Check attribute references (e.g., mypkg.compat.JSONDecodeError)
+                    else if let Expr::Attribute(attr_expr) = base {
+                        // Extract the base module path (e.g., "mypkg.compat" from
+                        // "mypkg.compat.JSONDecodeError")
+                        let base_path = expr_to_dotted_name(&attr_expr.value);
+                        // Check if this namespace is initialized later
+                        if let Some(&init_pos) = namespace_init_positions.get(&base_path)
+                            && init_pos > class_pos
+                        {
+                            log::debug!(
+                                "Class '{}' inherits from {}.{} but namespace '{}' is initialized \
+                                 later at position {} (class at {})",
+                                class_name,
+                                base_path,
+                                attr_expr.attr,
+                                base_path,
+                                init_pos,
+                                class_pos
+                            );
                             return true;
                         }
                     }
@@ -8182,6 +8259,30 @@ impl<'a> HybridStaticBundler<'a> {
         result
     }
 
+    /// Deduplicate function definitions that may have been created multiple times
+    fn deduplicate_function_definitions(&self, stmts: Vec<Stmt>) -> Vec<Stmt> {
+        let mut seen_functions: indexmap::IndexSet<String> = indexmap::IndexSet::new();
+        let mut result = Vec::new();
+
+        for stmt in stmts {
+            let should_keep = match &stmt {
+                Stmt::FunctionDef(func_def) => {
+                    // Only keep if we haven't seen this function before
+                    seen_functions.insert(func_def.name.to_string())
+                }
+                _ => true,
+            };
+
+            if should_keep {
+                result.push(stmt);
+            } else {
+                log::debug!("Deduplicating duplicate function definition");
+            }
+        }
+
+        result
+    }
+
     /// Fix forward reference issues by reordering statements
     fn fix_forward_references_in_statements(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
         // Quick check: if there are no classes, no need to reorder
@@ -8196,6 +8297,135 @@ impl<'a> HybridStaticBundler<'a> {
             return statements;
         }
 
+        log::debug!("Fixing forward references in statements");
+
+        // First, identify namespace initialization statements and their dependencies
+        let mut namespace_inits = FxIndexMap::default();
+        let mut namespace_functions = FxIndexMap::default();
+
+        for (idx, stmt) in statements.iter().enumerate() {
+            // Track namespace init function definitions
+            if let Stmt::FunctionDef(func_def) = stmt
+                && func_def.name.starts_with("__cribo_init_") {
+                    namespace_functions.insert(func_def.name.to_string(), idx);
+                }
+            // Track namespace init assignments
+            if let Stmt::Assign(assign) = stmt
+                && assign.targets.len() == 1
+                && let Expr::Call(call) = assign.value.as_ref()
+                && let Expr::Name(func_name) = call.func.as_ref()
+                && func_name.id.starts_with("__cribo_init_")
+            {
+                if let Expr::Attribute(attr) = &assign.targets[0] {
+                    let namespace_path = expr_to_dotted_name(&Expr::Attribute(attr.clone()));
+                    namespace_inits.insert(namespace_path, (idx, func_name.id.to_string()));
+                } else if let Expr::Name(name) = &assign.targets[0] {
+                    namespace_inits.insert(name.id.to_string(), (idx, func_name.id.to_string()));
+                }
+            }
+        }
+
+        // Find classes that need namespace inits to be moved earlier
+        let mut required_namespace_moves = FxIndexSet::default();
+
+        for (idx, stmt) in statements.iter().enumerate() {
+            if let Stmt::ClassDef(class_def) = stmt
+                && let Some(arguments) = &class_def.arguments
+            {
+                for base in &arguments.args {
+                    if let Expr::Attribute(attr_expr) = base {
+                        let base_path = expr_to_dotted_name(&attr_expr.value);
+                        if let Some(&(init_pos, ref _func_name)) = namespace_inits.get(&base_path)
+                            && init_pos > idx {
+                                log::debug!(
+                                    "Class '{}' at position {} needs namespace '{}' (init at {}) \
+                                     to be moved earlier",
+                                    class_def.name,
+                                    idx,
+                                    base_path,
+                                    init_pos
+                                );
+                                required_namespace_moves.insert(base_path.clone());
+                            }
+                    }
+                }
+            }
+        }
+
+        // If no namespace moves are required, use the original ordering logic
+        if required_namespace_moves.is_empty() {
+            return self.fix_forward_references_classes_only(statements);
+        }
+
+        // Reorder statements to move required namespace inits before class definitions
+        let mut result = Vec::new();
+        let mut moved_indices = FxIndexSet::default();
+        let mut moved_func_indices = FxIndexSet::default();
+
+        // Clone statements for indexing
+        let statements_copy = statements.clone();
+
+        // First, collect the indices of statements that need to be moved
+        for namespace in &required_namespace_moves {
+            if let Some(&(init_idx, ref func_name)) = namespace_inits.get(namespace) {
+                moved_indices.insert(init_idx);
+                // Also move the function definition if it exists
+                if let Some(&func_idx) = namespace_functions.get(func_name) {
+                    moved_func_indices.insert(func_idx);
+                }
+            }
+        }
+
+        // Process statements in order, moving namespace inits when needed
+        for (idx, stmt) in statements.into_iter().enumerate() {
+            // Skip statements that will be moved
+            if moved_indices.contains(&idx) || moved_func_indices.contains(&idx) {
+                continue;
+            }
+
+            // Before adding a class, check if it needs any namespace inits
+            if let Stmt::ClassDef(ref class_def) = stmt
+                && let Some(arguments) = &class_def.arguments
+            {
+                // Add required namespace init functions and calls before this class
+                for base in &arguments.args {
+                    if let Expr::Attribute(attr_expr) = base {
+                        let base_path = expr_to_dotted_name(&attr_expr.value);
+                        if required_namespace_moves.contains(&base_path)
+                            && let Some((_, func_name)) = namespace_inits.get(&base_path) {
+                                // Add the function definition first if it hasn't been added
+                                if let Some(&func_idx) = namespace_functions.get(func_name)
+                                    && moved_func_indices.contains(&func_idx) {
+                                        // Clone the function from the original statements
+                                        if let Some(orig_stmt) = statements_copy.get(func_idx) {
+                                            result.push(orig_stmt.clone());
+                                            moved_func_indices.swap_remove(&func_idx);
+                                        }
+                                    }
+                                // Add the init call
+                                if let Some(&(init_idx, _)) = namespace_inits.get(&base_path)
+                                    && moved_indices.contains(&init_idx) {
+                                        // Clone the init statement from the original statements
+                                        if let Some(orig_stmt) = statements_copy.get(init_idx) {
+                                            result.push(orig_stmt.clone());
+                                            moved_indices.swap_remove(&init_idx);
+                                            // Note: Can't mutate required_namespace_moves here
+                                            // since it's borrowed
+                                        }
+                                    }
+                            }
+                    }
+                }
+            }
+
+            result.push(stmt);
+        }
+
+        result
+    }
+
+    /// Original class-only forward reference fixing logic
+    fn fix_forward_references_classes_only(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
         // First pass: find where the first class appears
         let first_class_position = statements
             .iter()
