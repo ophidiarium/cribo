@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/private_module_vars/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Got validators: {<class 'bytes'>: (re.compile(b'^[^:\\\\s][^:\\\\r\\\\n]*$'), re.compile(b'^\\\\S[^\\\\r\\\\n]*$|^$')), <class 'str'>: (re.compile('^[^:\\\\s][^:\\\\r\\\\n]*$'), re.compile('^\\\\S[^\\\\r\\\\n]*$|^$'))}\n✓ All tests passed!",
+    stderr: "",
+}

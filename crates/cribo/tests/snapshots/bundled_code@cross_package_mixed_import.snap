@@ -66,6 +66,7 @@ def __cribo_init___cribo_f00e4b_core():
     _initialized = False
     module._initialized = _initialized
     _config = {"debug": False}
+    module._config = _config
     set_config_reference(_config)
 
     def initialize_core(debug=False):
@@ -115,6 +116,7 @@ def __cribo_init___cribo_563ea2_models():
         ModelID = str
         module.ModelID = ModelID
     _base_model = None
+    module._base_model = _base_model
 
     def get_base_model():
         """Lazy import of BaseModel to avoid circular imports."""
@@ -160,6 +162,7 @@ def __cribo_init___cribo_1f0c3d_core_database_connection():
     get_base_model = models.get_base_model
     module.get_base_model = get_base_model
     _connection_types = ["standard", "pooled", "async"]
+    module._connection_types = _connection_types
     CONNECTION_METADATA = {"supported_types": _connection_types, "validator": helper_validate.__name__, "processor": process_user.__name__, "core_version": CORE_MODEL_VERSION, "model_config": DEFAULT_MODEL_CONFIG}
     module.CONNECTION_METADATA = CONNECTION_METADATA
 
@@ -207,6 +210,7 @@ def __cribo_init___cribo_782908_core_database():
         """Internal function to register database types."""
         module._registered_types.append(type_name)
         return type_name
+    module._register_type = _register_type
     _register_type("connection")
     _register_type("cursor")
 
