@@ -8226,10 +8226,20 @@ impl<'a> HybridStaticBundler<'a> {
                 Stmt::Assign(assign) => {
                     if let [Expr::Attribute(attr)] = assign.targets.as_slice() {
                         if let Expr::Name(base) = attr.value.as_ref() {
-                            // Only deduplicate special namespace attributes like __all__,
-                            // __version__, etc. These are the ones that
-                            // get duplicated when processing parent/child modules
-                            if attr.attr.as_str().starts_with("__")
+                            // Deduplicate namespace init assignments
+                            if let Expr::Call(call) = assign.value.as_ref() {
+                                if let Expr::Name(func_name) = call.func.as_ref() {
+                                    if func_name.id.starts_with("__cribo_init_") {
+                                        // Only keep if we haven't seen this assignment before
+                                        seen_assignments
+                                            .insert((base.id.to_string(), attr.attr.to_string()))
+                                    } else {
+                                        true
+                                    }
+                                } else {
+                                    true
+                                }
+                            } else if attr.attr.as_str().starts_with("__")
                                 && attr.attr.as_str().ends_with("__")
                             {
                                 // Only keep if we haven't seen this assignment before
@@ -8306,9 +8316,10 @@ impl<'a> HybridStaticBundler<'a> {
         for (idx, stmt) in statements.iter().enumerate() {
             // Track namespace init function definitions
             if let Stmt::FunctionDef(func_def) = stmt
-                && func_def.name.starts_with("__cribo_init_") {
-                    namespace_functions.insert(func_def.name.to_string(), idx);
-                }
+                && func_def.name.starts_with("__cribo_init_")
+            {
+                namespace_functions.insert(func_def.name.to_string(), idx);
+            }
             // Track namespace init assignments
             if let Stmt::Assign(assign) = stmt
                 && assign.targets.len() == 1
@@ -8336,17 +8347,18 @@ impl<'a> HybridStaticBundler<'a> {
                     if let Expr::Attribute(attr_expr) = base {
                         let base_path = expr_to_dotted_name(&attr_expr.value);
                         if let Some(&(init_pos, ref _func_name)) = namespace_inits.get(&base_path)
-                            && init_pos > idx {
-                                log::debug!(
-                                    "Class '{}' at position {} needs namespace '{}' (init at {}) \
-                                     to be moved earlier",
-                                    class_def.name,
-                                    idx,
-                                    base_path,
-                                    init_pos
-                                );
-                                required_namespace_moves.insert(base_path.clone());
-                            }
+                            && init_pos > idx
+                        {
+                            log::debug!(
+                                "Class '{}' at position {} needs namespace '{}' (init at {}) to \
+                                 be moved earlier",
+                                class_def.name,
+                                idx,
+                                base_path,
+                                init_pos
+                            );
+                            required_namespace_moves.insert(base_path.clone());
+                        }
                     }
                 }
             }
@@ -8392,28 +8404,31 @@ impl<'a> HybridStaticBundler<'a> {
                     if let Expr::Attribute(attr_expr) = base {
                         let base_path = expr_to_dotted_name(&attr_expr.value);
                         if required_namespace_moves.contains(&base_path)
-                            && let Some((_, func_name)) = namespace_inits.get(&base_path) {
-                                // Add the function definition first if it hasn't been added
-                                if let Some(&func_idx) = namespace_functions.get(func_name)
-                                    && moved_func_indices.contains(&func_idx) {
-                                        // Clone the function from the original statements
-                                        if let Some(orig_stmt) = statements_copy.get(func_idx) {
-                                            result.push(orig_stmt.clone());
-                                            moved_func_indices.swap_remove(&func_idx);
-                                        }
-                                    }
-                                // Add the init call
-                                if let Some(&(init_idx, _)) = namespace_inits.get(&base_path)
-                                    && moved_indices.contains(&init_idx) {
-                                        // Clone the init statement from the original statements
-                                        if let Some(orig_stmt) = statements_copy.get(init_idx) {
-                                            result.push(orig_stmt.clone());
-                                            moved_indices.swap_remove(&init_idx);
-                                            // Note: Can't mutate required_namespace_moves here
-                                            // since it's borrowed
-                                        }
-                                    }
+                            && let Some((_, func_name)) = namespace_inits.get(&base_path)
+                        {
+                            // Add the function definition first if it hasn't been added
+                            if let Some(&func_idx) = namespace_functions.get(func_name)
+                                && moved_func_indices.contains(&func_idx)
+                            {
+                                // Clone the function from the original statements
+                                if let Some(orig_stmt) = statements_copy.get(func_idx) {
+                                    result.push(orig_stmt.clone());
+                                    moved_func_indices.swap_remove(&func_idx);
+                                }
                             }
+                            // Add the init call
+                            if let Some(&(init_idx, _)) = namespace_inits.get(&base_path)
+                                && moved_indices.contains(&init_idx)
+                            {
+                                // Clone the init statement from the original statements
+                                if let Some(orig_stmt) = statements_copy.get(init_idx) {
+                                    result.push(orig_stmt.clone());
+                                    moved_indices.swap_remove(&init_idx);
+                                    // Note: Can't mutate required_namespace_moves here
+                                    // since it's borrowed
+                                }
+                            }
+                        }
                     }
                 }
             }
