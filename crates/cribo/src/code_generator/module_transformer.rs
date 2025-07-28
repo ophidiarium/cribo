@@ -360,8 +360,8 @@ pub fn transform_module_to_init_function<'a>(
                             // This was imported from an inlined module
                             // Use a special case: if no scope info available, include imported
                             // symbols
-                            let should_include = module_scope_symbols
-                                .is_none_or(|symbols| symbols.contains(&name));
+                            let should_include =
+                                module_scope_symbols.is_none_or(|symbols| symbols.contains(&name));
 
                             if should_include {
                                 debug!("Exporting imported symbol '{name}' as module attribute");
@@ -1459,13 +1459,12 @@ fn add_module_attr_if_exported(
     module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
 ) {
     if let Some(name) = bundler.extract_simple_assign_target(assign)
-        && should_include_symbol(bundler, &name, module_name, module_scope_symbols) {
-            body.push(
-                crate::code_generator::module_registry::create_module_attr_assignment(
-                    "module", &name,
-                ),
-            );
-        }
+        && should_include_symbol(bundler, &name, module_name, module_scope_symbols)
+    {
+        body.push(
+            crate::code_generator::module_registry::create_module_attr_assignment("module", &name),
+        );
+    }
 }
 
 /// Create namespace for inlined submodule
