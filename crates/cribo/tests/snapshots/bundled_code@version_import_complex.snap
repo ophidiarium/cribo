@@ -16,10 +16,10 @@ def get_user_agent():
 """Utility module that imports __version__ from a sibling module."""
 """Version information."""
 """Main package that exposes version and imports submodules."""
+mypackage.__version__ = __version__
 utils = types.SimpleNamespace()
 utils.get_user_agent = get_user_agent
 """Test fixture for importing __version__ in a complex module structure."""
 mypackage.__all__ = ['__version__']
-mypackage.__version__ = __version__
 print(f"User agent: {get_user_agent()}")
 print(f"Package version: {mypackage.__version__}")
