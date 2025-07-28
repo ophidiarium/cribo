@@ -57,6 +57,7 @@ def __cribo_init___cribo_a81151_mypackage():
     __version__ = "1.0.0"
     module.__version__ = __version__
     DEBUG_MODE = config.DEBUG
+    module.DEBUG_MODE = DEBUG_MODE
     utils = types.SimpleNamespace()
     utils.helper_function = helper_function
     formatter = types.SimpleNamespace()

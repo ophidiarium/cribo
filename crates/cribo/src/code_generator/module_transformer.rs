@@ -266,9 +266,17 @@ pub fn transform_module_to_init_function<'a>(
             Stmt::ClassDef(class_def) => {
                 // Add class definition
                 body.push(stmt.clone());
-                // Set as module attribute only if it should be exported
+                // Set as module attribute - include all module-scope symbols
                 let symbol_name = class_def.name.to_string();
-                if bundler.should_export_symbol(&symbol_name, ctx.module_name) {
+                // Check if this symbol is in module_scope_symbols if available, otherwise use
+                // export check
+                let should_include = if let Some(scope_symbols) = module_scope_symbols {
+                    scope_symbols.contains(&symbol_name)
+                } else {
+                    bundler.should_export_symbol(&symbol_name, ctx.module_name)
+                };
+
+                if should_include {
                     body.push(
                         crate::code_generator::module_registry::create_module_attr_assignment(
                             "module",
@@ -292,9 +300,17 @@ pub fn transform_module_to_init_function<'a>(
                 // Add transformed function definition
                 body.push(Stmt::FunctionDef(func_def_clone));
 
-                // Set as module attribute only if it should be exported
+                // Set as module attribute - include all module-scope symbols
                 let symbol_name = func_def.name.to_string();
-                if bundler.should_export_symbol(&symbol_name, ctx.module_name) {
+                // Check if this symbol is in module_scope_symbols if available, otherwise use
+                // export check
+                let should_include = if let Some(scope_symbols) = module_scope_symbols {
+                    scope_symbols.contains(&symbol_name)
+                } else {
+                    bundler.should_export_symbol(&symbol_name, ctx.module_name)
+                };
+
+                if should_include {
                     body.push(
                         crate::code_generator::module_registry::create_module_attr_assignment(
                             "module",
@@ -347,14 +363,33 @@ pub fn transform_module_to_init_function<'a>(
                             name, ctx.module_name, imports_from_inlined
                         );
                         if imports_from_inlined.contains(&name) {
-                            // This was imported from an inlined module, export it
-                            debug!("Exporting imported symbol '{name}' as module attribute");
-                            body.push(crate::code_generator::module_registry::create_module_attr_assignment("module", &name));
+                            // This was imported from an inlined module, check if it should be
+                            // included
+                            let should_include = if let Some(scope_symbols) = module_scope_symbols {
+                                scope_symbols.contains(&name)
+                            } else {
+                                true // If no scope info, include imported symbols
+                            };
+
+                            if should_include {
+                                debug!("Exporting imported symbol '{name}' as module attribute");
+                                body.push(crate::code_generator::module_registry::create_module_attr_assignment("module", &name));
+                            }
                         } else if let Some(name) = bundler.extract_simple_assign_target(assign) {
                             // Check if this variable is used by exported functions
                             if vars_used_by_exported_functions.contains(&name) {
-                                debug!("Exporting '{name}' as it's used by exported functions");
-                                body.push(crate::code_generator::module_registry::create_module_attr_assignment("module", &name));
+                                // Also check if it should be included based on module_scope_symbols
+                                let should_include =
+                                    if let Some(scope_symbols) = module_scope_symbols {
+                                        scope_symbols.contains(&name)
+                                    } else {
+                                        true // If no scope info, include vars used by exported functions
+                                    };
+
+                                if should_include {
+                                    debug!("Exporting '{name}' as it's used by exported functions");
+                                    body.push(crate::code_generator::module_registry::create_module_attr_assignment("module", &name));
+                                }
                             } else {
                                 // Regular assignment, use the normal export logic
                                 add_module_attr_if_exported(
@@ -362,6 +397,7 @@ pub fn transform_module_to_init_function<'a>(
                                     assign,
                                     ctx.module_name,
                                     &mut body,
+                                    module_scope_symbols,
                                 );
                             }
                         } else {
@@ -371,6 +407,7 @@ pub fn transform_module_to_init_function<'a>(
                                 assign,
                                 ctx.module_name,
                                 &mut body,
+                                module_scope_symbols,
                             );
                         }
                     }
@@ -508,7 +545,13 @@ pub fn transform_module_to_init_function<'a>(
             // For deferred imports that are assignments, also set as module attribute if
             // exported
             body.push(stmt.clone());
-            add_module_attr_if_exported(bundler, assign, ctx.module_name, &mut body);
+            add_module_attr_if_exported(
+                bundler,
+                assign,
+                ctx.module_name,
+                &mut body,
+                module_scope_symbols,
+            );
         } else {
             body.push(stmt.clone());
         }
@@ -1411,13 +1454,23 @@ fn add_module_attr_if_exported(
     assign: &StmtAssign,
     module_name: &str,
     body: &mut Vec<Stmt>,
+    module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
 ) {
-    if let Some(name) = bundler.extract_simple_assign_target(assign)
-        && bundler.should_export_symbol(&name, module_name)
-    {
-        body.push(
-            crate::code_generator::module_registry::create_module_attr_assignment("module", &name),
-        );
+    if let Some(name) = bundler.extract_simple_assign_target(assign) {
+        // Check if this symbol is in module_scope_symbols if available, otherwise use export check
+        let should_include = if let Some(scope_symbols) = module_scope_symbols {
+            scope_symbols.contains(&name)
+        } else {
+            bundler.should_export_symbol(&name, module_name)
+        };
+
+        if should_include {
+            body.push(
+                crate::code_generator::module_registry::create_module_attr_assignment(
+                    "module", &name,
+                ),
+            );
+        }
     }
 }
 
