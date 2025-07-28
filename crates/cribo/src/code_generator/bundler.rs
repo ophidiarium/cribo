@@ -3635,13 +3635,17 @@ impl<'a> HybridStaticBundler<'a> {
                     if let Some(synthetic_name) = self.module_registry.get(module_name) {
                         let init_func_name = &self.init_functions[synthetic_name];
 
-                        // Generate a call to the init function
-                        let init_call = statements::expr(expressions::call(
+                        // Generate init call and assignment
+                        let init_call = expressions::call(
                             expressions::name(init_func_name, ExprContext::Load),
                             vec![],
                             vec![],
-                        ));
-                        final_body.push(init_call);
+                        );
+
+                        // Generate the appropriate assignment based on module type
+                        let init_stmts =
+                            self.generate_module_assignment_from_init(module_name, init_call);
+                        final_body.extend(init_stmts);
                     }
                 }
             } else {
