@@ -573,11 +573,21 @@ pub(super) fn rewrite_aliases_in_expr_impl(
 
             // If any expressions were changed, rebuild the f-string
             if any_changed {
+                // Preserve the original flags from the f-string
+                let original_flags = if let Some(fstring_part) =
+                    fstring.value.iter().find_map(|part| match part {
+                        ruff_python_ast::FStringPart::FString(f) => Some(f),
+                        _ => None,
+                    }) {
+                    fstring_part.flags
+                } else {
+                    ruff_python_ast::FStringFlags::empty()
+                };
                 let new_fstring = ruff_python_ast::FString {
                     node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
                     elements: ruff_python_ast::InterpolatedStringElements::from(new_elements),
                     range: ruff_text_size::TextRange::default(),
-                    flags: ruff_python_ast::FStringFlags::empty(),
+                    flags: original_flags, // Preserve the original flags including quote style
                 };
 
                 let new_value = ruff_python_ast::FStringValue::single(new_fstring);
@@ -806,12 +816,22 @@ pub(super) fn transform_fstring_for_lifted_globals(
 
         // If any expressions were transformed, we need to rebuild the f-string
         if any_transformed {
+            // Preserve the original flags from the f-string
+            let original_flags = if let Some(fstring_part) =
+                fstring.value.iter().find_map(|part| match part {
+                    ruff_python_ast::FStringPart::FString(f) => Some(f),
+                    _ => None,
+                }) {
+                fstring_part.flags
+            } else {
+                ruff_python_ast::FStringFlags::empty()
+            };
             // Create a new FString with our transformed elements
             let new_fstring = ruff_python_ast::FString {
                 node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
                 elements: ruff_python_ast::InterpolatedStringElements::from(transformed_elements),
                 range: ruff_text_size::TextRange::default(),
-                flags: ruff_python_ast::FStringFlags::empty(),
+                flags: original_flags, // Preserve the original flags including quote style
             };
 
             // Create a new FStringValue containing our FString

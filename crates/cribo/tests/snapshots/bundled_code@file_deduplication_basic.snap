@@ -24,6 +24,6 @@ app_utils = app_utils
 mod = types.SimpleNamespace(get_name=get_name, helper=helper)
 print(f"Direct import: {app.utils.get_name()}")
 print(f"From import: {app_utils.get_name()}")
-print(f'Importlib: {get_name()}')
+print(f"Importlib: {get_name()}")
 assert app.utils.helper() == app_utils.helper() == helper()
 print("SUCCESS: All imports reference the same module!")
