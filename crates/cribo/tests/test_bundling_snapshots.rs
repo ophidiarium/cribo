@@ -175,9 +175,8 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
     let mut f404_violations = Vec::new();
     let mut other_violations = Vec::new();
 
-    for message in &result.messages {
-        let location = message.compute_start_location();
-        let rule_code = message.noqa_code().map(|c| c.to_string());
+    for message in &result.diagnostics {
+        let location = message.expect_ruff_start_location();
         let rule_name = message.name();
         let violation_info = format!(
             "Line {}: {} - {}",
@@ -186,10 +185,13 @@ fn run_ruff_lint_on_bundle(bundled_code: &str) -> RuffLintResults {
             message.body()
         );
 
-        match rule_code.as_deref() {
-            Some("F401") => f401_violations.push(violation_info),
-            Some("F404") => f404_violations.push(violation_info),
-            _ => other_violations.push(violation_info),
+        // Check if it's a lint rule by looking at the diagnostic id
+        if message.id().is_lint_named("F401") {
+            f401_violations.push(violation_info);
+        } else if message.id().is_lint_named("F404") {
+            f404_violations.push(violation_info);
+        } else {
+            other_violations.push(violation_info);
         }
     }
 

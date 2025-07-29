@@ -5,9 +5,8 @@ use std::path::Path;
 use cow_utils::CowUtils;
 use ruff_python_ast::{
     AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext, ExprFString,
-    ExprName, FString, FStringFlags, FStringValue, Identifier, InterpolatedElement,
-    InterpolatedStringElement, InterpolatedStringElements, Keyword, ModModule, Stmt, StmtImport,
-    StmtImportFrom,
+    ExprName, FString, FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
+    InterpolatedStringElements, Keyword, ModModule, Stmt, StmtImport, StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
@@ -1477,6 +1476,9 @@ impl<'a> RecursiveImportTransformer<'a> {
             Expr::FString(fstring_expr) => {
                 // Transform expressions within the f-string
                 let fstring_range = fstring_expr.range;
+                // Preserve the original flags from the f-string
+                let original_flags =
+                    crate::ast_builder::expressions::get_fstring_flags(&fstring_expr.value);
                 let mut transformed_elements = Vec::new();
                 let mut any_transformed = false;
 
@@ -1512,8 +1514,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                     let new_fstring = FString {
                         node_index: AtomicNodeIndex::dummy(),
                         elements: InterpolatedStringElements::from(transformed_elements),
-                        range: TextRange::default(),
-                        flags: FStringFlags::empty(),
+                        range: fstring_range,
+                        flags: original_flags, // Preserve the original flags including quote style
                     };
 
                     let new_value = FStringValue::single(new_fstring);

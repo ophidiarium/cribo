@@ -29,7 +29,7 @@ def __cribo_init___cribo_35f1d1_mypackage_utils():
 __version__ = "1.0.0"
 def get_full_info():
     """Combine version and processed data."""
-    return f'{mypackage.utils.get_version_info()} - {process_data()}'
+    return f"{mypackage.utils.get_version_info()} - {process_data()}"
 def process_data():
     """Process some data."""
     return "Processed Data"
