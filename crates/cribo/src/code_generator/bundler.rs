@@ -7,8 +7,8 @@ use cow_utils::CowUtils;
 use log::debug;
 use ruff_python_ast::{
     Alias, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprContext, ExprName, Identifier,
-    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
-    StmtImportFrom, visitor::source_order::SourceOrderVisitor,
+    ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom,
+    visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -667,142 +667,6 @@ impl<'a> HybridStaticBundler<'a> {
         assignments
     }
 
-    /// Create a namespace object with __name__ attribute
-    pub(super) fn create_namespace_with_name(
-        &self,
-        var_name: &str,
-        module_path: &str,
-    ) -> Vec<Stmt> {
-        // Create: var_name = types.SimpleNamespace()
-        let types_simple_namespace_call =
-            expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]);
-        let mut statements = vec![statements::simple_assign(
-            var_name,
-            types_simple_namespace_call,
-        )];
-
-        // Set the __name__ attribute
-        let target = expressions::attribute(
-            expressions::name(var_name, ExprContext::Load),
-            "__name__",
-            ExprContext::Store,
-        );
-        let value = expressions::string_literal(module_path);
-        statements.push(statements::assign(vec![target], value));
-
-        statements
-    }
-
-    /// Transform imports from namespace packages
-    pub(super) fn transform_namespace_package_imports(
-        &self,
-        import_from: StmtImportFrom,
-        module_name: &str,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-    ) -> Vec<Stmt> {
-        let mut result_stmts = Vec::new();
-
-        for alias in &import_from.names {
-            let imported_name = alias.name.as_str();
-            let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-            let full_module_path = format!("{module_name}.{imported_name}");
-
-            if self.bundled_modules.contains(&full_module_path) {
-                if self.module_registry.contains_key(&full_module_path) {
-                    // Wrapper module - ensure it's initialized first, then create reference
-                    // First ensure parent module is initialized if it's also a wrapper
-                    if self.module_registry.contains_key(module_name) {
-                        result_stmts
-                            .extend(self.create_module_initialization_for_import(module_name));
-                    }
-                    // Initialize the wrapper module if needed
-                    result_stmts
-                        .extend(self.create_module_initialization_for_import(&full_module_path));
-
-                    // Create assignment using dotted name since it's a nested module
-                    let module_expr = if full_module_path.contains('.') {
-                        let parts: Vec<&str> = full_module_path.split('.').collect();
-                        expressions::dotted_name(&parts, ExprContext::Load)
-                    } else {
-                        expressions::name(&full_module_path, ExprContext::Load)
-                    };
-
-                    result_stmts.push(statements::simple_assign(local_name, module_expr));
-                } else {
-                    // Inlined module - create a namespace object for it
-                    log::debug!(
-                        "Submodule '{imported_name}' from namespace package '{module_name}' was \
-                         inlined, creating namespace"
-                    );
-
-                    // For namespace hybrid modules, we need to create the namespace object
-                    // The inlined module's symbols are already renamed with module prefix
-                    // e.g., message -> message_greetings_greeting
-                    let _inlined_key = full_module_path.cow_replace('.', "_").into_owned();
-
-                    // Create a SimpleNamespace object manually with all the inlined symbols
-                    // Since the module was inlined, we need to map the original names to the
-                    // renamed ones
-                    result_stmts.push(statements::simple_assign(
-                        local_name,
-                        expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
-                    ));
-
-                    // Add all the renamed symbols as attributes to the namespace
-                    // Get the symbol renames for this module if available
-                    if let Some(module_renames) = symbol_renames.get(&full_module_path) {
-                        let module_suffix = full_module_path.cow_replace('.', "_");
-                        for (original_name, renamed_name) in module_renames {
-                            // Check if this is an identity mapping (no semantic rename)
-                            let actual_renamed_name = if renamed_name == original_name {
-                                // No semantic rename, apply module suffix pattern
-
-                                self.get_unique_name_with_module_suffix(
-                                    original_name,
-                                    &module_suffix,
-                                )
-                            } else {
-                                // Use the semantic rename
-                                renamed_name.clone()
-                            };
-
-                            // base.original_name = actual_renamed_name
-                            result_stmts.push(statements::assign(
-                                vec![expressions::attribute(
-                                    expressions::name(local_name, ExprContext::Load),
-                                    original_name,
-                                    ExprContext::Store,
-                                )],
-                                expressions::name(&actual_renamed_name, ExprContext::Load),
-                            ));
-                        }
-                    } else {
-                        // Fallback: try to guess the renamed symbols based on module suffix
-                        log::warn!(
-                            "No symbol renames found for inlined module '{full_module_path}', \
-                             namespace will be empty"
-                        );
-                    }
-                }
-            } else {
-                // Not a bundled submodule, keep as attribute access
-                // This might be importing a symbol from the namespace package's __init__.py
-                // But since we're here, the namespace package has no __init__.py
-                log::warn!(
-                    "Import '{imported_name}' from namespace package '{module_name}' is not a \
-                     bundled module"
-                );
-            }
-        }
-
-        if result_stmts.is_empty() {
-            // If we didn't transform anything, return the original
-            vec![Stmt::ImportFrom(import_from)]
-        } else {
-            result_stmts
-        }
-    }
-
     /// Check if a string is a valid Python identifier
     fn is_valid_python_identifier(name: &str) -> bool {
         // Use ruff's identifier validation which handles Unicode and keywords
@@ -942,46 +806,6 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
         }
-    }
-
-    /// Create namespace statements for required namespaces
-    fn create_namespace_statements(&mut self) -> Vec<Stmt> {
-        let mut statements = Vec::new();
-
-        // Sort namespaces for deterministic output
-        let mut sorted_namespaces: Vec<String> = self.required_namespaces.iter().cloned().collect();
-        sorted_namespaces.sort();
-
-        for namespace in sorted_namespaces {
-            debug!("Creating namespace statement for: {namespace}");
-
-            // Use ensure_namespace_exists to handle both simple and dotted namespaces
-            let namespace_stmts = self.ensure_namespace_exists(&namespace);
-            statements.extend(namespace_stmts);
-        }
-
-        statements
-    }
-
-    /// Create namespace attribute assignment
-    fn create_namespace_attribute(&mut self, parent: &str, child: &str) -> Stmt {
-        // Create: parent.child = types.SimpleNamespace()
-        let mut stmt = statements::assign(
-            vec![expressions::attribute(
-                expressions::name(parent, ExprContext::Load),
-                child,
-                ExprContext::Store,
-            )],
-            expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
-        );
-
-        // Update the node index for tracking
-        if let Stmt::Assign(assign) = &mut stmt {
-            assign.node_index = self
-                .create_transformed_node(format!("Create namespace attribute {parent}.{child}"));
-        }
-
-        stmt
     }
 
     /// Collect imports from a module for hoisting
@@ -1498,105 +1322,6 @@ impl<'a> HybridStaticBundler<'a> {
         Ok(Vec::new()) // Statements are accumulated in ctx.inlined_stmts
     }
 
-    /// Create namespace for inlined module
-    fn create_namespace_for_inlined_module_static(
-        &mut self,
-        module_name: &str,
-        module_renames: &FxIndexMap<String, String>,
-    ) -> Stmt {
-        // Check if this module has forward references that would cause NameError
-        // This happens when the module uses symbols from other modules that haven't been defined
-        // yet
-        let has_forward_references =
-            self.check_module_has_forward_references(module_name, module_renames);
-
-        if has_forward_references {
-            log::debug!("Module '{module_name}' has forward references, creating empty namespace");
-            // Create the namespace variable name
-            let namespace_var = module_name.cow_replace('.', "_").into_owned();
-
-            // Create empty namespace = types.SimpleNamespace() to avoid forward reference errors
-            return statements::simple_assign(
-                &namespace_var,
-                expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
-            );
-        }
-        // Create a types.SimpleNamespace with all the module's symbols
-        let mut keywords = Vec::new();
-        let mut seen_args = FxIndexSet::default();
-
-        // Add all renamed symbols as keyword arguments, avoiding duplicates
-        for (original_name, renamed_name) in module_renames {
-            // Skip if we've already added this argument name
-            if seen_args.contains(original_name) {
-                log::debug!(
-                    "Skipping duplicate namespace argument '{original_name}' for module \
-                     '{module_name}'"
-                );
-                continue;
-            }
-
-            // Check if this symbol survived tree-shaking
-            if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
-                && !kept_symbols.contains(&(module_name.to_string(), original_name.clone()))
-            {
-                log::debug!(
-                    "Skipping tree-shaken symbol '{original_name}' from namespace for module \
-                     '{module_name}'"
-                );
-                continue;
-            }
-
-            seen_args.insert(original_name.clone());
-
-            keywords.push(Keyword {
-                node_index: AtomicNodeIndex::dummy(),
-                arg: Some(Identifier::new(original_name, TextRange::default())),
-                value: expressions::name(renamed_name, ExprContext::Load),
-                range: TextRange::default(),
-            });
-        }
-
-        // Also check if module has module-level variables that weren't renamed
-        if let Some(exports) = self.module_exports.get(module_name)
-            && let Some(export_list) = exports
-        {
-            for export in export_list {
-                // Check if this export was already added as a renamed symbol
-                if !module_renames.contains_key(export) && !seen_args.contains(export) {
-                    // Check if this symbol survived tree-shaking
-                    if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
-                        && !kept_symbols.contains(&(module_name.to_string(), export.clone()))
-                    {
-                        log::debug!(
-                            "Skipping tree-shaken export '{export}' from namespace for module \
-                             '{module_name}'"
-                        );
-                        continue;
-                    }
-
-                    // This export wasn't renamed and wasn't already added, add it directly
-                    seen_args.insert(export.clone());
-                    keywords.push(Keyword {
-                        node_index: AtomicNodeIndex::dummy(),
-                        arg: Some(Identifier::new(export, TextRange::default())),
-                        value: expressions::name(export, ExprContext::Load),
-                        range: TextRange::default(),
-                    });
-                }
-            }
-        }
-
-        // Create the namespace variable name
-        let namespace_var = module_name.cow_replace('.', "_").into_owned();
-
-        // Create namespace = types.SimpleNamespace(**kwargs) assignment
-        statements::assign(
-            vec![expressions::name(&namespace_var, ExprContext::Store)],
-            expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
-        )
-    }
-
     /// Sort wrapped modules by dependencies
     fn sort_wrapped_modules_by_dependencies(
         &self,
@@ -1912,7 +1637,7 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Check if module has forward references that would cause NameError
-    fn check_module_has_forward_references(
+    pub(crate) fn check_module_has_forward_references(
         &self,
         module_name: &str,
         _module_renames: &FxIndexMap<String, String>,
@@ -2368,7 +2093,7 @@ impl<'a> HybridStaticBundler<'a> {
                 "Creating {} namespace statements before module inlining",
                 self.required_namespaces.len()
             );
-            let namespace_statements = self.create_namespace_statements();
+            let namespace_statements = namespace_manager::create_namespace_statements(self);
             final_body.extend(namespace_statements);
 
             // For wrapper modules that are submodules (e.g., requests.compat),
@@ -2396,7 +2121,9 @@ impl<'a> HybridStaticBundler<'a> {
                                      for wrapper module"
                                 );
                                 let placeholder_stmt =
-                                    self.create_namespace_attribute(parent, child);
+                                    namespace_manager::create_namespace_attribute(
+                                        self, parent, child,
+                                    );
                                 final_body.push(placeholder_stmt);
                             } else {
                                 log::debug!(
@@ -3284,10 +3011,12 @@ impl<'a> HybridStaticBundler<'a> {
                             .check_module_has_forward_references(module_name, module_rename_map);
 
                         // Create a SimpleNamespace for this module only if it doesn't exist
-                        let namespace_stmt = self.create_namespace_for_inlined_module_static(
-                            module_name,
-                            module_rename_map,
-                        );
+                        let namespace_stmt =
+                            namespace_manager::create_namespace_for_inlined_module_static(
+                                self,
+                                module_name,
+                                module_rename_map,
+                            );
                         final_body.push(namespace_stmt);
 
                         // Only track as having initial symbols if we didn't create it empty
@@ -5158,47 +4887,6 @@ impl<'a> HybridStaticBundler<'a> {
             }
         }
         false
-    }
-
-    /// Ensure a namespace exists, creating it and any parent namespaces if needed
-    /// Returns statements to create any missing namespaces
-    fn ensure_namespace_exists(&mut self, namespace_path: &str) -> Vec<Stmt> {
-        let mut statements = Vec::new();
-
-        // For dotted names like "models.user", we need to ensure "models" exists first
-        if namespace_path.contains('.') {
-            let parts: Vec<&str> = namespace_path.split('.').collect();
-
-            // Create all parent namespaces
-            for i in 1..=parts.len() {
-                let namespace = parts[..i].join(".");
-
-                if !self.created_namespaces.contains(&namespace) {
-                    debug!("Creating namespace dynamically: {namespace}");
-
-                    if i == 1 {
-                        // Top-level namespace
-                        statements.extend(self.create_namespace_module(&namespace));
-                    } else {
-                        // Nested namespace - create as attribute
-                        let parent = parts[..i - 1].join(".");
-                        let child = parts[i - 1];
-                        statements.push(self.create_namespace_attribute(&parent, child));
-                    }
-
-                    self.created_namespaces.insert(namespace);
-                }
-            }
-        } else {
-            // Simple namespace without dots
-            if !self.created_namespaces.contains(namespace_path) {
-                debug!("Creating simple namespace dynamically: {namespace_path}");
-                statements.extend(self.create_namespace_module(namespace_path));
-                self.created_namespaces.insert(namespace_path.to_string());
-            }
-        }
-
-        statements
     }
 
     /// Create a dotted attribute assignment
