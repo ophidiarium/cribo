@@ -667,30 +667,6 @@ impl<'a> HybridStaticBundler<'a> {
         assignments
     }
 
-    /// Create a namespace object with __name__ attribute
-    pub(super) fn create_namespace_with_name(
-        &self,
-        var_name: &str,
-        module_path: &str,
-    ) -> Vec<Stmt> {
-        namespace_manager::create_namespace_with_name(self, var_name, module_path)
-    }
-
-    /// Transform imports from namespace packages
-    pub(super) fn transform_namespace_package_imports(
-        &self,
-        import_from: StmtImportFrom,
-        module_name: &str,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-    ) -> Vec<Stmt> {
-        namespace_manager::transform_namespace_package_imports(
-            self,
-            import_from,
-            module_name,
-            symbol_renames,
-        )
-    }
-
     /// Check if a string is a valid Python identifier
     fn is_valid_python_identifier(name: &str) -> bool {
         // Use ruff's identifier validation which handles Unicode and keywords
@@ -830,16 +806,6 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
         }
-    }
-
-    /// Create namespace statements for required namespaces
-    fn create_namespace_statements(&mut self) -> Vec<Stmt> {
-        namespace_manager::create_namespace_statements(self)
-    }
-
-    /// Create namespace attribute assignment
-    fn create_namespace_attribute(&mut self, parent: &str, child: &str) -> Stmt {
-        namespace_manager::create_namespace_attribute(self, parent, child)
     }
 
     /// Collect imports from a module for hoisting
@@ -1354,19 +1320,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
 
         Ok(Vec::new()) // Statements are accumulated in ctx.inlined_stmts
-    }
-
-    /// Create namespace for inlined module
-    fn create_namespace_for_inlined_module_static(
-        &mut self,
-        module_name: &str,
-        module_renames: &FxIndexMap<String, String>,
-    ) -> Stmt {
-        namespace_manager::create_namespace_for_inlined_module_static(
-            self,
-            module_name,
-            module_renames,
-        )
     }
 
     /// Sort wrapped modules by dependencies
@@ -2140,7 +2093,7 @@ impl<'a> HybridStaticBundler<'a> {
                 "Creating {} namespace statements before module inlining",
                 self.required_namespaces.len()
             );
-            let namespace_statements = self.create_namespace_statements();
+            let namespace_statements = namespace_manager::create_namespace_statements(self);
             final_body.extend(namespace_statements);
 
             // For wrapper modules that are submodules (e.g., requests.compat),
@@ -2168,7 +2121,9 @@ impl<'a> HybridStaticBundler<'a> {
                                      for wrapper module"
                                 );
                                 let placeholder_stmt =
-                                    self.create_namespace_attribute(parent, child);
+                                    namespace_manager::create_namespace_attribute(
+                                        self, parent, child,
+                                    );
                                 final_body.push(placeholder_stmt);
                             } else {
                                 log::debug!(
@@ -3056,10 +3011,12 @@ impl<'a> HybridStaticBundler<'a> {
                             .check_module_has_forward_references(module_name, module_rename_map);
 
                         // Create a SimpleNamespace for this module only if it doesn't exist
-                        let namespace_stmt = self.create_namespace_for_inlined_module_static(
-                            module_name,
-                            module_rename_map,
-                        );
+                        let namespace_stmt =
+                            namespace_manager::create_namespace_for_inlined_module_static(
+                                self,
+                                module_name,
+                                module_rename_map,
+                            );
                         final_body.push(namespace_stmt);
 
                         // Only track as having initial symbols if we didn't create it empty
@@ -4930,12 +4887,6 @@ impl<'a> HybridStaticBundler<'a> {
             }
         }
         false
-    }
-
-    /// Ensure a namespace exists, creating it and any parent namespaces if needed
-    /// Returns statements to create any missing namespaces
-    fn ensure_namespace_exists(&mut self, namespace_path: &str) -> Vec<Stmt> {
-        namespace_manager::ensure_namespace_exists(self, namespace_path)
     }
 
     /// Create a dotted attribute assignment

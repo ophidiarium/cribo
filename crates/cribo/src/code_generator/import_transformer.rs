@@ -1963,7 +1963,8 @@ fn rewrite_import_from(
                 }
             }
             // Transform each submodule import
-            return bundler.transform_namespace_package_imports(
+            return crate::code_generator::namespace_manager::transform_namespace_package_imports(
+                bundler,
                 import_from,
                 &module_name,
                 symbol_renames,
@@ -2038,7 +2039,8 @@ fn rewrite_import_from(
                  transform_namespace_package_imports"
             );
             // Use namespace package imports for bundled submodules
-            return bundler.transform_namespace_package_imports(
+            return crate::code_generator::namespace_manager::transform_namespace_package_imports(
+                bundler,
                 import_from,
                 &module_name,
                 symbol_renames,
@@ -2058,7 +2060,11 @@ fn rewrite_import_from(
             &bundler.inlined_modules,
             &bundler.bundled_modules,
             |local_name, full_module_path| {
-                bundler.create_namespace_with_name(local_name, full_module_path)
+                crate::code_generator::namespace_manager::create_namespace_with_name(
+                    bundler,
+                    local_name,
+                    full_module_path,
+                )
             },
         )
     }
