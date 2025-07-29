@@ -2061,7 +2061,6 @@ fn rewrite_import_from(
             &bundler.bundled_modules,
             |local_name, full_module_path| {
                 crate::code_generator::namespace_manager::create_namespace_with_name(
-                    bundler,
                     local_name,
                     full_module_path,
                 )

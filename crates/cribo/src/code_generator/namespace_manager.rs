@@ -474,11 +474,7 @@ pub(super) fn create_namespace_attribute(
 }
 
 /// Create a namespace object with __name__ attribute.
-pub(super) fn create_namespace_with_name(
-    _bundler: &HybridStaticBundler,
-    var_name: &str,
-    module_path: &str,
-) -> Vec<Stmt> {
+pub(super) fn create_namespace_with_name(var_name: &str, module_path: &str) -> Vec<Stmt> {
     // Create: var_name = types.SimpleNamespace()
     let types_simple_namespace_call =
         expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]);
