@@ -7,7 +7,8 @@ use std::path::PathBuf;
 
 use cow_utils::CowUtils;
 use log::debug;
-use ruff_python_ast::{ExprContext, Stmt, StmtImportFrom};
+use ruff_python_ast::{AtomicNodeIndex, ExprContext, Identifier, Keyword, Stmt, StmtImportFrom};
+use ruff_text_size::TextRange;
 
 use crate::{
     ast_builder::{self, expressions, statements},
@@ -568,14 +569,11 @@ pub(super) fn create_namespace_for_inlined_module_static(
 
         seen_args.insert(original_name.clone());
 
-        keywords.push(ruff_python_ast::Keyword {
-            node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-            arg: Some(ruff_python_ast::Identifier::new(
-                original_name,
-                ruff_text_size::TextRange::default(),
-            )),
+        keywords.push(Keyword {
+            node_index: AtomicNodeIndex::dummy(),
+            arg: Some(Identifier::new(original_name, TextRange::default())),
             value: expressions::name(renamed_name, ExprContext::Load),
-            range: ruff_text_size::TextRange::default(),
+            range: TextRange::default(),
         });
     }
 
@@ -599,14 +597,11 @@ pub(super) fn create_namespace_for_inlined_module_static(
 
                 // This export wasn't renamed and wasn't already added, add it directly
                 seen_args.insert(export.clone());
-                keywords.push(ruff_python_ast::Keyword {
-                    node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-                    arg: Some(ruff_python_ast::Identifier::new(
-                        export,
-                        ruff_text_size::TextRange::default(),
-                    )),
+                keywords.push(Keyword {
+                    node_index: AtomicNodeIndex::dummy(),
+                    arg: Some(Identifier::new(export, TextRange::default())),
                     value: expressions::name(export, ExprContext::Load),
-                    range: ruff_text_size::TextRange::default(),
+                    range: TextRange::default(),
                 });
             }
         }
