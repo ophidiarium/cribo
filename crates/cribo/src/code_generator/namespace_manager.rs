@@ -348,11 +348,7 @@ pub(super) fn transform_namespace_package_imports(
                         let actual_renamed_name = if renamed_name == original_name {
                             // No semantic rename, apply module suffix pattern
 
-                            get_unique_name_with_module_suffix(
-                                bundler,
-                                original_name,
-                                &module_suffix,
-                            )
+                            get_unique_name_with_module_suffix(original_name, &module_suffix)
                         } else {
                             // Use the semantic rename
                             renamed_name.clone()
@@ -398,11 +394,7 @@ pub(super) fn transform_namespace_package_imports(
 /// Get a unique name for a symbol, using the module suffix pattern.
 ///
 /// Helper function used by transform_namespace_package_imports.
-fn get_unique_name_with_module_suffix(
-    _bundler: &HybridStaticBundler,
-    base_name: &str,
-    module_name: &str,
-) -> String {
+fn get_unique_name_with_module_suffix(base_name: &str, module_name: &str) -> String {
     let module_suffix = module_name.cow_replace('.', "_").into_owned();
     format!("{base_name}_{module_suffix}")
 }
