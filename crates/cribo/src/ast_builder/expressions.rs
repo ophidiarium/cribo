@@ -7,7 +7,8 @@
 use ruff_python_ast::{
     AtomicNodeIndex, BoolOp, Expr, ExprAttribute, ExprBinOp, ExprBoolOp, ExprCall, ExprContext,
     ExprList, ExprName, ExprNoneLiteral, ExprSlice, ExprStringLiteral, ExprSubscript, ExprTuple,
-    ExprUnaryOp, Keyword, Operator, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
+    ExprUnaryOp, FStringFlags, FStringPart, FStringValue, Keyword, Operator, StringLiteral,
+    StringLiteralFlags, StringLiteralValue, UnaryOp,
 };
 use ruff_text_size::TextRange;
 
@@ -337,4 +338,29 @@ pub fn slice(lower: Option<Expr>, upper: Option<Expr>, step: Option<Expr>) -> Ex
 #[inline]
 pub(crate) fn simple_namespace_ctor() -> Expr {
     dotted_name(&["types", "SimpleNamespace"], ExprContext::Load)
+}
+
+/// Extracts the original flags from an f-string value.
+///
+/// This function searches through the f-string parts to find the first FString part
+/// and returns its flags. If no FString part is found, returns empty flags.
+///
+/// # Arguments
+/// * `value` - The FStringValue to extract flags from
+///
+/// # Example
+/// ```rust
+/// let flags = get_fstring_flags(&fstring_expr.value);
+/// ```
+pub fn get_fstring_flags(value: &FStringValue) -> FStringFlags {
+    value
+        .iter()
+        .find_map(|part| {
+            if let FStringPart::FString(f) = part {
+                Some(f.flags)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(FStringFlags::empty)
 }

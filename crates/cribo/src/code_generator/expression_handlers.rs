@@ -817,15 +817,7 @@ pub(super) fn transform_fstring_for_lifted_globals(
         // If any expressions were transformed, we need to rebuild the f-string
         if any_transformed {
             // Preserve the original flags from the f-string
-            let original_flags = if let Some(fstring_part) =
-                fstring.value.iter().find_map(|part| match part {
-                    ruff_python_ast::FStringPart::FString(f) => Some(f),
-                    _ => None,
-                }) {
-                fstring_part.flags
-            } else {
-                ruff_python_ast::FStringFlags::empty()
-            };
+            let original_flags = crate::ast_builder::expressions::get_fstring_flags(&fstring.value);
             // Create a new FString with our transformed elements
             let new_fstring = ruff_python_ast::FString {
                 node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
