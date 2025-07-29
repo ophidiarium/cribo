@@ -1936,7 +1936,7 @@ dependencies = [
  "strum",
  "strum_macros",
  "thiserror 2.0.12",
- "toml 0.9.2",
+ "toml 0.9.3",
  "typed-arena",
  "unicode-normalization",
  "unicode-width",
