@@ -1514,7 +1514,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     let new_fstring = FString {
                         node_index: AtomicNodeIndex::dummy(),
                         elements: InterpolatedStringElements::from(transformed_elements),
-                        range: TextRange::default(),
+                        range: fstring_range,
                         flags: original_flags, // Preserve the original flags including quote style
                     };
 
