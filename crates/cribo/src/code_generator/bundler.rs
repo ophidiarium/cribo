@@ -1848,43 +1848,43 @@ impl<'a> HybridStaticBundler<'a> {
     }
 
     /// Collect all Name expressions that a given expression depends on
-    fn collect_name_dependencies(&self, expr: &Expr, deps: &mut FxIndexSet<String>) {
+    fn collect_name_dependencies(expr: &Expr, deps: &mut FxIndexSet<String>) {
         match expr {
             Expr::Name(name) => {
                 deps.insert(name.id.to_string());
             }
             Expr::Attribute(attr) => {
-                self.collect_name_dependencies(&attr.value, deps);
+                Self::collect_name_dependencies(&attr.value, deps);
             }
             Expr::Call(call) => {
-                self.collect_name_dependencies(&call.func, deps);
+                Self::collect_name_dependencies(&call.func, deps);
                 for arg in &call.arguments.args {
-                    self.collect_name_dependencies(arg, deps);
+                    Self::collect_name_dependencies(arg, deps);
                 }
             }
             Expr::BinOp(binop) => {
-                self.collect_name_dependencies(&binop.left, deps);
-                self.collect_name_dependencies(&binop.right, deps);
+                Self::collect_name_dependencies(&binop.left, deps);
+                Self::collect_name_dependencies(&binop.right, deps);
             }
             Expr::UnaryOp(unaryop) => {
-                self.collect_name_dependencies(&unaryop.operand, deps);
+                Self::collect_name_dependencies(&unaryop.operand, deps);
             }
             Expr::List(list) => {
                 for item in &list.elts {
-                    self.collect_name_dependencies(item, deps);
+                    Self::collect_name_dependencies(item, deps);
                 }
             }
             Expr::Tuple(tuple) => {
                 for item in &tuple.elts {
-                    self.collect_name_dependencies(item, deps);
+                    Self::collect_name_dependencies(item, deps);
                 }
             }
             Expr::Dict(dict) => {
                 for item in &dict.items {
                     if let Some(key) = &item.key {
-                        self.collect_name_dependencies(key, deps);
+                        Self::collect_name_dependencies(key, deps);
                     }
-                    self.collect_name_dependencies(&item.value, deps);
+                    Self::collect_name_dependencies(&item.value, deps);
                 }
             }
             _ => {
