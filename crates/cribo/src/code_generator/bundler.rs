@@ -341,32 +341,34 @@ impl<'a> HybridStaticBundler<'a> {
                     value_is_same_as_attr
                 );
 
-                // For simple cases without local_variables check
-                if local_variables.is_none() {
-                    if is_submodule_with_init && value_is_same_as_attr {
-                        log::debug!(
-                            "Filtering out invalid assignment: {}.{} = {} (submodule with init \
-                             function)",
-                            base.id.as_str(),
-                            attr.attr.as_str(),
-                            value.id.as_str()
-                        );
-                        return false;
-                    }
-                } else if is_bundled_submodule && value_is_same_as_attr {
-                    // More complex filtering with local variables check
-                    let is_inlined = self.inlined_modules.contains(&full_path);
-                    let local_vars = local_variables.unwrap();
+                if is_submodule_with_init && value_is_same_as_attr {
+                    // Always filter out assignments to submodules with init functions
+                    log::debug!(
+                        "Filtering out invalid assignment: {}.{} = {} (submodule with init \
+                         function)",
+                        base.id.as_str(),
+                        attr.attr.as_str(),
+                        value.id.as_str()
+                    );
+                    return false;
+                }
 
-                    // If the submodule is NOT inlined AND there's no local variable, it's invalid
-                    if !is_inlined && !local_vars.contains(value.id.as_str()) {
-                        log::debug!(
-                            "Filtering out invalid assignment: {}.{} = {} (no local variable)",
-                            base.id.as_str(),
-                            attr.attr.as_str(),
-                            value.id.as_str()
-                        );
-                        return false;
+                if let Some(local_vars) = local_variables {
+                    // Additional filtering when local variables are provided
+                    if is_bundled_submodule && value_is_same_as_attr {
+                        let is_inlined = self.inlined_modules.contains(&full_path);
+
+                        // If the submodule is NOT inlined AND there's no local variable, it's
+                        // invalid
+                        if !is_inlined && !local_vars.contains(value.id.as_str()) {
+                            log::debug!(
+                                "Filtering out invalid assignment: {}.{} = {} (no local variable)",
+                                base.id.as_str(),
+                                attr.attr.as_str(),
+                                value.id.as_str()
+                            );
+                            return false;
+                        }
                     }
                 }
             }
@@ -1773,53 +1775,55 @@ impl<'a> HybridStaticBundler<'a> {
                 if assign.targets.len() == 1 {
                     if let Expr::Name(target) = &assign.targets[0]
                         && let Expr::Call(call) = assign.value.as_ref()
-                            && let Expr::Attribute(attr) = call.func.as_ref()
-                                && let Expr::Name(base) = attr.value.as_ref()
-                                    && base.id.as_str() == "types"
-                                        && attr.attr.as_str() == "SimpleNamespace"
-                                    {
-                                        log::debug!("Found namespace creation: {}", target.id);
-                                        namespace_creations.push(stmt);
-                                        continue;
-                                    }
+                        && let Expr::Attribute(attr) = call.func.as_ref()
+                        && let Expr::Name(base) = attr.value.as_ref()
+                        && base.id.as_str() == "types"
+                        && attr.attr.as_str() == "SimpleNamespace"
+                    {
+                        log::debug!("Found namespace creation: {}", target.id);
+                        namespace_creations.push(stmt);
+                        continue;
+                    }
 
                     // Check if this populates a namespace (e.g., namespace.attr = value)
                     if let Expr::Attribute(target_attr) = &assign.targets[0]
-                        && let Expr::Name(_) = target_attr.value.as_ref() {
-                            log::debug!(
-                                "Found namespace population: {}.{}",
-                                if let Expr::Name(base) = target_attr.value.as_ref() {
-                                    base.id.as_str()
-                                } else {
-                                    "?"
-                                },
-                                target_attr.attr
-                            );
-                            namespace_populations.push(stmt);
-                            continue;
-                        }
-                }
-
-                // Check if this accesses namespace attributes (e.g., var = namespace.attr)
-                if let Expr::Attribute(attr) = assign.value.as_ref()
-                    && let Expr::Name(_) = attr.value.as_ref() {
+                        && let Expr::Name(_) = target_attr.value.as_ref()
+                    {
                         log::debug!(
-                            "Found attribute access: {} = {}.{}",
-                            if let Expr::Name(target) = &assign.targets[0] {
-                                target.id.as_str()
-                            } else {
-                                "?"
-                            },
-                            if let Expr::Name(base) = attr.value.as_ref() {
+                            "Found namespace population: {}.{}",
+                            if let Expr::Name(base) = target_attr.value.as_ref() {
                                 base.id.as_str()
                             } else {
                                 "?"
                             },
-                            attr.attr
+                            target_attr.attr
                         );
-                        attribute_accesses.push(stmt);
+                        namespace_populations.push(stmt);
                         continue;
                     }
+                }
+
+                // Check if this accesses namespace attributes (e.g., var = namespace.attr)
+                if let Expr::Attribute(attr) = assign.value.as_ref()
+                    && let Expr::Name(_) = attr.value.as_ref()
+                {
+                    log::debug!(
+                        "Found attribute access: {} = {}.{}",
+                        if let Expr::Name(target) = &assign.targets[0] {
+                            target.id.as_str()
+                        } else {
+                            "?"
+                        },
+                        if let Expr::Name(base) = attr.value.as_ref() {
+                            base.id.as_str()
+                        } else {
+                            "?"
+                        },
+                        attr.attr
+                    );
+                    attribute_accesses.push(stmt);
+                    continue;
+                }
             }
 
             other_statements.push(stmt);
