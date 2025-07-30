@@ -1753,7 +1753,7 @@ impl<'a> HybridStaticBundler<'a> {
 
     /// Sort deferred imports to ensure dependencies are satisfied
     /// This ensures namespace creations come before assignments that use those namespaces
-    /// Uses Kahn's algorithm for topological sorting - O(V + E) complexity
+    /// Uses a simple categorization approach to group statements by type
     fn sort_deferred_imports_for_dependencies(&self, imports: &mut Vec<Stmt>) {
         // This is a simplified implementation that addresses the specific issue
         // of forward references in namespace attribute accesses
