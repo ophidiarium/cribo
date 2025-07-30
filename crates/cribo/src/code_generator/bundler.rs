@@ -2929,38 +2929,32 @@ impl<'a> HybridStaticBundler<'a> {
         if !self.hard_dependencies.is_empty() {
             log::info!("Hoisting hard dependencies after wrapper module initialization");
 
-            // Clone hard dependencies to avoid borrowing issues
-            let hard_deps = self.hard_dependencies.clone();
-
             // Group hard dependencies by source module
             let mut deps_by_source: FxIndexMap<String, Vec<&HardDependency>> =
                 FxIndexMap::default();
-            for dep in &hard_deps {
+            for dep in &self.hard_dependencies {
                 deps_by_source
                     .entry(dep.source_module.clone())
                     .or_default()
                     .push(dep);
             }
 
-            // Generate hoisted imports
+            // Collect import statements to generate (to avoid borrow checker issues)
+            let mut imports_to_generate: Vec<(String, Vec<(String, Option<String>)>, bool)> =
+                Vec::new();
+
+            // Analyze dependencies and determine what imports to generate
             for (source_module, deps) in deps_by_source {
                 // Check if we need to import the whole module or specific attributes
                 let first_dep = deps.first().expect("hard_deps should not be empty");
 
                 if source_module == "http.cookiejar" && first_dep.imported_attr == "cookielib" {
                     // Special case: import http.cookiejar as cookielib
-                    let import_stmt = StmtImport {
-                        node_index: self.create_node_index(),
-                        names: vec![ruff_python_ast::Alias {
-                            node_index: self.create_node_index(),
-                            name: Identifier::new("http.cookiejar", TextRange::default()),
-                            asname: Some(Identifier::new("cookielib", TextRange::default())),
-                            range: TextRange::default(),
-                        }],
-                        range: TextRange::default(),
-                    };
-                    final_body.push(Stmt::Import(import_stmt));
-                    log::debug!("Hoisted import http.cookiejar as cookielib");
+                    imports_to_generate.push((
+                        source_module,
+                        vec![("http.cookiejar".to_string(), Some("cookielib".to_string()))],
+                        true,
+                    ));
                 } else {
                     // Check if the source module is a bundled wrapper module
                     let is_bundled_wrapper = wrapper_modules_saved
@@ -2977,8 +2971,7 @@ impl<'a> HybridStaticBundler<'a> {
                         );
                         // We'll handle these later after all modules are initialized
                     } else {
-                        // Regular external module - generate normal import
-                        // Collect unique imports with their aliases
+                        // Regular external module - collect unique imports with their aliases
                         let mut imports_to_make: FxIndexMap<String, Option<String>> =
                             FxIndexMap::default();
                         for dep in deps {
@@ -2994,18 +2987,41 @@ impl<'a> HybridStaticBundler<'a> {
                             }
                         }
 
-                        // Generate: from source_module import attr1, attr2 as alias2, ...
-                        let names: Vec<Alias> = imports_to_make
-                            .into_iter()
-                            .map(|(import_name, alias)| {
-                                other::alias(&import_name, alias.as_deref())
-                            })
-                            .collect();
-
-                        let import_from = statements::import_from(Some(&source_module), names, 0);
-                        final_body.push(import_from);
-                        log::debug!("Hoisted imports from {source_module} for hard dependencies");
+                        if !imports_to_make.is_empty() {
+                            let import_list: Vec<(String, Option<String>)> =
+                                imports_to_make.into_iter().collect();
+                            imports_to_generate.push((source_module, import_list, false));
+                        }
                     }
+                }
+            }
+
+            // Now generate the actual import statements
+            for (source_module, imports, is_special_case) in imports_to_generate {
+                if is_special_case {
+                    // Special case: import http.cookiejar as cookielib
+                    let import_stmt = StmtImport {
+                        node_index: self.create_node_index(),
+                        names: vec![ruff_python_ast::Alias {
+                            node_index: self.create_node_index(),
+                            name: Identifier::new("http.cookiejar", TextRange::default()),
+                            asname: Some(Identifier::new("cookielib", TextRange::default())),
+                            range: TextRange::default(),
+                        }],
+                        range: TextRange::default(),
+                    };
+                    final_body.push(Stmt::Import(import_stmt));
+                    log::debug!("Hoisted import http.cookiejar as cookielib");
+                } else {
+                    // Generate: from source_module import attr1, attr2 as alias2, ...
+                    let names: Vec<Alias> = imports
+                        .into_iter()
+                        .map(|(import_name, alias)| other::alias(&import_name, alias.as_deref()))
+                        .collect();
+
+                    let import_from = statements::import_from(Some(&source_module), names, 0);
+                    final_body.push(import_from);
+                    log::debug!("Hoisted imports from {source_module} for hard dependencies");
                 }
             }
         }
@@ -3730,7 +3746,7 @@ impl<'a> HybridStaticBundler<'a> {
                                  dependencies immediately"
                             );
 
-                            for dep in &self.hard_dependencies.clone() {
+                            for dep in &self.hard_dependencies {
                                 if dep.source_module == *module_name {
                                     let target_name =
                                         if dep.alias_is_mandatory && dep.alias.is_some() {
@@ -3879,13 +3895,10 @@ impl<'a> HybridStaticBundler<'a> {
             if !self.hard_dependencies.is_empty() && use_module_cache_for_wrappers {
                 log::debug!("Processing deferred hard dependencies from bundled wrapper modules");
 
-                // Clone hard dependencies to avoid borrowing issues
-                let hard_deps = self.hard_dependencies.clone();
-
                 // Group hard dependencies by source module again
                 let mut deps_by_source: FxIndexMap<String, Vec<&HardDependency>> =
                     FxIndexMap::default();
-                for dep in &hard_deps {
+                for dep in &self.hard_dependencies {
                     // Only process dependencies from bundled wrapper modules
                     if wrapper_modules_saved
                         .iter()
