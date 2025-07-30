@@ -742,6 +742,110 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 ));
                                 self.created_namespace_objects = true;
 
+                                // If this is a submodule being imported (from . import compat),
+                                // and the parent module is also being used as a namespace
+                                // externally, we need to create the
+                                // parent.child assignment
+                                if resolved_module.as_deref() == Some(self.module_name) {
+                                    // Check if this submodule is in the parent's __all__ exports
+                                    let module_name_string = self.module_name.to_string();
+                                    let parent_exports = self
+                                        .bundler
+                                        .module_exports
+                                        .get(&module_name_string)
+                                        .and_then(|opt| opt.as_ref())
+                                        .map(|exports| exports.contains(&imported_name.to_string()))
+                                        .unwrap_or(false);
+
+                                    if parent_exports {
+                                        // Check if this is a submodule that was inlined or uses an
+                                        // init function
+                                        let full_submodule_path =
+                                            format!("{}.{}", self.module_name, imported_name);
+                                        let is_inlined_submodule = self
+                                            .bundler
+                                            .inlined_modules
+                                            .contains(&full_submodule_path);
+                                        let uses_init_function = self
+                                            .bundler
+                                            .module_registry
+                                            .get(&full_submodule_path)
+                                            .and_then(|synthetic_name| {
+                                                self.bundler.init_functions.get(synthetic_name)
+                                            })
+                                            .is_some();
+
+                                        log::debug!(
+                                            "  Checking submodule status for {full_submodule_path}: is_inlined={is_inlined_submodule}, \
+                                             uses_init={uses_init_function}"
+                                        );
+
+                                        if is_inlined_submodule || uses_init_function {
+                                            // This submodule was already assigned to the parent
+                                            // namespace
+                                            // by the bundler when it created the init function
+                                            log::debug!(
+                                                "  Skipping parent module assignment for {}.{} - \
+                                                 already handled by init function",
+                                                self.module_name,
+                                                local_name
+                                            );
+                                        } else {
+                                            // For the case where a module uses an init function but
+                                            // wasn't detected above,
+                                            // we need to double-check if this is really a symbol or
+                                            // a module
+                                            let is_actually_a_module = self
+                                                .bundler
+                                                .bundled_modules
+                                                .contains(&full_submodule_path)
+                                                || self
+                                                    .bundler
+                                                    .module_registry
+                                                    .contains_key(&full_submodule_path)
+                                                || self
+                                                    .bundler
+                                                    .inlined_modules
+                                                    .contains(&full_submodule_path);
+
+                                            if is_actually_a_module {
+                                                // This is a module, not a symbol - skip the
+                                                // assignment
+                                                log::debug!(
+                                                    "Skipping assignment for {}.{} - it's a \
+                                                     module, not a symbol",
+                                                    self.module_name,
+                                                    local_name
+                                                );
+                                            } else {
+                                                // This is a symbol, not a submodule, so we need the
+                                                // assignment
+                                                log::debug!(
+                                                    "Creating parent module assignment: {}.{} = \
+                                                     {} (symbol exported from parent)",
+                                                    self.module_name,
+                                                    local_name,
+                                                    local_name
+                                                );
+                                                self.deferred_imports.push(statements::assign(
+                                                    vec![expressions::attribute(
+                                                        expressions::name(
+                                                            self.module_name,
+                                                            ExprContext::Load,
+                                                        ),
+                                                        local_name,
+                                                        ExprContext::Store,
+                                                    )],
+                                                    expressions::name(
+                                                        local_name,
+                                                        ExprContext::Load,
+                                                    ),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+
                                 // Now add the exported symbols from the inlined module to the
                                 // namespace
                                 if let Some(exports) = self
@@ -922,6 +1026,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                 // Check if this is a circular module with pre-declarations
                 if self.bundler.circular_modules.contains(resolved) {
                     log::debug!("  Module '{resolved}' is a circular module with pre-declarations");
+                    log::debug!(
+                        "  Current module '{}' is circular: {}, is inlined: {}",
+                        self.module_name,
+                        self.bundler.circular_modules.contains(self.module_name),
+                        self.bundler.inlined_modules.contains(self.module_name)
+                    );
                     // Special handling for imports between circular inlined modules
                     // If the current module is also a circular inlined module, we need to defer or
                     // transform differently
@@ -937,6 +1047,27 @@ impl<'a> RecursiveImportTransformer<'a> {
                         for alias in &import_from.names {
                             let imported_name = alias.name.as_str();
                             let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+                            // Check if this is actually a submodule import
+                            let full_submodule_path = format!("{resolved}.{imported_name}");
+                            log::debug!(
+                                "  Checking if '{full_submodule_path}' is a submodule (bundled: \
+                                 {}, inlined: {})",
+                                self.bundler.bundled_modules.contains(&full_submodule_path),
+                                self.bundler.inlined_modules.contains(&full_submodule_path)
+                            );
+                            if self.bundler.bundled_modules.contains(&full_submodule_path)
+                                || self.bundler.inlined_modules.contains(&full_submodule_path)
+                            {
+                                log::debug!(
+                                    "  Skipping assignment for '{imported_name}' - it's a \
+                                     submodule, not a symbol"
+                                );
+                                // This is a submodule import, not a symbol import
+                                // The submodule will be handled separately, so we don't create an
+                                // assignment
+                                continue;
+                            }
 
                             // Check if the symbol was renamed during bundling
                             let actual_name =

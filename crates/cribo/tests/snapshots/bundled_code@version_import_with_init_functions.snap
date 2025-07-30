@@ -17,10 +17,10 @@ def get_user_agent():
 """Version information for the package."""
 """Main package module."""
 mypackage_utils = types.SimpleNamespace()
-mypackage.__version__ = __version__
 mypackage_utils.get_user_agent = get_user_agent
 """Test fixture for version imports with complex module initialization."""
 mypackage.__all__ = ['__version__']
+mypackage.__version__ = __version__
 mypackage.utils = types.SimpleNamespace()
 mypackage.utils.__all__ = ['get_user_agent']
 mypackage.utils.get_user_agent = get_user_agent
