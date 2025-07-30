@@ -41,8 +41,8 @@ except Exception as e:
     print(f"Expected error creating abstract MutableMapping: {type(e).__name__}")
 print(f"compat.builtin_str exists: {hasattr(myrequests.compat, 'builtin_str')}")
 print(f"compat.is_str exists: {hasattr(myrequests.compat, 'is_str')}")
-if hasattr(myrequests.compat, 'builtin_str'):
+if hasattr(myrequests.compat, "builtin_str"):
     print(f"compat.builtin_str is str: {myrequests.compat.builtin_str is str}")
-if hasattr(myrequests.compat, 'is_str'):
+if hasattr(myrequests.compat, "is_str"):
     print(f"is_str('test'): {myrequests.compat.is_str('test')}")
     print(f"is_str(123): {myrequests.compat.is_str(123)}")
