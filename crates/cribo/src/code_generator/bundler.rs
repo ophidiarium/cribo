@@ -2914,7 +2914,8 @@ impl<'a> HybridStaticBundler<'a> {
                             // Instead, we'll handle hard dependencies after all init functions are
                             // defined
                             log::debug!(
-                                "Module {module_name} is a hard dependency source, deferring initialization"
+                                "Module {module_name} is a hard dependency source, deferring \
+                                 initialization"
                             );
                         }
                     }
@@ -3725,8 +3726,8 @@ impl<'a> HybridStaticBundler<'a> {
                             .any(|dep| dep.source_module == *module_name)
                         {
                             log::debug!(
-                                "Module {module_name} is a hard dependency source, extracting dependencies \
-                                 immediately"
+                                "Module {module_name} is a hard dependency source, extracting \
+                                 dependencies immediately"
                             );
 
                             for dep in &self.hard_dependencies.clone() {
@@ -6451,6 +6452,64 @@ impl<'a> HybridStaticBundler<'a> {
         format!("{base_name}_{module_suffix}")
     }
 
+    /// Create a rewritten base class expression for hard dependencies
+    fn create_rewritten_base_expr(&self, hard_dep: &HardDependency, class_name: &str) -> Expr {
+        // Check if the source module is a wrapper module
+        let source_is_wrapper = self.module_registry.contains_key(&hard_dep.source_module);
+
+        if source_is_wrapper && !hard_dep.base_class.contains('.') {
+            // For imports from wrapper modules, we need to use module.attr pattern
+            log::info!(
+                "Rewrote base class {} to {}.{} for class {} in inlined module (source is wrapper)",
+                hard_dep.base_class,
+                hard_dep.source_module,
+                hard_dep.imported_attr,
+                class_name
+            );
+
+            Expr::Attribute(ExprAttribute {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(Expr::Name(ExprName {
+                    node_index: AtomicNodeIndex::dummy(),
+                    id: hard_dep.source_module.clone().into(),
+                    ctx: ExprContext::Load,
+                    range: TextRange::default(),
+                })),
+                attr: Identifier::new(&hard_dep.imported_attr, TextRange::default()),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })
+        } else {
+            // Use the alias if it's mandatory, otherwise use the imported attr
+            let name_to_use = if hard_dep.alias_is_mandatory && hard_dep.alias.is_some() {
+                hard_dep
+                    .alias
+                    .as_ref()
+                    .expect(
+                        "alias should exist when alias_is_mandatory is true and alias.is_some() \
+                         is true",
+                    )
+                    .clone()
+            } else {
+                hard_dep.imported_attr.clone()
+            };
+
+            log::info!(
+                "Rewrote base class {} to {} for class {} in inlined module",
+                hard_dep.base_class,
+                name_to_use,
+                class_name
+            );
+
+            Expr::Name(ExprName {
+                node_index: AtomicNodeIndex::dummy(),
+                id: name_to_use.into(),
+                ctx: ExprContext::Load,
+                range: TextRange::default(),
+            })
+        }
+    }
+
     /// Rewrite hard dependencies in a module's AST
     fn rewrite_hard_dependencies_in_module(&self, ast: &mut ModModule, module_name: &str) {
         log::debug!("Rewriting hard dependencies in module {module_name}");
@@ -6532,137 +6591,14 @@ impl<'a> HybridStaticBundler<'a> {
                                                 class_name
                                             );
                                         } else {
-                                            // Fall back to original logic
-                                            // Check if the source module is a wrapper module
-                                            let source_is_wrapper = self
-                                                .module_registry
-                                                .contains_key(&hard_dep.source_module);
-
-                                            if source_is_wrapper
-                                                && !hard_dep.base_class.contains('.')
-                                            {
-                                                // For imports from wrapper modules, we need to use
-                                                // module.attr pattern
-                                                *arg = Expr::Attribute(ExprAttribute {
-                                                    node_index: AtomicNodeIndex::dummy(),
-                                                    value: Box::new(Expr::Name(ExprName {
-                                                        node_index: AtomicNodeIndex::dummy(),
-                                                        id: hard_dep.source_module.clone().into(),
-                                                        ctx: ExprContext::Load,
-                                                        range: TextRange::default(),
-                                                    })),
-                                                    attr: Identifier::new(
-                                                        &hard_dep.imported_attr,
-                                                        TextRange::default(),
-                                                    ),
-                                                    ctx: ExprContext::Load,
-                                                    range: TextRange::default(),
-                                                });
-                                                log::info!(
-                                                    "Rewrote base class {} to {}.{} for class {} \
-                                                     in inlined module (source is wrapper)",
-                                                    hard_dep.base_class,
-                                                    hard_dep.source_module,
-                                                    hard_dep.imported_attr,
-                                                    class_name
-                                                );
-                                            } else {
-                                                let name_to_use = if hard_dep.alias_is_mandatory
-                                                    && hard_dep.alias.is_some()
-                                                {
-                                                    hard_dep
-                                                        .alias
-                                                        .as_ref()
-                                                        .expect(
-                                                            "alias should exist when \
-                                                             alias_is_mandatory is true and \
-                                                             alias.is_some() is true",
-                                                        )
-                                                        .clone()
-                                                } else {
-                                                    hard_dep.imported_attr.clone()
-                                                };
-
-                                                *arg = Expr::Name(ExprName {
-                                                    node_index: AtomicNodeIndex::dummy(),
-                                                    id: name_to_use.clone().into(),
-                                                    ctx: ExprContext::Load,
-                                                    range: TextRange::default(),
-                                                });
-                                                log::info!(
-                                                    "Rewrote base class {} to {} for class {} in \
-                                                     inlined module",
-                                                    hard_dep.base_class,
-                                                    name_to_use,
-                                                    class_name
-                                                );
-                                            }
+                                            // Fall back to helper function
+                                            *arg = self
+                                                .create_rewritten_base_expr(hard_dep, class_name);
                                         }
                                     } else {
-                                        // Check if the source module is a wrapper module
-                                        let source_is_wrapper = self
-                                            .module_registry
-                                            .contains_key(&hard_dep.source_module);
-
-                                        if source_is_wrapper && !hard_dep.base_class.contains('.') {
-                                            // For imports from wrapper modules, we need to use
-                                            // module.attr pattern
-                                            *arg = Expr::Attribute(ExprAttribute {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                value: Box::new(Expr::Name(ExprName {
-                                                    node_index: AtomicNodeIndex::dummy(),
-                                                    id: hard_dep.source_module.clone().into(),
-                                                    ctx: ExprContext::Load,
-                                                    range: TextRange::default(),
-                                                })),
-                                                attr: Identifier::new(
-                                                    &hard_dep.imported_attr,
-                                                    TextRange::default(),
-                                                ),
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            });
-                                            log::info!(
-                                                "Rewrote base class {} to {}.{} for class {} in \
-                                                 inlined module (source is wrapper)",
-                                                hard_dep.base_class,
-                                                hard_dep.source_module,
-                                                hard_dep.imported_attr,
-                                                class_name
-                                            );
-                                        } else {
-                                            // Use the alias if it's mandatory, otherwise use the
-                                            // imported attr
-                                            let name_to_use = if hard_dep.alias_is_mandatory
-                                                && hard_dep.alias.is_some()
-                                            {
-                                                hard_dep
-                                                    .alias
-                                                    .as_ref()
-                                                    .expect(
-                                                        "alias should exist when \
-                                                         alias_is_mandatory is true and \
-                                                         alias.is_some() is true",
-                                                    )
-                                                    .clone()
-                                            } else {
-                                                hard_dep.imported_attr.clone()
-                                            };
-
-                                            *arg = Expr::Name(ExprName {
-                                                node_index: AtomicNodeIndex::dummy(),
-                                                id: name_to_use.clone().into(),
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                            });
-                                            log::info!(
-                                                "Rewrote base class {} to {} for class {} in \
-                                                 inlined module",
-                                                hard_dep.base_class,
-                                                name_to_use,
-                                                class_name
-                                            );
-                                        }
+                                        // Use helper function for non-dotted base classes
+                                        *arg =
+                                            self.create_rewritten_base_expr(hard_dep, class_name);
                                     }
                                 }
                             }

@@ -23,7 +23,7 @@ class InvalidJSONError(RequestException):
     """A JSON error occurred."""
     pass
 @functools.cache
-def __cribo_init___cribo_bab0a8_myrequests_compat():
+def __cribo_init___cribo_5ad29b_myrequests_compat():
     module = types.SimpleNamespace()
     module.__name__ = 'myrequests.compat'
     urlparse = urllib.parse.urlparse
@@ -45,7 +45,7 @@ def __cribo_init___cribo_bab0a8_myrequests_compat():
     except ImportError:
         import json
         module.json = json
-    if hasattr(json, 'JSONDecodeError'):
+    if hasattr(json, "JSONDecodeError"):
         JSONDecodeError = json.JSONDecodeError
         module.JSONDecodeError = JSONDecodeError
     else:
@@ -56,7 +56,7 @@ def __cribo_init___cribo_bab0a8_myrequests_compat():
     basestring = str, bytes
     module.basestring = basestring
     return module
-myrequests.compat = __cribo_init___cribo_bab0a8_myrequests_compat()
+myrequests.compat = __cribo_init___cribo_5ad29b_myrequests_compat()
 class JSONDecodeError(InvalidJSONError, myrequests.compat.JSONDecodeError):
     """Couldn't decode the text into json."""
     pass
