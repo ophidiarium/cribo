@@ -32,7 +32,7 @@ Cribo is a Rust-based source bundler for Python projects. It merges a multi-modu
 
 ### Architecture Overview
 
-The project is organized as a Rust workspace with the main crate in `crates/cribo`.
+The project is organized as a Rust workspace with the main crate in `crates/cribo`. The architecture follows a clear separation of concerns with dedicated modules for analysis, code generation, and AST traversal.
 
 #### Core Components
 
@@ -43,35 +43,54 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
    - Handles circular dependency detection via Tarjan's algorithm
    - Orchestrates code generation for final output
 
-2. **Code Generation** (`code_generator.rs`)
-   - Implements hybrid static bundling with sys.modules approach
-   - Generates deterministic module names using content hashing
-   - Performs comprehensive AST transformations and import rewriting
-   - Handles namespace object creation for direct module imports
-   - Integrates with tree-shaking to skip removed symbols
-   - Produces the final bundled Python output
+2. **Analyzers** (`analyzers/` directory)
+   - **Symbol Analyzer** (`symbol_analyzer.rs`): Symbol resolution, dependency graph building, and hard dependency detection
+   - **Import Analyzer** (`import_analyzer.rs`): Import relationship analysis, direct/namespace import detection
+   - **Namespace Analyzer** (`namespace_analyzer.rs`): Namespace requirement detection and analysis
+   - **Dependency Analyzer** (`dependency_analyzer.rs`): Module dependency sorting and circular dependency analysis
+   - **Types** (`types.rs`): Shared types for analysis results
 
-3. **Module Resolution & Import Classification** (`resolver.rs`)
+3. **Code Generation** (`code_generator/` directory)
+   - **Bundler** (`bundler.rs`): Main orchestration for code generation (~20k tokens)
+   - **Module Transformer** (`module_transformer.rs`): Module-level AST transformations
+   - **Import Transformer** (`import_transformer.rs`): Import rewriting and resolution
+   - **Expression Handlers** (`expression_handlers.rs`): Expression creation, analysis, and transformation
+   - **Namespace Manager** (`namespace_manager.rs`): Namespace object creation and management
+   - **Module Registry** (`module_registry.rs`): Module naming, registration, and cache generation
+   - **Import Deduplicator** (`import_deduplicator.rs`): Import cleanup and deduplication
+   - **Circular Deps** (`circular_deps.rs`): Circular dependency detection helpers
+   - **Globals** (`globals.rs`): Global variable management
+   - **Context** (`context.rs`): Transformation context management
+
+4. **Visitors** (`visitors/` directory)
+   - **Import Discovery** (`import_discovery.rs`): Identifies all import types and locations
+   - **Side Effect Detector** (`side_effect_detector.rs`): Determines which statements have side effects
+   - **Symbol Collector** (`symbol_collector.rs`): Collects symbol definitions, scopes, and attributes
+   - **Variable Collector** (`variable_collector.rs`): Tracks variable usage, references, and dependencies
+   - **Export Collector** (`export_collector.rs`): Detects module exports and re-exports
+   - **Utils** (`utils.rs`): Shared visitor utilities
+
+5. **Module Resolution & Import Classification** (`resolver.rs`)
    - Classifies imports as standard library, first-party, or third-party
    - Resolves actual file paths for bundling
    - Handles PYTHONPATH and VIRTUAL_ENV support
    - Manages namespace package detection
 
-4. **Advanced Dependency Graph** (`cribo_graph.rs`)
+6. **Advanced Dependency Graph** (`cribo_graph.rs`)
+   - Pure graph data structure for dependency tracking
    - Item-level dependency tracking inspired by Turbopack
    - Fine-grained symbol usage analysis
    - Cross-module reference tracking
-   - Side effect detection and preservation
    - Support for incremental updates
 
-5. **Graph Builder** (`graph_builder.rs`)
+7. **Graph Builder** (`graph_builder.rs`)
    - Bridges ruff's AST and the dependency graph
    - Tracks variable reads/writes at statement level
    - Handles complex scoping (module, function, class)
    - Collects symbol dependencies for classes and functions
    - Identifies module-level side effects
 
-6. **Tree Shaking** (`tree_shaking.rs`)
+8. **Tree Shaking** (`tree_shaking.rs`)
    - Mark-and-sweep algorithm for dead code elimination
    - Tracks used symbols transitively from entry point
    - Preserves directly imported modules' exports
@@ -79,28 +98,19 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
    - Respects `__all__` declarations
    - Enabled by default with `--no-tree-shake` to disable
 
-7. **Semantic Analysis** (`semantic_analysis.rs`)
-   - Enhanced import information tracking
-   - Execution context awareness
-   - Symbol visibility analysis
-   - Module-level variable tracking
+9. **AST Utilities**
+   - **AST Builder** (`ast_builder/` directory): Utilities for creating AST nodes
+   - **AST Indexing** (`ast_indexer.rs`): Deterministic node indexing for AST transformations
+   - **Transformation Context** (`transformation_context.rs`): Tracks AST modifications
 
-8. **AST Indexing** (`ast_indexer.rs`)
-   - Deterministic node indexing for AST transformations
-   - Supports incremental updates
-   - Tracks node relationships and transformations
-   - Essential for reliable AST rewriting
-
-9. **Visitors** (`visitors/` directory)
-   - **Import Discovery**: Identifies all import types and locations
-   - **Side Effect Detection**: Determines which statements have side effects
-   - **No-ops Removal**: Eliminates redundant statements
-   - **Expression Analysis**: Deep inspection of Python expressions
-
-10. **Utilities**
-    - **Unused Import Detection** (`unused_imports.rs`): Legacy import cleanup
-    - **Transformation Context** (`transformation_context.rs`): Tracks AST modifications
+10. **Other Utilities**
+    - **Import Alias Tracker** (`import_alias_tracker.rs`): Tracks import aliases across modules
+    - **Import Rewriter** (`import_rewriter.rs`): Import rewriting utilities
+    - **Side Effects** (`side_effects.rs`): Side effect analysis helpers
+    - **Stdlib Normalization** (`stdlib_normalization.rs`): Standard library import normalization
     - **Directory Management** (`dirs.rs`): XDG-compliant config paths
+    - **Semantic Bundler** (`semantic_bundler.rs`): Semantic analysis integration
+    - **Combine** (`combine.rs`): Module combination utilities
 
 ### CLI Usage
 
