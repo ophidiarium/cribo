@@ -3853,8 +3853,10 @@ impl<'a> HybridStaticBundler<'a> {
 
             // Mark hard dependencies that were processed during module initialization
             if use_module_cache_for_wrappers {
+                let sorted_wrapped_set: crate::types::FxIndexSet<_> =
+                    sorted_wrapped.iter().cloned().collect();
                 for dep in &self.hard_dependencies {
-                    if sorted_wrapped.contains(&dep.source_module) {
+                    if sorted_wrapped_set.contains(&dep.source_module) {
                         let target_name = if dep.alias_is_mandatory && dep.alias.is_some() {
                             dep.alias
                                 .as_ref()
