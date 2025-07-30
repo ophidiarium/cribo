@@ -24,9 +24,9 @@ compat.JSONDecodeError = JSONDecodeError_2
 compat.MutableMapping = MutableMapping_2
 compat.builtin_str = builtin_str
 compat.is_str = is_str
+myrequests.compat = compat
 JSONDecodeError_1 = compat.JSONDecodeError
 MutableMapping_1 = compat.MutableMapping
-myrequests.compat = compat
 """Test case for forward reference to init function"""
 myrequests.__all__ = ['JSONDecodeError', 'MutableMapping', 'compat']
 myrequests.JSONDecodeError = JSONDecodeError_1
