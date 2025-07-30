@@ -776,7 +776,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             .is_some();
 
                                         log::debug!(
-                                            "  Checking submodule status for {full_submodule_path}: is_inlined={is_inlined_submodule}, \
+                                            "  Checking submodule status for \
+                                             {full_submodule_path}: \
+                                             is_inlined={is_inlined_submodule}, \
                                              uses_init={uses_init_function}"
                                         );
 

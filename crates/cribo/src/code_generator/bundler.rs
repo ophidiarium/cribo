@@ -306,6 +306,74 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
+    /// Helper function to filter out invalid submodule assignments.
+    ///
+    /// This filters statements where we're trying to assign `module.attr = attr`
+    /// where `attr` is a submodule that uses an init function and doesn't exist
+    /// as a local variable.
+    ///
+    /// # Arguments
+    /// * `stmts` - The statements to filter
+    /// * `local_variables` - Optional set of local variables to check against
+    fn filter_invalid_submodule_assignments(
+        &self,
+        stmts: &mut Vec<Stmt>,
+        local_variables: Option<&FxIndexSet<String>>,
+    ) {
+        stmts.retain(|stmt| {
+            if let Stmt::Assign(assign) = stmt
+                && let [Expr::Attribute(attr)] = assign.targets.as_slice()
+                && let Expr::Name(base) = attr.value.as_ref()
+                && let Expr::Name(value) = assign.value.as_ref()
+            {
+                let full_path = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
+                let is_bundled_submodule = self.bundled_modules.contains(&full_path);
+                let is_submodule_with_init = self.module_registry.contains_key(&full_path);
+                let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
+
+                log::debug!(
+                    "Checking assignment: {}.{} = {} | bundled={} | has_init={} | same_name={}",
+                    base.id.as_str(),
+                    attr.attr.as_str(),
+                    value.id.as_str(),
+                    is_bundled_submodule,
+                    is_submodule_with_init,
+                    value_is_same_as_attr
+                );
+
+                // For simple cases without local_variables check
+                if local_variables.is_none() {
+                    if is_submodule_with_init && value_is_same_as_attr {
+                        log::debug!(
+                            "Filtering out invalid assignment: {}.{} = {} (submodule with init \
+                             function)",
+                            base.id.as_str(),
+                            attr.attr.as_str(),
+                            value.id.as_str()
+                        );
+                        return false;
+                    }
+                } else if is_bundled_submodule && value_is_same_as_attr {
+                    // More complex filtering with local variables check
+                    let is_inlined = self.inlined_modules.contains(&full_path);
+                    let local_vars = local_variables.unwrap();
+
+                    // If the submodule is NOT inlined AND there's no local variable, it's invalid
+                    if !is_inlined && !local_vars.contains(value.id.as_str()) {
+                        log::debug!(
+                            "Filtering out invalid assignment: {}.{} = {} (no local variable)",
+                            base.id.as_str(),
+                            attr.attr.as_str(),
+                            value.id.as_str()
+                        );
+                        return false;
+                    }
+                }
+            }
+            true
+        });
+    }
+
     /// Handle imports from inlined module
     pub fn handle_imports_from_inlined_module(
         &self,
@@ -3161,44 +3229,7 @@ impl<'a> HybridStaticBundler<'a> {
         // Filter out invalid assignments where we're trying to assign a module that uses an init
         // function For example, `mypkg.compat = compat` when `compat` is wrapped in an init
         // function
-        reordered_inlined_stmts.retain(|stmt| {
-            if let Stmt::Assign(assign) = stmt
-                && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                && let Expr::Name(base) = attr.value.as_ref()
-                && let Expr::Name(value) = assign.value.as_ref()
-            {
-                // Check if we're assigning module.attr = attr where attr is a submodule
-                let full_path = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
-                let is_bundled_submodule = self.bundled_modules.contains(&full_path);
-                let is_submodule_with_init = self.module_registry.contains_key(&full_path);
-                let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
-
-                log::debug!(
-                    "Checking assignment: {}.{} = {} | full_path={} | is_bundled={} | has_init={} \
-                     | same_name={}",
-                    base.id.as_str(),
-                    attr.attr.as_str(),
-                    value.id.as_str(),
-                    full_path,
-                    is_bundled_submodule,
-                    is_submodule_with_init,
-                    value_is_same_as_attr
-                );
-
-                // Filter out if this is a submodule assignment where the RHS doesn't exist
-                if is_bundled_submodule && value_is_same_as_attr {
-                    log::info!(
-                        "Filtering out invalid assignment from inlined statements: {}.{} = {} \
-                         (bundled submodule)",
-                        base.id.as_str(),
-                        attr.attr.as_str(),
-                        value.id.as_str()
-                    );
-                    return false;
-                }
-            }
-            true
-        });
+        self.filter_invalid_submodule_assignments(&mut reordered_inlined_stmts, None);
 
         final_body.extend(reordered_inlined_stmts);
 
@@ -4015,93 +4046,7 @@ impl<'a> HybridStaticBundler<'a> {
             // Filter out invalid assignments where the RHS references a module that uses an init
             // function For example, `mypkg.compat = compat` when `compat` is wrapped in
             // an init function
-            log::debug!("Checking {} deferred imports", deduped_imports.len());
-
-            // Log all statements before filtering
-            for (idx, stmt) in deduped_imports.iter().enumerate() {
-                match stmt {
-                    Stmt::Assign(assign) => {
-                        if let [target] = assign.targets.as_slice() {
-                            match target {
-                                Expr::Attribute(attr) => {
-                                    if let Expr::Name(base) = attr.value.as_ref() {
-                                        log::debug!(
-                                            "Deferred import {}: Assignment {}.{} = ...",
-                                            idx,
-                                            base.id.as_str(),
-                                            attr.attr.as_str()
-                                        );
-                                    } else {
-                                        log::debug!(
-                                            "Deferred import {idx}: Complex attribute assignment"
-                                        );
-                                    }
-                                }
-                                Expr::Name(name) => {
-                                    log::debug!(
-                                        "Deferred import {}: Simple assignment {} = ...",
-                                        idx,
-                                        name.id.as_str()
-                                    );
-                                }
-                                _ => {
-                                    log::debug!("Deferred import {idx}: Other assignment type");
-                                }
-                            }
-                        } else {
-                            log::debug!("Deferred import {idx}: Multiple target assignment");
-                        }
-                    }
-                    _ => {
-                        log::debug!("Deferred import {idx}: Non-assignment statement");
-                    }
-                }
-            }
-
-            deduped_imports.retain(|stmt| {
-                if let Stmt::Assign(assign) = stmt
-                    && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                    && let Expr::Name(base) = attr.value.as_ref()
-                {
-                    // Log all attribute assignments for debugging
-                    log::debug!(
-                        "Checking assignment: {}.{} = ...",
-                        base.id.as_str(),
-                        attr.attr.as_str()
-                    );
-
-                    if let Expr::Name(value) = assign.value.as_ref() {
-                        // Check if we're assigning module.attr = attr where attr is a
-                        // submodule
-                        let full_path = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
-                        let is_submodule_with_init = self.module_registry.contains_key(&full_path);
-                        let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
-
-                        log::debug!(
-                            "Assignment details: {}.{} = {}, full_path={}, \
-                             is_submodule_with_init={}, value_is_same_as_attr={}",
-                            base.id.as_str(),
-                            attr.attr.as_str(),
-                            value.id.as_str(),
-                            full_path,
-                            is_submodule_with_init,
-                            value_is_same_as_attr
-                        );
-
-                        if is_submodule_with_init && value_is_same_as_attr {
-                            log::debug!(
-                                "Filtering out invalid assignment: {}.{} = {} (submodule with \
-                                 init function)",
-                                base.id.as_str(),
-                                attr.attr.as_str(),
-                                value.id.as_str()
-                            );
-                            return false;
-                        }
-                    }
-                }
-                true
-            });
+            self.filter_invalid_submodule_assignments(&mut deduped_imports, None);
 
             // Sort deferred imports to ensure namespace creations come before assignments that use
             // them This prevents forward reference errors like "NameError: name
@@ -4791,32 +4736,7 @@ impl<'a> HybridStaticBundler<'a> {
             // Filter out invalid assignments where the RHS references a module that uses an init
             // function For example, `mypkg.compat = compat` when `compat` is wrapped in
             // an init function
-            log::debug!("Checking {} deferred imports", deduped_imports.len());
-            deduped_imports.retain(|stmt| {
-                if let Stmt::Assign(assign) = stmt
-                    && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                    && let Expr::Name(base) = attr.value.as_ref()
-                    && let Expr::Name(value) = assign.value.as_ref()
-                {
-                    // Check if we're assigning module.attr = attr where attr is a
-                    // submodule
-                    let full_path = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
-                    let is_submodule_with_init = self.module_registry.contains_key(&full_path);
-                    let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
-
-                    if is_submodule_with_init && value_is_same_as_attr {
-                        log::debug!(
-                            "Filtering out invalid assignment (2nd location): {}.{} = {} \
-                             (submodule with init function)",
-                            base.id.as_str(),
-                            attr.attr.as_str(),
-                            value.id.as_str()
-                        );
-                        return false;
-                    }
-                }
-                true
-            });
+            self.filter_invalid_submodule_assignments(&mut deduped_imports, None);
 
             log::debug!(
                 "Total deferred imports after deduplication: {}",
@@ -4863,48 +4783,7 @@ impl<'a> HybridStaticBundler<'a> {
             })
             .collect();
 
-        final_body.retain(|stmt| {
-            if let Stmt::Assign(assign) = stmt
-                && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                && let Expr::Name(base) = attr.value.as_ref()
-                && let Expr::Name(value) = assign.value.as_ref()
-            {
-                // Check if we're assigning module.attr = attr where attr is a submodule
-                let full_path = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
-                let is_bundled_submodule = self.bundled_modules.contains(&full_path);
-                let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
-
-                log::debug!(
-                    "Final filter check: {}.{} = {} | bundled={} | same_name={} | local_exists={}",
-                    base.id.as_str(),
-                    attr.attr.as_str(),
-                    value.id.as_str(),
-                    is_bundled_submodule,
-                    value_is_same_as_attr,
-                    local_variables.contains(value.id.as_str())
-                );
-
-                if is_bundled_submodule && value_is_same_as_attr {
-                    // Check if the submodule is inlined (creates local variable) or
-                    // uses init function
-                    let is_inlined = self.inlined_modules.contains(&full_path);
-
-                    // If the submodule is NOT inlined AND there's no local variable,
-                    // it's invalid
-                    if !is_inlined && !local_variables.contains(value.id.as_str()) {
-                        log::info!(
-                            "Final filter: Removing invalid assignment {}.{} = {} (not inlined, \
-                             no local var)",
-                            base.id.as_str(),
-                            attr.attr.as_str(),
-                            value.id.as_str()
-                        );
-                        return false;
-                    }
-                }
-            }
-            true
-        });
+        self.filter_invalid_submodule_assignments(&mut final_body, Some(&local_variables));
 
         // Also deduplicate function definitions that may have been duplicated by forward reference
         // fixes
