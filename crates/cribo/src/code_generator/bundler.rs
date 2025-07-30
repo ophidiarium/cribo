@@ -3578,7 +3578,7 @@ impl<'a> HybridStaticBundler<'a> {
                                             // This is a submodule but neither inlined nor using
                                             // init function
                                             // This shouldn't happen for bundled modules
-                                            log::warn!(
+                                            log::debug!(
                                                 "Unexpected state: submodule \
                                                  '{full_submodule_path}' is bundled but neither \
                                                  inlined nor using init function"
