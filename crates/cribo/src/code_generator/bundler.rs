@@ -306,6 +306,76 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
+    /// Helper function to filter out invalid submodule assignments.
+    ///
+    /// This filters statements where we're trying to assign `module.attr = attr`
+    /// where `attr` is a submodule that uses an init function and doesn't exist
+    /// as a local variable.
+    ///
+    /// # Arguments
+    /// * `stmts` - The statements to filter
+    /// * `local_variables` - Optional set of local variables to check against
+    fn filter_invalid_submodule_assignments(
+        &self,
+        stmts: &mut Vec<Stmt>,
+        local_variables: Option<&FxIndexSet<String>>,
+    ) {
+        stmts.retain(|stmt| {
+            if let Stmt::Assign(assign) = stmt
+                && let [Expr::Attribute(attr)] = assign.targets.as_slice()
+                && let Expr::Name(base) = attr.value.as_ref()
+                && let Expr::Name(value) = assign.value.as_ref()
+            {
+                let full_path = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
+                let is_bundled_submodule = self.bundled_modules.contains(&full_path);
+                let is_submodule_with_init = self.module_registry.contains_key(&full_path);
+                let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
+
+                log::debug!(
+                    "Checking assignment: {}.{} = {} | bundled={} | has_init={} | same_name={}",
+                    base.id.as_str(),
+                    attr.attr.as_str(),
+                    value.id.as_str(),
+                    is_bundled_submodule,
+                    is_submodule_with_init,
+                    value_is_same_as_attr
+                );
+
+                if is_submodule_with_init && value_is_same_as_attr {
+                    // Always filter out assignments to submodules with init functions
+                    log::debug!(
+                        "Filtering out invalid assignment: {}.{} = {} (submodule with init \
+                         function)",
+                        base.id.as_str(),
+                        attr.attr.as_str(),
+                        value.id.as_str()
+                    );
+                    return false;
+                }
+
+                if let Some(local_vars) = local_variables {
+                    // Additional filtering when local variables are provided
+                    if is_bundled_submodule && value_is_same_as_attr {
+                        let is_inlined = self.inlined_modules.contains(&full_path);
+
+                        // If the submodule is NOT inlined AND there's no local variable, it's
+                        // invalid
+                        if !is_inlined && !local_vars.contains(value.id.as_str()) {
+                            log::debug!(
+                                "Filtering out invalid assignment: {}.{} = {} (no local variable)",
+                                base.id.as_str(),
+                                attr.attr.as_str(),
+                                value.id.as_str()
+                            );
+                            return false;
+                        }
+                    }
+                }
+            }
+            true
+        });
+    }
+
     /// Handle imports from inlined module
     pub fn handle_imports_from_inlined_module(
         &self,
@@ -540,11 +610,18 @@ impl<'a> HybridStaticBundler<'a> {
                     full_module_path.contains('.')
                 );
                 let namespace_expr = if self.inlined_modules.contains(&full_module_path) {
-                    // For inlined modules, use the temporary variable directly
-                    // Use direct module name for inlined modules
-                    let module_var_name = full_module_path.clone();
-                    log::debug!("Using inlined module var name: {module_var_name}");
-                    expressions::name(&module_var_name, ExprContext::Load)
+                    // For inlined modules, check if it's a dotted name
+                    if full_module_path.contains('.') {
+                        // For nested inlined modules like myrequests.compat, create dotted
+                        // expression
+                        let parts: Vec<&str> = full_module_path.split('.').collect();
+                        log::debug!("Creating dotted name for inlined nested module: {parts:?}");
+                        expressions::dotted_name(&parts, ExprContext::Load)
+                    } else {
+                        // Simple inlined module
+                        log::debug!("Using simple name for inlined module: {full_module_path}");
+                        expressions::name(&full_module_path, ExprContext::Load)
+                    }
                 } else if full_module_path.contains('.') {
                     // For nested modules like models.user, create models.user expression
                     let parts: Vec<&str> = full_module_path.split('.').collect();
@@ -595,6 +672,43 @@ impl<'a> HybridStaticBundler<'a> {
                         );
                         assignments.push(assignment);
                         continue; // Skip the rest of the regular attribute handling
+                    }
+                }
+
+                // Check if we're importing from an inlined module and the target is a wrapper
+                // submodule This happens when mypkg is inlined and does `from .
+                // import compat` where compat uses init function
+                if self.inlined_modules.contains(module_name) && !inside_wrapper_init {
+                    let full_submodule_path = format!("{module_name}.{imported_name}");
+                    if self.module_registry.contains_key(&full_submodule_path) {
+                        // This is importing a wrapper submodule from an inlined parent module
+                        // We should treat it like a submodule import, not an attribute import
+                        log::debug!(
+                            "Importing wrapper submodule '{imported_name}' from inlined module \
+                             '{module_name}'"
+                        );
+
+                        // Initialize the submodule if needed
+                        if !locally_initialized.contains(&full_submodule_path) {
+                            assignments.extend(
+                                self.create_module_initialization_for_import(&full_submodule_path),
+                            );
+                            locally_initialized.insert(full_submodule_path.clone());
+                        }
+
+                        // Create direct assignment to the submodule namespace
+                        let namespace_expr = if full_submodule_path.contains('.') {
+                            let parts: Vec<&str> = full_submodule_path.split('.').collect();
+                            expressions::dotted_name(&parts, ExprContext::Load)
+                        } else {
+                            expressions::name(&full_submodule_path, ExprContext::Load)
+                        };
+
+                        assignments.push(statements::simple_assign(
+                            target_name.as_str(),
+                            namespace_expr,
+                        ));
+                        continue; // Skip the rest
                     }
                 }
 
@@ -892,14 +1006,15 @@ impl<'a> HybridStaticBundler<'a> {
 
             // Process all exported symbols from the module
             for symbol in &module_info.exported_symbols {
-                // Skip if this symbol is actually a submodule
+                // Check if this symbol is actually a submodule
                 let full_submodule_path = format!("{module_name}.{symbol}");
                 if self.bundled_modules.contains(&full_submodule_path) {
+                    // This is a submodule - but we still need it in the rename map for namespace
+                    // population Mark it specially so we know it's a submodule
                     log::debug!(
-                        "Skipping '{symbol}' from module '{module_name}' rename map - it's a \
-                         submodule"
+                        "Symbol '{symbol}' in module '{module_name}' is a submodule - will need \
+                         special handling"
                     );
-                    continue;
                 }
 
                 if let Some(new_name) = semantic_ctx.symbol_registry.get_rename(&module_id, symbol)
@@ -1507,7 +1622,7 @@ impl<'a> HybridStaticBundler<'a> {
 
                                 // Check for self-assignment
                                 if target_str == value_str {
-                                    log::warn!("Found self-assignment in deferred imports: {key}");
+                                    log::debug!("Found self-assignment in deferred imports: {key}");
                                     // Skip self-assignments entirely
                                     log::debug!("Skipping self-assignment: {key}");
                                 } else if seen_assignments.insert(key.clone()) {
@@ -1634,6 +1749,148 @@ impl<'a> HybridStaticBundler<'a> {
         self.bundled_modules
             .iter()
             .any(|bundled| bundled.starts_with(&package_prefix))
+    }
+
+    /// Sort deferred imports to ensure dependencies are satisfied
+    /// This ensures namespace creations come before assignments that use those namespaces
+    /// Uses a simple categorization approach to group statements by type
+    fn sort_deferred_imports_for_dependencies(&self, imports: &mut Vec<Stmt>) {
+        // This is a simplified implementation that addresses the specific issue
+        // of forward references in namespace attribute accesses
+
+        let n = imports.len();
+        if n <= 1 {
+            return; // No need to sort if 0 or 1 items
+        }
+
+        // Separate statements into categories for proper ordering
+        let mut namespace_creations = Vec::new();
+        let mut namespace_populations = Vec::new();
+        let mut attribute_accesses = Vec::new();
+        let mut other_statements = Vec::new();
+
+        for stmt in imports.drain(..) {
+            if let Stmt::Assign(assign) = &stmt {
+                // Check if this creates a namespace
+                if assign.targets.len() == 1 {
+                    if let Expr::Name(target) = &assign.targets[0]
+                        && let Expr::Call(call) = assign.value.as_ref()
+                        && let Expr::Attribute(attr) = call.func.as_ref()
+                        && let Expr::Name(base) = attr.value.as_ref()
+                        && base.id.as_str() == "types"
+                        && attr.attr.as_str() == "SimpleNamespace"
+                    {
+                        log::debug!("Found namespace creation: {}", target.id);
+                        namespace_creations.push(stmt);
+                        continue;
+                    }
+
+                    // Check if this populates a namespace (e.g., namespace.attr = value)
+                    if let Expr::Attribute(target_attr) = &assign.targets[0]
+                        && let Expr::Name(_) = target_attr.value.as_ref()
+                    {
+                        log::debug!(
+                            "Found namespace population: {}.{}",
+                            if let Expr::Name(base) = target_attr.value.as_ref() {
+                                base.id.as_str()
+                            } else {
+                                "?"
+                            },
+                            target_attr.attr
+                        );
+                        namespace_populations.push(stmt);
+                        continue;
+                    }
+                }
+
+                // Check if this accesses namespace attributes (e.g., var = namespace.attr)
+                if let Expr::Attribute(attr) = assign.value.as_ref()
+                    && let Expr::Name(_) = attr.value.as_ref()
+                {
+                    log::debug!(
+                        "Found attribute access: {} = {}.{}",
+                        if let Expr::Name(target) = &assign.targets[0] {
+                            target.id.as_str()
+                        } else {
+                            "?"
+                        },
+                        if let Expr::Name(base) = attr.value.as_ref() {
+                            base.id.as_str()
+                        } else {
+                            "?"
+                        },
+                        attr.attr
+                    );
+                    attribute_accesses.push(stmt);
+                    continue;
+                }
+            }
+
+            other_statements.push(stmt);
+        }
+
+        // Rebuild in proper order:
+        // 1. Namespace creations first
+        // 2. Other statements (general assignments)
+        // 3. Namespace populations
+        // 4. Attribute accesses last
+        imports.extend(namespace_creations);
+        imports.extend(other_statements);
+        imports.extend(namespace_populations);
+        imports.extend(attribute_accesses);
+
+        if !imports.is_empty() {
+            log::debug!(
+                "Reordered {} deferred imports to prevent forward references",
+                imports.len()
+            );
+        }
+    }
+
+    /// Collect all Name expressions that a given expression depends on
+    fn collect_name_dependencies(expr: &Expr, deps: &mut FxIndexSet<String>) {
+        match expr {
+            Expr::Name(name) => {
+                deps.insert(name.id.to_string());
+            }
+            Expr::Attribute(attr) => {
+                Self::collect_name_dependencies(&attr.value, deps);
+            }
+            Expr::Call(call) => {
+                Self::collect_name_dependencies(&call.func, deps);
+                for arg in &call.arguments.args {
+                    Self::collect_name_dependencies(arg, deps);
+                }
+            }
+            Expr::BinOp(binop) => {
+                Self::collect_name_dependencies(&binop.left, deps);
+                Self::collect_name_dependencies(&binop.right, deps);
+            }
+            Expr::UnaryOp(unaryop) => {
+                Self::collect_name_dependencies(&unaryop.operand, deps);
+            }
+            Expr::List(list) => {
+                for item in &list.elts {
+                    Self::collect_name_dependencies(item, deps);
+                }
+            }
+            Expr::Tuple(tuple) => {
+                for item in &tuple.elts {
+                    Self::collect_name_dependencies(item, deps);
+                }
+            }
+            Expr::Dict(dict) => {
+                for item in &dict.items {
+                    if let Some(key) = &item.key {
+                        Self::collect_name_dependencies(key, deps);
+                    }
+                    Self::collect_name_dependencies(&item.value, deps);
+                }
+            }
+            _ => {
+                // For other expression types, we don't need to track dependencies
+            }
+        }
     }
 
     /// Check if module has forward references that would cause NameError
@@ -2952,7 +3209,13 @@ impl<'a> HybridStaticBundler<'a> {
         // Now reorder all collected inlined statements to ensure proper declaration order
         // This handles cross-module dependencies like classes inheriting from symbols defined in
         // other modules
-        let reordered_inlined_stmts = self.reorder_cross_module_statements(all_inlined_stmts);
+        let mut reordered_inlined_stmts = self.reorder_cross_module_statements(all_inlined_stmts);
+
+        // Filter out invalid assignments where we're trying to assign a module that uses an init
+        // function For example, `mypkg.compat = compat` when `compat` is wrapped in an init
+        // function
+        self.filter_invalid_submodule_assignments(&mut reordered_inlined_stmts, None);
+
         final_body.extend(reordered_inlined_stmts);
 
         // Create namespace objects for inlined modules that are imported as namespaces
@@ -3247,7 +3510,116 @@ impl<'a> HybridStaticBundler<'a> {
                                         continue;
                                     }
 
+                                    // Check if this export is a submodule
+                                    // Only skip if it's actually a module (not just a symbol that
+                                    // happens to match a module path)
+                                    let full_submodule_path = format!("{module_name}.{export}");
+
+                                    if self.bundled_modules.contains(&full_submodule_path) {
+                                        log::debug!(
+                                            "Export '{export}' is a bundled submodule: \
+                                             {full_submodule_path}"
+                                        );
+                                        // Check if it's inlined or uses an init function
+                                        let is_inlined =
+                                            self.inlined_modules.contains(&full_submodule_path);
+                                        // Check if this module has an init function (meaning it's
+                                        // wrapped, not inlined)
+                                        let uses_init_function = self
+                                            .module_registry
+                                            .get(&full_submodule_path)
+                                            .and_then(|synthetic_name| {
+                                                self.init_functions.get(synthetic_name)
+                                            })
+                                            .is_some();
+
+                                        if uses_init_function {
+                                            // This is a submodule that uses an init function
+                                            // The assignment will be handled by init function call
+                                            log::debug!(
+                                                "Skipping namespace assignment for \
+                                                 '{namespace_var}.{export}' - it uses an init \
+                                                 function"
+                                            );
+                                            // Track that we've handled this to prevent duplicate
+                                            // assignments
+                                            self.namespace_assignments_made.insert(assignment_key);
+                                            continue;
+                                        } else if is_inlined {
+                                            // This is an inlined submodule
+                                            // When a submodule is inlined, it creates a local
+                                            // variable with the submodule name
+                                            // We need to create the assignment: parent.submodule =
+                                            // submodule
+                                            log::debug!(
+                                                "Export '{export}' in module '{module_name}' is \
+                                                 an inlined submodule - will create assignment"
+                                            );
+
+                                            // Create the assignment but add it to
+                                            // all_deferred_imports instead
+                                            let assign_stmt = statements::assign(
+                                                vec![expressions::attribute(
+                                                    expressions::name(
+                                                        &namespace_var,
+                                                        ExprContext::Load,
+                                                    ),
+                                                    &export,
+                                                    ExprContext::Store,
+                                                )],
+                                                expressions::name(&export, ExprContext::Load),
+                                            );
+                                            all_deferred_imports.push(assign_stmt);
+
+                                            // Track that we've made this assignment
+                                            self.namespace_assignments_made.insert(assignment_key);
+                                            continue;
+                                        } else {
+                                            // This is a submodule but neither inlined nor using
+                                            // init function
+                                            // This shouldn't happen for bundled modules
+                                            log::debug!(
+                                                "Unexpected state: submodule \
+                                                 '{full_submodule_path}' is bundled but neither \
+                                                 inlined nor using init function"
+                                            );
+                                            continue;
+                                        }
+                                    }
+
                                     // This export wasn't renamed, add it directly
+                                    log::debug!(
+                                        "Creating namespace assignment for unrenamed export: \
+                                         {namespace_var}.{export} = {export}"
+                                    );
+                                    log::debug!(
+                                        "  DEBUG: module_name='{module_name}', \
+                                         namespace_var='{namespace_var}', export='{export}'"
+                                    );
+
+                                    // Double-check if this is actually a bundled module
+                                    let actual_full_path = format!("{module_name}.{export}");
+
+                                    // Final check: make sure this is not a module at all
+                                    let is_any_kind_of_module =
+                                        self.bundled_modules.contains(&actual_full_path)
+                                            || self.module_registry.contains_key(&actual_full_path)
+                                            || self.inlined_modules.contains(&actual_full_path);
+
+                                    if is_any_kind_of_module {
+                                        log::debug!(
+                                            "Skipping assignment for {namespace_var}.{export} - \
+                                             it's a module"
+                                        );
+                                        self.namespace_assignments_made.insert(assignment_key);
+                                        continue;
+                                    }
+
+                                    log::debug!(
+                                        "Creating unrenamed export assignment: \
+                                         {namespace_var}.{export} = {export} for module \
+                                         {module_name}"
+                                    );
                                     let assign_stmt = statements::assign(
                                         vec![expressions::attribute(
                                             expressions::name(&namespace_var, ExprContext::Load),
@@ -3645,7 +4017,8 @@ impl<'a> HybridStaticBundler<'a> {
                 num_imports_before,
                 final_body.len()
             );
-            let deduped_imports = self.deduplicate_deferred_imports_with_existing(
+
+            let mut deduped_imports = self.deduplicate_deferred_imports_with_existing(
                 imports_without_init_calls,
                 &final_body,
             );
@@ -3654,6 +4027,17 @@ impl<'a> HybridStaticBundler<'a> {
                 deduped_imports.len(),
                 num_imports_before
             );
+
+            // Filter out invalid assignments where the RHS references a module that uses an init
+            // function For example, `mypkg.compat = compat` when `compat` is wrapped in
+            // an init function
+            self.filter_invalid_submodule_assignments(&mut deduped_imports, None);
+
+            // Sort deferred imports to ensure namespace creations come before assignments that use
+            // them This prevents forward reference errors like "NameError: name
+            // 'compat' is not defined"
+            self.sort_deferred_imports_for_dependencies(&mut deduped_imports);
+
             final_body.extend(deduped_imports);
 
             // Clear the collection so we don't add them again later
@@ -3839,6 +4223,10 @@ impl<'a> HybridStaticBundler<'a> {
                         }
 
                         // Create assignment: namespace.original_name = renamed_name
+                        log::debug!(
+                            "Creating namespace assignment in empty namespace population: \
+                             {namespace_var}.{original_name} = {renamed_name}"
+                        );
                         let assign_stmt = statements::assign(
                             vec![expressions::attribute(
                                 expressions::name(&namespace_var, ExprContext::Load),
@@ -4325,10 +4713,16 @@ impl<'a> HybridStaticBundler<'a> {
                 })
                 .collect();
 
-            let deduped_imports = self.deduplicate_deferred_imports_with_existing(
+            let mut deduped_imports = self.deduplicate_deferred_imports_with_existing(
                 imports_without_init_calls,
                 &final_body,
             );
+
+            // Filter out invalid assignments where the RHS references a module that uses an init
+            // function For example, `mypkg.compat = compat` when `compat` is wrapped in
+            // an init function
+            self.filter_invalid_submodule_assignments(&mut deduped_imports, None);
+
             log::debug!(
                 "Total deferred imports after deduplication: {}",
                 deduped_imports.len()
@@ -4356,6 +4750,25 @@ impl<'a> HybridStaticBundler<'a> {
         // Deduplicate namespace assignments that may have been created multiple times
         // This happens when processing imports like `import mypackage` and `import mypackage.utils`
         final_body = self.deduplicate_namespace_assignments(final_body);
+
+        // Final filter: Remove any invalid assignments where module.attr = attr and attr is a
+        // submodule that doesn't exist as a local variable
+        // This catches any assignments that slipped through earlier filters
+
+        // First collect all local variable names to avoid borrow checker issues
+        let local_variables: FxIndexSet<String> = final_body
+            .iter()
+            .filter_map(|stmt| {
+                if let Stmt::Assign(assign) = stmt
+                    && let [Expr::Name(name)] = assign.targets.as_slice()
+                {
+                    return Some(name.id.to_string());
+                }
+                None
+            })
+            .collect();
+
+        self.filter_invalid_submodule_assignments(&mut final_body, Some(&local_variables));
 
         // Also deduplicate function definitions that may have been duplicated by forward reference
         // fixes
@@ -4896,13 +5309,23 @@ impl<'a> HybridStaticBundler<'a> {
         attr_name: &str,
         full_module_name: &str,
     ) -> Stmt {
+        // Create the value expression - handle dotted names properly
+        let value_expr = if full_module_name.contains('.') {
+            // For dotted names like "myrequests.compat", create a proper dotted expression
+            let parts: Vec<&str> = full_module_name.split('.').collect();
+            expressions::dotted_name(&parts, ExprContext::Load)
+        } else {
+            // Simple name
+            expressions::name(full_module_name, ExprContext::Load)
+        };
+
         statements::assign(
             vec![expressions::attribute(
                 expressions::name(parent_module, ExprContext::Load),
                 attr_name,
                 ExprContext::Store,
             )],
-            expressions::name(full_module_name, ExprContext::Load),
+            value_expr,
         )
     }
 
@@ -6206,17 +6629,55 @@ impl<'a> HybridStaticBundler<'a> {
                     imports.push(stmt);
                 }
                 Stmt::Assign(assign) => {
-                    // Check if this is a class attribute assignment (e.g., MyClass.__module__ =
-                    // 'foo')
-                    let is_class_attribute = if assign.targets.len() == 1 {
+                    // Check if this is an attribute assignment
+                    let is_attribute_assignment = if assign.targets.len() == 1 {
                         matches!(&assign.targets[0], Expr::Attribute(_))
                     } else {
                         false
                     };
 
-                    if is_class_attribute {
-                        // Class attribute assignments should come after class definitions
-                        other_stmts.push(stmt);
+                    if is_attribute_assignment {
+                        debug!("Found attribute assignment: {stmt:?}");
+                        // Check if this is a module namespace assignment (e.g., parent.child =
+                        // child_namespace) These need to be ordered with
+                        // regular assignments, not deferred
+                        let is_module_namespace_assignment =
+                            if let Expr::Attribute(attr) = &assign.targets[0] {
+                                // Check if the right-hand side references a module or namespace
+                                if let Expr::Name(name) = &attr.value.as_ref() {
+                                    // Check if this looks like a parent-child module relationship
+                                    let parent_name = name.id.as_str();
+                                    let child_name = attr.attr.as_str();
+
+                                    // Check if the value being assigned matches the child name
+                                    if let Expr::Name(value_name) = assign.value.as_ref() {
+                                        value_name.id.as_str() == child_name
+                                            || value_name.id.as_str()
+                                                == format!("{parent_name}_{child_name}")
+                                            || value_name
+                                                .id
+                                                .as_str()
+                                                .starts_with(&format!("{child_name}_"))
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            };
+
+                        if is_module_namespace_assignment {
+                            // Module namespace assignments should be ordered with regular
+                            // assignments
+                            regular_assignments.push(stmt);
+                        } else {
+                            // Other attribute assignments (like class attributes) come after class
+                            // definitions
+                            debug!("Adding attribute assignment to other_stmts: {stmt:?}");
+                            other_stmts.push(stmt);
+                        }
                     } else {
                         // Check if this assignment defines a base class symbol
                         let defines_base_class = if assign.targets.len() == 1 {
@@ -7259,11 +7720,63 @@ impl<'a> HybridStaticBundler<'a> {
 
                 // Check if this symbol is actually a submodule
                 let full_submodule_path = format!("{module_name}.{symbol}");
-                if self.bundled_modules.contains(&full_submodule_path) {
+                let is_bundled_submodule = self.bundled_modules.contains(&full_submodule_path);
+                let is_inlined = self.inlined_modules.contains(&full_submodule_path);
+                let uses_init_function = self.module_registry.contains_key(&full_submodule_path);
+
+                if is_bundled_submodule {
                     log::debug!(
-                        "Skipping namespace assignment for '{symbol}' in module '{module_name}' - \
-                         it's a submodule, not a symbol"
+                        "Symbol '{symbol}' in module '{module_name}' is a submodule (bundled: \
+                         {is_bundled_submodule}, inlined: {is_inlined}, uses_init: \
+                         {uses_init_function})"
                     );
+
+                    // For inlined submodules, check if the parent module re-exports a symbol
+                    // with the same name as the submodule (e.g., __version__ from __version__
+                    // module)
+                    if is_inlined {
+                        // Check if the submodule has a symbol with the same name as itself
+                        if let Some(submodule_exports) = self
+                            .module_exports
+                            .get(&full_submodule_path)
+                            .and_then(|e| e.as_ref())
+                            && submodule_exports.contains(symbol)
+                        {
+                            // The submodule exports a symbol with the same name as itself
+                            // Check if the parent module re-exports this symbol
+                            log::debug!(
+                                "Submodule '{full_submodule_path}' exports symbol '{symbol}' with \
+                                 same name"
+                            );
+
+                            // Get the renamed symbol from the submodule
+                            if let Some(submodule_renames) =
+                                symbol_renames.get(&full_submodule_path)
+                                && let Some(renamed) = submodule_renames.get(*symbol)
+                            {
+                                log::info!(
+                                    "Creating namespace assignment: {target_name}.{symbol} = \
+                                     {renamed} (re-exported from submodule)"
+                                );
+
+                                // Create the assignment
+                                let target = expressions::dotted_name(&parts, ExprContext::Load);
+                                result_stmts.push(statements::assign(
+                                    vec![expressions::attribute(
+                                        target,
+                                        symbol,
+                                        ExprContext::Store,
+                                    )],
+                                    expressions::name(renamed, ExprContext::Load),
+                                ));
+                                continue 'symbol_loop;
+                            }
+                        }
+                    }
+
+                    // Skip other submodules - they are handled separately
+                    // This prevents creating invalid assignments like `mypkg.compat = compat`
+                    // when `compat` is a submodule, not a local variable
                     continue;
                 }
 
@@ -7487,6 +8000,47 @@ impl<'a> HybridStaticBundler<'a> {
                             "Skipping duplicate namespace assignment: {target_name}.{symbol} = \
                              {actual_symbol_name} (already exists in result_stmts) - in \
                              populate_namespace_with_module_symbols_with_renames"
+                        );
+                        continue;
+                    }
+
+                    // Check if this is a submodule that uses an init function
+                    let full_submodule_path = format!("{module_name}.{symbol}");
+                    let uses_init_function = self
+                        .module_registry
+                        .get(&full_submodule_path)
+                        .and_then(|synthetic_name| self.init_functions.get(synthetic_name))
+                        .is_some();
+
+                    if uses_init_function {
+                        // This is a submodule that uses an init function
+                        // The assignment will be handled by the init function call
+                        log::debug!(
+                            "Skipping namespace assignment for '{target_name}.{symbol}' - it uses \
+                             an init function"
+                        );
+                        continue;
+                    }
+
+                    // Check if this is an inlined submodule (no local variable exists)
+                    let is_inlined_submodule = self.inlined_modules.contains(&full_submodule_path);
+                    if is_inlined_submodule {
+                        log::debug!(
+                            "Skipping namespace assignment for '{target_name}.{symbol}' - it's an \
+                             inlined submodule"
+                        );
+                        continue;
+                    }
+
+                    // Check if this is a submodule at all (vs a symbol defined in the module)
+                    let is_bundled_submodule = self.bundled_modules.contains(&full_submodule_path);
+                    if is_bundled_submodule {
+                        // This is a submodule that's bundled but neither inlined nor uses init
+                        // function This can happen when the submodule is
+                        // handled differently (e.g., by deferred imports)
+                        log::debug!(
+                            "Skipping namespace assignment for '{target_name}.{symbol}' - it's a \
+                             bundled submodule"
                         );
                         continue;
                     }

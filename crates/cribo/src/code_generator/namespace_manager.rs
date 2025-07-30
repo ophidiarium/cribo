@@ -219,7 +219,23 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                         "Skipping wrapper module assignment '{parent}.{attr} = {module_name}' - \
                          imported in entry module"
                     );
+                } else if bundler.inlined_modules.contains(&module_name) {
+                    // For inlined modules, we need to assign the namespace object
+                    // The namespace object variable is created with underscores instead of dots
+                    let namespace_var = module_name.cow_replace('.', "_").into_owned();
+                    debug!("Assigning inlined module namespace: {parent}.{attr} = {namespace_var}");
+
+                    // Create assignment: parent.attr = namespace_var
+                    final_body.push(statements::assign(
+                        vec![expressions::attribute(
+                            expressions::name(&parent, ExprContext::Load),
+                            &attr,
+                            ExprContext::Store,
+                        )],
+                        expressions::name(&namespace_var, ExprContext::Load),
+                    ));
                 } else {
+                    debug!("Module '{module_name}' is not in inlined_modules, checking assignment");
                     // Check if this would be a redundant self-assignment
                     let full_target = format!("{parent}.{attr}");
                     if full_target == module_name {
@@ -229,11 +245,16 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                     } else {
                         // This is a wrapper module - assign direct reference
                         debug!("Assigning wrapper module: {parent}.{attr} = {module_name}");
-                        final_body.push(bundler.create_dotted_attribute_assignment(
+
+                        // DEBUGGING: Check what assignment is being created
+                        let assignment = bundler.create_dotted_attribute_assignment(
                             &parent,
                             &attr,
                             &module_name,
-                        ));
+                        );
+                        debug!("Created assignment: {assignment:?}");
+
+                        final_body.push(assignment);
                     }
                 }
             }
@@ -244,6 +265,13 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                     "Skipping intermediate namespace '{module_name}' - already created via \
                      namespace index"
                 );
+                created_namespaces.insert(module_name);
+                continue;
+            }
+
+            // Also skip if this is an inlined module - it will be handled elsewhere
+            if bundler.inlined_modules.contains(&module_name) {
+                debug!("Skipping intermediate namespace '{module_name}' - it's an inlined module");
                 created_namespaces.insert(module_name);
                 continue;
             }
