@@ -6,9 +6,9 @@ use anyhow::Result;
 use cow_utils::CowUtils;
 use log::debug;
 use ruff_python_ast::{
-    Alias, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprContext, ExprName, Identifier,
-    ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom,
-    visitor::source_order::SourceOrderVisitor,
+    Alias, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName,
+    Identifier, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
+    StmtImportFrom, visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -2902,72 +2902,20 @@ impl<'a> HybridStaticBundler<'a> {
                         final_body.extend(init_stmts);
                     } else {
                         // For module cache mode, initialization happens later in dependency order
-                        // But if this wrapper module is a source of hard dependencies, generate
-                        // assignments now
+                        // But if this wrapper module is a source of hard dependencies, we need to
+                        // handle it specially to avoid forward reference
+                        // errors
                         let is_hard_dep_source = self
                             .hard_dependencies
                             .iter()
                             .any(|dep| dep.source_module == *module_name);
                         if is_hard_dep_source {
-                            let hard_deps = self.hard_dependencies.clone();
-
-                            // Generate a call to initialize this module immediately
-                            let init_func_name = self.init_functions[&synthetic_name].clone();
-                            let init_call = statements::simple_assign(
-                                INIT_RESULT_VAR,
-                                expressions::call(
-                                    expressions::name(&init_func_name, ExprContext::Load),
-                                    vec![],
-                                    vec![],
-                                ),
+                            // Don't initialize here - this would cause a forward reference
+                            // Instead, we'll handle hard dependencies after all init functions are
+                            // defined
+                            log::debug!(
+                                "Module {module_name} is a hard dependency source, deferring initialization"
                             );
-                            final_body.push(init_call);
-
-                            // Generate the merge
-                            self.generate_merge_module_attributes(
-                                &mut final_body,
-                                module_name,
-                                INIT_RESULT_VAR,
-                            );
-
-                            // Now generate assignments for hard dependencies from this module
-                            for dep in &hard_deps {
-                                if dep.source_module == *module_name {
-                                    // Use the same logic as hard dependency rewriting in inlined
-                                    // modules This must match
-                                    // the logic in rewrite_hard_dependencies_in_inlined_module
-                                    let target_name =
-                                        if dep.alias_is_mandatory && dep.alias.is_some() {
-                                            dep.alias.as_ref().expect(
-                                                "Alias should be present when alias_is_mandatory \
-                                                 is true",
-                                            )
-                                        } else {
-                                            &dep.imported_attr
-                                        };
-
-                                    // Generate: target_name = module_name.imported_attr
-                                    let module_parts: Vec<&str> = module_name.split('.').collect();
-                                    let module_expr =
-                                        expressions::dotted_name(&module_parts, ExprContext::Load);
-                                    let assign_stmt = statements::simple_assign(
-                                        target_name,
-                                        expressions::attribute(
-                                            module_expr,
-                                            &dep.imported_attr,
-                                            ExprContext::Load,
-                                        ),
-                                    );
-
-                                    final_body.push(assign_stmt);
-                                    log::debug!(
-                                        "Generated early assignment: {} = {}.{}",
-                                        target_name,
-                                        module_name,
-                                        dep.imported_attr
-                                    );
-                                }
-                            }
                         }
                     }
                     // Module is now initialized and assignments made
@@ -3767,6 +3715,55 @@ impl<'a> HybridStaticBundler<'a> {
                         let init_stmts =
                             self.generate_module_assignment_from_init(module_name, init_call);
                         final_body.extend(init_stmts);
+
+                        // Extract hard dependencies from this module immediately after
+                        // initialization This is critical for modules that
+                        // are sources of hard dependencies
+                        if self
+                            .hard_dependencies
+                            .iter()
+                            .any(|dep| dep.source_module == *module_name)
+                        {
+                            log::debug!(
+                                "Module {module_name} is a hard dependency source, extracting dependencies \
+                                 immediately"
+                            );
+
+                            for dep in &self.hard_dependencies.clone() {
+                                if dep.source_module == *module_name {
+                                    let target_name =
+                                        if dep.alias_is_mandatory && dep.alias.is_some() {
+                                            dep.alias.as_ref().expect(
+                                                "Alias should be present when alias_is_mandatory \
+                                                 is true",
+                                            )
+                                        } else {
+                                            &dep.imported_attr
+                                        };
+
+                                    // Generate: target_name = module_name.imported_attr
+                                    let module_parts: Vec<&str> = module_name.split('.').collect();
+                                    let module_expr =
+                                        expressions::dotted_name(&module_parts, ExprContext::Load);
+                                    let assign_stmt = statements::simple_assign(
+                                        target_name,
+                                        expressions::attribute(
+                                            module_expr,
+                                            &dep.imported_attr,
+                                            ExprContext::Load,
+                                        ),
+                                    );
+
+                                    final_body.push(assign_stmt);
+                                    log::debug!(
+                                        "Generated immediate assignment: {} = {}.{}",
+                                        target_name,
+                                        module_name,
+                                        dep.imported_attr
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             } else {
@@ -3836,6 +3833,23 @@ impl<'a> HybridStaticBundler<'a> {
 
             // Track which hard dependencies we've already processed
             let mut processed_hard_deps: FxIndexSet<(String, String)> = FxIndexSet::default();
+
+            // Mark hard dependencies that were processed during module initialization
+            if use_module_cache_for_wrappers {
+                for dep in &self.hard_dependencies {
+                    if sorted_wrapped.contains(&dep.source_module) {
+                        let target_name = if dep.alias_is_mandatory && dep.alias.is_some() {
+                            dep.alias
+                                .as_ref()
+                                .expect("Alias should be present when alias_is_mandatory is true")
+                        } else {
+                            &dep.imported_attr
+                        };
+                        processed_hard_deps
+                            .insert((dep.source_module.clone(), target_name.clone()));
+                    }
+                }
+            }
 
             // Mark the ones we processed earlier as already handled
             for module_name in &wrapper_modules_needed_by_inlined {
@@ -6464,36 +6478,192 @@ impl<'a> HybridStaticBundler<'a> {
                                 );
                                 if base_str == hard_dep.base_class {
                                     // Rewrite to use the hoisted import
-                                    // Use the alias if it's mandatory, otherwise use the imported
-                                    // attr
-                                    let name_to_use = if hard_dep.alias_is_mandatory
-                                        && hard_dep.alias.is_some()
+                                    // If the base class is module.attr pattern and we're importing
+                                    // just the module,
+                                    // we need to preserve the attribute access
+                                    if hard_dep.base_class.contains('.')
+                                        && !hard_dep.imported_attr.contains('.')
                                     {
-                                        hard_dep
-                                            .alias
-                                            .as_ref()
-                                            .expect(
-                                                "alias should exist when alias_is_mandatory is \
-                                                 true and alias.is_some() is true",
-                                            )
-                                            .clone()
-                                    } else {
-                                        hard_dep.imported_attr.clone()
-                                    };
+                                        // The base class is like "cookielib.CookieJar" but we're
+                                        // importing "cookielib"
+                                        // So we need to preserve the attribute access pattern
+                                        let parts: Vec<&str> =
+                                            hard_dep.base_class.split('.').collect();
+                                        if parts.len() == 2 && parts[0] == hard_dep.imported_attr {
+                                            // Replace just the module part, keep the attribute
+                                            let name_to_use = if hard_dep.alias_is_mandatory
+                                                && hard_dep.alias.is_some()
+                                            {
+                                                hard_dep
+                                                    .alias
+                                                    .as_ref()
+                                                    .expect(
+                                                        "alias should exist when \
+                                                         alias_is_mandatory is true and \
+                                                         alias.is_some() is true",
+                                                    )
+                                                    .clone()
+                                            } else {
+                                                hard_dep.imported_attr.clone()
+                                            };
 
-                                    *arg = Expr::Name(ExprName {
-                                        node_index: AtomicNodeIndex::dummy(),
-                                        id: name_to_use.clone().into(),
-                                        ctx: ExprContext::Load,
-                                        range: TextRange::default(),
-                                    });
-                                    log::info!(
-                                        "Rewrote base class {} to {} for class {} in inlined \
-                                         module",
-                                        hard_dep.base_class,
-                                        name_to_use,
-                                        class_name
-                                    );
+                                            // Create module.attr expression
+                                            *arg = Expr::Attribute(ExprAttribute {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                value: Box::new(Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
+                                                    id: name_to_use.clone().into(),
+                                                    ctx: ExprContext::Load,
+                                                    range: TextRange::default(),
+                                                })),
+                                                attr: Identifier::new(
+                                                    parts[1],
+                                                    TextRange::default(),
+                                                ),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            });
+                                            log::info!(
+                                                "Rewrote base class {} to {}.{} for class {} in \
+                                                 inlined module",
+                                                hard_dep.base_class,
+                                                name_to_use,
+                                                parts[1],
+                                                class_name
+                                            );
+                                        } else {
+                                            // Fall back to original logic
+                                            // Check if the source module is a wrapper module
+                                            let source_is_wrapper = self
+                                                .module_registry
+                                                .contains_key(&hard_dep.source_module);
+
+                                            if source_is_wrapper
+                                                && !hard_dep.base_class.contains('.')
+                                            {
+                                                // For imports from wrapper modules, we need to use
+                                                // module.attr pattern
+                                                *arg = Expr::Attribute(ExprAttribute {
+                                                    node_index: AtomicNodeIndex::dummy(),
+                                                    value: Box::new(Expr::Name(ExprName {
+                                                        node_index: AtomicNodeIndex::dummy(),
+                                                        id: hard_dep.source_module.clone().into(),
+                                                        ctx: ExprContext::Load,
+                                                        range: TextRange::default(),
+                                                    })),
+                                                    attr: Identifier::new(
+                                                        &hard_dep.imported_attr,
+                                                        TextRange::default(),
+                                                    ),
+                                                    ctx: ExprContext::Load,
+                                                    range: TextRange::default(),
+                                                });
+                                                log::info!(
+                                                    "Rewrote base class {} to {}.{} for class {} \
+                                                     in inlined module (source is wrapper)",
+                                                    hard_dep.base_class,
+                                                    hard_dep.source_module,
+                                                    hard_dep.imported_attr,
+                                                    class_name
+                                                );
+                                            } else {
+                                                let name_to_use = if hard_dep.alias_is_mandatory
+                                                    && hard_dep.alias.is_some()
+                                                {
+                                                    hard_dep
+                                                        .alias
+                                                        .as_ref()
+                                                        .expect(
+                                                            "alias should exist when \
+                                                             alias_is_mandatory is true and \
+                                                             alias.is_some() is true",
+                                                        )
+                                                        .clone()
+                                                } else {
+                                                    hard_dep.imported_attr.clone()
+                                                };
+
+                                                *arg = Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
+                                                    id: name_to_use.clone().into(),
+                                                    ctx: ExprContext::Load,
+                                                    range: TextRange::default(),
+                                                });
+                                                log::info!(
+                                                    "Rewrote base class {} to {} for class {} in \
+                                                     inlined module",
+                                                    hard_dep.base_class,
+                                                    name_to_use,
+                                                    class_name
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        // Check if the source module is a wrapper module
+                                        let source_is_wrapper = self
+                                            .module_registry
+                                            .contains_key(&hard_dep.source_module);
+
+                                        if source_is_wrapper && !hard_dep.base_class.contains('.') {
+                                            // For imports from wrapper modules, we need to use
+                                            // module.attr pattern
+                                            *arg = Expr::Attribute(ExprAttribute {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                value: Box::new(Expr::Name(ExprName {
+                                                    node_index: AtomicNodeIndex::dummy(),
+                                                    id: hard_dep.source_module.clone().into(),
+                                                    ctx: ExprContext::Load,
+                                                    range: TextRange::default(),
+                                                })),
+                                                attr: Identifier::new(
+                                                    &hard_dep.imported_attr,
+                                                    TextRange::default(),
+                                                ),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            });
+                                            log::info!(
+                                                "Rewrote base class {} to {}.{} for class {} in \
+                                                 inlined module (source is wrapper)",
+                                                hard_dep.base_class,
+                                                hard_dep.source_module,
+                                                hard_dep.imported_attr,
+                                                class_name
+                                            );
+                                        } else {
+                                            // Use the alias if it's mandatory, otherwise use the
+                                            // imported attr
+                                            let name_to_use = if hard_dep.alias_is_mandatory
+                                                && hard_dep.alias.is_some()
+                                            {
+                                                hard_dep
+                                                    .alias
+                                                    .as_ref()
+                                                    .expect(
+                                                        "alias should exist when \
+                                                         alias_is_mandatory is true and \
+                                                         alias.is_some() is true",
+                                                    )
+                                                    .clone()
+                                            } else {
+                                                hard_dep.imported_attr.clone()
+                                            };
+
+                                            *arg = Expr::Name(ExprName {
+                                                node_index: AtomicNodeIndex::dummy(),
+                                                id: name_to_use.clone().into(),
+                                                ctx: ExprContext::Load,
+                                                range: TextRange::default(),
+                                            });
+                                            log::info!(
+                                                "Rewrote base class {} to {} for class {} in \
+                                                 inlined module",
+                                                hard_dep.base_class,
+                                                name_to_use,
+                                                class_name
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         }
