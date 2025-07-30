@@ -1552,7 +1552,7 @@ impl<'a> HybridStaticBundler<'a> {
 
                                 // Check for self-assignment
                                 if target_str == value_str {
-                                    log::warn!("Found self-assignment in deferred imports: {key}");
+                                    log::debug!("Found self-assignment in deferred imports: {key}");
                                     // Skip self-assignments entirely
                                     log::debug!("Skipping self-assignment: {key}");
                                 } else if seen_assignments.insert(key.clone()) {
@@ -3577,8 +3577,8 @@ impl<'a> HybridStaticBundler<'a> {
                                          {namespace_var}.{export} = {export}"
                                     );
                                     log::debug!(
-                                        "  DEBUG: module_name='{module_name}', namespace_var='{namespace_var}', \
-                                         export='{export}'"
+                                        "  DEBUG: module_name='{module_name}', \
+                                         namespace_var='{namespace_var}', export='{export}'"
                                     );
 
                                     // Double-check if this is actually a bundled module
@@ -3592,15 +3592,17 @@ impl<'a> HybridStaticBundler<'a> {
 
                                     if is_any_kind_of_module {
                                         log::debug!(
-                                            "Skipping assignment for {namespace_var}.{export} - it's a module"
+                                            "Skipping assignment for {namespace_var}.{export} - \
+                                             it's a module"
                                         );
                                         self.namespace_assignments_made.insert(assignment_key);
                                         continue;
                                     }
 
                                     log::debug!(
-                                        "Creating unrenamed export assignment: {namespace_var}.{export} = {export} for \
-                                         module {module_name}"
+                                        "Creating unrenamed export assignment: \
+                                         {namespace_var}.{export} = {export} for module \
+                                         {module_name}"
                                     );
                                     let assign_stmt = statements::assign(
                                         vec![expressions::attribute(
@@ -4013,10 +4015,7 @@ impl<'a> HybridStaticBundler<'a> {
             // Filter out invalid assignments where the RHS references a module that uses an init
             // function For example, `mypkg.compat = compat` when `compat` is wrapped in
             // an init function
-            log::warn!(
-                "FILTERING: Checking {} deferred imports",
-                deduped_imports.len()
-            );
+            log::debug!("Checking {} deferred imports", deduped_imports.len());
 
             // Log all statements before filtering
             for (idx, stmt) in deduped_imports.iter().enumerate() {
@@ -4026,35 +4025,35 @@ impl<'a> HybridStaticBundler<'a> {
                             match target {
                                 Expr::Attribute(attr) => {
                                     if let Expr::Name(base) = attr.value.as_ref() {
-                                        log::warn!(
+                                        log::debug!(
                                             "Deferred import {}: Assignment {}.{} = ...",
                                             idx,
                                             base.id.as_str(),
                                             attr.attr.as_str()
                                         );
                                     } else {
-                                        log::warn!(
+                                        log::debug!(
                                             "Deferred import {idx}: Complex attribute assignment"
                                         );
                                     }
                                 }
                                 Expr::Name(name) => {
-                                    log::warn!(
+                                    log::debug!(
                                         "Deferred import {}: Simple assignment {} = ...",
                                         idx,
                                         name.id.as_str()
                                     );
                                 }
                                 _ => {
-                                    log::warn!("Deferred import {idx}: Other assignment type");
+                                    log::debug!("Deferred import {idx}: Other assignment type");
                                 }
                             }
                         } else {
-                            log::warn!("Deferred import {idx}: Multiple target assignment");
+                            log::debug!("Deferred import {idx}: Multiple target assignment");
                         }
                     }
                     _ => {
-                        log::warn!("Deferred import {idx}: Non-assignment statement");
+                        log::debug!("Deferred import {idx}: Non-assignment statement");
                     }
                 }
             }
@@ -4062,46 +4061,45 @@ impl<'a> HybridStaticBundler<'a> {
             deduped_imports.retain(|stmt| {
                 if let Stmt::Assign(assign) = stmt
                     && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                        && let Expr::Name(base) = attr.value.as_ref() {
-                            // Log all attribute assignments for debugging
-                            log::warn!(
-                                "Checking assignment: {}.{} = ...",
+                    && let Expr::Name(base) = attr.value.as_ref()
+                {
+                    // Log all attribute assignments for debugging
+                    log::debug!(
+                        "Checking assignment: {}.{} = ...",
+                        base.id.as_str(),
+                        attr.attr.as_str()
+                    );
+
+                    if let Expr::Name(value) = assign.value.as_ref() {
+                        // Check if we're assigning module.attr = attr where attr is a
+                        // submodule
+                        let full_path = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
+                        let is_submodule_with_init = self.module_registry.contains_key(&full_path);
+                        let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
+
+                        log::debug!(
+                            "Assignment details: {}.{} = {}, full_path={}, \
+                             is_submodule_with_init={}, value_is_same_as_attr={}",
+                            base.id.as_str(),
+                            attr.attr.as_str(),
+                            value.id.as_str(),
+                            full_path,
+                            is_submodule_with_init,
+                            value_is_same_as_attr
+                        );
+
+                        if is_submodule_with_init && value_is_same_as_attr {
+                            log::debug!(
+                                "Filtering out invalid assignment: {}.{} = {} (submodule with \
+                                 init function)",
                                 base.id.as_str(),
-                                attr.attr.as_str()
+                                attr.attr.as_str(),
+                                value.id.as_str()
                             );
-
-                            if let Expr::Name(value) = assign.value.as_ref() {
-                                // Check if we're assigning module.attr = attr where attr is a
-                                // submodule
-                                let full_path =
-                                    format!("{}.{}", base.id.as_str(), attr.attr.as_str());
-                                let is_submodule_with_init =
-                                    self.module_registry.contains_key(&full_path);
-                                let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
-
-                                log::warn!(
-                                    "Assignment details: {}.{} = {}, full_path={}, \
-                                     is_submodule_with_init={}, value_is_same_as_attr={}",
-                                    base.id.as_str(),
-                                    attr.attr.as_str(),
-                                    value.id.as_str(),
-                                    full_path,
-                                    is_submodule_with_init,
-                                    value_is_same_as_attr
-                                );
-
-                                if is_submodule_with_init && value_is_same_as_attr {
-                                    log::warn!(
-                                        "FOUND IT! Filtering out invalid assignment: {}.{} = {} \
-                                         (submodule with init function)",
-                                        base.id.as_str(),
-                                        attr.attr.as_str(),
-                                        value.id.as_str()
-                                    );
-                                    return false;
-                                }
-                            }
+                            return false;
                         }
+                    }
+                }
                 true
             });
 
@@ -4793,34 +4791,30 @@ impl<'a> HybridStaticBundler<'a> {
             // Filter out invalid assignments where the RHS references a module that uses an init
             // function For example, `mypkg.compat = compat` when `compat` is wrapped in
             // an init function
-            log::warn!(
-                "FILTERING: Checking {} deferred imports",
-                deduped_imports.len()
-            );
+            log::debug!("Checking {} deferred imports", deduped_imports.len());
             deduped_imports.retain(|stmt| {
                 if let Stmt::Assign(assign) = stmt
                     && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                        && let Expr::Name(base) = attr.value.as_ref()
-                            && let Expr::Name(value) = assign.value.as_ref() {
-                                // Check if we're assigning module.attr = attr where attr is a
-                                // submodule
-                                let full_path =
-                                    format!("{}.{}", base.id.as_str(), attr.attr.as_str());
-                                let is_submodule_with_init =
-                                    self.module_registry.contains_key(&full_path);
-                                let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
+                    && let Expr::Name(base) = attr.value.as_ref()
+                    && let Expr::Name(value) = assign.value.as_ref()
+                {
+                    // Check if we're assigning module.attr = attr where attr is a
+                    // submodule
+                    let full_path = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
+                    let is_submodule_with_init = self.module_registry.contains_key(&full_path);
+                    let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
 
-                                if is_submodule_with_init && value_is_same_as_attr {
-                                    log::debug!(
-                                        "Filtering out invalid assignment (2nd location): {}.{} = \
-                                         {} (submodule with init function)",
-                                        base.id.as_str(),
-                                        attr.attr.as_str(),
-                                        value.id.as_str()
-                                    );
-                                    return false;
-                                }
-                            }
+                    if is_submodule_with_init && value_is_same_as_attr {
+                        log::debug!(
+                            "Filtering out invalid assignment (2nd location): {}.{} = {} \
+                             (submodule with init function)",
+                            base.id.as_str(),
+                            attr.attr.as_str(),
+                            value.id.as_str()
+                        );
+                        return false;
+                    }
+                }
                 true
             });
 
@@ -4861,9 +4855,10 @@ impl<'a> HybridStaticBundler<'a> {
             .iter()
             .filter_map(|stmt| {
                 if let Stmt::Assign(assign) = stmt
-                    && let [Expr::Name(name)] = assign.targets.as_slice() {
-                        return Some(name.id.to_string());
-                    }
+                    && let [Expr::Name(name)] = assign.targets.as_slice()
+                {
+                    return Some(name.id.to_string());
+                }
                 None
             })
             .collect();
@@ -4871,43 +4866,43 @@ impl<'a> HybridStaticBundler<'a> {
         final_body.retain(|stmt| {
             if let Stmt::Assign(assign) = stmt
                 && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                    && let Expr::Name(base) = attr.value.as_ref()
-                        && let Expr::Name(value) = assign.value.as_ref() {
-                            // Check if we're assigning module.attr = attr where attr is a submodule
-                            let full_path = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
-                            let is_bundled_submodule = self.bundled_modules.contains(&full_path);
-                            let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
+                && let Expr::Name(base) = attr.value.as_ref()
+                && let Expr::Name(value) = assign.value.as_ref()
+            {
+                // Check if we're assigning module.attr = attr where attr is a submodule
+                let full_path = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
+                let is_bundled_submodule = self.bundled_modules.contains(&full_path);
+                let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
 
-                            log::debug!(
-                                "Final filter check: {}.{} = {} | bundled={} | same_name={} | \
-                                 local_exists={}",
-                                base.id.as_str(),
-                                attr.attr.as_str(),
-                                value.id.as_str(),
-                                is_bundled_submodule,
-                                value_is_same_as_attr,
-                                local_variables.contains(value.id.as_str())
-                            );
+                log::debug!(
+                    "Final filter check: {}.{} = {} | bundled={} | same_name={} | local_exists={}",
+                    base.id.as_str(),
+                    attr.attr.as_str(),
+                    value.id.as_str(),
+                    is_bundled_submodule,
+                    value_is_same_as_attr,
+                    local_variables.contains(value.id.as_str())
+                );
 
-                            if is_bundled_submodule && value_is_same_as_attr {
-                                // Check if the submodule is inlined (creates local variable) or
-                                // uses init function
-                                let is_inlined = self.inlined_modules.contains(&full_path);
+                if is_bundled_submodule && value_is_same_as_attr {
+                    // Check if the submodule is inlined (creates local variable) or
+                    // uses init function
+                    let is_inlined = self.inlined_modules.contains(&full_path);
 
-                                // If the submodule is NOT inlined AND there's no local variable,
-                                // it's invalid
-                                if !is_inlined && !local_variables.contains(value.id.as_str()) {
-                                    log::info!(
-                                        "Final filter: Removing invalid assignment {}.{} = {} \
-                                         (not inlined, no local var)",
-                                        base.id.as_str(),
-                                        attr.attr.as_str(),
-                                        value.id.as_str()
-                                    );
-                                    return false;
-                                }
-                            }
-                        }
+                    // If the submodule is NOT inlined AND there's no local variable,
+                    // it's invalid
+                    if !is_inlined && !local_variables.contains(value.id.as_str()) {
+                        log::info!(
+                            "Final filter: Removing invalid assignment {}.{} = {} (not inlined, \
+                             no local var)",
+                            base.id.as_str(),
+                            attr.attr.as_str(),
+                            value.id.as_str()
+                        );
+                        return false;
+                    }
+                }
+            }
             true
         });
 
@@ -7867,8 +7862,9 @@ impl<'a> HybridStaticBundler<'a> {
 
                 if is_bundled_submodule {
                     log::debug!(
-                        "Symbol '{symbol}' in module '{module_name}' is a submodule (bundled: {is_bundled_submodule}, \
-                         inlined: {is_inlined}, uses_init: {uses_init_function})"
+                        "Symbol '{symbol}' in module '{module_name}' is a submodule (bundled: \
+                         {is_bundled_submodule}, inlined: {is_inlined}, uses_init: \
+                         {uses_init_function})"
                     );
 
                     // For inlined submodules, check if the parent module re-exports a symbol
@@ -7880,36 +7876,38 @@ impl<'a> HybridStaticBundler<'a> {
                             .module_exports
                             .get(&full_submodule_path)
                             .and_then(|e| e.as_ref())
-                            && submodule_exports.contains(symbol) {
-                                // The submodule exports a symbol with the same name as itself
-                                // Check if the parent module re-exports this symbol
-                                log::debug!(
-                                    "Submodule '{full_submodule_path}' exports symbol '{symbol}' with same name"
+                            && submodule_exports.contains(symbol)
+                        {
+                            // The submodule exports a symbol with the same name as itself
+                            // Check if the parent module re-exports this symbol
+                            log::debug!(
+                                "Submodule '{full_submodule_path}' exports symbol '{symbol}' with \
+                                 same name"
+                            );
+
+                            // Get the renamed symbol from the submodule
+                            if let Some(submodule_renames) =
+                                symbol_renames.get(&full_submodule_path)
+                                && let Some(renamed) = submodule_renames.get(*symbol)
+                            {
+                                log::info!(
+                                    "Creating namespace assignment: {target_name}.{symbol} = \
+                                     {renamed} (re-exported from submodule)"
                                 );
 
-                                // Get the renamed symbol from the submodule
-                                if let Some(submodule_renames) =
-                                    symbol_renames.get(&full_submodule_path)
-                                    && let Some(renamed) = submodule_renames.get(*symbol) {
-                                        log::info!(
-                                            "Creating namespace assignment: {target_name}.{symbol} = {renamed} \
-                                             (re-exported from submodule)"
-                                        );
-
-                                        // Create the assignment
-                                        let target =
-                                            expressions::dotted_name(&parts, ExprContext::Load);
-                                        result_stmts.push(statements::assign(
-                                            vec![expressions::attribute(
-                                                target,
-                                                symbol,
-                                                ExprContext::Store,
-                                            )],
-                                            expressions::name(renamed, ExprContext::Load),
-                                        ));
-                                        continue 'symbol_loop;
-                                    }
+                                // Create the assignment
+                                let target = expressions::dotted_name(&parts, ExprContext::Load);
+                                result_stmts.push(statements::assign(
+                                    vec![expressions::attribute(
+                                        target,
+                                        symbol,
+                                        ExprContext::Store,
+                                    )],
+                                    expressions::name(renamed, ExprContext::Load),
+                                ));
+                                continue 'symbol_loop;
                             }
+                        }
                     }
 
                     // Skip other submodules - they are handled separately
