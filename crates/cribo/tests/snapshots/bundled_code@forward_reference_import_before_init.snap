@@ -12,6 +12,9 @@ import types
 mypkg = types.SimpleNamespace()
 mypkg.__name__ = 'mypkg'
 mypkg.compat = types.SimpleNamespace()
+class BaseException(Exception):
+    """Base exception class"""
+    pass
 @functools.cache
 def __cribo_init___cribo_4089db_mypkg_compat():
     module = types.SimpleNamespace()
@@ -25,15 +28,8 @@ def __cribo_init___cribo_4089db_mypkg_compat():
     MutableMapping = collections.abc.MutableMapping
     module.MutableMapping = MutableMapping
     return module
-__cribo_init_result = __cribo_init___cribo_4089db_mypkg_compat()
-for attr in dir(__cribo_init_result):
-    if not attr.startswith('_'):
-        setattr(mypkg.compat, attr, getattr(__cribo_init_result, attr))
-JSONDecodeError = mypkg.compat.JSONDecodeError
-class BaseException(Exception):
-    """Base exception class"""
-    pass
-class CustomJSONError(BaseException, JSONDecodeError):
+mypkg.compat = __cribo_init___cribo_4089db_mypkg_compat()
+class CustomJSONError(BaseException, mypkg.compat.JSONDecodeError):
     """Custom JSON error that inherits from compat's JSONDecodeError"""
 
     def __init__(self, *args):
@@ -44,7 +40,7 @@ class CustomJSONError(BaseException, JSONDecodeError):
         return mypkg.compat.JSONDecodeError.__reduce__(self)
 BaseException.__module__ = 'mypkg.exceptions'
 CustomJSONError.__module__ = 'mypkg.exceptions'
-mypkg.compat = __cribo_init___cribo_4089db_mypkg_compat()
+JSONDecodeError = mypkg.compat.JSONDecodeError
 mypkg.__all__ = ['CustomJSONError']
 mypkg.CustomJSONError = CustomJSONError
 try:
