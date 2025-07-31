@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.7](https://github.com/ophidiarium/cribo/compare/v0.5.6...v0.5.7) (2025-07-31)
+
+
+### Bug Fixes
+
+* assign init function results to modules in sorted initialization ([#222](https://github.com/ophidiarium/cribo/issues/222)) ([a7755a1](https://github.com/ophidiarium/cribo/commit/a7755a1383029b099b22819a1aa197435cca7eea))
+* handle submodules in __all__ exports correctly ([27f92c1](https://github.com/ophidiarium/cribo/commit/27f92c188f6c13c6f2ce89c0860662229008f7de))
+* handle submodules in __all__ exports correctly ([#226](https://github.com/ophidiarium/cribo/issues/226)) ([c32d1a8](https://github.com/ophidiarium/cribo/commit/c32d1a8cc7ea9a2fd2e2206b74ed43d09fb777f4))
+* include all module-scope symbols in namespace to support private imports ([#225](https://github.com/ophidiarium/cribo/issues/225)) ([a47435d](https://github.com/ophidiarium/cribo/commit/a47435d29eb3c902cc4f1116e737feabe22ea786))
+* resolve forward reference errors in hard dependency class inheritance ([#232](https://github.com/ophidiarium/cribo/issues/232)) ([96199bd](https://github.com/ophidiarium/cribo/commit/96199bd9a547f33ffce914c207d433fead63913f))
+
 ## [0.5.6](https://github.com/ophidiarium/cribo/compare/v0.5.5...v0.5.6) (2025-07-27)
 
 
