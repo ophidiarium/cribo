@@ -1099,7 +1099,6 @@ impl<'a> RecursiveImportTransformer<'a> {
                             import_from,
                             resolved,
                             self.symbol_renames,
-                            None,
                         );
                     }
                 } else {
@@ -1111,7 +1110,6 @@ impl<'a> RecursiveImportTransformer<'a> {
                         import_from,
                         resolved,
                         self.symbol_renames,
-                        None,
                     );
 
                     // Only defer if we're not in the entry module
@@ -2120,7 +2118,6 @@ fn rewrite_import_from(
                 &import_from,
                 &module_name,
                 symbol_renames,
-                None,
             );
         }
 
@@ -2405,13 +2402,12 @@ pub fn resolve_relative_import_with_context(
     }
 }
 
-/// Handle imports from inlined modules with optional module context
+/// Handle imports from inlined modules
 pub(super) fn handle_imports_from_inlined_module_with_context(
     bundler: &HybridStaticBundler,
     import_from: &StmtImportFrom,
     module_name: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-    _module_context: Option<&str>,
 ) -> Vec<Stmt> {
     let mut result_stmts = Vec::new();
 
