@@ -208,18 +208,16 @@ pub(super) fn collect_imports_from_module(
     for stmt in &ast.body {
         match stmt {
             Stmt::ImportFrom(import_from) => {
-                if let Some(ref module) = import_from.module {
+                if let Some(module) = &import_from.module {
                     let module_str = module.as_str();
-                    // Skip __future__ imports (handled separately)
-                    if module_str == "__future__" {
-                        continue;
-                    }
-                    // Check if this is a safe stdlib module
-                    if is_safe_stdlib_module(module_str) {
+
+                    // Check if this is a safe stdlib module, skipping __future__ imports.
+                    if module_str != "__future__" && is_safe_stdlib_module(module_str) {
                         let import_map = bundler
                             .stdlib_import_from_map
                             .entry(module_str.to_string())
                             .or_default();
+
                         for alias in &import_from.names {
                             let name = alias.name.as_str();
                             let alias_name = alias.asname.as_ref().map(|a| a.as_str().to_string());
