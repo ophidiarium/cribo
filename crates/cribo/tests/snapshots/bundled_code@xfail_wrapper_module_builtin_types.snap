@@ -15,7 +15,7 @@ str = None
 bytes = None
 int = None
 def process_data(data):
-    """Process data using compat.bytes attribute.\n    \n    This will fail when bundled because the bundler skips 'bytes = bytes'\n    in compat's init function.\n    """
+    """Process data using compat.bytes attribute.\n\n    This will fail when bundled because the bundler skips 'bytes = bytes'\n    in compat's init function.\n    """
     if isinstance(data, compat.bytes):
         return f"Processed {len(data)} bytes"
     elif isinstance(data, compat.str):
@@ -31,11 +31,11 @@ def process_data(data):
 """Certs module."""
 pkg.compat = compat
 @functools.cache
-def __cribo_init___cribo_a20996_pkg__internal_utils():
+def __cribo_init___cribo_5a392a_pkg__internal_utils():
     module = types.SimpleNamespace()
     module.__name__ = 'pkg._internal_utils'
     """Internal utils that depends on compat, creating circular dependency."""
-    HEADER_VALIDATORS = {'str': lambda x: isinstance(x, builtin_str), 'bytes': lambda x: isinstance(x, bytes)}
+    HEADER_VALIDATORS = {"str": lambda x: isinstance(x, builtin_str), "bytes": lambda x: isinstance(x, bytes)}
     module.HEADER_VALIDATORS = HEADER_VALIDATORS
 
     def to_native_string(value):
@@ -45,7 +45,7 @@ def __cribo_init___cribo_a20996_pkg__internal_utils():
         return str(value)
     module.to_native_string = to_native_string
     return module
-pkg._internal_utils = __cribo_init___cribo_a20996_pkg__internal_utils()
+pkg._internal_utils = __cribo_init___cribo_5a392a_pkg__internal_utils()
 utils = types.SimpleNamespace()
 compat = types.SimpleNamespace()
 utils.process_data = process_data
