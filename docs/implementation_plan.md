@@ -25,8 +25,8 @@
 
 ### 2. Fix Duplicate Module Initialization
 
-- [x] Add `initialized_modules: FxIndexSet<String>` field to `HybridStaticBundler`
-- [x] Initialize the field in `HybridStaticBundler::new()` or at start of `bundle_modules()`
+- [x] Add `initialized_modules: FxIndexSet<String>` field to `Bundler`
+- [x] Initialize the field in `Bundler::new()` or at start of `bundle_modules()`
 - [x] Pass `initialized_modules` to `transform_bundled_import_from_multiple()` (changed to &mut self)
 - [x] Update `transform_bundled_import_from_multiple()` to check global initialized set
 - [x] Create utility method `get_init_function_name()` to avoid magic string duplication

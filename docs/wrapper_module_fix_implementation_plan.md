@@ -97,12 +97,12 @@ struct RecursiveImportTransformer<'a> {
 #### 2.1 Add Module Body Analysis
 
 **File**: `crates/cribo/src/code_generator.rs`
-**Location**: New method in HybridStaticBundler impl
+**Location**: New method in Bundler impl
 
 - [x] Add method to analyze which names are used in module body:
 
 ```rust
-impl HybridStaticBundler {
+impl Bundler {
     /// Analyze which names are used in the module body
     fn analyze_name_usage_in_module(&self, ast: &ModModule) -> FxIndexSet<String> {
         let mut used_names = FxIndexSet::default();

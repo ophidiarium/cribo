@@ -52,7 +52,7 @@ struct ClassBlock {
 }
 
 /// This approach avoids forward reference issues while maintaining Python module semantics
-pub struct HybridStaticBundler<'a> {
+pub struct Bundler<'a> {
     /// Track if importlib was fully transformed and should be removed
     pub(crate) importlib_fully_transformed: bool,
     /// Map from original module name to synthetic module name
@@ -123,9 +123,9 @@ pub struct HybridStaticBundler<'a> {
     pub(crate) symbols_populated_after_deferred: FxIndexSet<(String, String)>,
 }
 
-impl<'a> std::fmt::Debug for HybridStaticBundler<'a> {
+impl<'a> std::fmt::Debug for Bundler<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HybridStaticBundler")
+        f.debug_struct("Bundler")
             .field("module_registry", &self.module_registry)
             .field("entry_module_name", &self.entry_module_name)
             .field("bundled_modules", &self.bundled_modules)
@@ -134,14 +134,14 @@ impl<'a> std::fmt::Debug for HybridStaticBundler<'a> {
     }
 }
 
-impl<'a> Default for HybridStaticBundler<'a> {
+impl<'a> Default for Bundler<'a> {
     fn default() -> Self {
         Self::new(None)
     }
 }
 
 // Main implementation
-impl<'a> HybridStaticBundler<'a> {
+impl<'a> Bundler<'a> {
     /// Create a new bundler instance
     pub fn new(module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>) -> Self {
         Self {
@@ -192,7 +192,7 @@ impl<'a> HybridStaticBundler<'a> {
     /// Post-process AST to assign proper node indices to any nodes created with dummy indices
     fn assign_node_indices_to_ast(&mut self, module: &mut ModModule) {
         struct NodeIndexAssigner<'b, 'a> {
-            bundler: &'b mut HybridStaticBundler<'a>,
+            bundler: &'b mut Bundler<'a>,
         }
 
         impl<'b, 'a> SourceOrderVisitor<'_> for NodeIndexAssigner<'b, 'a> {
@@ -7364,7 +7364,7 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
 }
 
 // Helper methods for import rewriting
-impl<'a> HybridStaticBundler<'a> {
+impl<'a> Bundler<'a> {
     /// Create a module reference assignment
     pub(super) fn create_module_reference_assignment(
         &self,

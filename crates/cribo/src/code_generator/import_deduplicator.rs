@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use ruff_python_ast::{Alias, Expr, ModModule, Stmt, StmtImport, StmtImportFrom};
 
-use super::{bundler::HybridStaticBundler, expression_handlers};
+use super::{bundler::Bundler, expression_handlers};
 use crate::{
     cribo_graph::CriboGraph as DependencyGraph, side_effects::is_safe_stdlib_module,
     tree_shaking::TreeShaker, types::FxIndexSet,
@@ -113,7 +113,7 @@ pub(super) fn stmt_uses_importlib(stmt: &Stmt) -> bool {
 }
 
 /// Check if a statement is a hoisted import
-pub(super) fn is_hoisted_import(bundler: &HybridStaticBundler, stmt: &Stmt) -> bool {
+pub(super) fn is_hoisted_import(bundler: &Bundler, stmt: &Stmt) -> bool {
     match stmt {
         Stmt::ImportFrom(import_from) => {
             if let Some(ref module) = import_from.module {
@@ -154,10 +154,7 @@ pub(super) fn is_hoisted_import(bundler: &HybridStaticBundler, stmt: &Stmt) -> b
 }
 
 /// Check if a specific module is in our hoisted stdlib imports
-pub(super) fn is_import_in_hoisted_stdlib(
-    bundler: &HybridStaticBundler,
-    module_name: &str,
-) -> bool {
+pub(super) fn is_import_in_hoisted_stdlib(bundler: &Bundler, module_name: &str) -> bool {
     // Check if module is in our from imports map
     if bundler.stdlib_import_from_map.contains_key(module_name) {
         return true;
@@ -172,7 +169,7 @@ pub(super) fn is_import_in_hoisted_stdlib(
 
 /// Add a regular stdlib import (e.g., "sys", "types")
 /// This creates an import statement and adds it to the tracked imports
-pub(super) fn add_stdlib_import(bundler: &mut HybridStaticBundler, module_name: &str) {
+pub(super) fn add_stdlib_import(bundler: &mut Bundler, module_name: &str) {
     // Check if we already have this import to avoid duplicates
     let already_imported = bundler.stdlib_import_statements.iter().any(|stmt| {
         if let Stmt::Import(import_stmt) = stmt {
@@ -200,7 +197,7 @@ pub(super) fn add_stdlib_import(bundler: &mut HybridStaticBundler, module_name: 
 
 /// Collect imports from a module for hoisting
 pub(super) fn collect_imports_from_module(
-    bundler: &mut HybridStaticBundler,
+    bundler: &mut Bundler,
     ast: &ModModule,
     module_name: &str,
 ) {
@@ -241,7 +238,7 @@ pub(super) fn collect_imports_from_module(
 }
 
 /// Add hoisted imports to the final body
-pub(super) fn add_hoisted_imports(bundler: &HybridStaticBundler, final_body: &mut Vec<Stmt>) {
+pub(super) fn add_hoisted_imports(bundler: &Bundler, final_body: &mut Vec<Stmt>) {
     use crate::ast_builder::{other, statements};
 
     // Future imports first - combine all into a single import statement
@@ -317,7 +314,7 @@ pub(super) fn add_hoisted_imports(bundler: &HybridStaticBundler, final_body: &mu
 
 /// Collect unique imports from an import statement for hoisting
 fn collect_unique_imports_for_hoisting(
-    _bundler: &HybridStaticBundler,
+    _bundler: &Bundler,
     import_stmt: &StmtImport,
     seen_modules: &mut crate::types::FxIndexSet<String>,
     unique_imports: &mut Vec<(String, Stmt)>,
@@ -349,14 +346,14 @@ fn collect_unique_imports_for_hoisting(
 }
 
 /// Remove unused importlib references from a module
-pub(super) fn remove_unused_importlib(_bundler: &HybridStaticBundler, ast: &mut ModModule) {
+pub(super) fn remove_unused_importlib(_bundler: &Bundler, ast: &mut ModModule) {
     ast.body.retain(|stmt| !stmt_uses_importlib(stmt));
     log::debug!("Removed unused importlib references from module");
 }
 
 /// Deduplicate deferred imports against existing body statements
 pub(super) fn deduplicate_deferred_imports_with_existing(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     imports: Vec<Stmt>,
     existing_body: &[Stmt],
 ) -> Vec<Stmt> {
@@ -409,7 +406,7 @@ pub(super) fn deduplicate_deferred_imports_with_existing(
 
 /// Check if an import from statement is a duplicate
 pub(super) fn is_duplicate_import_from(
-    _bundler: &HybridStaticBundler,
+    _bundler: &Bundler,
     import_from: &StmtImportFrom,
     existing_body: &[Stmt],
 ) -> bool {
@@ -426,7 +423,7 @@ pub(super) fn is_duplicate_import_from(
 
 /// Check if an import statement is a duplicate
 pub(super) fn is_duplicate_import(
-    _bundler: &HybridStaticBundler,
+    _bundler: &Bundler,
     import_stmt: &StmtImport,
     existing_body: &[Stmt],
 ) -> bool {
@@ -454,7 +451,7 @@ pub(super) fn import_names_match(names1: &[Alias], names2: &[Alias]) -> bool {
 
 /// Check if an import statement should be removed based on unused imports analysis
 pub(super) fn should_remove_import_stmt(
-    _bundler: &HybridStaticBundler,
+    _bundler: &Bundler,
     stmt: &Stmt,
     unused_imports: &[crate::analyzers::types::UnusedImportInfo],
 ) -> bool {
@@ -496,7 +493,7 @@ pub(super) fn log_unused_imports_details(
 
 /// Trim unused imports from modules using dependency graph analysis
 pub(super) fn trim_unused_imports_from_modules(
-    bundler: &mut HybridStaticBundler,
+    bundler: &mut Bundler,
     modules: &[(String, ModModule, PathBuf, String)],
     graph: &DependencyGraph,
     _tree_shaker: Option<&TreeShaker>,
@@ -545,7 +542,7 @@ pub(super) fn trim_unused_imports_from_modules(
 
 /// Collect unique imports from a list of statements
 pub(super) fn collect_unique_imports(
-    _bundler: &HybridStaticBundler,
+    _bundler: &Bundler,
     statements: &[Stmt],
 ) -> FxIndexSet<String> {
     let mut imports = FxIndexSet::default();

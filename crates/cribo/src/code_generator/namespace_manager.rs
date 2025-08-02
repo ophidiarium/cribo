@@ -12,7 +12,7 @@ use ruff_text_size::TextRange;
 
 use crate::{
     ast_builder::{self, expressions, statements},
-    code_generator::bundler::HybridStaticBundler,
+    code_generator::bundler::Bundler,
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -26,7 +26,7 @@ use crate::{
 /// (`create_namespace_module`, `create_dotted_attribute_assignment`) and direct AST
 /// construction for intermediate namespaces that require specific attribute assignments.
 pub(super) fn generate_submodule_attributes_with_exclusions(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     sorted_modules: &[(String, PathBuf, Vec<String>)],
     final_body: &mut Vec<Stmt>,
     exclusions: &FxIndexSet<String>,
@@ -315,7 +315,7 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
 /// This function handles the transformation of imports from namespace packages,
 /// creating appropriate assignments and namespace objects as needed.
 pub(super) fn transform_namespace_package_imports(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     import_from: StmtImportFrom,
     module_name: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
@@ -332,12 +332,20 @@ pub(super) fn transform_namespace_package_imports(
                 // Wrapper module - ensure it's initialized first, then create reference
                 // First ensure parent module is initialized if it's also a wrapper
                 if bundler.module_registry.contains_key(module_name) {
-                    result_stmts
-                        .extend(bundler.create_module_initialization_for_import(module_name));
+                    result_stmts.extend(
+                        crate::code_generator::module_registry::create_module_initialization_for_import(
+                            module_name,
+                            &bundler.module_registry,
+                        ),
+                    );
                 }
                 // Initialize the wrapper module if needed
-                result_stmts
-                    .extend(bundler.create_module_initialization_for_import(&full_module_path));
+                result_stmts.extend(
+                    crate::code_generator::module_registry::create_module_initialization_for_import(
+                        &full_module_path,
+                        &bundler.module_registry,
+                    ),
+                );
 
                 // Create assignment using dotted name since it's a nested module
                 let module_expr = if full_module_path.contains('.') {
@@ -430,10 +438,7 @@ fn get_unique_name_with_module_suffix(base_name: &str, module_name: &str) -> Str
 
 /// Ensure a namespace exists, creating it and any parent namespaces if needed.
 /// Returns statements to create any missing namespaces.
-pub(super) fn ensure_namespace_exists(
-    bundler: &mut HybridStaticBundler,
-    namespace_path: &str,
-) -> Vec<Stmt> {
+pub(super) fn ensure_namespace_exists(bundler: &mut Bundler, namespace_path: &str) -> Vec<Stmt> {
     let mut statements = Vec::new();
 
     // For dotted names like "models.user", we need to ensure "models" exists first
@@ -477,11 +482,7 @@ pub(super) fn ensure_namespace_exists(
 /// Create namespace attribute assignment.
 ///
 /// Creates: parent.child = types.SimpleNamespace()
-pub(super) fn create_namespace_attribute(
-    bundler: &mut HybridStaticBundler,
-    parent: &str,
-    child: &str,
-) -> Stmt {
+pub(super) fn create_namespace_attribute(bundler: &mut Bundler, parent: &str, child: &str) -> Stmt {
     // Create: parent.child = types.SimpleNamespace()
     let mut stmt = statements::assign(
         vec![expressions::attribute(
@@ -525,7 +526,7 @@ pub(super) fn create_namespace_with_name(var_name: &str, module_path: &str) -> V
 }
 
 /// Create namespace statements for required namespaces.
-pub(super) fn create_namespace_statements(bundler: &mut HybridStaticBundler) -> Vec<Stmt> {
+pub(super) fn create_namespace_statements(bundler: &mut Bundler) -> Vec<Stmt> {
     let mut statements = Vec::new();
 
     // Sort namespaces for deterministic output
@@ -548,7 +549,7 @@ pub(super) fn create_namespace_statements(bundler: &mut HybridStaticBundler) -> 
 /// Creates a types.SimpleNamespace object with all the module's symbols,
 /// handling forward references and tree-shaking.
 pub(super) fn create_namespace_for_inlined_module_static(
-    bundler: &mut HybridStaticBundler,
+    bundler: &mut Bundler,
     module_name: &str,
     module_renames: &FxIndexMap<String, String>,
 ) -> Stmt {
@@ -586,14 +587,13 @@ pub(super) fn create_namespace_for_inlined_module_static(
 
         // Check if this symbol survived tree-shaking
         if let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols
-            && !kept_symbols.contains(&(module_name.to_string(), original_name.clone()))
-        {
-            log::debug!(
-                "Skipping tree-shaken symbol '{original_name}' from namespace for module \
-                 '{module_name}'"
-            );
-            continue;
-        }
+            && !kept_symbols.contains(&(module_name.to_string(), original_name.clone())) {
+                log::debug!(
+                    "Skipping tree-shaken symbol '{original_name}' from namespace for module \
+                     '{module_name}'"
+                );
+                continue;
+            }
 
         seen_args.insert(original_name.clone());
 
@@ -607,33 +607,31 @@ pub(super) fn create_namespace_for_inlined_module_static(
 
     // Also check if module has module-level variables that weren't renamed
     if let Some(exports) = bundler.module_exports.get(module_name)
-        && let Some(export_list) = exports
-    {
-        for export in export_list {
-            // Check if this export was already added as a renamed symbol
-            if !module_renames.contains_key(export) && !seen_args.contains(export) {
-                // Check if this symbol survived tree-shaking
-                if let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols
-                    && !kept_symbols.contains(&(module_name.to_string(), export.clone()))
-                {
-                    log::debug!(
-                        "Skipping tree-shaken export '{export}' from namespace for module \
-                         '{module_name}'"
-                    );
-                    continue;
-                }
+        && let Some(export_list) = exports {
+            for export in export_list {
+                // Check if this export was already added as a renamed symbol
+                if !module_renames.contains_key(export) && !seen_args.contains(export) {
+                    // Check if this symbol survived tree-shaking
+                    if let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols
+                        && !kept_symbols.contains(&(module_name.to_string(), export.clone())) {
+                            log::debug!(
+                                "Skipping tree-shaken export '{export}' from namespace for module \
+                                 '{module_name}'"
+                            );
+                            continue;
+                        }
 
-                // This export wasn't renamed and wasn't already added, add it directly
-                seen_args.insert(export.clone());
-                keywords.push(Keyword {
-                    node_index: AtomicNodeIndex::dummy(),
-                    arg: Some(Identifier::new(export, TextRange::default())),
-                    value: expressions::name(export, ExprContext::Load),
-                    range: TextRange::default(),
-                });
+                    // This export wasn't renamed and wasn't already added, add it directly
+                    seen_args.insert(export.clone());
+                    keywords.push(Keyword {
+                        node_index: AtomicNodeIndex::dummy(),
+                        arg: Some(Identifier::new(export, TextRange::default())),
+                        value: expressions::name(export, ExprContext::Load),
+                        range: TextRange::default(),
+                    });
+                }
             }
         }
-    }
 
     // Create the namespace variable name
     let namespace_var = module_name.cow_replace('.', "_").into_owned();

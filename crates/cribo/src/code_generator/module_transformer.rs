@@ -22,7 +22,7 @@ use ruff_text_size::TextRange;
 use crate::{
     ast_builder,
     code_generator::{
-        bundler::HybridStaticBundler,
+        bundler::Bundler,
         context::ModuleTransformContext,
         globals::{GlobalsLifter, transform_globals_in_stmt},
         import_deduplicator,
@@ -36,7 +36,7 @@ use crate::{
 
 /// Transforms a module AST into an initialization function
 pub fn transform_module_to_init_function<'a>(
-    bundler: &'a HybridStaticBundler<'a>,
+    bundler: &'a Bundler<'a>,
     ctx: ModuleTransformContext,
     mut ast: ModModule,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
@@ -160,11 +160,10 @@ pub fn transform_module_to_init_function<'a>(
         if let Stmt::Assign(assign) = stmt {
             // Check if this is a simple name-to-name assignment (import alias)
             if let [Expr::Name(_target)] = assign.targets.as_slice()
-                && let Expr::Name(_value) = &*assign.value
-            {
-                // This is an import alias assignment, add it immediately
-                body.push(stmt.clone());
-            }
+                && let Expr::Name(_value) = &*assign.value {
+                    // This is an import alias assignment, add it immediately
+                    body.push(stmt.clone());
+                }
         }
     }
 
@@ -556,10 +555,9 @@ pub fn transform_module_to_init_function<'a>(
             let already_assigned = body.iter().any(|stmt| {
                 if let Stmt::Assign(assign) = stmt
                     && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                    && let Expr::Name(name) = &*attr.value
-                {
-                    return name.id == "module" && attr.attr == imported_name;
-                }
+                        && let Expr::Name(name) = &*attr.value {
+                            return name.id == "module" && attr.attr == imported_name;
+                        }
                 false
             });
 
@@ -1107,10 +1105,9 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
                 // Collect with statement targets
                 for item in &with_stmt.items {
                     if let Some(ref optional_vars) = item.optional_vars
-                        && let Expr::Name(name) = optional_vars.as_ref()
-                    {
-                        local_vars.insert(name.id.to_string());
-                    }
+                        && let Expr::Name(name) = optional_vars.as_ref() {
+                            local_vars.insert(name.id.to_string());
+                        }
                 }
                 collect_local_vars(&with_stmt.body, local_vars);
             }
@@ -1429,7 +1426,7 @@ pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<
 /// Transform AST to use lifted globals
 /// This is a thin wrapper around the bundler method to maintain module boundaries
 pub fn transform_ast_with_lifted_globals(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     ast: &mut ModModule,
     lifted_names: &FxIndexMap<String, String>,
     global_info: &crate::semantic_bundler::ModuleGlobalInfo,
@@ -1439,7 +1436,7 @@ pub fn transform_ast_with_lifted_globals(
 
 /// Helper function to determine if a symbol should be included in the module namespace
 fn should_include_symbol(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     symbol_name: &str,
     module_name: &str,
     module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
@@ -1452,24 +1449,25 @@ fn should_include_symbol(
 
 /// Add module attribute assignment if the symbol should be exported
 fn add_module_attr_if_exported(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     assign: &StmtAssign,
     module_name: &str,
     body: &mut Vec<Stmt>,
     module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
 ) {
     if let Some(name) = bundler.extract_simple_assign_target(assign)
-        && should_include_symbol(bundler, &name, module_name, module_scope_symbols)
-    {
-        body.push(
-            crate::code_generator::module_registry::create_module_attr_assignment("module", &name),
-        );
-    }
+        && should_include_symbol(bundler, &name, module_name, module_scope_symbols) {
+            body.push(
+                crate::code_generator::module_registry::create_module_attr_assignment(
+                    "module", &name,
+                ),
+            );
+        }
 }
 
 /// Create namespace for inlined submodule
 fn create_namespace_for_inlined_submodule(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     full_module_name: &str,
     attr_name: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
@@ -1585,7 +1583,7 @@ fn create_namespace_for_inlined_submodule(
 
 /// Check if a renamed symbol exists after tree-shaking
 fn renamed_symbol_exists(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     renamed_symbol: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
 ) -> bool {

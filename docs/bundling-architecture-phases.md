@@ -44,7 +44,7 @@ Leverages `ruff_python_semantic` to:
 - Detect symbol conflicts
 - Identify module-scope vs function-scope symbols
 
-### 5. HybridStaticBundler
+### 5. Bundler
 
 The code generator that:
 
@@ -217,7 +217,7 @@ The code generator that:
 ## Data Flow
 
 ```
-Entry Path → Discovery → CriboGraph → SemanticBundler → Transformations → HybridStaticBundler → Output
+Entry Path → Discovery → CriboGraph → SemanticBundler → Transformations → Bundler → Output
                 ↓                           ↓
           ModuleRegistry ←──────────────────┘
                 ↓

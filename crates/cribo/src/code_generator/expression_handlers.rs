@@ -5,7 +5,7 @@
 
 use ruff_python_ast::{Expr, ExprAttribute, ExprContext, Stmt};
 
-use super::bundler::HybridStaticBundler;
+use super::bundler::Bundler;
 use crate::{
     ast_builder::{expressions, statements},
     types::{FxIndexMap, FxIndexSet},
@@ -121,10 +121,7 @@ pub(super) fn expr_uses_importlib(expr: &Expr) -> bool {
 }
 
 /// Extract attribute path from expression (e.g., "foo.bar.baz" from foo.bar.baz)
-pub(super) fn extract_attribute_path(
-    _bundler: &HybridStaticBundler,
-    attr: &ExprAttribute,
-) -> String {
+pub(super) fn extract_attribute_path(_bundler: &Bundler, attr: &ExprAttribute) -> String {
     let mut parts = Vec::new();
     let mut current = attr;
 
@@ -157,7 +154,7 @@ pub(super) fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
 
 /// Extract string list from expression (used for parsing __all__ declarations)
 pub(super) fn extract_string_list_from_expr(
-    _bundler: &HybridStaticBundler,
+    _bundler: &Bundler,
     expr: &Expr,
 ) -> Option<Vec<String>> {
     match expr {
@@ -374,7 +371,7 @@ pub(super) fn resolve_import_aliases_in_expr(
 
 /// Rewrite aliases in expression using the bundler's alias mappings
 pub(super) fn rewrite_aliases_in_expr(
-    _bundler: &HybridStaticBundler,
+    _bundler: &Bundler,
     expr: &mut Expr,
     alias_to_canonical: &FxIndexMap<String, String>,
 ) {
@@ -606,7 +603,7 @@ pub(super) fn rewrite_aliases_in_expr_impl(
 
 /// Transform expression for lifted globals
 pub(super) fn transform_expr_for_lifted_globals(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     expr: &mut Expr,
     lifted_names: &FxIndexMap<String, String>,
     _global_info: &crate::semantic_bundler::ModuleGlobalInfo,
@@ -777,7 +774,7 @@ pub(super) fn transform_expr_for_lifted_globals(
 
 /// Transform f-string expressions for lifted globals
 pub(super) fn transform_fstring_for_lifted_globals(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     expr: &mut Expr,
     lifted_names: &FxIndexMap<String, String>,
     global_info: &crate::semantic_bundler::ModuleGlobalInfo,
@@ -843,7 +840,7 @@ pub(super) fn transform_fstring_for_lifted_globals(
 
 /// Transform a single f-string expression element
 pub(super) fn transform_fstring_expression(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     expr_elem: &ruff_python_ast::InterpolatedElement,
     lifted_names: &FxIndexMap<String, String>,
     global_info: &crate::semantic_bundler::ModuleGlobalInfo,
@@ -878,11 +875,7 @@ pub(super) fn transform_fstring_expression(
 }
 
 /// Create namespace attribute assignment
-pub(super) fn create_namespace_attribute(
-    bundler: &mut HybridStaticBundler,
-    parent: &str,
-    child: &str,
-) -> Stmt {
+pub(super) fn create_namespace_attribute(bundler: &mut Bundler, parent: &str, child: &str) -> Stmt {
     // Create: parent.child = types.SimpleNamespace()
     let mut stmt = statements::assign(
         vec![expressions::attribute(
@@ -905,7 +898,7 @@ pub(super) fn create_namespace_attribute(
 
 /// Create dotted attribute assignment
 pub(super) fn create_dotted_attribute_assignment(
-    bundler: &mut HybridStaticBundler,
+    bundler: &mut Bundler,
     dotted_name: &str,
     value_expr: Expr,
 ) -> Result<Stmt, String> {
