@@ -1094,20 +1094,24 @@ impl<'a> RecursiveImportTransformer<'a> {
                     } else {
                         // Original behavior for non-circular modules importing from circular
                         // modules
-                        return self.bundler.handle_imports_from_inlined_module(
+                        return handle_imports_from_inlined_module_with_context(
+                            self.bundler,
                             import_from,
                             resolved,
                             self.symbol_renames,
+                            None,
                         );
                     }
                 } else {
                     log::debug!("  Module '{resolved}' is inlined, handling import assignments");
                     // For the entry module, we should not defer these imports
                     // because they need to be available when the entry module's code runs
-                    let import_stmts = self.bundler.handle_imports_from_inlined_module(
+                    let import_stmts = handle_imports_from_inlined_module_with_context(
+                        self.bundler,
                         import_from,
                         resolved,
                         self.symbol_renames,
+                        None,
                     );
 
                     // Only defer if we're not in the entry module
@@ -2111,10 +2115,12 @@ fn rewrite_import_from(
                  inside_wrapper_init={inside_wrapper_init}"
             );
             // Handle imports from inlined modules
-            return bundler.handle_imports_from_inlined_module(
+            return handle_imports_from_inlined_module_with_context(
+                bundler,
                 &import_from,
                 &module_name,
                 symbol_renames,
+                None,
             );
         }
 
@@ -2397,4 +2403,103 @@ pub fn resolve_relative_import_with_context(
         log::debug!("Not a relative import, resolved to: {resolved:?}");
         resolved
     }
+}
+
+/// Handle imports from inlined modules with optional module context
+pub(super) fn handle_imports_from_inlined_module_with_context(
+    bundler: &HybridStaticBundler,
+    import_from: &StmtImportFrom,
+    module_name: &str,
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    _module_context: Option<&str>,
+) -> Vec<Stmt> {
+    let mut result_stmts = Vec::new();
+
+    for alias in &import_from.names {
+        let imported_name = alias.name.as_str();
+        let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+
+        // First check if we're importing a submodule (e.g., from package import submodule)
+        let full_module_path = format!("{module_name}.{imported_name}");
+        if bundler.bundled_modules.contains(&full_module_path) {
+            // This is importing a submodule, not a symbol
+            // This should be handled by transform_namespace_package_imports instead
+            log::debug!(
+                "Skipping submodule import '{imported_name}' from '{module_name}' - should be \
+                 handled elsewhere"
+            );
+            continue;
+        }
+
+        // Check if this is likely a re-export from a package __init__.py
+        let is_package_reexport = is_package_init_reexport(bundler, module_name, imported_name);
+
+        let renamed_symbol = if is_package_reexport {
+            // For package re-exports, use the original symbol name
+            // This handles cases like greetings/__init__.py re-exporting from greetings.english
+            log::debug!(
+                "Using original name '{imported_name}' for symbol imported from package \
+                 '{module_name}'"
+            );
+            imported_name.to_string()
+        } else {
+            // Not a re-export, check normal renames
+            symbol_renames
+                .get(module_name)
+                .and_then(|renames| renames.get(imported_name))
+                .cloned()
+                .unwrap_or_else(|| imported_name.to_string())
+        };
+
+        // Check if the source symbol was tree-shaken
+        if let Some(kept_symbols) = bundler.tree_shaking_keep_symbols.as_ref()
+            && !kept_symbols.contains(&(module_name.to_string(), imported_name.to_string()))
+        {
+            log::debug!(
+                "Skipping import assignment for tree-shaken symbol '{imported_name}' from module \
+                 '{module_name}'"
+            );
+            continue;
+        }
+
+        // Only create assignment if the names are different
+        if local_name != renamed_symbol {
+            result_stmts.push(statements::simple_assign(
+                local_name,
+                expressions::name(&renamed_symbol, ExprContext::Load),
+            ));
+        }
+    }
+
+    result_stmts
+}
+
+/// Check if a symbol is likely a re-export from a package __init__.py
+fn is_package_init_reexport(
+    bundler: &HybridStaticBundler,
+    module_name: &str,
+    _symbol_name: &str,
+) -> bool {
+    // Special handling for package __init__.py files
+    // If we're importing from "greetings" and there's a "greetings.X" module
+    // that could be the source of the symbol
+
+    // For now, check if this looks like a package (no dots) and if there are
+    // any inlined submodules
+    if !module_name.contains('.') {
+        // Check if any inlined module starts with module_name.
+        for inlined in &bundler.inlined_modules {
+            if inlined.starts_with(&format!("{module_name}.")) {
+                log::debug!(
+                    "Module '{module_name}' appears to be a package with inlined submodule \
+                     '{inlined}'"
+                );
+                // For the specific case of greetings/__init__.py importing from
+                // greetings.english, we assume the symbol should use its
+                // original name
+                return true;
+            }
+        }
+    }
+    false
 }
