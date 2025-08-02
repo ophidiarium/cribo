@@ -15,7 +15,7 @@ The following functions were identified as candidates for extraction in `further
 - ✅ `ensure_namespace_exists` (~50 lines)
 - ✅ `extract_all_exports` (~50 lines)
 - ✅ `handle_imports_from_inlined_module_with_context` (~50 lines)
-- `add_hoisted_imports` (~50 lines)
+- ✅ `add_hoisted_imports` (~50 lines)
 - `collect_imports_from_module` (~40 lines)
 - `sort_wrapper_modules_by_dependencies` (~25 lines)
 - `transform_module_to_cache_init_function` (~20 lines)
