@@ -2480,14 +2480,12 @@ fn is_package_init_reexport(bundler: &HybridStaticBundler, module_name: &str) ->
     // any inlined submodules
     if !module_name.contains('.') {
         // Check if any inlined module starts with module_name.
-        if let Some(inlined) = bundler
+        if bundler
             .inlined_modules
             .iter()
-            .find(|inlined| inlined.starts_with(&format!("{module_name}.")))
+            .any(|inlined| inlined.starts_with(&format!("{module_name}.")))
         {
-            log::debug!(
-                "Module '{module_name}' appears to be a package with inlined submodule '{inlined}'"
-            );
+            log::debug!("Module '{module_name}' appears to be a package with inlined submodules");
             // For the specific case of greetings/__init__.py importing from
             // greetings.english, we assume the symbol should use its
             // original name
