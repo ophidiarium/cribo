@@ -3,7 +3,7 @@
 //! This module contains functions for finding and removing duplicate or unused imports,
 //! and other import-related cleanup tasks during the bundling process.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use ruff_python_ast::{Alias, Expr, ModModule, Stmt, StmtImport, StmtImportFrom};
@@ -203,7 +203,6 @@ pub(super) fn collect_imports_from_module(
     bundler: &mut HybridStaticBundler,
     ast: &ModModule,
     module_name: &str,
-    _module_path: &Path,
 ) {
     log::debug!("Collecting imports from module: {module_name}");
     for stmt in &ast.body {

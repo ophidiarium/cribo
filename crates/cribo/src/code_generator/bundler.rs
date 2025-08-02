@@ -2275,9 +2275,9 @@ impl<'a> HybridStaticBundler<'a> {
         // Collect imports from ALL modules (after normalization) for hoisting
         // This must be done on the normalized modules to capture stdlib imports
         // that were converted from "from X import Y" to "import X" format
-        for (module_name, ast, module_path, _) in &modules {
+        for (module_name, ast, _, _) in &modules {
             log::debug!("Collecting imports from module: {module_name}");
-            import_deduplicator::collect_imports_from_module(self, ast, module_name, module_path);
+            import_deduplicator::collect_imports_from_module(self, ast, module_name);
         }
 
         // If we have wrapper modules, inject types as stdlib dependency
