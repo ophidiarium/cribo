@@ -10,7 +10,8 @@ use ruff_python_ast::{Alias, Expr, ModModule, Stmt, StmtImport, StmtImportFrom};
 
 use super::{bundler::HybridStaticBundler, expression_handlers};
 use crate::{
-    cribo_graph::CriboGraph as DependencyGraph, tree_shaking::TreeShaker, types::FxIndexSet,
+    cribo_graph::CriboGraph as DependencyGraph, side_effects::is_safe_stdlib_module,
+    tree_shaking::TreeShaker, types::FxIndexSet,
 };
 
 /// Check if a statement uses importlib
@@ -195,6 +196,48 @@ pub(super) fn add_stdlib_import(bundler: &mut HybridStaticBundler, module_name: 
             None,
         )]);
     bundler.stdlib_import_statements.push(import_stmt);
+}
+
+/// Collect imports from a module for hoisting
+pub(super) fn collect_imports_from_module(
+    bundler: &mut HybridStaticBundler,
+    ast: &ModModule,
+    module_name: &str,
+) {
+    log::debug!("Collecting imports from module: {module_name}");
+    for stmt in &ast.body {
+        match stmt {
+            Stmt::ImportFrom(import_from) => {
+                if let Some(module) = &import_from.module {
+                    let module_str = module.as_str();
+
+                    // Check if this is a safe stdlib module, skipping __future__ imports.
+                    if module_str != "__future__" && is_safe_stdlib_module(module_str) {
+                        let import_map = bundler
+                            .stdlib_import_from_map
+                            .entry(module_str.to_string())
+                            .or_default();
+
+                        for alias in &import_from.names {
+                            let name = alias.name.as_str();
+                            let alias_name = alias.asname.as_ref().map(|a| a.as_str().to_string());
+                            import_map.insert(name.to_string(), alias_name);
+                        }
+                    }
+                }
+            }
+            Stmt::Import(import_stmt) => {
+                // Track regular import statements for stdlib modules
+                if import_stmt.names.iter().any(|alias| {
+                    let imported_module_name = alias.name.as_str();
+                    is_safe_stdlib_module(imported_module_name) && alias.asname.is_none()
+                }) {
+                    bundler.stdlib_import_statements.push(stmt.clone());
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Add hoisted imports to the final body
