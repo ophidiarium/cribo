@@ -231,11 +231,11 @@ pub(super) fn collect_imports_from_module(
             }
             Stmt::Import(import_stmt) => {
                 // Track regular import statements for stdlib modules
-                for alias in &import_stmt.names {
-                    let module_name = alias.name.as_str();
-                    if is_safe_stdlib_module(module_name) && alias.asname.is_none() {
-                        bundler.stdlib_import_statements.push(stmt.clone());
-                    }
+                if import_stmt.names.iter().any(|alias| {
+                    let imported_module_name = alias.name.as_str();
+                    is_safe_stdlib_module(imported_module_name) && alias.asname.is_none()
+                }) {
+                    bundler.stdlib_import_statements.push(stmt.clone());
                 }
             }
             _ => {}
