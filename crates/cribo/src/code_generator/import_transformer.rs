@@ -2428,7 +2428,7 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         }
 
         // Check if this is likely a re-export from a package __init__.py
-        let is_package_reexport = is_package_init_reexport(bundler, module_name, imported_name);
+        let is_package_reexport = is_package_init_reexport(bundler, module_name);
 
         let renamed_symbol = if is_package_reexport {
             // For package re-exports, use the original symbol name
@@ -2471,11 +2471,7 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
 }
 
 /// Check if a symbol is likely a re-export from a package __init__.py
-fn is_package_init_reexport(
-    bundler: &HybridStaticBundler,
-    module_name: &str,
-    _symbol_name: &str,
-) -> bool {
+fn is_package_init_reexport(bundler: &HybridStaticBundler, module_name: &str) -> bool {
     // Special handling for package __init__.py files
     // If we're importing from "greetings" and there's a "greetings.X" module
     // that could be the source of the symbol
