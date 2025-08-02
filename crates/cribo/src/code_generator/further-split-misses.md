@@ -20,7 +20,7 @@ The following functions were identified as candidates for extraction in `further
 - `sort_wrapper_modules_by_dependencies` (~25 lines)
 - `transform_module_to_cache_init_function` (~20 lines)
 - `process_wrapper_module_globals` (~20 lines)
-- `is_package_init_reexport` (~20 lines)
+- ✅ `is_package_init_reexport` (~20 lines)
 - ✅ `create_namespace_with_name` (~15 lines)
 - `collect_future_imports_from_ast` (~15 lines)
 - ✅ `create_namespace_statements` (~15 lines)
