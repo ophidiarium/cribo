@@ -812,56 +812,6 @@ impl<'a> HybridStaticBundler<'a> {
         }
     }
 
-    /// Collect imports from a module for hoisting
-    fn collect_imports_from_module(
-        &mut self,
-        ast: &ModModule,
-        module_name: &str,
-        _module_path: &Path,
-    ) {
-        log::debug!("Collecting imports from module: {module_name}");
-
-        for stmt in &ast.body {
-            match stmt {
-                Stmt::ImportFrom(import_from) => {
-                    if let Some(ref module) = import_from.module {
-                        let module_str = module.as_str();
-
-                        // Skip __future__ imports (handled separately)
-                        if module_str == "__future__" {
-                            continue;
-                        }
-
-                        // Check if this is a safe stdlib module
-                        if is_safe_stdlib_module(module_str) {
-                            let import_map = self
-                                .stdlib_import_from_map
-                                .entry(module_str.to_string())
-                                .or_default();
-
-                            for alias in &import_from.names {
-                                let name = alias.name.as_str();
-                                let alias_name =
-                                    alias.asname.as_ref().map(|a| a.as_str().to_string());
-                                import_map.insert(name.to_string(), alias_name);
-                            }
-                        }
-                    }
-                }
-                Stmt::Import(import_stmt) => {
-                    // Track regular import statements for stdlib modules
-                    for alias in &import_stmt.names {
-                        let module_name = alias.name.as_str();
-                        if is_safe_stdlib_module(module_name) && alias.asname.is_none() {
-                            self.stdlib_import_statements.push(stmt.clone());
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
     /// Collect module renames from semantic analysis
     fn collect_module_renames(
         &self,
@@ -2325,9 +2275,8 @@ impl<'a> HybridStaticBundler<'a> {
         // Collect imports from ALL modules (after normalization) for hoisting
         // This must be done on the normalized modules to capture stdlib imports
         // that were converted from "from X import Y" to "import X" format
-        for (module_name, ast, module_path, _) in &modules {
-            log::debug!("Collecting imports from module: {module_name}");
-            self.collect_imports_from_module(ast, module_name, module_path);
+        for (module_name, ast, _, _) in &modules {
+            import_deduplicator::collect_imports_from_module(self, ast, module_name);
         }
 
         // If we have wrapper modules, inject types as stdlib dependency
