@@ -2488,17 +2488,18 @@ fn is_package_init_reexport(
     // any inlined submodules
     if !module_name.contains('.') {
         // Check if any inlined module starts with module_name.
-        for inlined in &bundler.inlined_modules {
-            if inlined.starts_with(&format!("{module_name}.")) {
-                log::debug!(
-                    "Module '{module_name}' appears to be a package with inlined submodule \
-                     '{inlined}'"
-                );
-                // For the specific case of greetings/__init__.py importing from
-                // greetings.english, we assume the symbol should use its
-                // original name
-                return true;
-            }
+        if let Some(inlined) = bundler
+            .inlined_modules
+            .iter()
+            .find(|inlined| inlined.starts_with(&format!("{module_name}.")))
+        {
+            log::debug!(
+                "Module '{module_name}' appears to be a package with inlined submodule '{inlined}'"
+            );
+            // For the specific case of greetings/__init__.py importing from
+            // greetings.english, we assume the symbol should use its
+            // original name
+            return true;
         }
     }
     false
