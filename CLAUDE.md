@@ -51,7 +51,7 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
    - **Types** (`types.rs`): Shared types for analysis results
 
 3. **Code Generation** (`code_generator/` directory)
-   - **Bundler** (`bundler.rs`): Main orchestration for code generation (~80k tokens)
+   - **Bundler** (`bundler.rs`): Main orchestration for code generation (~72k tokens)
    - **Module Transformer** (`module_transformer.rs`): Module-level AST transformations
    - **Import Transformer** (`import_transformer.rs`): Import rewriting and resolution
    - **Expression Handlers** (`expression_handlers.rs`): Expression creation, analysis, and transformation
