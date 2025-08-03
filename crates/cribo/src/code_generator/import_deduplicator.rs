@@ -554,9 +554,10 @@ pub(super) fn is_duplicate_import_from(
     if let Some(ref module) = import_from.module {
         let module_name = module.as_str();
         // For third-party imports, check if they're already in the body
-        if !is_safe_stdlib_module(module_name)
-            && !is_bundled_module_or_package(bundler, module_name)
-        {
+        let is_third_party = !is_safe_stdlib_module(module_name)
+            && !is_bundled_module_or_package(bundler, module_name);
+
+        if is_third_party {
             return existing_body.iter().any(|existing| {
                 if let Stmt::ImportFrom(existing_import) = existing {
                     existing_import.module.as_ref().map(|m| m.as_str()) == Some(module_name)
@@ -572,28 +573,20 @@ pub(super) fn is_duplicate_import_from(
 
 /// Check if an import statement is a duplicate
 pub(super) fn is_duplicate_import(
-    bundler: &Bundler,
+    _bundler: &Bundler,
     import_stmt: &StmtImport,
     existing_body: &[Stmt],
 ) -> bool {
     import_stmt.names.iter().any(|alias| {
-        let module_name = alias.name.as_str();
-        // For third-party imports, check if they're already in the body
-        if !is_safe_stdlib_module(module_name)
-            && !is_bundled_module_or_package(bundler, module_name)
-        {
-            existing_body.iter().any(|existing| {
-                if let Stmt::Import(existing_import) = existing {
-                    existing_import.names.iter().any(|existing_alias| {
-                        existing_alias.name == alias.name && existing_alias.asname == alias.asname
-                    })
-                } else {
-                    false
-                }
-            })
-        } else {
-            false
-        }
+        existing_body.iter().any(|existing| {
+            if let Stmt::Import(existing_import) = existing {
+                existing_import.names.iter().any(|existing_alias| {
+                    existing_alias.name == alias.name && existing_alias.asname == alias.asname
+                })
+            } else {
+                false
+            }
+        })
     })
 }
 

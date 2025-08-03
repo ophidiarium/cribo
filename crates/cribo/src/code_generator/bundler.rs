@@ -3977,13 +3977,13 @@ impl<'a> Bundler<'a> {
 
                 match stmt {
                     Stmt::ImportFrom(import_from) => {
-                        let is_duplicate = import_deduplicator::is_duplicate_import_from(
+                        let duplicate = import_deduplicator::is_duplicate_import_from(
                             self,
                             import_from,
                             &final_body,
                         );
 
-                        if !is_duplicate {
+                        if !duplicate {
                             // Imports have already been transformed by RecursiveImportTransformer
                             final_body.push(stmt.clone());
                         } else {
@@ -3994,13 +3994,13 @@ impl<'a> Bundler<'a> {
                         }
                     }
                     Stmt::Import(import_stmt) => {
-                        let is_duplicate = import_deduplicator::is_duplicate_import(
+                        let duplicate = import_deduplicator::is_duplicate_import(
                             self,
                             import_stmt,
                             &final_body,
                         );
 
-                        if !is_duplicate {
+                        if !duplicate {
                             // Imports have already been transformed by RecursiveImportTransformer
                             final_body.push(stmt.clone());
                         } else {
