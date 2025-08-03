@@ -52,7 +52,7 @@ struct ClassBlock {
 }
 
 /// This approach avoids forward reference issues while maintaining Python module semantics
-pub struct HybridStaticBundler<'a> {
+pub struct Bundler<'a> {
     /// Track if importlib was fully transformed and should be removed
     pub(crate) importlib_fully_transformed: bool,
     /// Map from original module name to synthetic module name
@@ -123,9 +123,9 @@ pub struct HybridStaticBundler<'a> {
     pub(crate) symbols_populated_after_deferred: FxIndexSet<(String, String)>,
 }
 
-impl<'a> std::fmt::Debug for HybridStaticBundler<'a> {
+impl<'a> std::fmt::Debug for Bundler<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HybridStaticBundler")
+        f.debug_struct("Bundler")
             .field("module_registry", &self.module_registry)
             .field("entry_module_name", &self.entry_module_name)
             .field("bundled_modules", &self.bundled_modules)
@@ -134,14 +134,14 @@ impl<'a> std::fmt::Debug for HybridStaticBundler<'a> {
     }
 }
 
-impl<'a> Default for HybridStaticBundler<'a> {
+impl<'a> Default for Bundler<'a> {
     fn default() -> Self {
         Self::new(None)
     }
 }
 
 // Main implementation
-impl<'a> HybridStaticBundler<'a> {
+impl<'a> Bundler<'a> {
     /// Create a new bundler instance
     pub fn new(module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>) -> Self {
         Self {
@@ -192,7 +192,7 @@ impl<'a> HybridStaticBundler<'a> {
     /// Post-process AST to assign proper node indices to any nodes created with dummy indices
     fn assign_node_indices_to_ast(&mut self, module: &mut ModModule) {
         struct NodeIndexAssigner<'b, 'a> {
-            bundler: &'b mut HybridStaticBundler<'a>,
+            bundler: &'b mut Bundler<'a>,
         }
 
         impl<'b, 'a> SourceOrderVisitor<'_> for NodeIndexAssigner<'b, 'a> {
@@ -476,7 +476,7 @@ impl<'a> HybridStaticBundler<'a> {
                                 func_name.id.as_str(),
                             )
                         {
-                            let attr_path = expression_handlers::extract_attribute_path(self, attr);
+                            let attr_path = expression_handlers::extract_attribute_path(attr);
                             attr_path == full_module_path
                         } else {
                             false
@@ -622,7 +622,7 @@ impl<'a> HybridStaticBundler<'a> {
                             match &assign.targets[0] {
                                 Expr::Attribute(attr) => {
                                     let attr_path =
-                                        expression_handlers::extract_attribute_path(self, attr);
+                                        expression_handlers::extract_attribute_path(attr);
                                     attr_path == module_name
                                 }
                                 Expr::Name(name) => name.id.as_str() == module_name,
@@ -1200,7 +1200,7 @@ impl<'a> HybridStaticBundler<'a> {
                             returns,
                             &ctx.import_aliases,
                         );
-                        self.rewrite_aliases_in_expr(returns, &module_renames);
+                        expression_handlers::rewrite_aliases_in_expr(returns, &module_renames);
                     }
 
                     // Apply renames to parameter annotations
@@ -1210,7 +1210,10 @@ impl<'a> HybridStaticBundler<'a> {
                                 annotation,
                                 &ctx.import_aliases,
                             );
-                            self.rewrite_aliases_in_expr(annotation, &module_renames);
+                            expression_handlers::rewrite_aliases_in_expr(
+                                annotation,
+                                &module_renames,
+                            );
                         }
                     }
 
@@ -1323,194 +1326,6 @@ impl<'a> HybridStaticBundler<'a> {
 
         log::debug!("Entry module imported modules: {imported_modules:?}");
         imported_modules
-    }
-
-    /// Deduplicate deferred import statements
-    /// This prevents duplicate init calls and symbol assignments
-    fn deduplicate_deferred_imports_with_existing(
-        &self,
-        imports: Vec<Stmt>,
-        existing_body: &[Stmt],
-    ) -> Vec<Stmt> {
-        let mut seen_init_calls = FxIndexSet::default();
-        let mut seen_assignments = FxIndexSet::default();
-        let mut result = Vec::new();
-
-        // First, collect all existing assignments from the body
-        for stmt in existing_body {
-            if let Stmt::Assign(assign) = stmt
-                && assign.targets.len() == 1
-            {
-                // Handle attribute assignments like schemas.user = ...
-                if let Expr::Attribute(target_attr) = &assign.targets[0] {
-                    let target_path =
-                        expression_handlers::extract_attribute_path(self, target_attr);
-
-                    // Handle init function calls
-                    if let Expr::Call(call) = &assign.value.as_ref()
-                        && let Expr::Name(name) = &call.func.as_ref()
-                    {
-                        let func_name = name.id.as_str();
-                        if crate::code_generator::module_registry::is_init_function(func_name) {
-                            // Use just the target path as the key for module init assignments
-                            let key = target_path.clone();
-                            log::debug!(
-                                "Found existing module init assignment: {key} = {func_name}"
-                            );
-                            seen_assignments.insert(key);
-                        }
-                    }
-                }
-                // Handle simple name assignments
-                else if let Expr::Name(target) = &assign.targets[0] {
-                    let target_str = target.id.as_str();
-
-                    // Handle simple name assignments
-                    if let Expr::Name(value) = &assign.value.as_ref() {
-                        let key = format!("{} = {}", target_str, value.id.as_str());
-                        seen_assignments.insert(key);
-                    }
-                    // Handle attribute assignments like User = services.auth.manager.User
-                    else if let Expr::Attribute(attr) = &assign.value.as_ref() {
-                        let attr_path = expression_handlers::extract_attribute_path(self, attr);
-                        let key = format!("{target_str} = {attr_path}");
-                        seen_assignments.insert(key);
-                    }
-                }
-            }
-        }
-
-        log::debug!(
-            "Found {} existing assignments in body",
-            seen_assignments.len()
-        );
-        log::debug!("Deduplicating {} deferred imports", imports.len());
-
-        // Now process the deferred imports
-        for (idx, stmt) in imports.into_iter().enumerate() {
-            log::debug!("Processing deferred import {idx}: {stmt:?}");
-            match &stmt {
-                // Check for init function calls
-                Stmt::Expr(expr_stmt) => {
-                    if let Expr::Call(call) = &expr_stmt.value.as_ref() {
-                        if let Expr::Name(name) = &call.func.as_ref() {
-                            let func_name = name.id.as_str();
-                            if crate::code_generator::module_registry::is_init_function(func_name) {
-                                if seen_init_calls.insert(func_name.to_string()) {
-                                    result.push(stmt);
-                                } else {
-                                    log::debug!("Skipping duplicate init call: {func_name}");
-                                }
-                            } else {
-                                result.push(stmt);
-                            }
-                        } else {
-                            result.push(stmt);
-                        }
-                    } else {
-                        result.push(stmt);
-                    }
-                }
-                // Check for symbol assignments
-                Stmt::Assign(assign) => {
-                    // First check if this is an attribute assignment with an init function call
-                    // like: schemas.user = <cribo_init_prefix>__cribo_f275a8_schemas_user()
-                    if assign.targets.len() == 1
-                        && let Expr::Attribute(target_attr) = &assign.targets[0]
-                    {
-                        let target_path =
-                            expression_handlers::extract_attribute_path(self, target_attr);
-
-                        // Check if value is an init function call
-                        if let Expr::Call(call) = &assign.value.as_ref()
-                            && let Expr::Name(name) = &call.func.as_ref()
-                        {
-                            let func_name = name.id.as_str();
-                            if crate::code_generator::module_registry::is_init_function(func_name) {
-                                // For module init assignments, just check the target path
-                                // since the same module should only be initialized once
-                                let key = target_path.clone();
-                                log::debug!(
-                                    "Checking deferred module init assignment: {key} = {func_name}"
-                                );
-                                if seen_assignments.contains(&key) {
-                                    log::debug!(
-                                        "Skipping duplicate module init assignment: {key} = \
-                                         {func_name}"
-                                    );
-                                    continue; // Skip this statement entirely
-                                } else {
-                                    log::debug!(
-                                        "Adding new module init assignment: {key} = {func_name}"
-                                    );
-                                    seen_assignments.insert(key);
-                                    result.push(stmt);
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-
-                    // Check for simple assignments like: Logger = Logger_4
-                    if assign.targets.len() == 1 {
-                        if let Expr::Name(target) = &assign.targets[0] {
-                            if let Expr::Name(value) = &assign.value.as_ref() {
-                                // This is a simple name assignment
-                                let target_str = target.id.as_str();
-                                let value_str = value.id.as_str();
-                                let key = format!("{target_str} = {value_str}");
-
-                                // Check for self-assignment
-                                if target_str == value_str {
-                                    log::debug!("Found self-assignment in deferred imports: {key}");
-                                    // Skip self-assignments entirely
-                                    log::debug!("Skipping self-assignment: {key}");
-                                } else if seen_assignments.insert(key.clone()) {
-                                    log::debug!("First occurrence of simple assignment: {key}");
-                                    result.push(stmt);
-                                } else {
-                                    log::debug!("Skipping duplicate simple assignment: {key}");
-                                }
-                            } else {
-                                // Not a simple name assignment, check for duplicates
-                                // Handle attribute assignments like User =
-                                // services.auth.manager.User
-                                let target_str = target.id.as_str();
-
-                                // For attribute assignments, extract the actual attribute path
-                                let key = if let Expr::Attribute(attr) = &assign.value.as_ref() {
-                                    // Extract the full attribute path (e.g.,
-                                    // services.auth.manager.User)
-                                    let attr_path =
-                                        expression_handlers::extract_attribute_path(self, attr);
-                                    format!("{target_str} = {attr_path}")
-                                } else {
-                                    // Fallback to debug format for other types
-                                    let value_str = format!("{:?}", assign.value);
-                                    format!("{target_str} = {value_str}")
-                                };
-
-                                if seen_assignments.insert(key.clone()) {
-                                    log::debug!("First occurrence of attribute assignment: {key}");
-                                    result.push(stmt);
-                                } else {
-                                    log::debug!("Skipping duplicate attribute assignment: {key}");
-                                }
-                            }
-                        } else {
-                            // Target is not a simple name, include it
-                            result.push(stmt);
-                        }
-                    } else {
-                        // Multiple targets, include it
-                        result.push(stmt);
-                    }
-                }
-                _ => result.push(stmt),
-            }
-        }
-
-        result
     }
 
     /// Check if import from is duplicate
@@ -1941,7 +1756,7 @@ impl<'a> HybridStaticBundler<'a> {
         // Trim unused imports from all modules
         // Note: stdlib import normalization now happens in the orchestrator
         // before dependency graph building, so imports are already normalized
-        let mut modules = self.trim_unused_imports_from_modules(
+        let mut modules = import_deduplicator::trim_unused_imports_from_modules(
             params.modules,
             params.graph,
             params.tree_shaker,
@@ -2980,8 +2795,7 @@ impl<'a> HybridStaticBundler<'a> {
                             && let Expr::Name(target) = &assign.targets[0]
                         {
                             if let Expr::Attribute(attr) = &assign.value.as_ref() {
-                                let attr_path =
-                                    expression_handlers::extract_attribute_path(self, attr);
+                                let attr_path = expression_handlers::extract_attribute_path(attr);
                                 log::debug!(
                                     "Adding to all_deferred_imports: {} = {} (from inlined module \
                                      '{}')",
@@ -3887,10 +3701,11 @@ impl<'a> HybridStaticBundler<'a> {
                 final_body.len()
             );
 
-            let mut deduped_imports = self.deduplicate_deferred_imports_with_existing(
-                imports_without_init_calls,
-                &final_body,
-            );
+            let mut deduped_imports =
+                import_deduplicator::deduplicate_deferred_imports_with_existing(
+                    imports_without_init_calls,
+                    &final_body,
+                );
             log::debug!(
                 "After deduplication: {} imports remain from {} original",
                 deduped_imports.len(),
@@ -4313,10 +4128,8 @@ impl<'a> HybridStaticBundler<'a> {
                                 }
                                 // Check attribute assignments like schemas.user = ...
                                 Expr::Attribute(target_attr) => {
-                                    let target_path = expression_handlers::extract_attribute_path(
-                                        self,
-                                        target_attr,
-                                    );
+                                    let target_path =
+                                        expression_handlers::extract_attribute_path(target_attr);
 
                                     // Check if this is a module init assignment
                                     if let Expr::Call(call) = &assign.value.as_ref()
@@ -4340,7 +4153,7 @@ impl<'a> HybridStaticBundler<'a> {
                                                 )
                                             {
                                                 let existing_path =
-                                                    expression_handlers::extract_attribute_path(self, existing_attr);
+                                                    expression_handlers::extract_attribute_path(existing_attr);
                                                 if existing_path == target_path {
                                                     log::debug!(
                                                         "Found duplicate module init in \
@@ -4418,7 +4231,7 @@ impl<'a> HybridStaticBundler<'a> {
                     && let Expr::Name(target) = &assign.targets[0]
                     && let Expr::Attribute(attr) = &assign.value.as_ref()
                 {
-                    let attr_path = expression_handlers::extract_attribute_path(self, attr);
+                    let attr_path = expression_handlers::extract_attribute_path(attr);
                     log::debug!(
                         "Entry module deferred import: {} = {}",
                         target.id.as_str(),
@@ -4452,7 +4265,7 @@ impl<'a> HybridStaticBundler<'a> {
                         Expr::Attribute(target_attr) => {
                             // For attribute assignments like schemas.user = ...
                             let target_path =
-                                expression_handlers::extract_attribute_path(self, target_attr);
+                                expression_handlers::extract_attribute_path(target_attr);
 
                             // Check if this is a module init assignment
                             if let Expr::Call(call) = &assign.value.as_ref()
@@ -4477,7 +4290,6 @@ impl<'a> HybridStaticBundler<'a> {
                                     {
                                         let existing_path =
                                             expression_handlers::extract_attribute_path(
-                                                self,
                                                 existing_attr,
                                             );
                                         if existing_path == target_path {
@@ -4582,10 +4394,11 @@ impl<'a> HybridStaticBundler<'a> {
                 })
                 .collect();
 
-            let mut deduped_imports = self.deduplicate_deferred_imports_with_existing(
-                imports_without_init_calls,
-                &final_body,
-            );
+            let mut deduped_imports =
+                import_deduplicator::deduplicate_deferred_imports_with_existing(
+                    imports_without_init_calls,
+                    &final_body,
+                );
 
             // Filter out invalid assignments where the RHS references a module that uses an init
             // function For example, `mypkg.compat = compat` when `compat` is wrapped in
@@ -4654,7 +4467,7 @@ impl<'a> HybridStaticBundler<'a> {
 
         // Post-processing: Remove importlib import if it's unused
         // This happens when all importlib.import_module() calls were transformed
-        self.remove_unused_importlib(&mut result);
+        import_deduplicator::remove_unused_importlib(&mut result);
 
         // Log transformation statistics
         let stats = self.transformation_context.get_stats();
@@ -4663,321 +4476,6 @@ impl<'a> HybridStaticBundler<'a> {
         log::info!("  New nodes created: {}", stats.new_nodes);
 
         Ok(result)
-    }
-
-    /// Remove importlib import if it's unused after transformation
-    fn remove_unused_importlib(&self, ast: &mut ModModule) {
-        // Check if importlib is actually used in the code
-        let mut importlib_used = false;
-
-        // Check all expressions in the AST for importlib usage
-        for stmt in &ast.body {
-            if import_deduplicator::stmt_uses_importlib(stmt) {
-                importlib_used = true;
-                break;
-            }
-        }
-
-        if !importlib_used {
-            log::debug!("importlib is unused after transformation, removing import");
-            ast.body.retain(|stmt| {
-                if let Stmt::Import(import_stmt) = stmt {
-                    // Check if this is import importlib
-                    !import_stmt
-                        .names
-                        .iter()
-                        .any(|alias| alias.name.as_str() == "importlib")
-                } else {
-                    true
-                }
-            });
-        }
-    }
-
-    fn trim_unused_imports_from_modules(
-        &mut self,
-        modules: &[(String, ModModule, PathBuf, String)],
-        graph: &DependencyGraph,
-        tree_shaker: Option<&crate::tree_shaking::TreeShaker>,
-    ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
-        let mut trimmed_modules = Vec::new();
-
-        for (module_name, ast, module_path, content_hash) in modules {
-            log::debug!("Trimming unused imports from module: {module_name}");
-            let mut ast = ast.clone(); // Clone here to allow mutation
-
-            // Check if this is an __init__.py file
-            let is_init_py =
-                module_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py");
-
-            // Get unused imports from the graph
-            if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
-                let mut unused_imports = crate::analyzers::import_analyzer::ImportAnalyzer::find_unused_imports_in_module(
-                    module_dep_graph,
-                    is_init_py,
-                );
-
-                // If tree shaking is enabled, also check if imported symbols were removed
-                // Note: We only apply tree-shaking logic to "from module import symbol" style
-                // imports, not to "import module" style imports, since module
-                // imports set up namespace objects
-                if let Some(shaker) = tree_shaker {
-                    // Only apply tree-shaking-aware import removal if tree shaking is actually
-                    // enabled Get the symbols that survive tree-shaking for
-                    // this module
-                    let used_symbols = shaker.get_used_symbols_for_module(module_name);
-
-                    // Check each import to see if it's only used by tree-shaken code
-                    let import_items = module_dep_graph.get_all_import_items();
-                    log::debug!(
-                        "Checking {} import items in module '{}' for tree-shaking",
-                        import_items.len(),
-                        module_name
-                    );
-                    for (item_id, import_item) in import_items {
-                        match &import_item.item_type {
-                            crate::cribo_graph::ItemType::FromImport {
-                                module: from_module,
-                                names,
-                                ..
-                            } => {
-                                // For from imports, check each imported name
-                                for (imported_name, alias_opt) in names {
-                                    let local_name = alias_opt.as_ref().unwrap_or(imported_name);
-
-                                    // Skip if already marked as unused
-                                    if unused_imports.iter().any(|u| u.name == *local_name) {
-                                        continue;
-                                    }
-
-                                    // Skip if this is a re-export (in __all__ or explicit
-                                    // re-export)
-                                    if import_item.reexported_names.contains(local_name)
-                                        || module_dep_graph.is_in_all_export(local_name)
-                                    {
-                                        log::debug!(
-                                            "Skipping tree-shaking for re-exported import \
-                                             '{local_name}' from '{from_module}'"
-                                        );
-                                        continue;
-                                    }
-
-                                    // Check if this import is only used by symbols that were
-                                    // tree-shaken
-                                    let mut used_by_surviving_code = false;
-
-                                    // First check if any surviving symbol uses this import
-                                    for symbol in &used_symbols {
-                                        if module_dep_graph
-                                            .does_symbol_use_import(symbol, local_name)
-                                        {
-                                            used_by_surviving_code = true;
-                                            break;
-                                        }
-                                    }
-
-                                    // Also check if the module has side effects and uses this
-                                    // import at module level
-                                    if !used_by_surviving_code
-                                        && shaker.module_has_side_effects(module_name)
-                                    {
-                                        // Check if any module-level code uses this import
-                                        for item in module_dep_graph.items.values() {
-                                            if matches!(
-                                                item.item_type,
-                                                crate::cribo_graph::ItemType::Expression
-                                                    | crate::cribo_graph::ItemType::Assignment { .. }
-                                            ) && item.read_vars.contains(local_name)
-                                            {
-                                                used_by_surviving_code = true;
-                                                log::debug!(
-                                                    "Import '{local_name}' is used by \
-                                                     module-level code in module with side effects"
-                                                );
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if !used_by_surviving_code {
-                                        // This import is not used by any surviving symbol or
-                                        // module-level code
-                                        log::debug!(
-                                            "Import '{local_name}' from '{from_module}' is not \
-                                             used by surviving code after tree-shaking"
-                                        );
-                                        unused_imports.push(
-                                            crate::analyzers::types::UnusedImportInfo {
-                                                name: local_name.clone(),
-                                                module: from_module.clone(),
-                                            },
-                                        );
-                                    }
-                                }
-                            }
-                            crate::cribo_graph::ItemType::Import { module, .. } => {
-                                // For regular imports (import module), check if they're only used
-                                // by tree-shaken code
-                                let import_name = module.split('.').next_back().unwrap_or(module);
-
-                                log::debug!(
-                                    "Checking module import '{import_name}' (full: '{module}') \
-                                     for tree-shaking"
-                                );
-
-                                // Skip if already marked as unused
-                                if unused_imports.iter().any(|u| u.name == *import_name) {
-                                    continue;
-                                }
-
-                                // Skip if this is a re-export
-                                if import_item.reexported_names.contains(import_name)
-                                    || module_dep_graph.is_in_all_export(import_name)
-                                {
-                                    log::debug!(
-                                        "Skipping tree-shaking for re-exported import \
-                                         '{import_name}'"
-                                    );
-                                    continue;
-                                }
-
-                                // Check if this import is only used by symbols that were
-                                // tree-shaken
-                                let mut used_by_surviving_code = false;
-
-                                // Check if any surviving symbol uses this import
-                                log::debug!(
-                                    "Checking if any of {} surviving symbols use import \
-                                     '{import_name}'",
-                                    used_symbols.len()
-                                );
-                                for symbol in &used_symbols {
-                                    if module_dep_graph.does_symbol_use_import(symbol, import_name)
-                                    {
-                                        log::debug!(
-                                            "Symbol '{symbol}' uses import '{import_name}'"
-                                        );
-                                        used_by_surviving_code = true;
-                                        break;
-                                    }
-                                }
-
-                                // Also check if any module-level code that has side effects uses it
-                                if !used_by_surviving_code {
-                                    log::debug!(
-                                        "No surviving symbols use '{import_name}', checking \
-                                         module-level side effects"
-                                    );
-                                    for item in module_dep_graph.items.values() {
-                                        if item.has_side_effects
-                                            && !matches!(
-                                                item.item_type,
-                                                crate::cribo_graph::ItemType::Import { .. }
-                                                    | crate::cribo_graph::ItemType::FromImport { .. }
-                                            )
-                                            && (item.read_vars.contains(import_name)
-                                                || item.eventual_read_vars.contains(import_name))
-                                        {
-                                            log::debug!(
-                                                "Module-level item {:?} with side effects uses \
-                                                 '{import_name}'",
-                                                item.item_type
-                                            );
-                                            used_by_surviving_code = true;
-                                            break;
-                                        }
-                                    }
-                                }
-
-                                // Special case: Check if this import is only used by assignment
-                                // statements that were removed by
-                                // tree-shaking (e.g., ABC = abc.ABC after normalizing
-                                // from abc import ABC)
-                                if !used_by_surviving_code {
-                                    // Check if any assignment that uses this import is kept
-                                    for item in module_dep_graph.items.values() {
-                                        if let crate::cribo_graph::ItemType::Assignment {
-                                            targets,
-                                        } = &item.item_type
-                                        {
-                                            // Check if this assignment reads the import
-                                            if item.read_vars.contains(import_name) {
-                                                // Check if any of the assignment targets are kept
-                                                for target in targets {
-                                                    if used_symbols.contains(target) {
-                                                        log::debug!(
-                                                            "Import '{import_name}' is used by \
-                                                             surviving assignment to '{target}'"
-                                                        );
-                                                        used_by_surviving_code = true;
-                                                        break;
-                                                    }
-                                                }
-                                                if used_by_surviving_code {
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Extra check for normalized imports: If this is a normalized
-                                // import and no assignments using
-                                // it survived, it should be removed
-                                if import_item.is_normalized_import {
-                                    log::debug!(
-                                        "Import '{import_name}' is a normalized import \
-                                         (used_by_surviving_code: {used_by_surviving_code})"
-                                    );
-                                }
-
-                                if !used_by_surviving_code {
-                                    log::debug!(
-                                        "Import '{import_name}' from module '{module}' is not \
-                                         used by surviving code after tree-shaking (item_id: \
-                                         {item_id:?})"
-                                    );
-                                    unused_imports.push(
-                                        crate::analyzers::types::UnusedImportInfo {
-                                            name: import_name.to_string(),
-                                            module: module.clone(),
-                                        },
-                                    );
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-
-                if !unused_imports.is_empty() {
-                    log::debug!(
-                        "Found {} unused imports in {}",
-                        unused_imports.len(),
-                        module_name
-                    );
-                    // Log unused imports details
-                    Self::log_unused_imports_details(&unused_imports);
-
-                    // Filter out unused imports from the AST
-                    ast.body
-                        .retain(|stmt| !self.should_remove_import_stmt(stmt, &unused_imports));
-                }
-            }
-
-            trimmed_modules.push((
-                module_name.clone(),
-                ast,
-                module_path.clone(),
-                content_hash.clone(),
-            ));
-        }
-
-        log::debug!(
-            "Successfully trimmed unused imports from {} modules",
-            trimmed_modules.len()
-        );
-        Ok(trimmed_modules)
     }
 
     /// Find modules that are imported directly
@@ -5003,76 +4501,6 @@ impl<'a> HybridStaticBundler<'a> {
             self.namespace_imported_modules.len(),
             self.namespace_imported_modules
         );
-    }
-
-    fn log_unused_imports_details(unused_imports: &[crate::analyzers::types::UnusedImportInfo]) {
-        if log::log_enabled!(log::Level::Debug) {
-            for unused in unused_imports {
-                log::debug!("  - {} from {}", unused.name, unused.module);
-            }
-        }
-    }
-
-    /// Check if an import statement should be removed based on unused imports
-    fn should_remove_import_stmt(
-        &self,
-        stmt: &Stmt,
-        unused_imports: &[crate::analyzers::types::UnusedImportInfo],
-    ) -> bool {
-        match stmt {
-            Stmt::Import(import_stmt) => {
-                // Check if all names in this import are unused
-                let should_remove = import_stmt.names.iter().all(|alias| {
-                    let local_name = alias
-                        .asname
-                        .as_ref()
-                        .map(|n| n.as_str())
-                        .unwrap_or(alias.name.as_str());
-
-                    unused_imports.iter().any(|unused| {
-                        log::trace!(
-                            "Checking if import '{}' matches unused '{}' from '{}'",
-                            local_name,
-                            unused.name,
-                            unused.module
-                        );
-                        unused.name == local_name
-                    })
-                });
-
-                if should_remove {
-                    log::debug!(
-                        "Removing import statement: {:?}",
-                        import_stmt
-                            .names
-                            .iter()
-                            .map(|a| a.name.as_str())
-                            .collect::<Vec<_>>()
-                    );
-                }
-                should_remove
-            }
-            Stmt::ImportFrom(import_from) => {
-                // Skip __future__ imports - they're handled separately
-                if import_from.module.as_ref().map(|m| m.as_str()) == Some("__future__") {
-                    return false;
-                }
-
-                // Check if all names in this from-import are unused
-                import_from.names.iter().all(|alias| {
-                    let local_name = alias
-                        .asname
-                        .as_ref()
-                        .map(|n| n.as_str())
-                        .unwrap_or(alias.name.as_str());
-
-                    unused_imports
-                        .iter()
-                        .any(|unused| unused.name == local_name)
-                })
-            }
-            _ => false,
-        }
     }
 
     /// Check if a symbol should be exported from a module
@@ -5301,16 +4729,19 @@ impl<'a> HybridStaticBundler<'a> {
                 let params = &mut func_def.parameters;
                 for param in &mut params.args {
                     if let Some(ref mut annotation) = param.parameter.annotation {
-                        self.rewrite_aliases_in_expr(annotation, alias_to_canonical);
+                        expression_handlers::rewrite_aliases_in_expr(
+                            annotation,
+                            alias_to_canonical,
+                        );
                     }
                     if let Some(ref mut default) = param.default {
-                        self.rewrite_aliases_in_expr(default, alias_to_canonical);
+                        expression_handlers::rewrite_aliases_in_expr(default, alias_to_canonical);
                     }
                 }
 
                 // Rewrite return type annotation
                 if let Some(ref mut returns) = func_def.returns {
-                    self.rewrite_aliases_in_expr(returns, alias_to_canonical);
+                    expression_handlers::rewrite_aliases_in_expr(returns, alias_to_canonical);
                 }
 
                 // Rewrite in function body
@@ -5322,7 +4753,7 @@ impl<'a> HybridStaticBundler<'a> {
                 // Rewrite in base classes
                 if let Some(ref mut arguments) = class_def.arguments {
                     for arg in &mut arguments.args {
-                        self.rewrite_aliases_in_expr(arg, alias_to_canonical);
+                        expression_handlers::rewrite_aliases_in_expr(arg, alias_to_canonical);
                     }
                 }
                 // Rewrite in class body
@@ -5331,13 +4762,13 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
             Stmt::If(if_stmt) => {
-                self.rewrite_aliases_in_expr(&mut if_stmt.test, alias_to_canonical);
+                expression_handlers::rewrite_aliases_in_expr(&mut if_stmt.test, alias_to_canonical);
                 for stmt in &mut if_stmt.body {
                     self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
                 }
                 for clause in &mut if_stmt.elif_else_clauses {
                     if let Some(ref mut condition) = clause.test {
-                        self.rewrite_aliases_in_expr(condition, alias_to_canonical);
+                        expression_handlers::rewrite_aliases_in_expr(condition, alias_to_canonical);
                     }
                     for stmt in &mut clause.body {
                         self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
@@ -5345,7 +4776,10 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
             Stmt::While(while_stmt) => {
-                self.rewrite_aliases_in_expr(&mut while_stmt.test, alias_to_canonical);
+                expression_handlers::rewrite_aliases_in_expr(
+                    &mut while_stmt.test,
+                    alias_to_canonical,
+                );
                 for stmt in &mut while_stmt.body {
                     self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
                 }
@@ -5354,7 +4788,10 @@ impl<'a> HybridStaticBundler<'a> {
                 }
             }
             Stmt::For(for_stmt) => {
-                self.rewrite_aliases_in_expr(&mut for_stmt.iter, alias_to_canonical);
+                expression_handlers::rewrite_aliases_in_expr(
+                    &mut for_stmt.iter,
+                    alias_to_canonical,
+                );
                 for stmt in &mut for_stmt.body {
                     self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
                 }
@@ -5364,7 +4801,10 @@ impl<'a> HybridStaticBundler<'a> {
             }
             Stmt::With(with_stmt) => {
                 for item in &mut with_stmt.items {
-                    self.rewrite_aliases_in_expr(&mut item.context_expr, alias_to_canonical);
+                    expression_handlers::rewrite_aliases_in_expr(
+                        &mut item.context_expr,
+                        alias_to_canonical,
+                    );
                 }
                 for stmt in &mut with_stmt.body {
                     self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
@@ -5387,47 +4827,65 @@ impl<'a> HybridStaticBundler<'a> {
             Stmt::Assign(assign) => {
                 // Rewrite in targets
                 for target in &mut assign.targets {
-                    self.rewrite_aliases_in_expr(target, alias_to_canonical);
+                    expression_handlers::rewrite_aliases_in_expr(target, alias_to_canonical);
                 }
                 // Rewrite in value
-                self.rewrite_aliases_in_expr(&mut assign.value, alias_to_canonical);
+                expression_handlers::rewrite_aliases_in_expr(&mut assign.value, alias_to_canonical);
             }
             Stmt::AugAssign(aug_assign) => {
-                self.rewrite_aliases_in_expr(&mut aug_assign.target, alias_to_canonical);
-                self.rewrite_aliases_in_expr(&mut aug_assign.value, alias_to_canonical);
+                expression_handlers::rewrite_aliases_in_expr(
+                    &mut aug_assign.target,
+                    alias_to_canonical,
+                );
+                expression_handlers::rewrite_aliases_in_expr(
+                    &mut aug_assign.value,
+                    alias_to_canonical,
+                );
             }
             Stmt::AnnAssign(ann_assign) => {
-                self.rewrite_aliases_in_expr(&mut ann_assign.target, alias_to_canonical);
-                self.rewrite_aliases_in_expr(&mut ann_assign.annotation, alias_to_canonical);
+                expression_handlers::rewrite_aliases_in_expr(
+                    &mut ann_assign.target,
+                    alias_to_canonical,
+                );
+                expression_handlers::rewrite_aliases_in_expr(
+                    &mut ann_assign.annotation,
+                    alias_to_canonical,
+                );
                 if let Some(ref mut value) = ann_assign.value {
-                    self.rewrite_aliases_in_expr(value, alias_to_canonical);
+                    expression_handlers::rewrite_aliases_in_expr(value, alias_to_canonical);
                 }
             }
             Stmt::Expr(expr_stmt) => {
-                self.rewrite_aliases_in_expr(&mut expr_stmt.value, alias_to_canonical);
+                expression_handlers::rewrite_aliases_in_expr(
+                    &mut expr_stmt.value,
+                    alias_to_canonical,
+                );
             }
             Stmt::Return(return_stmt) => {
                 if let Some(ref mut value) = return_stmt.value {
-                    self.rewrite_aliases_in_expr(value, alias_to_canonical);
+                    expression_handlers::rewrite_aliases_in_expr(value, alias_to_canonical);
                 }
             }
             Stmt::Raise(raise_stmt) => {
                 if let Some(ref mut exc) = raise_stmt.exc {
-                    self.rewrite_aliases_in_expr(exc, alias_to_canonical);
+                    expression_handlers::rewrite_aliases_in_expr(exc, alias_to_canonical);
                 }
                 if let Some(ref mut cause) = raise_stmt.cause {
-                    self.rewrite_aliases_in_expr(cause, alias_to_canonical);
+                    expression_handlers::rewrite_aliases_in_expr(cause, alias_to_canonical);
                 }
             }
             Stmt::Assert(assert_stmt) => {
-                self.rewrite_aliases_in_expr(&mut assert_stmt.test, alias_to_canonical);
+                expression_handlers::rewrite_aliases_in_expr(
+                    &mut assert_stmt.test,
+                    alias_to_canonical,
+                );
                 if let Some(ref mut msg) = assert_stmt.msg {
-                    self.rewrite_aliases_in_expr(msg, alias_to_canonical);
+                    expression_handlers::rewrite_aliases_in_expr(msg, alias_to_canonical);
                 }
             }
             Stmt::Delete(delete_stmt) => {
                 for target in &mut delete_stmt.targets {
-                    self.rewrite_aliases_in_expr(target, alias_to_canonical);
+                    expression_handlers::rewrite_aliases_in_expr(target, alias_to_canonical);
                 }
             }
             Stmt::Global(global_stmt) => {
@@ -5450,7 +4908,10 @@ impl<'a> HybridStaticBundler<'a> {
                 // Import statements are handled separately and shouldn't be rewritten here
             }
             Stmt::TypeAlias(type_alias) => {
-                self.rewrite_aliases_in_expr(&mut type_alias.value, alias_to_canonical);
+                expression_handlers::rewrite_aliases_in_expr(
+                    &mut type_alias.value,
+                    alias_to_canonical,
+                );
             }
             Stmt::Match(_) => {
                 // Match statements are not handled in the original implementation
@@ -6892,15 +6353,6 @@ impl<'a> HybridStaticBundler<'a> {
         reordered
     }
 
-    /// Rewrite aliases in an expression
-    fn rewrite_aliases_in_expr(
-        &self,
-        expr: &mut Expr,
-        alias_to_canonical: &FxIndexMap<String, String>,
-    ) {
-        rewrite_aliases_in_expr_impl(expr, alias_to_canonical);
-    }
-
     /// Resolve import aliases in a statement
     fn resolve_import_aliases_in_stmt(
         stmt: &mut Stmt,
@@ -7027,7 +6479,7 @@ impl<'a> HybridStaticBundler<'a> {
                     }
                 } else {
                     // Complex base class expression, use standard rewriting
-                    self.rewrite_aliases_in_expr(arg, module_renames);
+                    expression_handlers::rewrite_aliases_in_expr(arg, module_renames);
                 }
             }
         }
@@ -7138,7 +6590,7 @@ impl<'a> HybridStaticBundler<'a> {
             &mut assign_clone.value,
             &ctx.import_aliases,
         );
-        self.rewrite_aliases_in_expr(&mut assign_clone.value, module_renames);
+        expression_handlers::rewrite_aliases_in_expr(&mut assign_clone.value, module_renames);
 
         // Now create a new rename for the LHS
         // Check if this symbol was renamed by semantic analysis
@@ -7364,7 +6816,7 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
 }
 
 // Helper methods for import rewriting
-impl<'a> HybridStaticBundler<'a> {
+impl<'a> Bundler<'a> {
     /// Create a module reference assignment
     pub(super) fn create_module_reference_assignment(
         &self,
@@ -8837,179 +8289,6 @@ impl<'a> HybridStaticBundler<'a> {
                 class_blocks
             }
         }
-    }
-}
-
-/// Helper function to recursively rewrite aliases in an expression
-fn rewrite_aliases_in_expr_impl(expr: &mut Expr, alias_to_canonical: &FxIndexMap<String, String>) {
-    match expr {
-        Expr::Name(name_expr) => {
-            let name_str = name_expr.id.as_str();
-            if let Some(canonical) = alias_to_canonical.get(name_str) {
-                log::debug!("Rewriting alias '{name_str}' to canonical '{canonical}'");
-                name_expr.id = canonical.clone().into();
-            }
-        }
-        Expr::Attribute(attr_expr) => {
-            // Handle cases like j.dumps -> json.dumps
-            // First check if this is a direct attribute on an aliased name
-            if let Expr::Name(name_expr) = attr_expr.value.as_ref() {
-                let name_str = name_expr.id.as_str();
-                if alias_to_canonical.contains_key(name_str) {
-                    log::debug!(
-                        "Found attribute access on alias: {}.{}",
-                        name_str,
-                        attr_expr.attr.as_str()
-                    );
-                }
-            }
-            rewrite_aliases_in_expr_impl(&mut attr_expr.value, alias_to_canonical);
-        }
-        Expr::Call(call_expr) => {
-            rewrite_aliases_in_expr_impl(&mut call_expr.func, alias_to_canonical);
-            for arg in &mut call_expr.arguments.args {
-                rewrite_aliases_in_expr_impl(arg, alias_to_canonical);
-            }
-            // Also process keyword arguments
-            for keyword in &mut call_expr.arguments.keywords {
-                rewrite_aliases_in_expr_impl(&mut keyword.value, alias_to_canonical);
-            }
-        }
-        Expr::List(list_expr) => {
-            for elem in &mut list_expr.elts {
-                rewrite_aliases_in_expr_impl(elem, alias_to_canonical);
-            }
-        }
-        Expr::Dict(dict_expr) => {
-            for item in &mut dict_expr.items {
-                if let Some(ref mut key) = item.key {
-                    rewrite_aliases_in_expr_impl(key, alias_to_canonical);
-                }
-                rewrite_aliases_in_expr_impl(&mut item.value, alias_to_canonical);
-            }
-        }
-        Expr::Tuple(tuple_expr) => {
-            for elem in &mut tuple_expr.elts {
-                rewrite_aliases_in_expr_impl(elem, alias_to_canonical);
-            }
-        }
-        Expr::Set(set_expr) => {
-            for elem in &mut set_expr.elts {
-                rewrite_aliases_in_expr_impl(elem, alias_to_canonical);
-            }
-        }
-        Expr::BinOp(binop_expr) => {
-            rewrite_aliases_in_expr_impl(&mut binop_expr.left, alias_to_canonical);
-            rewrite_aliases_in_expr_impl(&mut binop_expr.right, alias_to_canonical);
-        }
-        Expr::UnaryOp(unaryop_expr) => {
-            rewrite_aliases_in_expr_impl(&mut unaryop_expr.operand, alias_to_canonical);
-        }
-        Expr::Compare(compare_expr) => {
-            rewrite_aliases_in_expr_impl(&mut compare_expr.left, alias_to_canonical);
-            for comparator in &mut compare_expr.comparators {
-                rewrite_aliases_in_expr_impl(comparator, alias_to_canonical);
-            }
-        }
-        Expr::BoolOp(boolop_expr) => {
-            for value in &mut boolop_expr.values {
-                rewrite_aliases_in_expr_impl(value, alias_to_canonical);
-            }
-        }
-        Expr::If(if_expr) => {
-            rewrite_aliases_in_expr_impl(&mut if_expr.test, alias_to_canonical);
-            rewrite_aliases_in_expr_impl(&mut if_expr.body, alias_to_canonical);
-            rewrite_aliases_in_expr_impl(&mut if_expr.orelse, alias_to_canonical);
-        }
-        Expr::ListComp(listcomp_expr) => {
-            rewrite_aliases_in_expr_impl(&mut listcomp_expr.elt, alias_to_canonical);
-            for generator in &mut listcomp_expr.generators {
-                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
-                for if_clause in &mut generator.ifs {
-                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
-                }
-            }
-        }
-        Expr::SetComp(setcomp_expr) => {
-            rewrite_aliases_in_expr_impl(&mut setcomp_expr.elt, alias_to_canonical);
-            for generator in &mut setcomp_expr.generators {
-                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
-                for if_clause in &mut generator.ifs {
-                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
-                }
-            }
-        }
-        Expr::DictComp(dictcomp_expr) => {
-            rewrite_aliases_in_expr_impl(&mut dictcomp_expr.key, alias_to_canonical);
-            rewrite_aliases_in_expr_impl(&mut dictcomp_expr.value, alias_to_canonical);
-            for generator in &mut dictcomp_expr.generators {
-                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
-                for if_clause in &mut generator.ifs {
-                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
-                }
-            }
-        }
-        Expr::Subscript(subscript_expr) => {
-            // Rewrite the value expression (e.g., the `obj` in `obj[key]`)
-            rewrite_aliases_in_expr_impl(&mut subscript_expr.value, alias_to_canonical);
-            // Rewrite the slice - this handles type annotations like Dict[str, Any]
-            rewrite_aliases_in_expr_impl(&mut subscript_expr.slice, alias_to_canonical);
-        }
-        Expr::Slice(slice_expr) => {
-            if let Some(ref mut lower) = slice_expr.lower {
-                rewrite_aliases_in_expr_impl(lower, alias_to_canonical);
-            }
-            if let Some(ref mut upper) = slice_expr.upper {
-                rewrite_aliases_in_expr_impl(upper, alias_to_canonical);
-            }
-            if let Some(ref mut step) = slice_expr.step {
-                rewrite_aliases_in_expr_impl(step, alias_to_canonical);
-            }
-        }
-        Expr::Lambda(lambda_expr) => {
-            rewrite_aliases_in_expr_impl(&mut lambda_expr.body, alias_to_canonical);
-        }
-        Expr::Yield(yield_expr) => {
-            if let Some(ref mut value) = yield_expr.value {
-                rewrite_aliases_in_expr_impl(value, alias_to_canonical);
-            }
-        }
-        Expr::YieldFrom(yieldfrom_expr) => {
-            rewrite_aliases_in_expr_impl(&mut yieldfrom_expr.value, alias_to_canonical);
-        }
-        Expr::Await(await_expr) => {
-            rewrite_aliases_in_expr_impl(&mut await_expr.value, alias_to_canonical);
-        }
-        Expr::Starred(starred_expr) => {
-            rewrite_aliases_in_expr_impl(&mut starred_expr.value, alias_to_canonical);
-        }
-        Expr::FString(_fstring_expr) => {
-            // FString handling is complex due to its structure
-            // For now, skip FString rewriting as it's rarely used with module aliases
-            log::debug!("FString expression rewriting not yet implemented");
-        }
-        // Constant values and other literals don't need rewriting
-        Expr::StringLiteral(_)
-        | Expr::BytesLiteral(_)
-        | Expr::NumberLiteral(_)
-        | Expr::BooleanLiteral(_)
-        | Expr::NoneLiteral(_)
-        | Expr::EllipsisLiteral(_) => {}
-        // Generator expressions
-        Expr::Generator(gen_expr) => {
-            rewrite_aliases_in_expr_impl(&mut gen_expr.elt, alias_to_canonical);
-            for generator in &mut gen_expr.generators {
-                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
-                for if_clause in &mut generator.ifs {
-                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
-                }
-            }
-        }
-        // Named expressions (walrus operator)
-        Expr::Named(named_expr) => {
-            rewrite_aliases_in_expr_impl(&mut named_expr.value, alias_to_canonical);
-        }
-        _ => {}
     }
 }
 

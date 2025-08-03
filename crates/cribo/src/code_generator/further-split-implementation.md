@@ -10,16 +10,16 @@ This refactoring will improve maintainability, testability, and developer veloci
 
 The refactoring will be conducted in phases. Each phase must result in a compilable state with all tests passing and no new clippy warnings.
 
-- **Core Struct**: The `HybridStaticBundler` struct will remain in `bundler.rs`. It will serve as the central state holder and orchestrator.
-- **Method to Function Conversion**: Methods currently in `impl HybridStaticBundler` will be moved to new modules as free-standing functions.
-- **State Access**: To access the bundler's state, the new functions will accept a `&HybridStaticBundler` or `&mut HybridStaticBundler` as their first argument.
+- **Core Struct**: The `Bundler` struct will remain in `bundler.rs`. It will serve as the central state holder and orchestrator.
+- **Method to Function Conversion**: Methods currently in `impl Bundler` will be moved to new modules as free-standing functions.
+- **State Access**: To access the bundler's state, the new functions will accept a `&Bundler` or `&mut Bundler` as their first argument.
 
 **Example Refactoring Pattern:**
 
 **Before (in `bundler.rs`):**
 
 ```rust
-impl HybridStaticBundler {
+impl Bundler {
     fn my_helper_method(&self, arg: &str) -> bool {
         // logic using self.fields
     }
@@ -31,9 +31,9 @@ impl HybridStaticBundler {
 
 ```rust
 // In new_module.rs
-use super::bundler::HybridStaticBundler;
+use super::bundler::Bundler;
 
-pub(super) fn my_helper_function(bundler: &HybridStaticBundler, arg: &str) -> bool {
+pub(super) fn my_helper_function(bundler: &Bundler, arg: &str) -> bool {
     // logic using bundler.fields
 }
 ```

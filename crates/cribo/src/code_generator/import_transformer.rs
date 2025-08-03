@@ -13,8 +13,7 @@ use ruff_text_size::TextRange;
 use crate::{
     ast_builder::{expressions, statements},
     code_generator::{
-        bundler::HybridStaticBundler, import_deduplicator,
-        module_registry::sanitize_module_name_for_identifier,
+        bundler::Bundler, import_deduplicator, module_registry::sanitize_module_name_for_identifier,
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -22,7 +21,7 @@ use crate::{
 /// Parameters for creating a RecursiveImportTransformer
 #[derive(Debug)]
 pub struct RecursiveImportTransformerParams<'a> {
-    pub bundler: &'a HybridStaticBundler<'a>,
+    pub bundler: &'a Bundler<'a>,
     pub module_name: &'a str,
     pub module_path: Option<&'a Path>,
     pub symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
@@ -34,7 +33,7 @@ pub struct RecursiveImportTransformerParams<'a> {
 
 /// Transformer that recursively handles import statements and module references
 pub struct RecursiveImportTransformer<'a> {
-    bundler: &'a HybridStaticBundler<'a>,
+    bundler: &'a Bundler<'a>,
     module_name: &'a str,
     module_path: Option<&'a Path>,
     symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
@@ -1856,7 +1855,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
 /// Rewrite import with renames
 fn rewrite_import_with_renames(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     import_stmt: StmtImport,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
 ) -> Vec<Stmt> {
@@ -2016,7 +2015,7 @@ fn rewrite_import_with_renames(
 fn has_bundled_submodules(
     import_from: &StmtImportFrom,
     module_name: &str,
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
 ) -> bool {
     for alias in &import_from.names {
         let imported_name = alias.name.as_str();
@@ -2034,7 +2033,7 @@ fn has_bundled_submodules(
 
 /// Rewrite import from statement with proper handling for bundled modules
 fn rewrite_import_from(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     import_from: StmtImportFrom,
     current_module: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
@@ -2404,7 +2403,7 @@ pub fn resolve_relative_import_with_context(
 
 /// Handle imports from inlined modules
 pub(super) fn handle_imports_from_inlined_module_with_context(
-    bundler: &HybridStaticBundler,
+    bundler: &Bundler,
     import_from: &StmtImportFrom,
     module_name: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
@@ -2471,7 +2470,7 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
 }
 
 /// Check if a symbol is likely a re-export from a package __init__.py
-fn is_package_init_reexport(bundler: &HybridStaticBundler, module_name: &str) -> bool {
+fn is_package_init_reexport(bundler: &Bundler, module_name: &str) -> bool {
     // Special handling for package __init__.py files
     // If we're importing from "greetings" and there's a "greetings.X" module
     // that could be the source of the symbol

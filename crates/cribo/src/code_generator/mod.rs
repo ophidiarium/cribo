@@ -18,5 +18,5 @@ pub mod module_transformer;
 pub mod namespace_manager;
 
 // Re-export the main bundler and key types
-pub use bundler::HybridStaticBundler;
+pub use bundler::Bundler;
 pub use context::BundleParams;
