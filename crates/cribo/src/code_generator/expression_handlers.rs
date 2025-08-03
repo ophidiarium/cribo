@@ -903,16 +903,7 @@ pub(super) fn create_dotted_attribute_assignment(
         return Err("Empty dotted name".to_string());
     }
 
-    let target_expr = if parts.len() == 1 {
-        expressions::name(parts[0], ExprContext::Store)
-    } else {
-        let mut expr = expressions::name(parts[0], ExprContext::Load);
-        for part in &parts[1..parts.len() - 1] {
-            expr = expressions::attribute(expr, part, ExprContext::Load);
-        }
-        expressions::attribute(expr, parts[parts.len() - 1], ExprContext::Store)
-    };
-
+    let target_expr = expressions::dotted_name(&parts, ExprContext::Store);
     let mut stmt = statements::assign(vec![target_expr], value_expr);
 
     // Set the node index for transformation tracking
