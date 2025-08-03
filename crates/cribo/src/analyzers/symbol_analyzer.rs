@@ -250,17 +250,15 @@ impl SymbolAnalyzer {
                         .is_some_and(|symbols| symbols.contains(*symbol));
 
                     if enable_logging {
-                        if !is_kept {
-                            debug!(
-                                "Filtering out symbol '{symbol}' from __all__ of module \
-                                 '{module_name}' - removed by tree-shaking"
-                            );
+                        let (action, preposition, reason) = if is_kept {
+                            ("Keeping", "in", "survived")
                         } else {
-                            debug!(
-                                "Keeping symbol '{symbol}' in __all__ of module '{module_name}' - \
-                                 survived tree-shaking"
-                            );
-                        }
+                            ("Filtering out", "from", "removed by")
+                        };
+                        debug!(
+                            "{action} symbol '{symbol}' {preposition} __all__ of module \
+                             '{module_name}' - {reason} tree-shaking"
+                        );
                     }
 
                     is_kept
