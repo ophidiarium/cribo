@@ -320,19 +320,10 @@ fn collect_unique_imports_for_hoisting(
         // Create import statement preserving the original alias
         unique_imports.push((
             module_name.to_string(),
-            Stmt::Import(StmtImport {
-                node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-                names: vec![Alias {
-                    node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-                    name: ruff_python_ast::Identifier::new(
-                        module_name,
-                        ruff_text_size::TextRange::default(),
-                    ),
-                    asname: alias.asname.clone(),
-                    range: ruff_text_size::TextRange::default(),
-                }],
-                range: ruff_text_size::TextRange::default(),
-            }),
+            crate::ast_builder::statements::import(vec![crate::ast_builder::other::alias(
+                module_name,
+                alias.asname.as_ref().map(|name| name.as_str()),
+            )]),
         ));
     }
 }

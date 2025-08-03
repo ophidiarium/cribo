@@ -585,25 +585,24 @@ pub fn transform_module_to_init_function<'a>(
     )));
 
     // Create the init function WITHOUT decorator - we're not using module cache
-    Ok(Stmt::FunctionDef(StmtFunctionDef {
+    let parameters = ruff_python_ast::Parameters {
         node_index: AtomicNodeIndex::dummy(),
-        name: Identifier::new(init_func_name, TextRange::default()),
-        type_params: None,
-        parameters: Box::new(ruff_python_ast::Parameters {
-            node_index: AtomicNodeIndex::dummy(),
-            posonlyargs: vec![],
-            args: vec![],
-            vararg: None,
-            kwonlyargs: vec![],
-            kwarg: None,
-            range: TextRange::default(),
-        }),
-        returns: None,
-        body,
-        decorator_list: vec![], // No decorator for non-cache mode
-        is_async: false,
+        posonlyargs: vec![],
+        args: vec![],
+        vararg: None,
+        kwonlyargs: vec![],
+        kwarg: None,
         range: TextRange::default(),
-    }))
+    };
+
+    Ok(ast_builder::statements::function_def(
+        init_func_name,
+        parameters,
+        body,
+        vec![], // No decorator for non-cache mode
+        None,   // No return type annotation
+        false,  // Not async
+    ))
 }
 
 /// Transform an expression to use module attributes for module-level variables
@@ -1410,17 +1409,11 @@ pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<
 
     vec![
         // module = types.SimpleNamespace()
-        ast_builder::statements::assign(
-            vec![ast_builder::expressions::name("module", ExprContext::Store)],
-            module_call,
-        ),
+        ast_builder::statements::simple_assign("module", module_call),
         // module.__name__ = "module_name"
-        ast_builder::statements::assign(
-            vec![ast_builder::expressions::attribute(
-                ast_builder::expressions::name("module", ExprContext::Load),
-                "__name__",
-                ExprContext::Store,
-            )],
+        ast_builder::statements::assign_attribute(
+            "module",
+            "__name__",
             ast_builder::expressions::string_literal(module_name),
         ),
     ]
