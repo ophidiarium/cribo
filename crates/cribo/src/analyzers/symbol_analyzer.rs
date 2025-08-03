@@ -228,7 +228,7 @@ impl SymbolAnalyzer {
     /// # Arguments
     /// * `exports` - The list of export symbols to filter
     /// * `module_name` - The name of the module these exports belong to
-    /// * `kept_symbols` - Optional set of (module, symbol) pairs that survived tree-shaking
+    /// * `kept_symbols` - Optional map from module name to a set of symbols to keep in that module
     /// * `enable_logging` - Whether to log debug information about kept/filtered symbols
     ///
     /// # Returns
