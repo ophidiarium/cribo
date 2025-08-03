@@ -46,84 +46,16 @@ This function creates a `FunctionDef` statement.
 
 **Completed**: Added a new `function_def` function to `ast_builder::statements` and refactored the function to use it.
 
-### `create_module_object_stmt`
+### `create_module_object_stmt` ✅
 
 This function creates `Assign` statements for the module object.
 
-**Current Implementation:**
-
-```rust
-pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<Stmt> {
-    let module_call = ast_builder::expressions::call(
-        ast_builder::expressions::simple_namespace_ctor(),
-        vec![],
-        vec![],
-    );
-
-    vec![
-        // module = types.SimpleNamespace()
-        ast_builder::statements::assign(
-            vec![ast_builder::expressions::name("module", ExprContext::Store)],
-            module_call,
-        ),
-        // module.__name__ = "module_name"
-        ast_builder::statements::assign(
-            vec![ast_builder::expressions::attribute(
-                ast_builder::expressions::name("module", ExprContext::Load),
-                "__name__",
-                ExprContext::Store,
-            )],
-            ast_builder::expressions::string_literal(module_name),
-        ),
-    ]
-}
-```
-
-**Refactoring suggestion:**
-
-This function is already using the `ast_builder`, but it could be moved into the `ast_builder::statements` module itself to be reused in other places.
+**Completed**: Refactored to use `simple_assign` and our new `assign_attribute` function, making the code more concise and readable.
 
 ## 5. `import_deduplicator.rs`
 
-### `collect_unique_imports_for_hoisting`
+### `collect_unique_imports_for_hoisting` ✅
 
 This function manually constructs an `Import` statement.
 
-**Current Implementation:**
-
-```rust
-fn collect_unique_imports_for_hoisting(
-    import_stmt: &StmtImport,
-    seen_modules: &mut crate::types::FxIndexSet<String>,
-    unique_imports: &mut Vec<(String, Stmt)>,
-) {
-    for alias in &import_stmt.names {
-        let module_name = alias.name.as_str();
-        if seen_modules.contains(module_name) {
-            continue;
-        }
-        seen_modules.insert(module_name.to_string());
-        // Create import statement preserving the original alias
-        unique_imports.push((
-            module_name.to_string(),
-            Stmt::Import(StmtImport {
-                node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-                names: vec![Alias {
-                    node_index: ruff_python_ast::AtomicNodeIndex::dummy(),
-                    name: ruff_python_ast::Identifier::new(
-                        module_name,
-                        ruff_text_size::TextRange::default(),
-                    ),
-                    asname: alias.asname.clone(),
-                    range: ruff_text_size::TextRange::default(),
-                }],
-                range: ruff_text_size::TextRange::default(),
-            }),
-        ));
-    }
-}
-```
-
-**Refactoring suggestion:**
-
-The creation of the `Import` statement can be simplified by using `ast_builder::statements::import` and `ast_builder::other::alias`.
+**Completed**: Refactored to use `ast_builder::statements::import` and `ast_builder::other::alias`, making the code more concise and maintaining consistency with the rest of the codebase.

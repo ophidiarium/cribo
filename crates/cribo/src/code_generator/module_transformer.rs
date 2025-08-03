@@ -1409,17 +1409,11 @@ pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<
 
     vec![
         // module = types.SimpleNamespace()
-        ast_builder::statements::assign(
-            vec![ast_builder::expressions::name("module", ExprContext::Store)],
-            module_call,
-        ),
+        ast_builder::statements::simple_assign("module", module_call),
         // module.__name__ = "module_name"
-        ast_builder::statements::assign(
-            vec![ast_builder::expressions::attribute(
-                ast_builder::expressions::name("module", ExprContext::Load),
-                "__name__",
-                ExprContext::Store,
-            )],
+        ast_builder::statements::assign_attribute(
+            "module",
+            "__name__",
             ast_builder::expressions::string_literal(module_name),
         ),
     ]
