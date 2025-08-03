@@ -260,12 +260,6 @@ pub(super) fn add_hoisted_imports(bundler: &Bundler, final_body: &mut Vec<Stmt>)
     sorted_modules.sort_by_key(|(module_name, _)| *module_name);
 
     for (module_name, imported_names) in sorted_modules {
-        // Skip importlib if it was fully transformed
-        if module_name == "importlib" && bundler.importlib_fully_transformed {
-            log::debug!("Skipping importlib from hoisted imports as it was fully transformed");
-            continue;
-        }
-
         // Sort the imported names for deterministic output
         let mut sorted_names: Vec<(String, Option<String>)> = imported_names
             .iter()
@@ -303,12 +297,7 @@ pub(super) fn add_hoisted_imports(bundler: &Bundler, final_body: &mut Vec<Stmt>)
     // Sort by module name for deterministic output
     unique_imports.sort_by_key(|(module_name, _)| module_name.clone());
 
-    for (module_name, import_stmt) in unique_imports {
-        // Skip importlib if it was fully transformed
-        if module_name == "importlib" && bundler.importlib_fully_transformed {
-            log::debug!("Skipping regular import importlib as it was fully transformed");
-            continue;
-        }
+    for (_, import_stmt) in unique_imports {
         final_body.push(import_stmt);
     }
 
@@ -350,8 +339,29 @@ fn collect_unique_imports_for_hoisting(
 
 /// Remove unused importlib references from a module
 pub(super) fn remove_unused_importlib(ast: &mut ModModule) {
-    ast.body.retain(|stmt| !stmt_uses_importlib(stmt));
-    log::debug!("Removed unused importlib references from module");
+    // Check if importlib is actually used in the code
+    let mut importlib_used = false;
+    for stmt in &ast.body {
+        if stmt_uses_importlib(stmt) {
+            importlib_used = true;
+            break;
+        }
+    }
+
+    if !importlib_used {
+        log::debug!("importlib is unused after transformation, removing import");
+        ast.body.retain(|stmt| match stmt {
+            Stmt::Import(import_stmt) => !import_stmt
+                .names
+                .iter()
+                .any(|alias| alias.name.as_str() == "importlib"),
+            Stmt::ImportFrom(import_from_stmt) => import_from_stmt
+                .module
+                .as_ref()
+                .is_none_or(|m| m.as_str() != "importlib"),
+            _ => true,
+        });
+    }
 }
 
 /// Deduplicate deferred imports against existing body statements

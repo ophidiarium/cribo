@@ -587,13 +587,14 @@ pub(super) fn create_namespace_for_inlined_module_static(
 
         // Check if this symbol survived tree-shaking
         if let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols
-            && !kept_symbols.contains(&(module_name.to_string(), original_name.clone())) {
-                log::debug!(
-                    "Skipping tree-shaken symbol '{original_name}' from namespace for module \
-                     '{module_name}'"
-                );
-                continue;
-            }
+            && !kept_symbols.contains(&(module_name.to_string(), original_name.clone()))
+        {
+            log::debug!(
+                "Skipping tree-shaken symbol '{original_name}' from namespace for module \
+                 '{module_name}'"
+            );
+            continue;
+        }
 
         seen_args.insert(original_name.clone());
 
@@ -607,31 +608,33 @@ pub(super) fn create_namespace_for_inlined_module_static(
 
     // Also check if module has module-level variables that weren't renamed
     if let Some(exports) = bundler.module_exports.get(module_name)
-        && let Some(export_list) = exports {
-            for export in export_list {
-                // Check if this export was already added as a renamed symbol
-                if !module_renames.contains_key(export) && !seen_args.contains(export) {
-                    // Check if this symbol survived tree-shaking
-                    if let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols
-                        && !kept_symbols.contains(&(module_name.to_string(), export.clone())) {
-                            log::debug!(
-                                "Skipping tree-shaken export '{export}' from namespace for module \
-                                 '{module_name}'"
-                            );
-                            continue;
-                        }
-
-                    // This export wasn't renamed and wasn't already added, add it directly
-                    seen_args.insert(export.clone());
-                    keywords.push(Keyword {
-                        node_index: AtomicNodeIndex::dummy(),
-                        arg: Some(Identifier::new(export, TextRange::default())),
-                        value: expressions::name(export, ExprContext::Load),
-                        range: TextRange::default(),
-                    });
+        && let Some(export_list) = exports
+    {
+        for export in export_list {
+            // Check if this export was already added as a renamed symbol
+            if !module_renames.contains_key(export) && !seen_args.contains(export) {
+                // Check if this symbol survived tree-shaking
+                if let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols
+                    && !kept_symbols.contains(&(module_name.to_string(), export.clone()))
+                {
+                    log::debug!(
+                        "Skipping tree-shaken export '{export}' from namespace for module \
+                         '{module_name}'"
+                    );
+                    continue;
                 }
+
+                // This export wasn't renamed and wasn't already added, add it directly
+                seen_args.insert(export.clone());
+                keywords.push(Keyword {
+                    node_index: AtomicNodeIndex::dummy(),
+                    arg: Some(Identifier::new(export, TextRange::default())),
+                    value: expressions::name(export, ExprContext::Load),
+                    range: TextRange::default(),
+                });
             }
         }
+    }
 
     // Create the namespace variable name
     let namespace_var = module_name.cow_replace('.', "_").into_owned();

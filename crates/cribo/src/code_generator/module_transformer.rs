@@ -160,10 +160,11 @@ pub fn transform_module_to_init_function<'a>(
         if let Stmt::Assign(assign) = stmt {
             // Check if this is a simple name-to-name assignment (import alias)
             if let [Expr::Name(_target)] = assign.targets.as_slice()
-                && let Expr::Name(_value) = &*assign.value {
-                    // This is an import alias assignment, add it immediately
-                    body.push(stmt.clone());
-                }
+                && let Expr::Name(_value) = &*assign.value
+            {
+                // This is an import alias assignment, add it immediately
+                body.push(stmt.clone());
+            }
         }
     }
 
@@ -555,9 +556,10 @@ pub fn transform_module_to_init_function<'a>(
             let already_assigned = body.iter().any(|stmt| {
                 if let Stmt::Assign(assign) = stmt
                     && let [Expr::Attribute(attr)] = assign.targets.as_slice()
-                        && let Expr::Name(name) = &*attr.value {
-                            return name.id == "module" && attr.attr == imported_name;
-                        }
+                    && let Expr::Name(name) = &*attr.value
+                {
+                    return name.id == "module" && attr.attr == imported_name;
+                }
                 false
             });
 
@@ -1105,9 +1107,10 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
                 // Collect with statement targets
                 for item in &with_stmt.items {
                     if let Some(ref optional_vars) = item.optional_vars
-                        && let Expr::Name(name) = optional_vars.as_ref() {
-                            local_vars.insert(name.id.to_string());
-                        }
+                        && let Expr::Name(name) = optional_vars.as_ref()
+                    {
+                        local_vars.insert(name.id.to_string());
+                    }
                 }
                 collect_local_vars(&with_stmt.body, local_vars);
             }
@@ -1456,13 +1459,12 @@ fn add_module_attr_if_exported(
     module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
 ) {
     if let Some(name) = bundler.extract_simple_assign_target(assign)
-        && should_include_symbol(bundler, &name, module_name, module_scope_symbols) {
-            body.push(
-                crate::code_generator::module_registry::create_module_attr_assignment(
-                    "module", &name,
-                ),
-            );
-        }
+        && should_include_symbol(bundler, &name, module_name, module_scope_symbols)
+    {
+        body.push(
+            crate::code_generator::module_registry::create_module_attr_assignment("module", &name),
+        );
+    }
 }
 
 /// Create namespace for inlined submodule
