@@ -11,6 +11,7 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
+    analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{expressions, statements},
     code_generator::{
         bundler::Bundler, import_deduplicator, module_registry::sanitize_module_name_for_identifier,
@@ -858,11 +859,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 {
                                     // Filter exports to only include symbols that survived
                                     // tree-shaking
-                                    let filtered_exports =
-                                        self.bundler.filter_exports_by_tree_shaking(
-                                            &full_module_path,
+                                    let filtered_exports: Vec<String> =
+                                        SymbolAnalyzer::filter_exports_by_tree_shaking(
                                             &exports,
-                                        );
+                                            &full_module_path,
+                                            self.bundler.tree_shaking_keep_symbols.as_ref(),
+                                            false,
+                                        )
+                                        .into_iter()
+                                        .cloned()
+                                        .collect();
 
                                     // Add __all__ attribute to the namespace with filtered exports
                                     // BUT ONLY if the original module had an explicit __all__
@@ -929,11 +935,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 {
                                     // Filter exports to only include symbols that survived
                                     // tree-shaking
-                                    let filtered_exports =
-                                        self.bundler.filter_exports_by_tree_shaking(
-                                            &full_module_path,
+                                    let filtered_exports: Vec<String> =
+                                        SymbolAnalyzer::filter_exports_by_tree_shaking(
                                             &exports,
-                                        );
+                                            &full_module_path,
+                                            self.bundler.tree_shaking_keep_symbols.as_ref(),
+                                            false,
+                                        )
+                                        .into_iter()
+                                        .cloned()
+                                        .collect();
 
                                     // Add __all__ attribute to the namespace with filtered exports
                                     // BUT ONLY if the original module had an explicit __all__

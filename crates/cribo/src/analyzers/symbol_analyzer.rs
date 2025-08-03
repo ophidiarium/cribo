@@ -3,6 +3,7 @@
 //! This module provides analysis capabilities for symbols collected from Python AST,
 //! including dependency graph construction, symbol resolution, and export analysis.
 
+use indexmap::IndexSet;
 use log::debug;
 use ruff_python_ast::{Expr, ModModule, Stmt};
 
@@ -218,6 +219,67 @@ impl SymbolAnalyzer {
         }
 
         deps
+    }
+
+    /// Filter exports based on tree shaking
+    ///
+    /// This function filters a list of export symbols based on whether they survived tree-shaking.
+    /// It optionally logs debug information about which symbols were kept or filtered.
+    ///
+    /// # Arguments
+    /// * `exports` - The list of export symbols to filter
+    /// * `module_name` - The name of the module these exports belong to
+    /// * `kept_symbols` - Optional set of (module, symbol) pairs that survived tree-shaking
+    /// * `enable_logging` - Whether to log debug information about kept/filtered symbols
+    ///
+    /// # Returns
+    /// A vector of references to the export symbols that should be kept
+    pub fn filter_exports_by_tree_shaking<'a>(
+        exports: &'a [String],
+        module_name: &str,
+        kept_symbols: Option<&IndexSet<(String, String)>>,
+        enable_logging: bool,
+    ) -> Vec<&'a String> {
+        if let Some(kept_symbols) = kept_symbols {
+            let result: Vec<&String> = exports
+                .iter()
+                .filter(|symbol| {
+                    // Check if this symbol is kept in this module
+                    let is_kept =
+                        kept_symbols.contains(&(module_name.to_string(), (*symbol).clone()));
+
+                    if enable_logging {
+                        if !is_kept {
+                            debug!(
+                                "Filtering out symbol '{symbol}' from __all__ of module '{module_name}' - removed \
+                                 by tree-shaking"
+                            );
+                        } else {
+                            debug!(
+                                "Keeping symbol '{symbol}' in __all__ of module '{module_name}' - survived \
+                                 tree-shaking"
+                            );
+                        }
+                    }
+
+                    is_kept
+                })
+                .collect();
+
+            if enable_logging {
+                debug!(
+                    "Module '{}' __all__ filtering: {} symbols -> {} symbols",
+                    module_name,
+                    exports.len(),
+                    result.len()
+                );
+            }
+
+            result
+        } else {
+            // No tree-shaking, include all exports
+            exports.iter().collect()
+        }
     }
 }
 

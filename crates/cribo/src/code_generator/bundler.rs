@@ -287,25 +287,6 @@ impl<'a> Bundler<'a> {
         assigner.visit_mod(&ruff_python_ast::Mod::Module(module.clone()));
     }
 
-    /// Filter exports based on tree shaking
-    pub fn filter_exports_by_tree_shaking(
-        &self,
-        module_name: &str,
-        exports: &[String],
-    ) -> Vec<String> {
-        if let Some(ref keep_symbols) = self.tree_shaking_keep_symbols {
-            exports
-                .iter()
-                .filter(|symbol| {
-                    keep_symbols.contains(&(module_name.to_string(), symbol.to_string()))
-                })
-                .cloned()
-                .collect()
-        } else {
-            exports.to_vec()
-        }
-    }
-
     /// Helper function to filter out invalid submodule assignments.
     ///
     /// This filters statements where we're trying to assign `module.attr = attr`
@@ -6964,10 +6945,11 @@ impl<'a> Bundler<'a> {
             let all_target = expressions::dotted_name(&parts, ExprContext::Load);
 
             // Filter exports to only include symbols that survived tree-shaking
-            let filtered_exports = self.filter_exports_by_tree_shaking_with_logging(
+            let filtered_exports = SymbolAnalyzer::filter_exports_by_tree_shaking(
                 exports,
                 module_name,
                 self.tree_shaking_keep_symbols.as_ref(),
+                true,
             );
 
             // Check if __all__ assignment already exists for this namespace
@@ -7404,47 +7386,6 @@ impl<'a> Bundler<'a> {
                     result_stmts.push(attr_assignment);
                 }
             }
-        }
-    }
-
-    /// Filter exports by tree shaking with logging
-    fn filter_exports_by_tree_shaking_with_logging<'b>(
-        &self,
-        exports: &'b [String],
-        module_name: &str,
-        kept_symbols: Option<&indexmap::IndexSet<(String, String)>>,
-    ) -> Vec<&'b String> {
-        if let Some(kept_symbols) = kept_symbols {
-            let result: Vec<&String> = exports
-                .iter()
-                .filter(|symbol| {
-                    // Check if this symbol is kept in this module
-                    let is_kept =
-                        kept_symbols.contains(&(module_name.to_string(), (*symbol).clone()));
-                    if !is_kept {
-                        log::debug!(
-                            "Filtering out symbol '{symbol}' from __all__ of module \
-                             '{module_name}' - removed by tree-shaking"
-                        );
-                    } else {
-                        log::debug!(
-                            "Keeping symbol '{symbol}' in __all__ of module '{module_name}' - \
-                             survived tree-shaking"
-                        );
-                    }
-                    is_kept
-                })
-                .collect();
-            log::debug!(
-                "Module '{}' __all__ filtering: {} symbols -> {} symbols",
-                module_name,
-                exports.len(),
-                result.len()
-            );
-            result
-        } else {
-            // No tree-shaking, include all exports
-            exports.iter().collect()
         }
     }
 
