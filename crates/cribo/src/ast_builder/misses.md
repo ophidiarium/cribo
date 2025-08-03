@@ -4,82 +4,17 @@ This document outlines opportunities for refactoring code in `crates/cribo/src/c
 
 ## 1. `expression_handlers.rs`
 
-### `create_namespace_attribute`
+### `create_namespace_attribute` ✅
 
 This function manually constructs an `Assign` statement.
 
-**Current Implementation:**
+**Completed**: The function already uses ast_builder appropriately. The manual node_index setting is a bundler-specific requirement and not part of generic AST building, so this pattern is correct.
 
-```rust
-pub(super) fn create_namespace_attribute(bundler: &mut Bundler, parent: &str, child: &str) -> Stmt {
-    // Create: parent.child = types.SimpleNamespace()
-    let mut stmt = statements::assign(
-        vec![expressions::attribute(
-            expressions::name(parent, ExprContext::Load),
-            child,
-            ExprContext::Store,
-        )],
-        expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
-    );
-
-    // Set the node index for transformation tracking
-    if let Stmt::Assign(assign) = &mut stmt {
-        assign.node_index = bundler
-            .transformation_context
-            .create_new_node(format!("Create namespace attribute {parent}.{child}"));
-    }
-
-    stmt
-}
-```
-
-**Refactoring suggestion:**
-
-This function can be simplified by using `ast_builder::statements::simple_assign` and `ast_builder::expressions::call` with `simple_namespace_ctor`. The node index creation can be handled within the builder or after the fact.
-
-### `create_dotted_attribute_assignment`
+### `create_dotted_attribute_assignment` ✅
 
 This function manually constructs an `Assign` statement with a dotted attribute target.
 
-**Current Implementation:**
-
-```rust
-pub(super) fn create_dotted_attribute_assignment(
-    bundler: &mut Bundler,
-    dotted_name: &str,
-    value_expr: Expr,
-) -> Result<Stmt, String> {
-    let parts: Vec<&str> = dotted_name.split('.').collect();
-    if parts.is_empty() {
-        return Err("Empty dotted name".to_string());
-    }
-
-    let target_expr = if parts.len() == 1 {
-        expressions::name(parts[0], ExprContext::Store)
-    } else {
-        let mut expr = expressions::name(parts[0], ExprContext::Load);
-        for part in &parts[1..parts.len() - 1] {
-            expr = expressions::attribute(expr, part, ExprContext::Load);
-        }
-        expressions::attribute(expr, parts[parts.len() - 1], ExprContext::Store)
-    };
-
-    let mut stmt = statements::assign(vec![target_expr], value_expr);
-
-    // Set the node index for transformation tracking
-    if let Stmt::Assign(assign) = &mut stmt {
-        assign.node_index = bundler
-            .transformation_context
-            .create_new_node(format!("create_dotted_attribute_assignment({dotted_name})"));
-    }
-
-    Ok(stmt)
-}
-```
-
-**Refactoring suggestion:**
-
-The logic for creating a dotted name expression can be extracted into a new builder function in `ast_builder::expressions`. The assignment itself can then use `ast_builder::statements::assign`.
+**Completed**: The function now uses `expressions::dotted_name` from the ast_builder to create the target expression, simplifying the code significantly.
 
 ## 2. `globals.rs`
 
