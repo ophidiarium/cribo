@@ -219,6 +219,67 @@ impl SymbolAnalyzer {
 
         deps
     }
+
+    /// Filter exports based on tree shaking
+    ///
+    /// This function filters a list of export symbols based on whether they survived tree-shaking.
+    /// It optionally logs debug information about which symbols were kept or filtered.
+    ///
+    /// # Arguments
+    /// * `exports` - The list of export symbols to filter
+    /// * `module_name` - The name of the module these exports belong to
+    /// * `kept_symbols` - Optional map from module name to a set of symbols to keep in that module
+    /// * `enable_logging` - Whether to log debug information about kept/filtered symbols
+    ///
+    /// # Returns
+    /// A vector of references to the export symbols that should be kept
+    pub fn filter_exports_by_tree_shaking<'a>(
+        exports: &'a [String],
+        module_name: &str,
+        kept_symbols: Option<&FxIndexMap<String, FxIndexSet<String>>>,
+        enable_logging: bool,
+    ) -> Vec<&'a String> {
+        if let Some(kept_symbols) = kept_symbols {
+            let result: Vec<&String> = exports
+                .iter()
+                .filter(|symbol| {
+                    // Check if this symbol is kept in this module
+                    // With the new data structure, we can do efficient lookups without allocations
+                    let is_kept = kept_symbols
+                        .get(module_name)
+                        .is_some_and(|symbols| symbols.contains(*symbol));
+
+                    if enable_logging {
+                        let (action, preposition, reason) = if is_kept {
+                            ("Keeping", "in", "survived")
+                        } else {
+                            ("Filtering out", "from", "removed by")
+                        };
+                        debug!(
+                            "{action} symbol '{symbol}' {preposition} __all__ of module \
+                             '{module_name}' - {reason} tree-shaking"
+                        );
+                    }
+
+                    is_kept
+                })
+                .collect();
+
+            if enable_logging {
+                debug!(
+                    "Module '{}' __all__ filtering: {} symbols -> {} symbols",
+                    module_name,
+                    exports.len(),
+                    result.len()
+                );
+            }
+
+            result
+        } else {
+            // No tree-shaking, include all exports
+            exports.iter().collect()
+        }
+    }
 }
 
 #[cfg(test)]

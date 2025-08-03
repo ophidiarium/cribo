@@ -11,6 +11,7 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
+    analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{expressions, statements},
     code_generator::{
         bundler::Bundler, import_deduplicator, module_registry::sanitize_module_name_for_identifier,
@@ -858,11 +859,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 {
                                     // Filter exports to only include symbols that survived
                                     // tree-shaking
-                                    let filtered_exports =
-                                        self.bundler.filter_exports_by_tree_shaking(
-                                            &full_module_path,
+                                    let filtered_exports: Vec<String> =
+                                        SymbolAnalyzer::filter_exports_by_tree_shaking(
                                             &exports,
-                                        );
+                                            &full_module_path,
+                                            self.bundler.tree_shaking_keep_symbols.as_ref(),
+                                            false,
+                                        )
+                                        .into_iter()
+                                        .cloned()
+                                        .collect();
 
                                     // Add __all__ attribute to the namespace with filtered exports
                                     // BUT ONLY if the original module had an explicit __all__
@@ -929,11 +935,16 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 {
                                     // Filter exports to only include symbols that survived
                                     // tree-shaking
-                                    let filtered_exports =
-                                        self.bundler.filter_exports_by_tree_shaking(
-                                            &full_module_path,
+                                    let filtered_exports: Vec<String> =
+                                        SymbolAnalyzer::filter_exports_by_tree_shaking(
                                             &exports,
-                                        );
+                                            &full_module_path,
+                                            self.bundler.tree_shaking_keep_symbols.as_ref(),
+                                            false,
+                                        )
+                                        .into_iter()
+                                        .cloned()
+                                        .collect();
 
                                     // Add __all__ attribute to the namespace with filtered exports
                                     // BUT ONLY if the original module had an explicit __all__
@@ -1795,8 +1806,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                 }
 
                 // Check if this symbol survived tree-shaking
-                if let Some(ref kept_symbols) = self.bundler.tree_shaking_keep_symbols
-                    && !kept_symbols.contains(&(module_name.to_string(), original_name.clone()))
+                if !self
+                    .bundler
+                    .is_symbol_kept_by_tree_shaking(module_name, original_name)
                 {
                     log::debug!(
                         "Skipping tree-shaken symbol '{original_name}' from namespace for module \
@@ -1826,8 +1838,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                     module_renames.is_some_and(|renames| renames.contains_key(export));
                 if !was_renamed && !seen_args.contains(export) {
                     // Check if this symbol survived tree-shaking
-                    if let Some(ref kept_symbols) = self.bundler.tree_shaking_keep_symbols
-                        && !kept_symbols.contains(&(module_name.to_string(), export.clone()))
+                    if !self
+                        .bundler
+                        .is_symbol_kept_by_tree_shaking(module_name, export)
                     {
                         log::debug!(
                             "Skipping tree-shaken export '{export}' from namespace for module \
@@ -2447,9 +2460,7 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         };
 
         // Check if the source symbol was tree-shaken
-        if let Some(kept_symbols) = bundler.tree_shaking_keep_symbols.as_ref()
-            && !kept_symbols.contains(&(module_name.to_string(), imported_name.to_string()))
-        {
+        if !bundler.is_symbol_kept_by_tree_shaking(module_name, imported_name) {
             log::debug!(
                 "Skipping import assignment for tree-shaken symbol '{imported_name}' from module \
                  '{module_name}'"

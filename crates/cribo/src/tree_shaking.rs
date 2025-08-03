@@ -777,7 +777,10 @@ impl TreeShaker {
     }
 
     /// Get symbols that survive tree-shaking for a module
-    pub fn get_used_symbols_for_module(&self, module_name: &str) -> IndexSet<String> {
+    pub fn get_used_symbols_for_module(
+        &self,
+        module_name: &str,
+    ) -> crate::types::FxIndexSet<String> {
         self.used_symbols
             .iter()
             .filter(|(module, _)| module == module_name)

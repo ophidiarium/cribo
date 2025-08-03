@@ -1500,9 +1500,9 @@ fn create_namespace_for_inlined_submodule(
     if let Some(exports) = exported_symbols {
         for symbol in exports {
             // For re-exported symbols, check if the original symbol is kept by tree-shaking
-            let should_include = if let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols {
+            let should_include = if bundler.tree_shaking_keep_symbols.is_some() {
                 // First check if this symbol is directly defined in this module
-                if kept_symbols.contains(&(full_module_name.to_string(), symbol.clone())) {
+                if bundler.is_symbol_kept_by_tree_shaking(full_module_name, &symbol) {
                     true
                 } else {
                     // If not, check if this is a re-exported symbol from another module
@@ -1590,16 +1590,16 @@ fn renamed_symbol_exists(
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
 ) -> bool {
     // If not using tree-shaking, all symbols exist
-    let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols else {
+    if bundler.tree_shaking_keep_symbols.is_none() {
         return true;
-    };
+    }
 
     // Check all modules to see if any have this renamed symbol
     for (module, renames) in symbol_renames {
         for (original, renamed) in renames {
             if renamed == renamed_symbol {
                 // Found the renamed symbol, check if it's kept
-                if kept_symbols.contains(&(module.clone(), original.clone())) {
+                if bundler.is_symbol_kept_by_tree_shaking(module, original) {
                     return true;
                 }
             }

@@ -586,9 +586,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
         }
 
         // Check if this symbol survived tree-shaking
-        if let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols
-            && !kept_symbols.contains(&(module_name.to_string(), original_name.clone()))
-        {
+        if !bundler.is_symbol_kept_by_tree_shaking(module_name, original_name) {
             log::debug!(
                 "Skipping tree-shaken symbol '{original_name}' from namespace for module \
                  '{module_name}'"
@@ -614,9 +612,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
             // Check if this export was already added as a renamed symbol
             if !module_renames.contains_key(export) && !seen_args.contains(export) {
                 // Check if this symbol survived tree-shaking
-                if let Some(ref kept_symbols) = bundler.tree_shaking_keep_symbols
-                    && !kept_symbols.contains(&(module_name.to_string(), export.clone()))
-                {
+                if !bundler.is_symbol_kept_by_tree_shaking(module_name, export) {
                     log::debug!(
                         "Skipping tree-shaken export '{export}' from namespace for module \
                          '{module_name}'"
