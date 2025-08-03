@@ -5,9 +5,9 @@
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
-    Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprContext, Parameters,
-    Stmt, StmtAssign, StmtClassDef, StmtExpr, StmtGlobal, StmtIf, StmtImport, StmtImportFrom,
-    StmtPass, StmtRaise, StmtReturn, StmtTry,
+    Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprContext, Identifier,
+    Parameters, Stmt, StmtAssign, StmtClassDef, StmtExpr, StmtFunctionDef, StmtGlobal, StmtIf,
+    StmtImport, StmtImportFrom, StmtPass, StmtRaise, StmtReturn, StmtTry,
 };
 use ruff_text_size::TextRange;
 
@@ -145,7 +145,6 @@ pub fn import(names: Vec<Alias>) -> Stmt {
 /// let stmt = import_from(Some("parent"), vec![other::alias("something", None)], 2);
 /// ```
 pub fn import_from(module: Option<&str>, names: Vec<Alias>, level: u32) -> Stmt {
-    use ruff_python_ast::Identifier;
     Stmt::ImportFrom(StmtImportFrom {
         module: module.map(|s| Identifier::new(s, TextRange::default())),
         names,
@@ -201,7 +200,6 @@ pub fn return_stmt(value: Option<Expr>) -> Stmt {
 /// let stmt = global(vec!["x", "y", "z"]);
 /// ```
 pub fn global(names: Vec<&str>) -> Stmt {
-    use ruff_python_ast::Identifier;
     Stmt::Global(StmtGlobal {
         names: names
             .into_iter()
@@ -329,7 +327,6 @@ pub fn try_stmt(
 /// let stmt = class_def("MyClass", None, vec![pass()]);
 /// ```
 pub fn class_def(name: &str, arguments: Option<Arguments>, body: Vec<Stmt>) -> Stmt {
-    use ruff_python_ast::Identifier;
     Stmt::ClassDef(StmtClassDef {
         name: Identifier::new(name, TextRange::default()),
         type_params: None, // Generic type parameters
@@ -373,7 +370,6 @@ pub fn function_def(
     returns: Option<Expr>,
     is_async: bool,
 ) -> Stmt {
-    use ruff_python_ast::{Identifier, StmtFunctionDef};
     Stmt::FunctionDef(StmtFunctionDef {
         node_index: AtomicNodeIndex::dummy(),
         name: Identifier::new(name, TextRange::default()),
