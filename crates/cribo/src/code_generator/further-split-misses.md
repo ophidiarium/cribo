@@ -26,7 +26,7 @@ The following functions were identified as candidates for extraction in `further
 - ✅ `create_namespace_statements` (~15 lines)
 - ✅ `create_namespace_attribute` (~15 lines)
 - `sort_wrapped_modules_by_dependencies` (~10 lines)
-- `filter_exports_by_tree_shaking` (~10 lines)
+- ✅ `filter_exports_by_tree_shaking` (~10 lines)
 - `should_inline_symbol` (~10 lines)
 
 ## 2. Functions Using Wrappers Instead of Direct Calls
