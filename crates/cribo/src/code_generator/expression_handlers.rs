@@ -121,7 +121,7 @@ pub(super) fn expr_uses_importlib(expr: &Expr) -> bool {
 }
 
 /// Extract attribute path from expression (e.g., "foo.bar.baz" from foo.bar.baz)
-pub(super) fn extract_attribute_path(_bundler: &Bundler, attr: &ExprAttribute) -> String {
+pub(super) fn extract_attribute_path(attr: &ExprAttribute) -> String {
     let mut parts = Vec::new();
     let mut current = attr;
 
@@ -153,10 +153,7 @@ pub(super) fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
 }
 
 /// Extract string list from expression (used for parsing __all__ declarations)
-pub(super) fn extract_string_list_from_expr(
-    _bundler: &Bundler,
-    expr: &Expr,
-) -> Option<Vec<String>> {
+pub(super) fn extract_string_list_from_expr(expr: &Expr) -> Option<Vec<String>> {
     match expr {
         Expr::List(list_expr) => {
             let mut exports = Vec::new();
@@ -371,7 +368,6 @@ pub(super) fn resolve_import_aliases_in_expr(
 
 /// Rewrite aliases in expression using the bundler's alias mappings
 pub(super) fn rewrite_aliases_in_expr(
-    _bundler: &Bundler,
     expr: &mut Expr,
     alias_to_canonical: &FxIndexMap<String, String>,
 ) {

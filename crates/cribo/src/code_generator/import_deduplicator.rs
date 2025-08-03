@@ -293,7 +293,6 @@ pub(super) fn add_hoisted_imports(bundler: &Bundler, final_body: &mut Vec<Stmt>)
     for stmt in &bundler.stdlib_import_statements {
         if let Stmt::Import(import_stmt) = stmt {
             collect_unique_imports_for_hoisting(
-                bundler,
                 import_stmt,
                 &mut seen_modules,
                 &mut unique_imports,
@@ -304,7 +303,12 @@ pub(super) fn add_hoisted_imports(bundler: &Bundler, final_body: &mut Vec<Stmt>)
     // Sort by module name for deterministic output
     unique_imports.sort_by_key(|(module_name, _)| module_name.clone());
 
-    for (_, import_stmt) in unique_imports {
+    for (module_name, import_stmt) in unique_imports {
+        // Skip importlib if it was fully transformed
+        if module_name == "importlib" && bundler.importlib_fully_transformed {
+            log::debug!("Skipping regular import importlib as it was fully transformed");
+            continue;
+        }
         final_body.push(import_stmt);
     }
 
@@ -314,7 +318,6 @@ pub(super) fn add_hoisted_imports(bundler: &Bundler, final_body: &mut Vec<Stmt>)
 
 /// Collect unique imports from an import statement for hoisting
 fn collect_unique_imports_for_hoisting(
-    _bundler: &Bundler,
     import_stmt: &StmtImport,
     seen_modules: &mut crate::types::FxIndexSet<String>,
     unique_imports: &mut Vec<(String, Stmt)>,
@@ -346,67 +349,194 @@ fn collect_unique_imports_for_hoisting(
 }
 
 /// Remove unused importlib references from a module
-pub(super) fn remove_unused_importlib(_bundler: &Bundler, ast: &mut ModModule) {
+pub(super) fn remove_unused_importlib(ast: &mut ModModule) {
     ast.body.retain(|stmt| !stmt_uses_importlib(stmt));
     log::debug!("Removed unused importlib references from module");
 }
 
 /// Deduplicate deferred imports against existing body statements
 pub(super) fn deduplicate_deferred_imports_with_existing(
-    bundler: &Bundler,
     imports: Vec<Stmt>,
     existing_body: &[Stmt],
 ) -> Vec<Stmt> {
-    let mut deduplicated = Vec::new();
+    let mut seen_init_calls = FxIndexSet::default();
+    let mut seen_assignments = FxIndexSet::default();
+    let mut result = Vec::new();
 
-    for import_stmt in imports {
-        let is_duplicate = match &import_stmt {
-            Stmt::ImportFrom(import_from) => {
-                is_duplicate_import_from(bundler, import_from, existing_body)
-            }
-            Stmt::Import(import) => is_duplicate_import(bundler, import, existing_body),
-            Stmt::Assign(_) => {
-                // For assignment statements, check if there's an equivalent assignment
-                existing_body.iter().any(|existing_stmt| {
-                    if let (Stmt::Assign(new_assign), Stmt::Assign(existing_assign)) =
-                        (&import_stmt, existing_stmt)
-                    {
-                        // Check if the assignments are the same
-                        if new_assign.targets.len() == 1
-                            && existing_assign.targets.len() == 1
-                            && let (Expr::Name(new_target), Expr::Name(existing_target)) =
-                                (&new_assign.targets[0], &existing_assign.targets[0])
-                        {
-                            // Check if the targets are the same
-                            existing_target.id == new_target.id
-                                && expression_handlers::expr_equals(
-                                    &existing_assign.value,
-                                    &new_assign.value,
-                                )
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
+    // First, collect all existing assignments from the body
+    for stmt in existing_body {
+        if let Stmt::Assign(assign) = stmt
+            && assign.targets.len() == 1
+        {
+            // Handle attribute assignments like schemas.user = ...
+            if let Expr::Attribute(target_attr) = &assign.targets[0] {
+                let target_path = expression_handlers::extract_attribute_path(target_attr);
+
+                // Handle init function calls
+                if let Expr::Call(call) = &assign.value.as_ref()
+                    && let Expr::Name(name) = &call.func.as_ref()
+                {
+                    let func_name = name.id.as_str();
+                    if crate::code_generator::module_registry::is_init_function(func_name) {
+                        // Use just the target path as the key for module init assignments
+                        let key = target_path.clone();
+                        log::debug!("Found existing module init assignment: {key} = {func_name}");
+                        seen_assignments.insert(key);
                     }
-                })
+                }
             }
-            _ => false,
-        };
+            // Handle simple name assignments
+            else if let Expr::Name(target) = &assign.targets[0] {
+                let target_str = target.id.as_str();
 
-        if !is_duplicate {
-            deduplicated.push(import_stmt);
-        } else {
-            log::debug!("Deduplicated import: {import_stmt:?}");
+                // Handle simple name assignments
+                if let Expr::Name(value) = &assign.value.as_ref() {
+                    let key = format!("{} = {}", target_str, value.id.as_str());
+                    seen_assignments.insert(key);
+                }
+                // Handle attribute assignments like User = services.auth.manager.User
+                else if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                    let attr_path = expression_handlers::extract_attribute_path(attr);
+                    let key = format!("{target_str} = {attr_path}");
+                    seen_assignments.insert(key);
+                }
+            }
         }
     }
 
-    deduplicated
+    log::debug!(
+        "Found {} existing assignments in body",
+        seen_assignments.len()
+    );
+    log::debug!("Deduplicating {} deferred imports", imports.len());
+
+    // Now process the deferred imports
+    for (idx, stmt) in imports.into_iter().enumerate() {
+        log::debug!("Processing deferred import {idx}: {stmt:?}");
+        match &stmt {
+            // Check for init function calls
+            Stmt::Expr(expr_stmt) => {
+                if let Expr::Call(call) = &expr_stmt.value.as_ref() {
+                    if let Expr::Name(name) = &call.func.as_ref() {
+                        let func_name = name.id.as_str();
+                        if crate::code_generator::module_registry::is_init_function(func_name) {
+                            if seen_init_calls.insert(func_name.to_string()) {
+                                result.push(stmt);
+                            } else {
+                                log::debug!("Skipping duplicate init call: {func_name}");
+                            }
+                        } else {
+                            result.push(stmt);
+                        }
+                    } else {
+                        result.push(stmt);
+                    }
+                } else {
+                    result.push(stmt);
+                }
+            }
+            // Check for symbol assignments
+            Stmt::Assign(assign) => {
+                // First check if this is an attribute assignment with an init function call
+                // like: schemas.user = <cribo_init_prefix>__cribo_f275a8_schemas_user()
+                if assign.targets.len() == 1
+                    && let Expr::Attribute(target_attr) = &assign.targets[0]
+                {
+                    let target_path = expression_handlers::extract_attribute_path(target_attr);
+
+                    // Check if value is an init function call
+                    if let Expr::Call(call) = &assign.value.as_ref()
+                        && let Expr::Name(name) = &call.func.as_ref()
+                    {
+                        let func_name = name.id.as_str();
+                        if crate::code_generator::module_registry::is_init_function(func_name) {
+                            // For module init assignments, just check the target path
+                            // since the same module should only be initialized once
+                            let key = target_path.clone();
+                            log::debug!(
+                                "Checking deferred module init assignment: {key} = {func_name}"
+                            );
+                            if seen_assignments.contains(&key) {
+                                log::debug!(
+                                    "Skipping duplicate module init assignment: {key} = \
+                                     {func_name}"
+                                );
+                                continue; // Skip this statement entirely
+                            } else {
+                                log::debug!(
+                                    "Adding new module init assignment: {key} = {func_name}"
+                                );
+                                seen_assignments.insert(key);
+                                result.push(stmt);
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                // Check for simple assignments like: Logger = Logger_4
+                if assign.targets.len() == 1 {
+                    if let Expr::Name(target) = &assign.targets[0] {
+                        if let Expr::Name(value) = &assign.value.as_ref() {
+                            // This is a simple name assignment
+                            let target_str = target.id.as_str();
+                            let value_str = value.id.as_str();
+                            let key = format!("{target_str} = {value_str}");
+
+                            // Check for self-assignment
+                            if target_str == value_str {
+                                log::debug!("Found self-assignment in deferred imports: {key}");
+                                // Skip self-assignments entirely
+                                log::debug!("Skipping self-assignment: {key}");
+                            } else if seen_assignments.insert(key.clone()) {
+                                log::debug!("First occurrence of simple assignment: {key}");
+                                result.push(stmt);
+                            } else {
+                                log::debug!("Skipping duplicate simple assignment: {key}");
+                            }
+                        } else {
+                            // Not a simple name assignment, check for duplicates
+                            // Handle attribute assignments like User =
+                            // services.auth.manager.User
+                            let target_str = target.id.as_str();
+
+                            // For attribute assignments, extract the actual attribute path
+                            let key = if let Expr::Attribute(attr) = &assign.value.as_ref() {
+                                // Extract the full attribute path (e.g.,
+                                // services.auth.manager.User)
+                                let attr_path = expression_handlers::extract_attribute_path(attr);
+                                format!("{target_str} = {attr_path}")
+                            } else {
+                                // Fallback to debug format for other types
+                                let value_str = format!("{:?}", assign.value);
+                                format!("{target_str} = {value_str}")
+                            };
+
+                            if seen_assignments.insert(key.clone()) {
+                                log::debug!("First occurrence of attribute assignment: {key}");
+                                result.push(stmt);
+                            } else {
+                                log::debug!("Skipping duplicate attribute assignment: {key}");
+                            }
+                        }
+                    } else {
+                        // Target is not a simple name, include it
+                        result.push(stmt);
+                    }
+                } else {
+                    // Multiple targets, include it
+                    result.push(stmt);
+                }
+            }
+            _ => result.push(stmt),
+        }
+    }
+
+    result
 }
 
 /// Check if an import from statement is a duplicate
 pub(super) fn is_duplicate_import_from(
-    _bundler: &Bundler,
     import_from: &StmtImportFrom,
     existing_body: &[Stmt],
 ) -> bool {
@@ -422,11 +552,7 @@ pub(super) fn is_duplicate_import_from(
 }
 
 /// Check if an import statement is a duplicate
-pub(super) fn is_duplicate_import(
-    _bundler: &Bundler,
-    import_stmt: &StmtImport,
-    existing_body: &[Stmt],
-) -> bool {
+pub(super) fn is_duplicate_import(import_stmt: &StmtImport, existing_body: &[Stmt]) -> bool {
     existing_body.iter().any(|stmt| {
         if let Stmt::Import(existing_import) = stmt {
             import_names_match(&existing_import.names, &import_stmt.names)
@@ -449,102 +575,8 @@ pub(super) fn import_names_match(names1: &[Alias], names2: &[Alias]) -> bool {
     })
 }
 
-/// Check if an import statement should be removed based on unused imports analysis
-pub(super) fn should_remove_import_stmt(
-    _bundler: &Bundler,
-    stmt: &Stmt,
-    unused_imports: &[crate::analyzers::types::UnusedImportInfo],
-) -> bool {
-    match stmt {
-        Stmt::Import(import_stmt) => {
-            // Check if all imported names are unused
-            import_stmt.names.iter().all(|alias| {
-                let import_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                unused_imports
-                    .iter()
-                    .any(|unused| unused.name == import_name.as_str())
-            })
-        }
-        Stmt::ImportFrom(import_from_stmt) => {
-            // Check if all imported names are unused
-            import_from_stmt.names.iter().all(|alias| {
-                let import_name = alias.asname.as_ref().unwrap_or(&alias.name);
-                unused_imports
-                    .iter()
-                    .any(|unused| unused.name == import_name.as_str())
-            })
-        }
-        _ => false,
-    }
-}
-
-/// Log details about unused imports for debugging
-pub(super) fn log_unused_imports_details(
-    unused_imports: &[crate::analyzers::types::UnusedImportInfo],
-) {
-    for unused in unused_imports {
-        log::debug!(
-            "Unused import: {} (module: {:?})",
-            unused.name,
-            unused.module
-        );
-    }
-}
-
-/// Trim unused imports from modules using dependency graph analysis
-pub(super) fn trim_unused_imports_from_modules(
-    bundler: &mut Bundler,
-    modules: &[(String, ModModule, PathBuf, String)],
-    graph: &DependencyGraph,
-    _tree_shaker: Option<&TreeShaker>,
-) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
-    let mut result = Vec::new();
-
-    for (module_name, module_ast, module_path, module_content) in modules.iter() {
-        let mut module_ast = module_ast.clone();
-        // Get unused imports from the dependency graph
-        let module_dep_graph = graph.get_module_by_name(module_name).ok_or_else(|| {
-            anyhow::anyhow!("Module {} not found in dependency graph", module_name)
-        })?;
-        let unused_imports = crate::analyzers::ImportAnalyzer::find_unused_imports_in_module(
-            module_dep_graph,
-            module_path.file_name().unwrap_or_default() == "__init__.py",
-        );
-
-        if !unused_imports.is_empty() {
-            log_unused_imports_details(&unused_imports);
-
-            // Remove unused import statements
-            module_ast
-                .body
-                .retain(|stmt| !should_remove_import_stmt(bundler, stmt, &unused_imports));
-
-            log::debug!(
-                "Removed {} unused imports from module '{}'",
-                unused_imports.len(),
-                module_name
-            );
-        }
-
-        // Remove unused importlib if present
-        remove_unused_importlib(bundler, &mut module_ast);
-
-        result.push((
-            module_name.clone(),
-            module_ast,
-            module_path.clone(),
-            module_content.clone(),
-        ));
-    }
-
-    Ok(result)
-}
-
 /// Collect unique imports from a list of statements
-pub(super) fn collect_unique_imports(
-    _bundler: &Bundler,
-    statements: &[Stmt],
-) -> FxIndexSet<String> {
+pub(super) fn collect_unique_imports(statements: &[Stmt]) -> FxIndexSet<String> {
     let mut imports = FxIndexSet::default();
 
     for stmt in statements {
@@ -564,4 +596,365 @@ pub(super) fn collect_unique_imports(
     }
 
     imports
+}
+
+/// Trim unused imports from modules using dependency graph analysis
+pub(super) fn trim_unused_imports_from_modules(
+    modules: &[(String, ModModule, PathBuf, String)],
+    graph: &DependencyGraph,
+    tree_shaker: Option<&TreeShaker>,
+) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
+    let mut trimmed_modules = Vec::new();
+
+    for (module_name, ast, module_path, content_hash) in modules {
+        log::debug!("Trimming unused imports from module: {module_name}");
+        let mut ast = ast.clone(); // Clone here to allow mutation
+
+        // Check if this is an __init__.py file
+        let is_init_py =
+            module_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py");
+
+        // Get unused imports from the graph
+        if let Some(module_dep_graph) = graph.get_module_by_name(module_name) {
+            let mut unused_imports =
+                crate::analyzers::import_analyzer::ImportAnalyzer::find_unused_imports_in_module(
+                    module_dep_graph,
+                    is_init_py,
+                );
+
+            // If tree shaking is enabled, also check if imported symbols were removed
+            // Note: We only apply tree-shaking logic to "from module import symbol" style
+            // imports, not to "import module" style imports, since module
+            // imports set up namespace objects
+            if let Some(shaker) = tree_shaker {
+                // Only apply tree-shaking-aware import removal if tree shaking is actually
+                // enabled Get the symbols that survive tree-shaking for
+                // this module
+                let used_symbols = shaker.get_used_symbols_for_module(module_name);
+
+                // Check each import to see if it's only used by tree-shaken code
+                let import_items = module_dep_graph.get_all_import_items();
+                log::debug!(
+                    "Checking {} import items in module '{}' for tree-shaking",
+                    import_items.len(),
+                    module_name
+                );
+                for (item_id, import_item) in import_items {
+                    match &import_item.item_type {
+                        crate::cribo_graph::ItemType::FromImport {
+                            module: from_module,
+                            names,
+                            ..
+                        } => {
+                            // For from imports, check each imported name
+                            for (imported_name, alias_opt) in names {
+                                let local_name = alias_opt.as_ref().unwrap_or(imported_name);
+
+                                // Skip if already marked as unused
+                                if unused_imports.iter().any(|u| u.name == *local_name) {
+                                    continue;
+                                }
+
+                                // Skip if this is a re-export (in __all__ or explicit
+                                // re-export)
+                                if import_item.reexported_names.contains(local_name)
+                                    || module_dep_graph.is_in_all_export(local_name)
+                                {
+                                    log::debug!(
+                                        "Skipping tree-shaking for re-exported import \
+                                         '{local_name}' from '{from_module}'"
+                                    );
+                                    continue;
+                                }
+
+                                // Check if this import is only used by symbols that were
+                                // tree-shaken
+                                let mut used_by_surviving_code = false;
+
+                                // First check if any surviving symbol uses this import
+                                for symbol in &used_symbols {
+                                    if module_dep_graph.does_symbol_use_import(symbol, local_name) {
+                                        used_by_surviving_code = true;
+                                        break;
+                                    }
+                                }
+
+                                // Also check if the module has side effects and uses this
+                                // import at module level
+                                if !used_by_surviving_code
+                                    && shaker.module_has_side_effects(module_name)
+                                {
+                                    // Check if any module-level code uses this import
+                                    for item in module_dep_graph.items.values() {
+                                        if matches!(
+                                            item.item_type,
+                                            crate::cribo_graph::ItemType::Expression
+                                                | crate::cribo_graph::ItemType::Assignment { .. }
+                                        ) && item.read_vars.contains(local_name)
+                                        {
+                                            used_by_surviving_code = true;
+                                            log::debug!(
+                                                "Import '{local_name}' is used by module-level \
+                                                 code in module with side effects"
+                                            );
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if !used_by_surviving_code {
+                                    // This import is not used by any surviving symbol or
+                                    // module-level code
+                                    log::debug!(
+                                        "Import '{local_name}' from '{from_module}' is not used \
+                                         by surviving code after tree-shaking"
+                                    );
+                                    unused_imports.push(
+                                        crate::analyzers::types::UnusedImportInfo {
+                                            name: local_name.clone(),
+                                            module: from_module.clone(),
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                        crate::cribo_graph::ItemType::Import { module, .. } => {
+                            // For regular imports (import module), check if they're only used
+                            // by tree-shaken code
+                            let import_name = module.split('.').next_back().unwrap_or(module);
+
+                            log::debug!(
+                                "Checking module import '{import_name}' (full: '{module}') for \
+                                 tree-shaking"
+                            );
+
+                            // Skip if already marked as unused
+                            if unused_imports.iter().any(|u| u.name == *import_name) {
+                                continue;
+                            }
+
+                            // Skip if this is a re-export
+                            if import_item.reexported_names.contains(import_name)
+                                || module_dep_graph.is_in_all_export(import_name)
+                            {
+                                log::debug!(
+                                    "Skipping tree-shaking for re-exported import '{import_name}'"
+                                );
+                                continue;
+                            }
+
+                            // Check if this import is only used by symbols that were
+                            // tree-shaken
+                            let mut used_by_surviving_code = false;
+
+                            // Check if any surviving symbol uses this import
+                            log::debug!(
+                                "Checking if any of {} surviving symbols use import \
+                                 '{import_name}'",
+                                used_symbols.len()
+                            );
+                            for symbol in &used_symbols {
+                                if module_dep_graph.does_symbol_use_import(symbol, import_name) {
+                                    log::debug!("Symbol '{symbol}' uses import '{import_name}'");
+                                    used_by_surviving_code = true;
+                                    break;
+                                }
+                            }
+
+                            // Also check if any module-level code that has side effects uses it
+                            if !used_by_surviving_code {
+                                log::debug!(
+                                    "No surviving symbols use '{import_name}', checking \
+                                     module-level side effects"
+                                );
+                                for item in module_dep_graph.items.values() {
+                                    if item.has_side_effects
+                                        && !matches!(
+                                            item.item_type,
+                                            crate::cribo_graph::ItemType::Import { .. }
+                                                | crate::cribo_graph::ItemType::FromImport { .. }
+                                        )
+                                        && (item.read_vars.contains(import_name)
+                                            || item.eventual_read_vars.contains(import_name))
+                                    {
+                                        log::debug!(
+                                            "Module-level item {:?} with side effects uses \
+                                             '{import_name}'",
+                                            item.item_type
+                                        );
+                                        used_by_surviving_code = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // Special case: Check if this import is only used by assignment
+                            // statements that were removed by
+                            // tree-shaking (e.g., ABC = abc.ABC after normalizing
+                            // from abc import ABC)
+                            if !used_by_surviving_code {
+                                // Check if any assignment that uses this import is kept
+                                for item in module_dep_graph.items.values() {
+                                    if let crate::cribo_graph::ItemType::Assignment { targets } =
+                                        &item.item_type
+                                    {
+                                        // Check if this assignment reads the import
+                                        if item.read_vars.contains(import_name) {
+                                            // Check if any of the assignment targets are kept
+                                            for target in targets {
+                                                if used_symbols.contains(target) {
+                                                    log::debug!(
+                                                        "Import '{import_name}' is used by \
+                                                         surviving assignment to '{target}'"
+                                                    );
+                                                    used_by_surviving_code = true;
+                                                    break;
+                                                }
+                                            }
+                                            if used_by_surviving_code {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Extra check for normalized imports: If this is a normalized
+                            // import and no assignments using
+                            // it survived, it should be removed
+                            if import_item.is_normalized_import {
+                                log::debug!(
+                                    "Import '{import_name}' is a normalized import \
+                                     (used_by_surviving_code: {used_by_surviving_code})"
+                                );
+                            }
+
+                            if !used_by_surviving_code {
+                                log::debug!(
+                                    "Import '{import_name}' from module '{module}' is not used by \
+                                     surviving code after tree-shaking (item_id: {item_id:?})"
+                                );
+                                unused_imports.push(crate::analyzers::types::UnusedImportInfo {
+                                    name: import_name.to_string(),
+                                    module: module.clone(),
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            if !unused_imports.is_empty() {
+                log::debug!(
+                    "Found {} unused imports in {}",
+                    unused_imports.len(),
+                    module_name
+                );
+                // Log unused imports details
+                log_unused_imports_details(&unused_imports);
+
+                // Filter out unused imports from the AST
+                ast.body
+                    .retain(|stmt| !should_remove_import_stmt(stmt, &unused_imports));
+            }
+        }
+
+        trimmed_modules.push((
+            module_name.clone(),
+            ast,
+            module_path.clone(),
+            content_hash.clone(),
+        ));
+    }
+
+    log::debug!(
+        "Successfully trimmed unused imports from {} modules",
+        trimmed_modules.len()
+    );
+    Ok(trimmed_modules)
+}
+
+/// Log details about unused imports for debugging
+fn log_unused_imports_details(unused_imports: &[crate::analyzers::types::UnusedImportInfo]) {
+    if log::log_enabled!(log::Level::Debug) {
+        for unused in unused_imports {
+            log::debug!("  - {} from {}", unused.name, unused.module);
+        }
+    }
+}
+
+/// Check if an import statement should be removed based on unused imports
+fn should_remove_import_stmt(
+    stmt: &Stmt,
+    unused_imports: &[crate::analyzers::types::UnusedImportInfo],
+) -> bool {
+    match stmt {
+        Stmt::Import(import_stmt) => {
+            // Check if all names in this import are unused
+            let should_remove = import_stmt.names.iter().all(|alias| {
+                let local_name = alias
+                    .asname
+                    .as_ref()
+                    .map(|n| n.as_str())
+                    .unwrap_or(alias.name.as_str());
+
+                unused_imports.iter().any(|unused| {
+                    log::trace!(
+                        "Checking if import '{}' matches unused '{}' from '{}'",
+                        local_name,
+                        unused.name,
+                        unused.module
+                    );
+                    // For regular imports, match by name only
+                    unused.name == local_name
+                })
+            });
+
+            if should_remove {
+                log::debug!(
+                    "Removing import statement: {:?}",
+                    import_stmt
+                        .names
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>()
+                );
+            }
+            should_remove
+        }
+        Stmt::ImportFrom(import_from_stmt) => {
+            // For from imports, we need to check if all imported names are unused
+            let should_remove = import_from_stmt.names.iter().all(|alias| {
+                let local_name = alias
+                    .asname
+                    .as_ref()
+                    .map(|n| n.as_str())
+                    .unwrap_or(alias.name.as_str());
+
+                unused_imports.iter().any(|unused| {
+                    // Match by both name and module for from imports
+                    unused.name == local_name
+                })
+            });
+
+            if should_remove {
+                log::debug!(
+                    "Removing from import: from {} import {:?}",
+                    import_from_stmt
+                        .module
+                        .as_ref()
+                        .map(|m| m.as_str())
+                        .unwrap_or("<None>"),
+                    import_from_stmt
+                        .names
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>()
+                );
+            }
+            should_remove
+        }
+        _ => false,
+    }
 }

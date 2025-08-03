@@ -273,7 +273,6 @@ This function manually constructs an `Import` statement.
 
 ```rust
 fn collect_unique_imports_for_hoisting(
-    _bundler: &Bundler,
     import_stmt: &StmtImport,
     seen_modules: &mut crate::types::FxIndexSet<String>,
     unique_imports: &mut Vec<(String, Stmt)>,
