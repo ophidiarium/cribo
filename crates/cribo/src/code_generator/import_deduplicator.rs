@@ -944,6 +944,8 @@ fn should_remove_import_stmt(
 
                 unused_imports.iter().any(|unused| {
                     // Match by both name and module for from imports
+                    // TODO: This needs to properly handle module name comparison
+                    // considering relative imports and resolved module paths
                     unused.name == local_name
                 })
             });
