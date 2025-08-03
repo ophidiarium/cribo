@@ -547,28 +547,46 @@ pub(super) fn deduplicate_deferred_imports_with_existing(
 
 /// Check if an import from statement is a duplicate
 pub(super) fn is_duplicate_import_from(
+    bundler: &Bundler,
     import_from: &StmtImportFrom,
     existing_body: &[Stmt],
 ) -> bool {
-    existing_body.iter().any(|stmt| {
-        if let Stmt::ImportFrom(existing_import) = stmt {
-            existing_import.module == import_from.module
-                && existing_import.level == import_from.level
-                && import_names_match(&existing_import.names, &import_from.names)
-        } else {
-            false
+    if let Some(ref module) = import_from.module {
+        let module_name = module.as_str();
+        // For third-party imports, check if they're already in the body
+        let is_third_party = !is_safe_stdlib_module(module_name)
+            && !is_bundled_module_or_package(bundler, module_name);
+
+        if is_third_party {
+            return existing_body.iter().any(|existing| {
+                if let Stmt::ImportFrom(existing_import) = existing {
+                    existing_import.module.as_ref().map(|m| m.as_str()) == Some(module_name)
+                        && import_names_match(&import_from.names, &existing_import.names)
+                } else {
+                    false
+                }
+            });
         }
-    })
+    }
+    false
 }
 
 /// Check if an import statement is a duplicate
-pub(super) fn is_duplicate_import(import_stmt: &StmtImport, existing_body: &[Stmt]) -> bool {
-    existing_body.iter().any(|stmt| {
-        if let Stmt::Import(existing_import) = stmt {
-            import_names_match(&existing_import.names, &import_stmt.names)
-        } else {
-            false
-        }
+pub(super) fn is_duplicate_import(
+    _bundler: &Bundler,
+    import_stmt: &StmtImport,
+    existing_body: &[Stmt],
+) -> bool {
+    import_stmt.names.iter().any(|alias| {
+        existing_body.iter().any(|existing| {
+            if let Stmt::Import(existing_import) = existing {
+                existing_import.names.iter().any(|existing_alias| {
+                    existing_alias.name == alias.name && existing_alias.asname == alias.asname
+                })
+            } else {
+                false
+            }
+        })
     })
 }
 
@@ -577,35 +595,27 @@ pub(super) fn import_names_match(names1: &[Alias], names2: &[Alias]) -> bool {
     if names1.len() != names2.len() {
         return false;
     }
-
-    names1.iter().all(|alias1| {
+    // Check if all names match (order doesn't matter)
+    names1.iter().all(|n1| {
         names2
             .iter()
-            .any(|alias2| alias1.name == alias2.name && alias1.asname == alias2.asname)
+            .any(|n2| n1.name == n2.name && n1.asname == n2.asname)
     })
 }
 
-/// Collect unique imports from a list of statements
-pub(super) fn collect_unique_imports(statements: &[Stmt]) -> FxIndexSet<String> {
-    let mut imports = FxIndexSet::default();
-
-    for stmt in statements {
-        match stmt {
-            Stmt::Import(import_stmt) => {
-                for alias in &import_stmt.names {
-                    imports.insert(alias.name.to_string());
-                }
-            }
-            Stmt::ImportFrom(import_from_stmt) => {
-                if let Some(ref module) = import_from_stmt.module {
-                    imports.insert(module.to_string());
-                }
-            }
-            _ => {}
-        }
+/// Check if a module is bundled or is a package containing bundled modules
+pub(super) fn is_bundled_module_or_package(bundler: &Bundler, module_name: &str) -> bool {
+    // Direct check
+    if bundler.bundled_modules.contains(module_name) {
+        return true;
     }
-
-    imports
+    // Check if it's a package containing bundled modules
+    // e.g., if "greetings.greeting" is bundled, then "greetings" is a package
+    let package_prefix = format!("{module_name}.");
+    bundler
+        .bundled_modules
+        .iter()
+        .any(|bundled| bundled.starts_with(&package_prefix))
 }
 
 /// Trim unused imports from modules using dependency graph analysis
