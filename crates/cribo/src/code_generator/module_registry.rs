@@ -19,6 +19,35 @@ pub fn generate_registries_and_hook() -> Vec<Stmt> {
     Vec::new()
 }
 
+/// Create module initialization statements for wrapper modules
+pub fn create_module_initialization_for_import(
+    module_name: &str,
+    module_registry: &FxIndexMap<String, String>,
+) -> Vec<Stmt> {
+    let mut stmts = Vec::new();
+
+    // Check if this is a wrapper module that needs initialization
+    if let Some(synthetic_name) = module_registry.get(module_name) {
+        // Generate the init call
+        let init_func_name = get_init_function_name(synthetic_name);
+
+        // Call the init function and get the result
+        let init_call = ast_builder::expressions::call(
+            ast_builder::expressions::name(&init_func_name, ExprContext::Load),
+            vec![],
+            vec![],
+        );
+
+        // Create assignment statement: module_name = init_func()
+        stmts.push(ast_builder::statements::simple_assign(
+            module_name,
+            init_call,
+        ));
+    }
+
+    stmts
+}
+
 /// Generate module init call
 pub fn generate_module_init_call(
     _synthetic_name: &str,

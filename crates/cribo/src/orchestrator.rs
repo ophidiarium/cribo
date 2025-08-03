@@ -14,7 +14,7 @@ use crate::{
         CircularDependencyAnalysis, CircularDependencyGroup, CircularDependencyType,
         ResolutionStrategy,
     },
-    code_generator::HybridStaticBundler,
+    code_generator::Bundler,
     config::Config,
     cribo_graph::{CriboGraph, ModuleId},
     import_rewriter::{ImportDeduplicationStrategy, ImportRewriter},
@@ -1582,7 +1582,7 @@ impl BundleOrchestrator {
             }
         }
 
-        let mut static_bundler = HybridStaticBundler::new(Some(&self.module_registry));
+        let mut static_bundler = Bundler::new(Some(&self.module_registry));
 
         // Parse all modules and prepare them for bundling
         let mut module_asts = Vec::new();

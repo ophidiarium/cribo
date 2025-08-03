@@ -133,5 +133,5 @@ print("Module with mixed patterns:", module_mixed_patterns.get_values())
 assert foo_1 == "main_foo"
 assert bar_1 == "main_bar"
 print("\nMain's globals remain unchanged:")
-print(f"foo = {foo}")
-print(f"bar = {bar}")
+print(f"foo = {foo_1}")
+print(f"bar = {bar_1}")

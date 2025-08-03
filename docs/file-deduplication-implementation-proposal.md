@@ -51,11 +51,12 @@ If `app/`, `lib/`, and `shared/` are in PYTHONPATH:
 
 ```python
 # main.py
-import utils as u1                              # Could be app/utils.py or lib/utils.py
-from app import utils as u2                     # Definitely app/utils.py
-from lib import utils as u3                     # Definitely lib/utils.py
-from shared import common                       # Same file as app/utils.py via symlink
-app_utils = importlib.import_module("app.utils") # Also app/utils.py
+import utils as u1  # Could be app/utils.py or lib/utils.py
+from app import utils as u2  # Definitely app/utils.py
+from lib import utils as u3  # Definitely lib/utils.py
+from shared import common  # Same file as app/utils.py via symlink
+
+app_utils = importlib.import_module("app.utils")  # Also app/utils.py
 
 # Current behavior: Each import creates a separate bundle entry
 # Desired behavior: app/utils.py bundled once, with proper aliases for all names
@@ -351,7 +352,7 @@ The bundler must ensure each file's content is processed exactly once:
 ```rust
 // In crates/cribo/src/code_generator.rs
 
-impl HybridStaticBundler {
+impl Bundler {
     pub fn bundle_modules(&mut self, params: BundleParams<'_>) -> Result<ModModule> {
         // ... existing code ...
 
@@ -582,7 +583,7 @@ For modules with names that aren't valid Python identifiers (imported via import
 ```rust
 // In crates/cribo/src/code_generator.rs
 
-impl HybridStaticBundler {
+impl Bundler {
     fn get_synthetic_module_name(&self, module_name: &str, content_hash: &str) -> String {
         // Ensure the synthetic name is a valid Python identifier
         let safe_name = module_name
@@ -612,7 +613,7 @@ When a file with side effects is imported under multiple names:
 ```rust
 // In crates/cribo/src/code_generator.rs
 
-impl HybridStaticBundler {
+impl Bundler {
     fn should_wrap_module(&self, module_name: &str, ast: &ModModule) -> bool {
         // Always wrap if:
         // 1. Module has multiple import names (to ensure side effects run once)
@@ -667,12 +668,15 @@ impl HybridStaticBundler {
 1. **file_deduplication_basic/**
    ```python
    # app/utils.py
-   def get_name(): return "app.utils"
+   def get_name():
+       return "app.utils"
+
 
    # main.py
-   import utils                           # May resolve to app/utils.py
-   from app import utils as app_utils     # Definitely app/utils.py
+   import utils  # May resolve to app/utils.py
+   from app import utils as app_utils  # Definitely app/utils.py
    import importlib
+
    mod = importlib.import_module("app.utils")  # Also app/utils.py
 
    # All three should reference the same inlined content
@@ -693,8 +697,9 @@ impl HybridStaticBundler {
    # my-module.py (invalid identifier)
    value = 42
 
-   # main.py  
+   # main.py
    import importlib
+
    mod = importlib.import_module("my-module")
    print(mod.value)  # Should work
    ```
