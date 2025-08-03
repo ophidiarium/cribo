@@ -3,7 +3,6 @@
 //! This module provides analysis capabilities for symbols collected from Python AST,
 //! including dependency graph construction, symbol resolution, and export analysis.
 
-use indexmap::IndexSet;
 use log::debug;
 use ruff_python_ast::{Expr, ModModule, Stmt};
 
@@ -237,7 +236,7 @@ impl SymbolAnalyzer {
     pub fn filter_exports_by_tree_shaking<'a>(
         exports: &'a [String],
         module_name: &str,
-        kept_symbols: Option<&IndexSet<(String, String)>>,
+        kept_symbols: Option<&FxIndexMap<String, FxIndexSet<String>>>,
         enable_logging: bool,
     ) -> Vec<&'a String> {
         if let Some(kept_symbols) = kept_symbols {
@@ -245,19 +244,21 @@ impl SymbolAnalyzer {
                 .iter()
                 .filter(|symbol| {
                     // Check if this symbol is kept in this module
-                    let is_kept =
-                        kept_symbols.contains(&(module_name.to_string(), (*symbol).clone()));
+                    // With the new data structure, we can do efficient lookups without allocations
+                    let is_kept = kept_symbols
+                        .get(module_name)
+                        .is_some_and(|symbols| symbols.contains(*symbol));
 
                     if enable_logging {
                         if !is_kept {
                             debug!(
-                                "Filtering out symbol '{symbol}' from __all__ of module '{module_name}' - removed \
-                                 by tree-shaking"
+                                "Filtering out symbol '{symbol}' from __all__ of module \
+                                 '{module_name}' - removed by tree-shaking"
                             );
                         } else {
                             debug!(
-                                "Keeping symbol '{symbol}' in __all__ of module '{module_name}' - survived \
-                                 tree-shaking"
+                                "Keeping symbol '{symbol}' in __all__ of module '{module_name}' - \
+                                 survived tree-shaking"
                             );
                         }
                     }

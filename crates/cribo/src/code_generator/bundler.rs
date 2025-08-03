@@ -109,7 +109,8 @@ pub struct Bundler<'a> {
     /// Transformation context for tracking node mappings
     pub(crate) transformation_context: TransformationContext,
     /// Module/symbol pairs that should be kept after tree shaking
-    pub(crate) tree_shaking_keep_symbols: Option<indexmap::IndexSet<(String, String)>>,
+    /// Maps module name to set of symbols to keep in that module
+    pub(crate) tree_shaking_keep_symbols: Option<FxIndexMap<String, FxIndexSet<String>>>,
     /// Whether to use the module cache model for circular dependencies
     pub(crate) use_module_cache: bool,
     /// Track namespaces that were created with initial symbols
@@ -142,6 +143,20 @@ impl<'a> Default for Bundler<'a> {
 
 // Main implementation
 impl<'a> Bundler<'a> {
+    /// Check if a symbol is kept by tree shaking
+    pub(crate) fn is_symbol_kept_by_tree_shaking(
+        &self,
+        module_name: &str,
+        symbol_name: &str,
+    ) -> bool {
+        match &self.tree_shaking_keep_symbols {
+            Some(kept_symbols) => kept_symbols
+                .get(module_name)
+                .is_some_and(|symbols| symbols.contains(symbol_name)),
+            None => true, // No tree shaking, all symbols are kept
+        }
+    }
+
     /// Create a new bundler instance
     pub fn new(module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>) -> Self {
         Self {
@@ -1560,15 +1575,16 @@ impl<'a> Bundler<'a> {
         // Store tree shaking decisions if provided
         if let Some(shaker) = params.tree_shaker {
             // Extract all kept symbols from the tree shaker
-            let mut kept_symbols = indexmap::IndexSet::new();
+            let mut kept_symbols: FxIndexMap<String, FxIndexSet<String>> = FxIndexMap::default();
             for (module_name, _, _, _) in params.modules {
-                for symbol in shaker.get_used_symbols_for_module(module_name) {
-                    kept_symbols.insert((module_name.clone(), symbol));
+                let module_symbols = shaker.get_used_symbols_for_module(module_name);
+                if !module_symbols.is_empty() {
+                    kept_symbols.insert(module_name.clone(), module_symbols);
                 }
             }
             self.tree_shaking_keep_symbols = Some(kept_symbols);
             log::debug!(
-                "Tree shaking enabled, keeping {} symbols",
+                "Tree shaking enabled, keeping symbols in {} modules",
                 self.tree_shaking_keep_symbols
                     .as_ref()
                     .map(|s| s.len())
@@ -2823,10 +2839,7 @@ impl<'a> Bundler<'a> {
                         // Add all renamed symbols as attributes to the existing namespace
                         for (original_name, renamed_name) in module_rename_map {
                             // Check if this symbol survived tree-shaking
-                            if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
-                                && !kept_symbols
-                                    .contains(&(module_name.to_string(), original_name.clone()))
-                            {
+                            if !self.is_symbol_kept_by_tree_shaking(module_name, original_name) {
                                 log::debug!(
                                     "Skipping tree-shaken symbol '{original_name}' from namespace \
                                      for module '{module_name}'"
@@ -2984,10 +2997,7 @@ impl<'a> Bundler<'a> {
                                          namespace"
                                     );
                                     // Check if this symbol survived tree-shaking
-                                    if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
-                                        && !kept_symbols
-                                            .contains(&(module_name.to_string(), export.clone()))
-                                    {
+                                    if !self.is_symbol_kept_by_tree_shaking(module_name, &export) {
                                         log::debug!(
                                             "Skipping tree-shaken export '{export}' from \
                                              namespace for module '{module_name}'"
@@ -3652,10 +3662,7 @@ impl<'a> Bundler<'a> {
                     // Add all renamed symbols as attributes to the namespace
                     for (original_name, renamed_name) in module_rename_map {
                         // Check if this symbol survived tree-shaking
-                        if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
-                            && !kept_symbols
-                                .contains(&(module_name.to_string(), original_name.clone()))
-                        {
+                        if !self.is_symbol_kept_by_tree_shaking(module_name, original_name) {
                             log::debug!(
                                 "Skipping tree-shaken symbol '{original_name}' from namespace for \
                                  module '{module_name}'"
@@ -5649,15 +5656,11 @@ impl<'a> Bundler<'a> {
         module_exports_map: &FxIndexMap<String, Option<Vec<String>>>,
     ) -> bool {
         // First check tree-shaking decisions if available
-        if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols {
-            let symbol_key = (module_name.to_string(), symbol_name.to_string());
-            if !kept_symbols.contains(&symbol_key) {
-                log::trace!(
-                    "Tree shaking: removing unused symbol '{symbol_name}' from module \
-                     '{module_name}'"
-                );
-                return false;
-            }
+        if !self.is_symbol_kept_by_tree_shaking(module_name, symbol_name) {
+            log::trace!(
+                "Tree shaking: removing unused symbol '{symbol_name}' from module '{module_name}'"
+            );
+            return false;
         }
 
         let exports = module_exports_map.get(module_name).and_then(|e| e.as_ref());
@@ -7003,10 +7006,9 @@ impl<'a> Bundler<'a> {
             // For each exported symbol that survived tree-shaking, add it to the namespace
             'symbol_loop: for symbol in &filtered_exports {
                 // For re-exported symbols, check if the original symbol is kept by tree-shaking
-                let should_include = if let Some(ref kept_symbols) = self.tree_shaking_keep_symbols
-                {
+                let should_include = if self.tree_shaking_keep_symbols.is_some() {
                     // First check if this symbol is directly defined in this module
-                    if kept_symbols.contains(&(module_name.to_string(), (*symbol).clone())) {
+                    if self.is_symbol_kept_by_tree_shaking(module_name, symbol) {
                         true
                     } else {
                         // If not, check if this is a re-exported symbol from another module
