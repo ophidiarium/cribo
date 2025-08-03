@@ -210,12 +210,9 @@ pub fn check_local_name_conflict(ast: &ModModule, name: &str) -> bool {
 
 /// Create a module attribute assignment statement
 pub fn create_module_attr_assignment(module_var: &str, attr_name: &str) -> Stmt {
-    ast_builder::statements::assign(
-        vec![ast_builder::expressions::attribute(
-            ast_builder::expressions::name(module_var, ExprContext::Load),
-            attr_name,
-            ExprContext::Store,
-        )],
+    ast_builder::statements::assign_attribute(
+        module_var,
+        attr_name,
         ast_builder::expressions::name(attr_name, ExprContext::Load),
     )
 }

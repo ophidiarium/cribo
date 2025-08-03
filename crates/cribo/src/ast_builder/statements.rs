@@ -5,9 +5,9 @@
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
-    Alias, Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprContext, Stmt, StmtAssign,
-    StmtClassDef, StmtExpr, StmtGlobal, StmtIf, StmtImport, StmtImportFrom, StmtPass, StmtRaise,
-    StmtReturn, StmtTry,
+    Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprContext, Parameters,
+    Stmt, StmtAssign, StmtClassDef, StmtExpr, StmtGlobal, StmtIf, StmtImport, StmtImportFrom,
+    StmtPass, StmtRaise, StmtReturn, StmtTry,
 };
 use ruff_text_size::TextRange;
 
@@ -52,6 +52,35 @@ pub fn assign(targets: Vec<Expr>, value: Expr) -> Stmt {
 pub fn simple_assign(target: &str, value: Expr) -> Stmt {
     let target_expr = expressions::name(target, ExprContext::Store);
     assign(vec![target_expr], value)
+}
+
+/// Creates an assignment statement that sets an attribute on an object.
+///
+/// This creates an assignment like `obj.attr = value`.
+///
+/// # Arguments
+/// * `obj_name` - The name of the object
+/// * `attr_name` - The attribute name to set
+/// * `value` - The value to assign
+///
+/// # Example
+/// ```rust
+/// // Creates: `module.__name__ = "mymodule"`
+/// let stmt = assign_attribute(
+///     "module",
+///     "__name__",
+///     expressions::string_literal("mymodule"),
+/// );
+/// ```
+pub fn assign_attribute(obj_name: &str, attr_name: &str, value: Expr) -> Stmt {
+    assign(
+        vec![expressions::attribute(
+            expressions::name(obj_name, ExprContext::Load),
+            attr_name,
+            ExprContext::Store,
+        )],
+        value,
+    )
 }
 
 /// Creates an expression statement node.
@@ -309,6 +338,52 @@ pub fn class_def(name: &str, arguments: Option<Arguments>, body: Vec<Stmt>) -> S
         decorator_list: Vec::new(),
         range: TextRange::default(),
         node_index: AtomicNodeIndex::dummy(),
+    })
+}
+
+/// Creates a function definition statement node.
+///
+/// # Arguments
+/// * `name` - The function name
+/// * `parameters` - The function parameters
+/// * `body` - The function body statements
+/// * `decorator_list` - The function decorators
+/// * `returns` - The return type annotation (optional)
+/// * `is_async` - Whether this is an async function
+///
+/// # Example
+/// ```rust
+/// // Creates: `def my_func(): pass`
+/// let params = Parameters {
+///     node_index: AtomicNodeIndex::dummy(),
+///     posonlyargs: vec![],
+///     args: vec![],
+///     vararg: None,
+///     kwonlyargs: vec![],
+///     kwarg: None,
+///     range: TextRange::default(),
+/// };
+/// let stmt = function_def("my_func", params, vec![pass()], vec![], None, false);
+/// ```
+pub fn function_def(
+    name: &str,
+    parameters: Parameters,
+    body: Vec<Stmt>,
+    decorator_list: Vec<Decorator>,
+    returns: Option<Expr>,
+    is_async: bool,
+) -> Stmt {
+    use ruff_python_ast::{Identifier, StmtFunctionDef};
+    Stmt::FunctionDef(StmtFunctionDef {
+        node_index: AtomicNodeIndex::dummy(),
+        name: Identifier::new(name, TextRange::default()),
+        type_params: None,
+        parameters: Box::new(parameters),
+        returns: returns.map(Box::new),
+        body,
+        decorator_list,
+        is_async,
+        range: TextRange::default(),
     })
 }
 
