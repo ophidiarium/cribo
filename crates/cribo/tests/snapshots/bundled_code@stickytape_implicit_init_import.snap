@@ -10,6 +10,8 @@ import types
 greetings = types.SimpleNamespace()
 greetings.__name__ = 'greetings'
 message = "Hello"
+greetings_irrelevant = types.SimpleNamespace()
+greetings.irrelevant = greetings_irrelevant
 greetings.message = message
 greetings.irrelevant = types.SimpleNamespace()
 greetings.__all__ = ['message']

@@ -95,6 +95,9 @@ JSONDecodeError.__module__ = 'myrequests.exceptions'
 """Exceptions module that uses compat types in class inheritance."""
 CookieJar.__module__ = 'myrequests.cookies'
 """Cookies module that uses compat's MutableMapping in class inheritance."""
+myrequests_utils = types.SimpleNamespace()
+myrequests_exceptions = types.SimpleNamespace()
+myrequests_cookies = types.SimpleNamespace()
 CompatJSONDecodeError = myrequests.compat.JSONDecodeError
 cookielib = myrequests.compat.cookielib
 MutableMapping = myrequests.compat.MutableMapping
@@ -105,6 +108,10 @@ cookies.CookieJar = CookieJar
 exceptions.InvalidJSONError = InvalidJSONError
 exceptions.JSONDecodeError = JSONDecodeError
 exceptions.RequestException = RequestException
+myrequests_exceptions.RequestException = RequestException
+myrequests_exceptions.InvalidJSONError = InvalidJSONError
+myrequests_exceptions.JSONDecodeError = JSONDecodeError
+myrequests_cookies.CookieJar = CookieJar
 """Test that mimics requests' pattern causing forward reference."""
 myrequests.__all__ = ['CookieJar', 'JSONDecodeError']
 myrequests.CookieJar = CookieJar

@@ -29,6 +29,12 @@ def process_data(data):
 """Utils module that matches requests.utils import pattern."""
 """Certs module."""
 pkg.compat = compat
+pkg_sessions = types.SimpleNamespace()
+pkg_models = types.SimpleNamespace()
+pkg_compat = types.SimpleNamespace()
+pkg___version__ = types.SimpleNamespace()
+pkg_utils = types.SimpleNamespace()
+pkg_certs = types.SimpleNamespace()
 @functools.cache
 def __cribo_init___cribo_5a392a_pkg__internal_utils():
     module = types.SimpleNamespace()
@@ -45,6 +51,10 @@ def __cribo_init___cribo_5a392a_pkg__internal_utils():
     module.to_native_string = to_native_string
     return module
 pkg._internal_utils = __cribo_init___cribo_5a392a_pkg__internal_utils()
+pkg.__version__ = pkg___version__
+pkg.certs = pkg_certs
+pkg.models = pkg_models
+pkg.sessions = pkg_sessions
 utils = types.SimpleNamespace()
 compat = types.SimpleNamespace()
 utils.process_data = process_data
@@ -52,6 +62,9 @@ compat.bytes = bytes
 compat.str = str
 compat.bytes = bytes
 compat.str = str
+pkg_compat.bytes = bytes
+pkg_compat.str = str
+pkg_utils.process_data = process_data
 """Test wrapper module pattern that triggers init functions with builtin types bug.\n\nThis reproduces the exact pattern from requests where:\n1. Multiple modules form circular dependencies (wrapper modules)\n2. One wrapper module (compat) has self-referential builtin assignments\n3. Another wrapper module (utils) accesses these as attributes\n4. The bundler generates init functions for wrapper modules\n"""
 pkg.__all__ = ['process_data', 'compat']
 pkg.process_data = process_data

@@ -26,7 +26,7 @@ use crate::{
 /// (`create_namespace_module`, `create_dotted_attribute_assignment`) and direct AST
 /// construction for intermediate namespaces that require specific attribute assignments.
 pub(super) fn generate_submodule_attributes_with_exclusions(
-    bundler: &Bundler,
+    bundler: &mut Bundler,
     sorted_modules: &[(String, PathBuf, Vec<String>)],
     final_body: &mut Vec<Stmt>,
     exclusions: &FxIndexSet<String>,
@@ -48,6 +48,11 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         if bundler.module_registry.contains_key(module_name) {
             all_initialized_modules.insert(module_name.clone());
         }
+    }
+
+    // Also add all inlined modules - they have been initialized too
+    for module_name in &bundler.inlined_modules {
+        all_initialized_modules.insert(module_name.clone());
     }
 
     // Now analyze what namespaces are needed and add wrapper module assignments
@@ -80,12 +85,14 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
             }
         }
 
-        // Add wrapper module assignment for this module
+        // Add module assignment for this module (wrapper or inlined)
         let parent = parts[..parts.len() - 1].join(".");
         let attr = parts[parts.len() - 1];
 
-        // Only add if this is actually a wrapper module
-        if bundler.module_registry.contains_key(module_name) {
+        // Add if this is a wrapper module OR an inlined module
+        if bundler.module_registry.contains_key(module_name)
+            || bundler.inlined_modules.contains(module_name)
+        {
             module_assignments.push((parts.len(), parent, attr.to_string(), module_name.clone()));
         }
     }
@@ -174,7 +181,9 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
             continue;
         }
 
-        if bundler.module_registry.contains_key(&module_name) {
+        if bundler.module_registry.contains_key(&module_name)
+            || bundler.inlined_modules.contains(&module_name)
+        {
             // Check if parent module has this attribute in __all__ (indicating a re-export)
             // OR if the parent is a wrapper module and the attribute is already defined there
             let skip_assignment =
@@ -219,21 +228,70 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                         "Skipping wrapper module assignment '{parent}.{attr} = {module_name}' - \
                          imported in entry module"
                     );
-                } else if bundler.inlined_modules.contains(&module_name) {
-                    // For inlined modules, we need to assign the namespace object
-                    // The namespace object variable is created with underscores instead of dots
-                    let namespace_var = module_name.cow_replace('.', "_").into_owned();
-                    debug!("Assigning inlined module namespace: {parent}.{attr} = {namespace_var}");
+                } else if bundler.inlined_modules.contains(&module_name)
+                    && !bundler.module_registry.contains_key(&module_name)
+                {
+                    // For inlined modules that are NOT wrapper modules, we need to assign the
+                    // namespace object But first check if this namespace
+                    // already has wrapper submodules initialized If so, skip
+                    // the assignment to avoid overwriting the properly initialized namespace
+                    let has_initialized_wrapper_submodules = bundler
+                        .module_registry
+                        .keys()
+                        .any(|wrapper_name| wrapper_name.starts_with(&format!("{module_name}.")));
 
-                    // Create assignment: parent.attr = namespace_var
-                    final_body.push(statements::assign(
-                        vec![expressions::attribute(
-                            expressions::name(&parent, ExprContext::Load),
-                            &attr,
-                            ExprContext::Store,
-                        )],
-                        expressions::name(&namespace_var, ExprContext::Load),
-                    ));
+                    if has_initialized_wrapper_submodules {
+                        debug!(
+                            "Skipping namespace assignment for '{module_name}' - it already has \
+                             initialized wrapper submodules"
+                        );
+                    } else {
+                        // Check if this namespace was already created directly by
+                        // create_namespace_statements
+                        if bundler.required_namespaces.contains(&module_name) {
+                            debug!(
+                                "Skipping underscore namespace creation for '{module_name}' - already \
+                                 created directly"
+                            );
+                        } else {
+                            // The namespace object variable is created with underscores instead of
+                            // dots
+                            let namespace_var = module_name.cow_replace('.', "_").into_owned();
+                            debug!(
+                                "Assigning inlined module namespace: {parent}.{attr} = \
+                                 {namespace_var}"
+                            );
+
+                            // First ensure the namespace variable exists
+                            // This handles cases where the module has no symbols and thus no
+                            // namespace was created
+                            if !bundler.created_namespaces.contains(&namespace_var) {
+                                debug!(
+                                    "Creating empty namespace for module '{module_name}' before assignment"
+                                );
+                                // Create empty namespace = types.SimpleNamespace()
+                                final_body.push(statements::simple_assign(
+                                    &namespace_var,
+                                    expressions::call(
+                                        expressions::simple_namespace_ctor(),
+                                        vec![],
+                                        vec![],
+                                    ),
+                                ));
+                                bundler.created_namespaces.insert(namespace_var.clone());
+                            }
+
+                            // Create assignment: parent.attr = namespace_var
+                            final_body.push(statements::assign(
+                                vec![expressions::attribute(
+                                    expressions::name(&parent, ExprContext::Load),
+                                    &attr,
+                                    ExprContext::Store,
+                                )],
+                                expressions::name(&namespace_var, ExprContext::Load),
+                            ));
+                        }
+                    }
                 } else {
                     debug!("Module '{module_name}' is not in inlined_modules, checking assignment");
                     // Check if this would be a redundant self-assignment
@@ -553,6 +611,15 @@ pub(super) fn create_namespace_for_inlined_module_static(
     module_name: &str,
     module_renames: &FxIndexMap<String, String>,
 ) -> Stmt {
+    // If this namespace was already created directly (e.g., core.utils), skip creating underscore
+    // variable
+    if bundler.required_namespaces.contains(module_name) {
+        log::debug!(
+            "Module '{module_name}' namespace already created directly, returning pass statement"
+        );
+        return statements::pass();
+    }
+
     // Check if this module has forward references that would cause NameError
     // This happens when the module uses symbols from other modules that haven't been defined
     // yet

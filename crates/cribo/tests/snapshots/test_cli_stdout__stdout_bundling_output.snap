@@ -41,6 +41,14 @@ User.__module__ = 'models.user'
 """User model for the test project."""
 """Utils package initialization."""
 """Utility functions for the test project."""
+models_user = types.SimpleNamespace()
+utils_helpers = types.SimpleNamespace()
+models.user = models_user
+utils.helpers = utils_helpers
+models_user.dataclass = dataclass
+models_user.User = User
+utils_helpers.greet = greet
+utils_helpers.calculate = calculate
 """Simple test project entry point."""
 def main():
     """Main function."""

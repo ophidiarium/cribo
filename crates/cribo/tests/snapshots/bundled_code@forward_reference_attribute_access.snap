@@ -16,6 +16,12 @@ class MyError(Exception):
     """Base error class"""
     pass
 MyError.__module__ = 'mymodule.exceptions'
+mymodule_compat = types.SimpleNamespace()
+mymodule_exceptions = types.SimpleNamespace()
+mymodule.compat = mymodule_compat
+mymodule.exceptions = mymodule_exceptions
+mymodule_compat.JSONDecodeError = JSONDecodeError
+mymodule_exceptions.MyError = MyError
 CompatJSONDecodeError = JSONDecodeError
 class CustomError(MyError, CompatJSONDecodeError):
 

@@ -21,8 +21,12 @@ def get_connection():
     context = get_user_context()
     return f"db_connection(context={context})"
 services_auth = types.SimpleNamespace()
+services_database = types.SimpleNamespace()
+services.auth = services_auth
+services.database = services_database
 services_auth.authenticate_user = authenticate_user
 services_auth.get_user_context = get_user_context
+services_database.get_connection = get_connection
 auth = services_auth
 def main():
     result = auth.authenticate_user("test_user")
