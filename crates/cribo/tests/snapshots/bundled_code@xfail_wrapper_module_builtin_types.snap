@@ -11,9 +11,8 @@ import types
 pkg = types.SimpleNamespace()
 pkg.__name__ = 'pkg'
 pkg._internal_utils = types.SimpleNamespace()
-str = None
-bytes = None
-int = None
+bytes = bytes
+str = str
 def process_data(data):
     """Process data using compat.bytes attribute.\n\n    This will fail when bundled because the bundler skips 'bytes = bytes'\n    in compat's init function.\n    """
     if isinstance(data, compat.bytes):
