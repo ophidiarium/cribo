@@ -359,16 +359,17 @@ impl<'a> Bundler<'a> {
                 {
                     // If local_variables is provided, check if the value exists as a local variable
                     if let Some(local_vars) = local_variables
-                        && !local_vars.contains(value.id.as_str()) {
-                            log::debug!(
-                                "Filtering out invalid assignment: {}.{} = {} (inlined submodule, \
-                                 no local var)",
-                                base.id.as_str(),
-                                attr.attr.as_str(),
-                                value.id.as_str()
-                            );
-                            return false;
-                        }
+                        && !local_vars.contains(value.id.as_str())
+                    {
+                        log::debug!(
+                            "Filtering out invalid assignment: {}.{} = {} (inlined submodule, no \
+                             local var)",
+                            base.id.as_str(),
+                            attr.attr.as_str(),
+                            value.id.as_str()
+                        );
+                        return false;
+                    }
                 }
 
                 if let Some(local_vars) = local_variables {
@@ -1390,11 +1391,13 @@ impl<'a> Bundler<'a> {
                         if let Expr::Name(value_name) = assign.value.as_ref() {
                             log::debug!(
                                 "Found namespace assignment depending on name: {}.{} = {}",
-                                if let Expr::Name(base) = target_attr.value.as_ref() {
-                                    base.id.as_str()
-                                } else {
-                                    "?"
-                                },
+                                target_attr
+                                    .value
+                                    .as_ref()
+                                    .as_name_expr()
+                                    .unwrap()
+                                    .id
+                                    .as_str(),
                                 target_attr.attr,
                                 value_name.id
                             );
@@ -1404,11 +1407,13 @@ impl<'a> Bundler<'a> {
 
                         log::debug!(
                             "Found namespace population: {}.{}",
-                            if let Expr::Name(base) = target_attr.value.as_ref() {
-                                base.id.as_str()
-                            } else {
-                                "?"
-                            },
+                            target_attr
+                                .value
+                                .as_ref()
+                                .as_name_expr()
+                                .unwrap()
+                                .id
+                                .as_str(),
                             target_attr.attr
                         );
                         namespace_populations.push(stmt);
