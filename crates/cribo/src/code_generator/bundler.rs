@@ -359,17 +359,16 @@ impl<'a> Bundler<'a> {
                 {
                     // If local_variables is provided, check if the value exists as a local variable
                     if let Some(local_vars) = local_variables
-                        && !local_vars.contains(value.id.as_str())
-                    {
-                        log::debug!(
-                            "Filtering out invalid assignment: {}.{} = {} (inlined submodule, no \
-                             local var)",
-                            base.id.as_str(),
-                            attr.attr.as_str(),
-                            value.id.as_str()
-                        );
-                        return false;
-                    }
+                        && !local_vars.contains(value.id.as_str()) {
+                            log::debug!(
+                                "Filtering out invalid assignment: {}.{} = {} (inlined submodule, \
+                                 no local var)",
+                                base.id.as_str(),
+                                attr.attr.as_str(),
+                                value.id.as_str()
+                            );
+                            return false;
+                        }
                 }
 
                 if let Some(local_vars) = local_variables {
