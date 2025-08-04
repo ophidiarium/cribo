@@ -65,9 +65,9 @@ impl ImportModuleDescriptor {
 pub struct ModuleResolver {
     config: Config,
     /// Cache of resolved module paths
-    module_cache: IndexMap<String, Option<PathBuf>>,
+    module_cache: RefCell<IndexMap<String, Option<PathBuf>>>,
     /// Cache of module classifications
-    classification_cache: IndexMap<String, ImportType>,
+    classification_cache: RefCell<IndexMap<String, ImportType>>,
     /// Cache of virtual environment packages to avoid repeated filesystem scans
     virtualenv_packages_cache: RefCell<Option<IndexSet<String>>>,
     /// Entry file's directory (first in search path)
@@ -105,8 +105,8 @@ impl ModuleResolver {
     ) -> Result<Self> {
         Ok(Self {
             config,
-            module_cache: IndexMap::new(),
-            classification_cache: IndexMap::new(),
+            module_cache: RefCell::new(IndexMap::new()),
+            classification_cache: RefCell::new(IndexMap::new()),
             virtualenv_packages_cache: RefCell::new(None),
             entry_dir: None,
             python_version: 38, // Default to Python 3.8
@@ -197,7 +197,7 @@ impl ModuleResolver {
     /// 1. Check for package (foo/__init__.py)
     /// 2. Check for file module (foo.py)
     /// 3. Check for namespace package (foo/ directory without __init__.py)
-    pub fn resolve_module_path(&mut self, module_name: &str) -> Result<Option<PathBuf>> {
+    pub fn resolve_module_path(&self, module_name: &str) -> Result<Option<PathBuf>> {
         // For absolute imports, delegate to the context-aware version
         if !module_name.starts_with('.') {
             return self.resolve_module_path_with_context(module_name, None);
@@ -211,12 +211,12 @@ impl ModuleResolver {
 
     /// Resolve a module with optional current module context for relative imports
     pub fn resolve_module_path_with_context(
-        &mut self,
+        &self,
         module_name: &str,
         current_module_path: Option<&Path>,
     ) -> Result<Option<PathBuf>> {
         // Check cache first
-        if let Some(cached_path) = self.module_cache.get(module_name) {
+        if let Some(cached_path) = self.module_cache.borrow().get(module_name) {
             return Ok(cached_path.clone());
         }
 
@@ -241,13 +241,16 @@ impl ModuleResolver {
         for search_dir in &search_dirs {
             if let Some(resolved_path) = self.resolve_in_directory(search_dir, &descriptor)? {
                 self.module_cache
+                    .borrow_mut()
                     .insert(module_name.to_string(), Some(resolved_path.clone()));
                 return Ok(Some(resolved_path));
             }
         }
 
         // Not found - cache the negative result
-        self.module_cache.insert(module_name.to_string(), None);
+        self.module_cache
+            .borrow_mut()
+            .insert(module_name.to_string(), None);
         Ok(None)
     }
 
@@ -257,66 +260,34 @@ impl ModuleResolver {
         descriptor: &ImportModuleDescriptor,
         current_module_path: &Path,
     ) -> Result<Option<PathBuf>> {
-        // Determine the base directory for the relative import
-        let mut base_dir = if current_module_path.is_file() {
-            // If current module is a file, start from its parent directory
-            current_module_path.parent().ok_or_else(|| {
-                anyhow!("Cannot get parent directory of {:?}", current_module_path)
-            })?
+        // First resolve to absolute module name
+        let name_string = if descriptor.name_parts.is_empty() {
+            None
         } else {
-            // If current module is a package directory, start from the directory itself
-            current_module_path
+            Some(descriptor.name_parts.join("."))
         };
+        let name = name_string.as_deref();
 
-        // Go up directories based on the number of dots
-        // One dot = current directory, two dots = parent directory, etc.
-        for _ in 1..descriptor.leading_dots {
-            base_dir = base_dir
-                .parent()
-                .ok_or_else(|| anyhow!("Too many dots in relative import - went above root"))?;
-        }
+        let absolute_module_name = self
+            .resolve_relative_to_absolute_module_name(
+                descriptor.leading_dots as u32,
+                name,
+                current_module_path,
+            )
+            .ok_or_else(|| anyhow!("Failed to resolve relative import"))?;
 
-        // If there are no name parts, we're importing the parent package itself
-        if descriptor.name_parts.is_empty() {
-            // Check if it's a package directory with __init__.py
-            let init_path = base_dir.join("__init__.py");
-            if init_path.exists() {
-                let canonical = self.canonicalize_path(init_path);
-                return Ok(Some(canonical));
+        // Now resolve the absolute module name to a path
+        // Create a new descriptor for the absolute import
+        let absolute_descriptor = ImportModuleDescriptor::from_module_name(&absolute_module_name);
+
+        // Use the existing resolution logic for absolute imports
+        let search_dirs = self.get_search_directories();
+        for search_dir in &search_dirs {
+            if let Some(resolved_path) =
+                self.resolve_in_directory(search_dir, &absolute_descriptor)?
+            {
+                return Ok(Some(resolved_path));
             }
-            // Otherwise, it might be a namespace package
-            if base_dir.is_dir() {
-                let canonical = self.canonicalize_path(base_dir.to_path_buf());
-                return Ok(Some(canonical));
-            }
-            return Ok(None);
-        }
-
-        // Build the target path from the name parts
-        let target_path = descriptor
-            .name_parts
-            .iter()
-            .fold(base_dir.to_path_buf(), |path, part| path.join(part));
-
-        // Try the standard resolution order
-        // 1. Check for package (__init__.py)
-        let init_path = target_path.join("__init__.py");
-        if init_path.exists() {
-            let canonical = self.canonicalize_path(init_path);
-            return Ok(Some(canonical));
-        }
-
-        // 2. Check for module file (.py)
-        let py_path = target_path.with_extension("py");
-        if py_path.exists() {
-            let canonical = self.canonicalize_path(py_path);
-            return Ok(Some(canonical));
-        }
-
-        // 3. Check for namespace package (directory without __init__.py)
-        if target_path.is_dir() {
-            let canonical = self.canonicalize_path(target_path);
-            return Ok(Some(canonical));
         }
 
         Ok(None)
@@ -327,7 +298,7 @@ impl ModuleResolver {
     /// Resolve ImportlibStatic imports with optional package context for relative imports
     /// Returns a tuple of (resolved_module_name, path)
     pub fn resolve_importlib_static_with_context(
-        &mut self,
+        &self,
         module_name: &str,
         package_context: Option<&str>,
     ) -> Result<Option<(String, PathBuf)>> {
@@ -484,9 +455,9 @@ impl ModuleResolver {
     }
 
     /// Classify an import as first-party, third-party, or standard library
-    pub fn classify_import(&mut self, module_name: &str) -> ImportType {
+    pub fn classify_import(&self, module_name: &str) -> ImportType {
         // Check cache first
-        if let Some(cached_type) = self.classification_cache.get(module_name) {
+        if let Some(cached_type) = self.classification_cache.borrow().get(module_name) {
             return cached_type.clone();
         }
 
@@ -494,6 +465,7 @@ impl ModuleResolver {
         if module_name.starts_with('.') {
             let import_type = ImportType::FirstParty;
             self.classification_cache
+                .borrow_mut()
                 .insert(module_name.to_string(), import_type.clone());
             return import_type;
         }
@@ -502,12 +474,14 @@ impl ModuleResolver {
         if self.config.known_first_party.contains(module_name) {
             let import_type = ImportType::FirstParty;
             self.classification_cache
+                .borrow_mut()
                 .insert(module_name.to_string(), import_type.clone());
             return import_type;
         }
         if self.config.known_third_party.contains(module_name) {
             let import_type = ImportType::ThirdParty;
             self.classification_cache
+                .borrow_mut()
                 .insert(module_name.to_string(), import_type.clone());
             return import_type;
         }
@@ -516,6 +490,7 @@ impl ModuleResolver {
         if is_stdlib_module(module_name, self.python_version) {
             let import_type = ImportType::StandardLibrary;
             self.classification_cache
+                .borrow_mut()
                 .insert(module_name.to_string(), import_type.clone());
             return import_type;
         }
@@ -528,6 +503,7 @@ impl ModuleResolver {
             if let Ok(Some(_)) = self.resolve_in_directory(search_dir, &descriptor) {
                 let import_type = ImportType::FirstParty;
                 self.classification_cache
+                    .borrow_mut()
                     .insert(module_name.to_string(), import_type.clone());
                 return import_type;
             }
@@ -545,6 +521,7 @@ impl ModuleResolver {
                     // If the parent is first-party, the submodule is too
                     let import_type = ImportType::FirstParty;
                     self.classification_cache
+                        .borrow_mut()
                         .insert(module_name.to_string(), import_type.clone());
                     return import_type;
                 }
@@ -555,6 +532,7 @@ impl ModuleResolver {
         if self.is_virtualenv_package(module_name) {
             let import_type = ImportType::ThirdParty;
             self.classification_cache
+                .borrow_mut()
                 .insert(module_name.to_string(), import_type.clone());
             return import_type;
         }
@@ -562,6 +540,7 @@ impl ModuleResolver {
         // Default to third-party if we can't determine otherwise
         let import_type = ImportType::ThirdParty;
         self.classification_cache
+            .borrow_mut()
             .insert(module_name.to_string(), import_type.clone());
         import_type
     }
@@ -720,6 +699,99 @@ impl ModuleResolver {
 
         false
     }
+
+    /// Resolves a relative import to an absolute module name.
+    ///
+    /// # Arguments
+    /// * `level` - The number of leading dots (e.g., 1 for `.`, 2 for `..`). Must be > 0.
+    /// * `name` - The module being imported, if any (e.g., `Some("bar")` for `from . import bar`).
+    /// * `current_module_path` - The filesystem path of the module performing the import.
+    ///
+    /// # Returns
+    /// An `Option<String>` containing the absolute module name if resolution is successful.
+    pub fn resolve_relative_to_absolute_module_name(
+        &self,
+        level: u32,
+        name: Option<&str>,
+        current_module_path: &Path,
+    ) -> Option<String> {
+        // Get the absolute module path parts for the current file
+        let module_parts = self.path_to_module_parts(current_module_path)?;
+
+        // Apply relative import logic
+        let mut current_parts = module_parts;
+
+        // Remove 'level - 1' components since level=1 means current package
+        // Cannot go beyond the root of the project
+        if level as usize > current_parts.len() + 1 {
+            return None;
+        }
+
+        for _ in 0..(level.saturating_sub(1)) {
+            current_parts.pop();
+        }
+
+        // If name is provided, split it and append
+        if let Some(name) = name
+            && !name.is_empty() {
+                let name_parts: Vec<&str> = name.split('.').collect();
+                current_parts.extend(name_parts.into_iter().map(|s| s.to_string()));
+            }
+
+        if current_parts.is_empty() {
+            // If we're at the root after applying relative levels, return empty string
+            // This will be handled by the caller to construct the full import name
+            Some(String::new())
+        } else {
+            Some(current_parts.join("."))
+        }
+    }
+
+    /// Convert a filesystem path to module path components
+    fn path_to_module_parts(&self, file_path: &Path) -> Option<Vec<String>> {
+        // Get the directory containing the current file
+        let current_dir = if file_path.is_file() {
+            file_path.parent()?
+        } else {
+            // If it's a directory (e.g., namespace package), use it directly
+            file_path
+        };
+
+        // Convert current_dir to absolute path if it's relative
+        let absolute_current_dir = if current_dir.is_absolute() {
+            current_dir.to_path_buf()
+        } else {
+            let current_working_dir = std::env::current_dir().ok()?;
+            current_working_dir.join(current_dir)
+        };
+
+        // Find which source directory contains this file
+        let relative_dir = self.config.src.iter().find_map(|src_dir| {
+            // Handle case where paths might be relative vs absolute
+            if src_dir.is_absolute() {
+                absolute_current_dir.strip_prefix(src_dir).ok()
+            } else {
+                // For relative source directories, resolve them relative to current working
+                // directory
+                let current_working_dir = std::env::current_dir().ok()?;
+                let absolute_src_dir = current_working_dir.join(src_dir);
+                absolute_current_dir.strip_prefix(&absolute_src_dir).ok()
+            }
+        })?;
+
+        // Convert directory path to module path components
+        if relative_dir == Path::new("") {
+            // If relative_dir is empty, we're at the root of the source directory
+            Some(Vec::new())
+        } else {
+            Some(
+                relative_dir
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect(),
+            )
+        }
+    }
 }
 
 #[cfg(test)]
@@ -754,7 +826,7 @@ mod tests {
             src: vec![root.to_path_buf()],
             ..Default::default()
         };
-        let mut resolver = ModuleResolver::new(config)?;
+        let resolver = ModuleResolver::new(config)?;
 
         // Resolve foo - should prefer foo/__init__.py
         let result = resolver.resolve_module_path("foo")?;
@@ -824,7 +896,7 @@ mod tests {
             src: vec![root.to_path_buf()],
             ..Default::default()
         };
-        let mut resolver = ModuleResolver::new(config)?;
+        let resolver = ModuleResolver::new(config)?;
 
         // Test various imports
         assert_eq!(
@@ -865,7 +937,7 @@ mod tests {
             known_third_party: IndexSet::from(["requests".to_string()]),
             ..Default::default()
         };
-        let mut resolver = ModuleResolver::new(config)?;
+        let resolver = ModuleResolver::new(config)?;
 
         // Test classifications
         assert_eq!(resolver.classify_import("os"), ImportType::StandardLibrary);
@@ -901,7 +973,7 @@ mod tests {
             src: vec![root.to_path_buf()],
             ..Default::default()
         };
-        let mut resolver = ModuleResolver::new(config)?;
+        let resolver = ModuleResolver::new(config)?;
 
         // Namespace packages should be resolved to the directory
         let result = resolver.resolve_module_path("namespace_pkg")?;
@@ -957,7 +1029,7 @@ mod tests {
             src: vec![root.to_path_buf()],
             ..Default::default()
         };
-        let mut resolver = ModuleResolver::new(config)?;
+        let resolver = ModuleResolver::new(config)?;
 
         // Test relative import from module3.py
         let module3_path = root.join("mypackage/subpackage/deeper/module3.py");
@@ -1071,7 +1143,7 @@ mod tests {
 
         // Create resolver with PYTHONPATH override
         let pythonpath_str = pythonpath_dir.to_string_lossy();
-        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
+        let resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
 
         // Test that modules can be resolved from both src and PYTHONPATH
         assert!(
@@ -1141,7 +1213,7 @@ mod tests {
 
         // Create resolver with PYTHONPATH override
         let pythonpath_str = pythonpath_dir.to_string_lossy();
-        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
+        let resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
 
         // Test that PYTHONPATH modules are classified as first-party
         assert_eq!(
@@ -1195,7 +1267,7 @@ mod tests {
             separator,
             pythonpath_dir2.to_string_lossy()
         );
-        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
+        let resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
 
         // Test that modules from both PYTHONPATH directories can be resolved
         assert!(
@@ -1239,7 +1311,7 @@ mod tests {
         };
 
         // Test with empty PYTHONPATH
-        let mut resolver1 = ModuleResolver::new_with_overrides(config.clone(), Some(""), None)?;
+        let resolver1 = ModuleResolver::new_with_overrides(config.clone(), Some(""), None)?;
 
         // Should be able to resolve module from src directory
         assert!(
@@ -1248,7 +1320,7 @@ mod tests {
         );
 
         // Test with no PYTHONPATH
-        let mut resolver2 = ModuleResolver::new_with_overrides(config.clone(), None, None)?;
+        let resolver2 = ModuleResolver::new_with_overrides(config.clone(), None, None)?;
 
         // Should be able to resolve module from src directory
         assert!(
@@ -1259,7 +1331,7 @@ mod tests {
         // Test with nonexistent directories in PYTHONPATH
         let separator = if cfg!(windows) { ';' } else { ':' };
         let nonexistent_pythonpath = format!("/nonexistent1{separator}/nonexistent2");
-        let mut resolver3 =
+        let resolver3 =
             ModuleResolver::new_with_overrides(config, Some(&nonexistent_pythonpath), None)?;
 
         // Should still be able to resolve module from src directory
@@ -1311,7 +1383,7 @@ mod tests {
             separator,
             other_dir.to_string_lossy()
         );
-        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
+        let resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
 
         // Test that deduplication works - both modules should be resolvable
         assert!(
@@ -1362,7 +1434,7 @@ mod tests {
             .expect("test source directory should have a parent");
         let relative_path = parent_dir.join("src/../src"); // This resolves to the same directory
         let pythonpath_str = relative_path.to_string_lossy();
-        let mut resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
+        let resolver = ModuleResolver::new_with_overrides(config, Some(&pythonpath_str), None)?;
 
         // Test that the module can be resolved despite path canonicalization differences
         assert!(

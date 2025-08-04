@@ -118,7 +118,7 @@ type ImportExtractionResult = Vec<(
 
 /// Parameters for discovery phase operations
 struct DiscoveryParams<'a> {
-    resolver: &'a mut ModuleResolver,
+    resolver: &'a ModuleResolver,
     modules_to_process: &'a mut ModuleQueue,
     processed_modules: &'a ProcessedModules,
     queued_modules: &'a mut IndexSet<String>,
@@ -128,7 +128,7 @@ struct DiscoveryParams<'a> {
 struct StaticBundleParams<'a> {
     sorted_modules: &'a [(String, PathBuf, Vec<String>)],
     parsed_modules: Option<&'a [ParsedModuleData]>, // Optional pre-parsed modules
-    _resolver: &'a ModuleResolver,                  // Unused but kept for future use
+    resolver: &'a ModuleResolver,
     entry_module_name: &'a str,
     graph: &'a CriboGraph,
     circular_dep_analysis: Option<&'a CircularDependencyAnalysis>,
@@ -137,7 +137,7 @@ struct StaticBundleParams<'a> {
 
 /// Context for dependency building operations
 struct DependencyContext<'a> {
-    resolver: &'a mut ModuleResolver,
+    resolver: &'a ModuleResolver,
     graph: &'a mut CriboGraph,
     module_id_map: &'a indexmap::IndexMap<String, crate::cribo_graph::ModuleId>,
     current_module: &'a str,
@@ -148,7 +148,7 @@ struct DependencyContext<'a> {
 struct GraphBuildParams<'a> {
     entry_path: &'a Path,
     entry_module_name: &'a str,
-    resolver: &'a mut ModuleResolver,
+    resolver: &'a ModuleResolver,
     graph: &'a mut CriboGraph,
 }
 
@@ -673,7 +673,7 @@ impl BundleOrchestrator {
         let bundled_code = self.emit_static_bundle(StaticBundleParams {
             sorted_modules: &module_data,
             parsed_modules: Some(&parsed_modules),
-            _resolver: &resolver,
+            resolver: &mut resolver,
             entry_module_name: &entry_module_name,
             graph: &graph,
             circular_dep_analysis: circular_dep_analysis.as_ref(),
@@ -717,7 +717,7 @@ impl BundleOrchestrator {
         let bundled_code = self.emit_static_bundle(StaticBundleParams {
             sorted_modules: &sorted_modules,
             parsed_modules: Some(&parsed_modules), // Use pre-parsed modules to avoid double parsing
-            _resolver: &resolver,
+            resolver: &mut resolver,
             entry_module_name: &entry_module_name,
             graph: &graph,
             circular_dep_analysis: circular_dep_analysis.as_ref(),
@@ -1022,7 +1022,7 @@ impl BundleOrchestrator {
         &self,
         ast: &ModModule,
         file_path: &Path,
-        mut resolver: Option<&mut ModuleResolver>,
+        mut resolver: Option<&ModuleResolver>,
     ) -> Result<ImportExtractionResult> {
         let mut visitor = ImportDiscoveryVisitor::new();
         for stmt in &ast.body {
@@ -1142,10 +1142,23 @@ impl BundleOrchestrator {
         &self,
         import: &crate::visitors::DiscoveredImport,
         file_path: &Path,
-        resolver: &mut Option<&mut ModuleResolver>,
+        resolver: &mut Option<&ModuleResolver>,
         imports: &mut IndexSet<String>,
     ) {
-        let base_module = match self.resolve_relative_import(file_path, import.level) {
+        // Get resolver reference
+        let resolver_ref = match resolver {
+            Some(resolver) => resolver,
+            None => {
+                debug!("No resolver available for relative import resolution");
+                return;
+            }
+        };
+
+        let base_module = match resolver_ref.resolve_relative_to_absolute_module_name(
+            import.level,
+            None, // Don't include module_name here, we'll handle it separately
+            file_path,
+        ) {
             Some(module) => module,
             None => {
                 debug!(
@@ -1195,7 +1208,7 @@ impl BundleOrchestrator {
     fn process_single_name_import_set(
         &self,
         import: &crate::visitors::DiscoveredImport,
-        resolver: &mut Option<&mut ModuleResolver>,
+        resolver: &mut Option<&ModuleResolver>,
         imports: &mut IndexSet<String>,
     ) {
         if let Some(resolver) = resolver {
@@ -1213,7 +1226,7 @@ impl BundleOrchestrator {
         &self,
         module_name: &str,
         import: &crate::visitors::DiscoveredImport,
-        resolver: &mut Option<&mut ModuleResolver>,
+        resolver: &mut Option<&ModuleResolver>,
         imports: &mut IndexSet<String>,
     ) {
         let Some(resolver) = resolver else { return };
@@ -1228,83 +1241,6 @@ impl BundleOrchestrator {
                 imports.insert(full_module_name);
                 debug!("Detected submodule import: {name} from {module_name}");
             }
-        }
-    }
-
-    /// Resolve a relative import to its absolute module name
-    /// Returns None if the relative import goes beyond the module hierarchy
-    #[allow(clippy::manual_ok_err)]
-    fn resolve_relative_import(&self, file_path: &Path, level: u32) -> Option<String> {
-        // Get the directory containing the current file
-        let current_dir = file_path.parent()?;
-
-        // Convert current_dir to absolute path if it's relative
-        let absolute_current_dir = if current_dir.is_absolute() {
-            current_dir.to_path_buf()
-        } else {
-            let current_working_dir = match std::env::current_dir() {
-                Ok(dir) => dir,
-                Err(_) => return None,
-            };
-            current_working_dir.join(current_dir)
-        };
-
-        // Find which source directory contains this file
-        let relative_dir = self.config.src.iter().find_map(|src_dir| {
-            // Handle case where paths might be relative vs absolute
-            if src_dir.is_absolute() {
-                match absolute_current_dir.strip_prefix(src_dir) {
-                    Ok(path) => Some(path),
-                    Err(_) => None,
-                }
-            } else {
-                // For relative source directories, we need to resolve them relative to the current
-                // working directory
-                let current_working_dir = match std::env::current_dir() {
-                    Ok(dir) => dir,
-                    Err(_) => return None,
-                };
-                let absolute_src_dir = current_working_dir.join(src_dir);
-                match absolute_current_dir.strip_prefix(&absolute_src_dir) {
-                    Ok(path) => Some(path),
-                    Err(_) => None,
-                }
-            }
-        })?;
-
-        // Convert directory path to module path components
-        let module_parts: Vec<String> = if relative_dir == Path::new("") {
-            // If relative_dir is empty, we're at the root of the source directory
-            Vec::new()
-        } else {
-            relative_dir
-                .components()
-                .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                .collect()
-        };
-
-        // Apply relative import logic
-        let mut current_parts = module_parts;
-
-        // Remove 'level' number of components from the end
-        // For level=1 (.), we stay in current package
-        // For level=2 (..), we go to parent package, etc.
-        if level as usize > current_parts.len() + 1 {
-            // Cannot go beyond the root of the project
-            return None;
-        }
-
-        // Remove (level - 1) components since level=1 means current package
-        for _ in 0..(level.saturating_sub(1)) {
-            current_parts.pop();
-        }
-
-        if current_parts.is_empty() {
-            // If we're at the root after applying relative levels, return empty string
-            // This will be handled by the caller to construct the full import name
-            Some(String::new())
-        } else {
-            Some(current_parts.join("."))
         }
     }
 
@@ -1582,7 +1518,7 @@ impl BundleOrchestrator {
             }
         }
 
-        let mut static_bundler = Bundler::new(Some(&self.module_registry));
+        let mut static_bundler = Bundler::new(Some(&self.module_registry), params.resolver);
 
         // Parse all modules and prepare them for bundling
         let mut module_asts = Vec::new();
