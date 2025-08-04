@@ -4753,9 +4753,12 @@ impl<'a> Bundler<'a> {
         };
 
         // Apply renames to class body - classes don't create new scopes for globals
-        // Apply renames to class body - classes don't create new scopes for globals
-        for stmt in &mut class_def.body {
-            expression_handlers::rewrite_aliases_in_stmt(stmt, entry_module_renames);
+        // Apply renames to the entire class (including base classes and body)
+        // We need to create a temporary Stmt to pass to rewrite_aliases_in_stmt
+        let mut temp_stmt = Stmt::ClassDef(class_def.clone());
+        expression_handlers::rewrite_aliases_in_stmt(&mut temp_stmt, entry_module_renames);
+        if let Stmt::ClassDef(updated_class) = temp_stmt {
+            *class_def = updated_class;
         }
 
         if needs_reassignment {
