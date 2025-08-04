@@ -19,6 +19,7 @@ def is_str(value):
     return isinstance(value, str)
 """Main package that mimics requests' pattern"""
 """Compatibility module similar to requests.compat"""
+myrequests_compat = types.SimpleNamespace()
 compat = types.SimpleNamespace()
 compat.JSONDecodeError = JSONDecodeError_2
 compat.MutableMapping = MutableMapping_2
@@ -27,6 +28,10 @@ compat.is_str = is_str
 JSONDecodeError_1 = compat.JSONDecodeError
 MutableMapping_1 = compat.MutableMapping
 myrequests.compat = compat
+myrequests_compat.MutableMapping = MutableMapping_2
+myrequests_compat.JSONDecodeError = JSONDecodeError_2
+myrequests_compat.builtin_str = builtin_str
+myrequests_compat.is_str = is_str
 """Test case for forward reference to init function"""
 myrequests.__all__ = ['JSONDecodeError', 'MutableMapping', 'compat']
 myrequests.JSONDecodeError = JSONDecodeError_1

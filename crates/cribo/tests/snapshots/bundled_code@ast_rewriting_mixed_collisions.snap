@@ -253,6 +253,9 @@ Connection_6.__name__ = 'Connection'
 Connection_6.__qualname__ = 'Connection'
 """\nDatabase connection module with naming conflicts\n"""
 models_base = types.SimpleNamespace()
+models_user = types.SimpleNamespace()
+core_utils_helpers = types.SimpleNamespace()
+core_database_connection = types.SimpleNamespace()
 _cribo_services_auth_manager_result = None
 @functools.cache
 def __cribo_init___cribo_ee1d45_services_auth_manager():
@@ -391,6 +394,10 @@ def __cribo_init___cribo_ee1d45_services_auth_manager():
     _cribo_services_auth_manager_result = result
     return module
 services.auth.manager = __cribo_init___cribo_ee1d45_services_auth_manager()
+models.base = models_base
+models.user = models_user
+core.database.connection = core_database_connection
+core.utils.helpers = core_utils_helpers
 core_validate = validate_6
 UserLogger = Logger_2
 util_process = process_6
@@ -400,6 +407,22 @@ models_base.BaseModel = BaseModel
 models_base.initialize = initialize
 models_base.Logger = Logger_1
 models_base.result = result_2
+models_user.result = result_3
+models_user.connection = connection_3
+models_user.Logger = Logger_2
+models_user.User = User_2
+models_user.process_user = process_user
+models_user.validate = validate_4
+models_user.process = process_4
+core_utils_helpers.result = result_6
+core_utils_helpers.User = User_4
+core_utils_helpers.Logger = Logger_4
+core_utils_helpers.process = process_6
+core_utils_helpers.validate = validate_6
+core_database_connection.result = result_8
+core_database_connection.connection = connection_5
+core_database_connection.Connection = Connection_6
+core_database_connection.process = process_7
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
 auth_process = services.auth.manager.process

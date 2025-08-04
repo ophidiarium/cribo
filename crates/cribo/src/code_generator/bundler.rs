@@ -3,7 +3,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use cow_utils::CowUtils;
 use log::debug;
 use ruff_python_ast::{
     Alias, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName,
@@ -26,7 +25,9 @@ use crate::{
             RecursiveImportTransformer, RecursiveImportTransformerParams,
             resolve_relative_import_with_context,
         },
-        module_registry::{INIT_RESULT_VAR, generate_unique_name},
+        module_registry::{
+            INIT_RESULT_VAR, generate_unique_name, sanitize_module_name_for_identifier,
+        },
         namespace_manager,
     },
     cribo_graph::CriboGraph as DependencyGraph,
@@ -2099,6 +2100,9 @@ impl<'a> Bundler<'a> {
                 &mut self.module_registry,
                 &mut self.init_functions,
             );
+
+            // Remove from inlined_modules since it's now a wrapper module
+            self.inlined_modules.shift_remove(module_name);
         }
 
         // Note: We'll add hoisted imports later after all transformations are done
@@ -2840,6 +2844,14 @@ impl<'a> Bundler<'a> {
 
         for (module_name, _, _, _) in &inlinable_modules {
             log::debug!("Checking if module '{module_name}' needs namespace object");
+            log::debug!(
+                "  module_exports contains '{}': {}",
+                module_name,
+                self.module_exports.contains_key(module_name)
+            );
+            if let Some(exports) = self.module_exports.get(module_name) {
+                log::debug!("  module '{module_name}' exports: {exports:?}");
+            }
 
             // Skip the entry module - it doesn't need namespace assignments
             if module_name == params.entry_module_name {
@@ -2847,16 +2859,26 @@ impl<'a> Bundler<'a> {
                 continue;
             }
 
+            // Check if module has exports
+            let has_exports = self
+                .module_exports
+                .get(module_name)
+                .is_some_and(|exports| exports.is_some());
+
+            // Check if this is a submodule that needs a namespace
+            let needs_namespace_for_submodule = self.submodule_needs_namespace(module_name);
+
+            // Check if module needs a namespace object:
+            // 1. It's imported as a namespace (import module)
+            // 2. It's directly imported and has exports
+            // 3. It's a submodule that's imported by its parent module via from . import
             let needs_namespace = self.namespace_imported_modules.contains_key(module_name)
-                || (directly_imported_modules.contains(module_name)
-                    && self
-                        .module_exports
-                        .get(module_name)
-                        .is_some_and(|exports| exports.is_some()));
+                || (directly_imported_modules.contains(module_name) && has_exports)
+                || needs_namespace_for_submodule;
 
             if needs_namespace {
                 // Check if this namespace was already created
-                let namespace_var = module_name.cow_replace('.', "_").into_owned();
+                let namespace_var = sanitize_module_name_for_identifier(module_name);
                 let namespace_already_exists = self.created_namespaces.contains(&namespace_var);
 
                 log::debug!(
@@ -2879,13 +2901,19 @@ impl<'a> Bundler<'a> {
                             .check_module_has_forward_references(module_name, module_rename_map);
 
                         // Create a SimpleNamespace for this module only if it doesn't exist
-                        let namespace_stmt =
+                        if let Some(namespace_stmt) =
                             namespace_manager::create_namespace_for_inlined_module_static(
                                 self,
                                 module_name,
                                 module_rename_map,
-                            );
-                        final_body.push(namespace_stmt);
+                            )
+                        {
+                            final_body.push(namespace_stmt);
+                        }
+
+                        // Parent-child namespace assignments will be handled later by
+                        // generate_submodule_attributes_with_exclusions, which runs after
+                        // all namespaces have been created
 
                         // Only track as having initial symbols if we didn't create it empty
                         if !has_forward_references {
@@ -3237,8 +3265,31 @@ impl<'a> Bundler<'a> {
                     }
 
                     // Track the created namespace to prevent duplicate creation later
-                    let namespace_var = module_name.cow_replace('.', "_").into_owned();
+                    let namespace_var = sanitize_module_name_for_identifier(module_name);
                     self.created_namespaces.insert(namespace_var);
+                } else if self.inlined_modules.contains(module_name)
+                    && !self.module_registry.contains_key(module_name)
+                {
+                    // Module has no symbols in symbol_renames but is still an inlined module
+                    // We need to create an empty namespace for it
+                    log::debug!(
+                        "Module '{module_name}' has no symbols but needs a namespace object"
+                    );
+
+                    let namespace_var = sanitize_module_name_for_identifier(module_name);
+                    let namespace_already_exists = self.created_namespaces.contains(&namespace_var);
+
+                    if !namespace_already_exists {
+                        // Create empty namespace = types.SimpleNamespace()
+                        let namespace_stmt = statements::simple_assign(
+                            &namespace_var,
+                            expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
+                        );
+                        final_body.push(namespace_stmt);
+
+                        // Track the created namespace
+                        self.created_namespaces.insert(namespace_var);
+                    }
                 }
             }
         }
@@ -3607,35 +3658,35 @@ impl<'a> Bundler<'a> {
                     }
                 }
             }
-
-            // After all modules are initialized, ensure sub-modules are attached to parent modules
-            // This is necessary for relative imports like "from . import messages" to work
-            // correctly
-            // Check what modules are imported in the entry module to avoid duplicates
-            // Recreate all_modules for this check
-            let all_modules = inlinable_modules
-                .iter()
-                .chain(sorted_wrapper_modules.iter())
-                .cloned()
-                .collect::<Vec<_>>();
-            let entry_imported_modules =
-                self.get_entry_module_imports(&all_modules, params.entry_module_name);
-
-            debug!(
-                "About to generate submodule attributes, current body length: {}",
-                final_body.len()
-            );
-            namespace_manager::generate_submodule_attributes_with_exclusions(
-                self,
-                params.sorted_modules,
-                &mut final_body,
-                &entry_imported_modules,
-            );
-            debug!(
-                "After generate_submodule_attributes, body length: {}",
-                final_body.len()
-            );
         }
+
+        // After all modules are initialized, ensure sub-modules are attached to parent modules
+        // This is necessary for relative imports like "from . import messages" to work
+        // correctly, and also for inlined submodules to be attached to their parent namespaces
+        // Check what modules are imported in the entry module to avoid duplicates
+        // Recreate all_modules for this check
+        let all_modules = inlinable_modules
+            .iter()
+            .chain(sorted_wrapper_modules.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        let entry_imported_modules =
+            self.get_entry_module_imports(&all_modules, params.entry_module_name);
+
+        debug!(
+            "About to generate submodule attributes, current body length: {}",
+            final_body.len()
+        );
+        namespace_manager::generate_submodule_attributes_with_exclusions(
+            self,
+            params.sorted_modules,
+            &mut final_body,
+            &entry_imported_modules,
+        );
+        debug!(
+            "After generate_submodule_attributes, body length: {}",
+            final_body.len()
+        );
 
         // Add deferred imports from inlined modules before entry module code
         // This ensures they're available when the entry module code runs
@@ -3719,7 +3770,7 @@ impl<'a> Bundler<'a> {
             }
 
             // Check if this module has a namespace that needs population
-            let namespace_var = module_name.cow_replace('.', "_").into_owned();
+            let namespace_var = sanitize_module_name_for_identifier(module_name);
             if self.created_namespaces.contains(&namespace_var) {
                 log::debug!("Populating empty namespace '{namespace_var}' with symbols");
 
@@ -4564,6 +4615,7 @@ impl<'a> Bundler<'a> {
     fn assignment_references_namespace_module(
         &self,
         assign: &StmtAssign,
+        module_name: &str,
         _ctx: &InlineContext,
     ) -> bool {
         // Check if the RHS is an attribute access on a name
@@ -4594,6 +4646,31 @@ impl<'a> Bundler<'a> {
                 return true;
             }
         }
+
+        // Also check if the RHS is a plain name that references a namespace module
+        if let Expr::Name(name) = assign.value.as_ref() {
+            let name_str = name.id.as_str();
+
+            // Check if this name refers to a sibling inlined module that will become a namespace
+            // For example, in mypkg.api, "sessions" refers to mypkg.sessions
+            if let Some(current_package) = module_name.rsplit_once('.').map(|(pkg, _)| pkg) {
+                let potential_sibling = format!("{current_package}.{name_str}");
+                if self.inlined_modules.contains(&potential_sibling) {
+                    log::debug!(
+                        "Assignment references sibling namespace module: {potential_sibling} (via \
+                         name {name_str})"
+                    );
+                    return true;
+                }
+            }
+
+            // Also check if the name itself is an inlined module
+            if self.inlined_modules.contains(name_str) {
+                log::debug!("Assignment references namespace module directly: {name_str}");
+                return true;
+            }
+        }
+
         false
     }
 
@@ -5757,7 +5834,7 @@ impl<'a> Bundler<'a> {
 
     /// Get a unique name for a symbol, using the module suffix pattern
     fn get_unique_name_with_module_suffix(&self, base_name: &str, module_name: &str) -> String {
-        let module_suffix = module_name.cow_replace('.', "_").into_owned();
+        let module_suffix = sanitize_module_name_for_identifier(module_name);
         format!("{base_name}_{module_suffix}")
     }
 
@@ -6698,7 +6775,7 @@ impl<'a> Bundler<'a> {
 
         // Check if this assignment references a module that will be created as a namespace
         // If it does, we need to defer it until after namespace creation
-        if self.assignment_references_namespace_module(&assign_clone, ctx) {
+        if self.assignment_references_namespace_module(&assign_clone, module_name, ctx) {
             log::debug!(
                 "Deferring assignment '{name}' in module '{module_name}' as it references a \
                  namespace module"
@@ -7035,7 +7112,7 @@ impl<'a> Bundler<'a> {
             }
 
             // Check if we should use a flattened namespace instead of creating an empty one
-            let flattened_name = partial_module.cow_replace('.', "_").into_owned();
+            let flattened_name = sanitize_module_name_for_identifier(&partial_module);
             let should_use_flattened = self.inlined_modules.contains(&partial_module)
                 && self
                     .namespaces_with_initial_symbols
@@ -7263,7 +7340,7 @@ impl<'a> Bundler<'a> {
                 if self
                     .symbols_populated_after_deferred
                     .contains(&(module_name.to_string(), (*symbol).clone()))
-                    && target_name == module_name.cow_replace('.', "_").as_ref()
+                    && target_name == sanitize_module_name_for_identifier(module_name).as_str()
                 {
                     log::debug!(
                         "Skipping symbol assignment {target_name}.{symbol} = {actual_symbol_name} \
@@ -7534,7 +7611,7 @@ impl<'a> Bundler<'a> {
         module_name: &str,
     ) -> Stmt {
         // Check if we should use a flattened namespace instead of creating an empty one
-        let flattened_name = module_name.cow_replace('.', "_").into_owned();
+        let flattened_name = sanitize_module_name_for_identifier(module_name);
         let should_use_flattened = self.inlined_modules.contains(module_name)
             && self.namespaces_with_initial_symbols.contains(module_name);
 
@@ -8297,6 +8374,32 @@ impl<'a> Bundler<'a> {
                 log::warn!("Circular inheritance detected, returning classes in original order");
                 class_blocks
             }
+        }
+    }
+
+    /// Check if a submodule needs a namespace object.
+    ///
+    /// A submodule needs a namespace if:
+    /// 1. Its parent module is inlined
+    /// 2. The submodule has exports (meaning it's not just internal)
+    fn submodule_needs_namespace(&self, module_name: &str) -> bool {
+        if let Some(parent_module) = module_name.rsplit_once('.').map(|(parent, _)| parent) {
+            if self.inlined_modules.contains(parent_module)
+                && self
+                    .module_exports
+                    .get(module_name)
+                    .is_some_and(|exports| exports.is_some())
+            {
+                log::debug!(
+                    "Submodule '{module_name}' needs namespace because parent '{parent_module}' \
+                     is inlined and submodule has exports"
+                );
+                true
+            } else {
+                false
+            }
+        } else {
+            false
         }
     }
 }

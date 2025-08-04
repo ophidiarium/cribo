@@ -54,6 +54,8 @@ BaseModel.__module__ = 'models.base'
 """Configuration utilities for the core package."""
 """Version module separate from __init__ to avoid circular imports."""
 """Helper utilities for the core package."""
+core_utils_config = types.SimpleNamespace()
+core_utils_helpers = types.SimpleNamespace()
 _cribo_core__initialized = None
 _cribo_core__config = None
 _cribo_models__base_model = None
@@ -238,6 +240,21 @@ def __cribo_init___cribo_782908_core_database():
         return connect(database_name)
     module.safe_connect = safe_connect
     return module
+core_version = types.SimpleNamespace()
+core.version = core_version
+models_base = types.SimpleNamespace()
+models.base = models_base
+models_user = types.SimpleNamespace()
+models.user = models_user
+core.utils.config = core_utils_config
+core.utils.helpers = core_utils_helpers
+models_user.process_user = process_user
+models_base.BaseModel = BaseModel
+core_utils_config.set_config_reference = set_config_reference
+core_utils_config.get_config = get_config
+core_utils_config.is_debug = is_debug
+core_version.CORE_MODEL_VERSION = CORE_MODEL_VERSION
+core_utils_helpers.validate = validate
 """Test fixture demonstrating cross-package mixed import patterns.\n\nThis tests the specific pattern where a module uses both:\n1. Deep absolute imports crossing package boundaries (e.g., from models.user)\n2. Relative imports within its package (e.g., from ..utils.helpers)\n3. Import order dependencies with __init__.py files\n"""
 __cribo_init_result = __cribo_init___cribo_f00e4b_core()
 for attr in dir(__cribo_init_result):

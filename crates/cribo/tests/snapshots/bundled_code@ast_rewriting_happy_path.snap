@@ -91,6 +91,18 @@ UserRole.__module__ = 'models.user'
 User.__module__ = 'models.user'
 """\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 """\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
+services_database = types.SimpleNamespace()
+models_user = types.SimpleNamespace()
+utils_helpers = types.SimpleNamespace()
+models.user = models_user
+services.database = services_database
+utils.helpers = utils_helpers
+services_database.DatabaseConnection = DatabaseConnection
+services_database.DatabaseService = DatabaseService
+models_user.UserRole = UserRole
+models_user.User = User
+utils_helpers.format_message = format_message
+utils_helpers.calculate_total = calculate_total
 """\nHappy path main module that uses multiple nested modules without name collisions.\nThis should bundle cleanly without any AST rewriting for conflicts.\n"""
 def main():
     user = User("Alice", "alice@example.com", UserRole.ADMIN)

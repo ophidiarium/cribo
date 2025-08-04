@@ -15,6 +15,7 @@ def greet(name: str) -> str:
     return f"Hello, {name}!"
 """Simple utilities module"""
 mymodule_utils = types.SimpleNamespace()
+mymodule.utils = mymodule_utils
 mymodule_utils.CONSTANT = CONSTANT
 mymodule_utils.greet = greet
 """Test namespace imports with simple module"""
