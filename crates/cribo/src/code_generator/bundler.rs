@@ -21,16 +21,14 @@ use crate::{
             ProcessGlobalsParams, SemanticContext,
         },
         expression_handlers, import_deduplicator,
-        import_transformer::{
-            RecursiveImportTransformer, RecursiveImportTransformerParams,
-            resolve_relative_import_with_context,
-        },
+        import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{
             INIT_RESULT_VAR, generate_unique_name, sanitize_module_name_for_identifier,
         },
         namespace_manager,
     },
     cribo_graph::CriboGraph as DependencyGraph,
+    resolver::ModuleResolver,
     side_effects::{is_safe_stdlib_module, module_has_side_effects},
     transformation_context::TransformationContext,
     types::{FxIndexMap, FxIndexSet},
@@ -86,6 +84,8 @@ pub struct Bundler<'a> {
     pub(crate) namespace_imported_modules: FxIndexMap<String, FxIndexSet<String>>,
     /// Reference to the central module registry
     pub(crate) module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
+    /// Reference to the module resolver
+    pub(crate) resolver: &'a ModuleResolver,
     /// Modules that are part of circular dependencies
     pub(crate) circular_modules: FxIndexSet<String>,
     /// Pre-declared symbols for circular modules (module -> symbol -> renamed)
@@ -136,12 +136,6 @@ impl<'a> std::fmt::Debug for Bundler<'a> {
     }
 }
 
-impl<'a> Default for Bundler<'a> {
-    fn default() -> Self {
-        Self::new(None)
-    }
-}
-
 // Main implementation
 impl<'a> Bundler<'a> {
     /// Check if a symbol is kept by tree shaking
@@ -159,7 +153,10 @@ impl<'a> Bundler<'a> {
     }
 
     /// Create a new bundler instance
-    pub fn new(module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>) -> Self {
+    pub fn new(
+        module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
+        resolver: &'a ModuleResolver,
+    ) -> Self {
         Self {
             importlib_fully_transformed: false,
             module_registry: FxIndexMap::default(),
@@ -176,6 +173,7 @@ impl<'a> Bundler<'a> {
             lifted_global_declarations: Vec::new(),
             namespace_imported_modules: FxIndexMap::default(),
             module_info_registry,
+            resolver,
             circular_modules: FxIndexSet::default(),
             circular_predeclarations: FxIndexMap::default(),
             hard_dependencies: Vec::new(),
@@ -2288,7 +2286,7 @@ impl<'a> Bundler<'a> {
                 )
                 .collect();
 
-            for (module_name, ast, _, _) in &all_modules {
+            for (module_name, ast, module_path, _) in &all_modules {
                 if self.circular_modules.contains(module_name.as_str()) {
                     // Build import map for this module
                     let mut import_map = FxIndexMap::default();
@@ -2317,12 +2315,10 @@ impl<'a> Bundler<'a> {
                                 // Handle relative imports
                                 let resolved_module = if import_from.level > 0 {
                                     // Resolve relative import to absolute
-                                    resolve_relative_import_with_context(
-                                        import_from,
-                                        module_name,
-                                        None,
-                                        self.entry_path.as_deref(),
-                                        &self.bundled_modules,
+                                    self.resolver.resolve_relative_to_absolute_module_name(
+                                        import_from.level,
+                                        import_from.module.as_ref().map(|m| m.as_str()),
+                                        module_path,
                                     )
                                 } else {
                                     import_from.module.as_ref().map(|m| m.as_str().to_string())
@@ -2393,12 +2389,10 @@ impl<'a> Bundler<'a> {
                     // Resolve relative imports to absolute module names
                     let resolved_module = if import_from.level > 0 {
                         // This is a relative import, resolve it
-                        resolve_relative_import_with_context(
-                            import_from,
-                            module_name,
-                            Some(module_path),
-                            self.entry_path.as_deref(),
-                            &self.bundled_modules,
+                        self.resolver.resolve_relative_to_absolute_module_name(
+                            import_from.level,
+                            import_from.module.as_ref().map(|m| m.as_str()),
+                            module_path,
                         )
                     } else {
                         // Absolute import
@@ -2407,7 +2401,7 @@ impl<'a> Bundler<'a> {
 
                     if let Some(ref resolved) = resolved_module {
                         // Check if this is a wrapper module
-                        if self.module_registry.contains_key(resolved) {
+                        if self.module_registry.contains_key(resolved.as_str()) {
                             wrapper_modules_needed_by_inlined.insert(resolved.to_string());
                             log::debug!(
                                 "Inlined module '{module_name}' imports from wrapper module \
@@ -7196,20 +7190,22 @@ impl<'a> Bundler<'a> {
                     // submodule
                     if let Some(module_asts) = self.module_asts.as_ref() {
                         // Find the module's AST to check its imports
-                        if let Some((_, ast, _, _)) = module_asts
+                        if let Some((_, ast, module_path, _)) = module_asts
                             .iter()
                             .find(|(name, _, _, _)| name == module_name)
                         {
                             // Check if this symbol is imported from an inlined submodule
                             for stmt in &ast.body {
                                 if let Stmt::ImportFrom(import_from) = stmt {
-                                    let resolved_module = resolve_relative_import_with_context(
-                                        import_from,
-                                        module_name,
-                                        None,
-                                        self.entry_path.as_deref(),
-                                        &self.bundled_modules,
-                                    );
+                                    let resolved_module = if import_from.level > 0 {
+                                        self.resolver.resolve_relative_to_absolute_module_name(
+                                            import_from.level,
+                                            import_from.module.as_ref().map(|m| m.as_str()),
+                                            module_path,
+                                        )
+                                    } else {
+                                        import_from.module.as_ref().map(|m| m.as_str().to_string())
+                                    };
                                     if let Some(ref resolved) = resolved_module {
                                         // Check if the resolved module is inlined
                                         if self.inlined_modules.contains(resolved) {
