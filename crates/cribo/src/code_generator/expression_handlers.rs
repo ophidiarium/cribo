@@ -1163,15 +1163,17 @@ fn rewrite_aliases_in_function(
     // First handle global statements specially
     rewrite_global_statements_in_function(func_def, alias_to_canonical);
 
-    // Then rewrite the rest of the function body, including the global statements
-    // This ensures that all references are consistently renamed
+    // Then rewrite all non-global statements in the function body
     for (idx, stmt) in func_def.body.iter_mut().enumerate() {
-        debug!(
-            "  Rewriting aliases in function body statement {}: {:?}",
-            idx,
-            std::mem::discriminant(stmt)
-        );
-        rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+        // Skip global statements as they've already been processed
+        if !matches!(stmt, Stmt::Global(_)) {
+            debug!(
+                "  Rewriting aliases in function body statement {}: {:?}",
+                idx,
+                std::mem::discriminant(stmt)
+            );
+            rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+        }
     }
 }
 
