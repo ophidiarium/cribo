@@ -262,14 +262,14 @@ pub fn transform_module_to_init_function<'a>(
                 target.id.as_str(),
                 ctx.python_version,
                 false,
-            ) {
-                debug!(
-                    "Found built-in type '{}' that will be assigned as local variable in init \
-                     function",
-                    target.id
-                );
-                builtin_locals.insert(target.id.to_string());
-            }
+            )
+        {
+            debug!(
+                "Found built-in type '{}' that will be assigned as local variable in init function",
+                target.id
+            );
+            builtin_locals.insert(target.id.to_string());
+        }
     }
 
     // Helper function to get exported module-level variables

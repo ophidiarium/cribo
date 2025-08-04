@@ -44,6 +44,9 @@ def get_validators():
     assert pkg._internal._HEADER_VALIDATORS_STR is not None
     return pkg._internal.HEADER_VALIDATORS
 """Consumer module that imports private variables from _internal module."""
+pkg_consumer = types.SimpleNamespace()
+pkg.consumer = pkg_consumer
+pkg_consumer.get_validators = get_validators
 """Test case for bundling modules that have private module variables accessed by other modules."""
 validators = get_validators()
 print(f"Got validators: {validators}")

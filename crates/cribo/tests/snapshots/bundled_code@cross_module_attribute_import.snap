@@ -37,7 +37,13 @@ def process_data():
 """Core module that creates circular dependency."""
 """Version information module."""
 mypackage.get_full_info = get_full_info
+mypackage_core = types.SimpleNamespace()
+mypackage___version__ = types.SimpleNamespace()
 mypackage.utils = __cribo_init___cribo_35f1d1_mypackage_utils()
+mypackage.__version__ = mypackage___version__
+mypackage.core = mypackage_core
+mypackage_core.process_data = process_data
+mypackage___version__.__version__ = __version__
 """Test cross-module attribute import with circular dependencies that require init functions."""
 mypackage.__all__ = ['get_full_info']
 print(mypackage.get_full_info())

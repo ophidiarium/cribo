@@ -14,6 +14,7 @@ def add(a, b):
     return a + b
 """Calculator module with simple operations"""
 utils_calculator = types.SimpleNamespace()
+utils.calculator = utils_calculator
 utils_calculator.description = description
 utils_calculator.add = add
 def process_data():

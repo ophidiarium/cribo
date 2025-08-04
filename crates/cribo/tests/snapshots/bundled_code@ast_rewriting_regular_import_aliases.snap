@@ -35,6 +35,8 @@ UtilityClass.__module__ = 'utils.helpers'
 """Utility module for testing regular import aliases."""
 utils_config = types.SimpleNamespace()
 utils_helpers = types.SimpleNamespace()
+utils.config = utils_config
+utils.helpers = utils_helpers
 utils_config.DEFAULT_CONFIG = DEFAULT_CONFIG
 utils_config.get_config = get_config
 utils_helpers.UtilityClass = UtilityClass

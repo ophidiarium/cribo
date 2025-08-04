@@ -44,9 +44,12 @@ class MyJSONError(MyError, mypkg.compat.JSONDecodeError):
         MyError.__init__(self, str(args[0]) if args else "")
 MyError.__module__ = 'mypkg.exceptions'
 MyJSONError.__module__ = 'mypkg.exceptions'
+mypkg_exceptions = types.SimpleNamespace()
 exceptions = types.SimpleNamespace()
 exceptions.MyError = MyError
 exceptions.MyJSONError = MyJSONError
+mypkg_exceptions.MyError = MyError
+mypkg_exceptions.MyJSONError = MyJSONError
 try:
     raise MyJSONError("Test error", "doc", 42)
 except MyJSONError as e:

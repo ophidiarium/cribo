@@ -13,5 +13,11 @@ foo.boo = types.SimpleNamespace()
 ANIMAL = "cat"
 def tada() -> str:
     return f"Tada {ANIMAL}!"
+foo_boo___main__ = types.SimpleNamespace()
+foo_zoo = types.SimpleNamespace()
+foo.zoo = foo_zoo
+foo.boo.__main__ = foo_boo___main__
+foo_boo___main__.tada = tada
+foo_zoo.ANIMAL = ANIMAL
 if __name__ == "__main__":
     print(tada())

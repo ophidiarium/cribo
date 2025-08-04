@@ -56,6 +56,7 @@ Logger_6.__module__ = 'core.utils.helpers'
 Logger_6.__name__ = 'Logger'
 Logger_6.__qualname__ = 'Logger'
 """Core utility helpers module - NO external dependencies to avoid circular imports"""
+core_utils_helpers = types.SimpleNamespace()
 _cribo_models_base_Connection = None
 @functools.cache
 def __cribo_init___cribo_0a162a_models_base():
@@ -346,6 +347,14 @@ __cribo_init_result = __cribo_init___cribo_b2dda7_services()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(services, attr, getattr(__cribo_init_result, attr))
+core.utils.helpers = core_utils_helpers
+core_utils_helpers.process_count = process_count
+core_utils_helpers.validate_cache = validate_cache
+core_utils_helpers.Logger = Logger_6
+core_utils_helpers.process = process_7
+core_utils_helpers.validate = validate_6
+core_utils_helpers.sanitize = sanitize
+core_utils_helpers.format_result = format_result
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\nWITHOUT circular dependencies\n"""
 db_process = core.database.connection.process
 UtilLogger = Logger_6

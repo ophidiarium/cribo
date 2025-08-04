@@ -27,6 +27,8 @@ def increment_counter_2():
     return counter_2
 shared_common = types.SimpleNamespace()
 lib_helpers = types.SimpleNamespace()
+lib.helpers = lib_helpers
+shared.common = shared_common
 shared_common.counter = counter_1
 shared_common.get_location = get_location_1
 shared_common.increment_counter = increment_counter_1

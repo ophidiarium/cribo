@@ -40,7 +40,11 @@ class CustomJSONError(BaseException, mypkg.compat.JSONDecodeError):
         return mypkg.compat.JSONDecodeError.__reduce__(self)
 BaseException.__module__ = 'mypkg.exceptions'
 CustomJSONError.__module__ = 'mypkg.exceptions'
+mypkg_exceptions = types.SimpleNamespace()
 JSONDecodeError = mypkg.compat.JSONDecodeError
+mypkg.exceptions = mypkg_exceptions
+mypkg_exceptions.BaseException = BaseException
+mypkg_exceptions.CustomJSONError = CustomJSONError
 mypkg.__all__ = ['CustomJSONError']
 mypkg.CustomJSONError = CustomJSONError
 try:
