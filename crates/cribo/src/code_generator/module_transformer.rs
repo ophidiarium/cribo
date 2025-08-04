@@ -515,9 +515,14 @@ pub fn transform_module_to_init_function<'a>(
                             &target.id,
                             ctx.module_name,
                             module_scope_symbols,
-                        ) {
-                            body.push(crate::code_generator::module_registry::create_module_attr_assignment("module", &target.id));
-                        }
+                        )
+                    {
+                        body.push(
+                            crate::code_generator::module_registry::create_module_attr_assignment(
+                                "module", &target.id,
+                            ),
+                        );
+                    }
                 } else {
                     // Type annotation without value, just add it
                     body.push(stmt.clone());
@@ -1702,6 +1707,58 @@ fn transform_expr_for_builtin_shadowing(
         }
         Expr::ListComp(_) | Expr::SetComp(_) | Expr::DictComp(_) | Expr::Generator(_) => {
             // Comprehensions have their own scope, so we don't transform inside them
+        }
+        Expr::BoolOp(boolop) => {
+            for value in &mut boolop.values {
+                transform_expr_for_builtin_shadowing(value, builtin_locals, _python_version);
+            }
+        }
+        Expr::Await(await_expr) => {
+            transform_expr_for_builtin_shadowing(
+                &mut await_expr.value,
+                builtin_locals,
+                _python_version,
+            );
+        }
+        Expr::Yield(yield_expr) => {
+            if let Some(ref mut value) = yield_expr.value {
+                transform_expr_for_builtin_shadowing(value, builtin_locals, _python_version);
+            }
+        }
+        Expr::YieldFrom(yield_from) => {
+            transform_expr_for_builtin_shadowing(
+                &mut yield_from.value,
+                builtin_locals,
+                _python_version,
+            );
+        }
+        Expr::Starred(starred) => {
+            transform_expr_for_builtin_shadowing(
+                &mut starred.value,
+                builtin_locals,
+                _python_version,
+            );
+        }
+        Expr::Named(named) => {
+            transform_expr_for_builtin_shadowing(&mut named.value, builtin_locals, _python_version);
+        }
+        Expr::Slice(slice) => {
+            if let Some(ref mut lower) = slice.lower {
+                transform_expr_for_builtin_shadowing(lower, builtin_locals, _python_version);
+            }
+            if let Some(ref mut upper) = slice.upper {
+                transform_expr_for_builtin_shadowing(upper, builtin_locals, _python_version);
+            }
+            if let Some(ref mut step) = slice.step {
+                transform_expr_for_builtin_shadowing(step, builtin_locals, _python_version);
+            }
+        }
+        Expr::FString(_fstring) => {
+            // F-strings are immutable in ruff AST and require special handling
+            // We would need to rebuild the entire f-string structure to transform expressions
+            // inside interpolations. For now, we skip transforming f-strings as they are less
+            // likely to reference shadowed built-ins before assignment.
+            // TODO: Implement f-string transformation if needed by reconstructing the f-string
         }
         _ => {
             // Other expression types don't need transformation
