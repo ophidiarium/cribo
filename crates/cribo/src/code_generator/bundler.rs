@@ -6119,9 +6119,9 @@ impl<'a> Bundler<'a> {
                         }
                     } else {
                         // Check if this is a built-in type restoration (e.g., bytes = bytes)
-                        let is_builtin_restoration = if assign.targets.len() == 1 {
-                            if let (Expr::Name(target), Expr::Name(value)) =
-                                (&assign.targets[0], assign.value.as_ref())
+                        let is_builtin_restoration =
+                            if let ([Expr::Name(target)], Expr::Name(value)) =
+                                (assign.targets.as_slice(), assign.value.as_ref())
                             {
                                 // Check if it's a self-assignment of a built-in type
                                 target.id == value.id
@@ -6132,10 +6132,7 @@ impl<'a> Bundler<'a> {
                                     )
                             } else {
                                 false
-                            }
-                        } else {
-                            false
-                        };
+                            };
 
                         if is_builtin_restoration {
                             builtin_restorations.push(stmt);
