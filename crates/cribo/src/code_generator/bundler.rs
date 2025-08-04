@@ -2803,7 +2803,8 @@ impl<'a> Bundler<'a> {
         // Now reorder all collected inlined statements to ensure proper declaration order
         // This handles cross-module dependencies like classes inheriting from symbols defined in
         // other modules
-        let mut reordered_inlined_stmts = self.reorder_cross_module_statements(all_inlined_stmts);
+        let mut reordered_inlined_stmts =
+            self.reorder_cross_module_statements(all_inlined_stmts, python_version);
 
         // Filter out invalid assignments where we're trying to assign a module that uses an init
         // function For example, `mypkg.compat = compat` when `compat` is wrapped in an init
@@ -6003,7 +6004,11 @@ impl<'a> Bundler<'a> {
     /// Reorder statements from multiple modules to ensure proper declaration order
     /// This handles cross-module dependencies like classes inheriting from symbols defined in other
     /// modules
-    fn reorder_cross_module_statements(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
+    fn reorder_cross_module_statements(
+        &self,
+        statements: Vec<Stmt>,
+        python_version: u8,
+    ) -> Vec<Stmt> {
         let mut imports: Vec<Stmt> = Vec::new();
         let mut classes: Vec<Stmt> = Vec::new();
         let mut functions: Vec<Stmt> = Vec::new();
@@ -6054,7 +6059,7 @@ impl<'a> Bundler<'a> {
                                     // Check if the value is a built-in type
                                     ruff_python_stdlib::builtins::is_python_builtin(
                                         value_name.id.as_str(),
-                                        8,
+                                        python_version,
                                         false,
                                     )
                                 } else {
@@ -6120,7 +6125,7 @@ impl<'a> Bundler<'a> {
                                 target.id == value.id
                                     && ruff_python_stdlib::builtins::is_python_builtin(
                                         target.id.as_str(),
-                                        8,
+                                        python_version,
                                         false,
                                     )
                             } else {
