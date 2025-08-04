@@ -1434,52 +1434,6 @@ impl<'a> Bundler<'a> {
         }
     }
 
-    /// Collect all Name expressions that a given expression depends on
-    fn collect_name_dependencies(expr: &Expr, deps: &mut FxIndexSet<String>) {
-        match expr {
-            Expr::Name(name) => {
-                deps.insert(name.id.to_string());
-            }
-            Expr::Attribute(attr) => {
-                Self::collect_name_dependencies(&attr.value, deps);
-            }
-            Expr::Call(call) => {
-                Self::collect_name_dependencies(&call.func, deps);
-                for arg in &call.arguments.args {
-                    Self::collect_name_dependencies(arg, deps);
-                }
-            }
-            Expr::BinOp(binop) => {
-                Self::collect_name_dependencies(&binop.left, deps);
-                Self::collect_name_dependencies(&binop.right, deps);
-            }
-            Expr::UnaryOp(unaryop) => {
-                Self::collect_name_dependencies(&unaryop.operand, deps);
-            }
-            Expr::List(list) => {
-                for item in &list.elts {
-                    Self::collect_name_dependencies(item, deps);
-                }
-            }
-            Expr::Tuple(tuple) => {
-                for item in &tuple.elts {
-                    Self::collect_name_dependencies(item, deps);
-                }
-            }
-            Expr::Dict(dict) => {
-                for item in &dict.items {
-                    if let Some(key) = &item.key {
-                        Self::collect_name_dependencies(key, deps);
-                    }
-                    Self::collect_name_dependencies(&item.value, deps);
-                }
-            }
-            _ => {
-                // For other expression types, we don't need to track dependencies
-            }
-        }
-    }
-
     /// Check if module has forward references that would cause NameError
     pub(crate) fn check_module_has_forward_references(
         &self,
