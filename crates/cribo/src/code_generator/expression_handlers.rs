@@ -3,7 +3,12 @@
 //! This module contains functions for creating, analyzing, and transforming
 //! `rustpython_parser::ast::Expr` nodes during the bundling process.
 
-use ruff_python_ast::{Expr, ExprAttribute, ExprContext, Stmt};
+use log::debug;
+use ruff_python_ast::{
+    ExceptHandler, Expr, ExprAttribute, ExprContext, Identifier, Stmt, StmtClassDef,
+    StmtFunctionDef,
+};
+use ruff_text_size::TextRange;
 
 use super::bundler::Bundler;
 use crate::{
@@ -367,161 +372,216 @@ pub(super) fn resolve_import_aliases_in_expr(
 }
 
 /// Rewrite aliases in expression using the bundler's alias mappings
-pub(super) fn rewrite_aliases_in_expr(
-    expr: &mut Expr,
-    alias_to_canonical: &FxIndexMap<String, String>,
-) {
-    rewrite_aliases_in_expr_impl(expr, alias_to_canonical);
-}
-
-/// Implementation of alias rewriting in expressions
-pub(super) fn rewrite_aliases_in_expr_impl(
-    expr: &mut Expr,
-    alias_to_canonical: &FxIndexMap<String, String>,
-) {
+pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<String, String>) {
     match expr {
         Expr::Name(name_expr) => {
-            if let Some(canonical_name) = alias_to_canonical.get(name_expr.id.as_str()) {
-                name_expr.id = canonical_name.clone().into();
-            }
-        }
-        Expr::Attribute(attr_expr) => {
-            rewrite_aliases_in_expr_impl(&mut attr_expr.value, alias_to_canonical);
-        }
-        Expr::Call(call_expr) => {
-            rewrite_aliases_in_expr_impl(&mut call_expr.func, alias_to_canonical);
-            for arg in &mut call_expr.arguments.args {
-                rewrite_aliases_in_expr_impl(arg, alias_to_canonical);
-            }
-            for keyword in &mut call_expr.arguments.keywords {
-                rewrite_aliases_in_expr_impl(&mut keyword.value, alias_to_canonical);
-            }
-        }
-        Expr::Subscript(subscript_expr) => {
-            rewrite_aliases_in_expr_impl(&mut subscript_expr.value, alias_to_canonical);
-            rewrite_aliases_in_expr_impl(&mut subscript_expr.slice, alias_to_canonical);
-        }
-        Expr::List(list_expr) => {
-            for elt in &mut list_expr.elts {
-                rewrite_aliases_in_expr_impl(elt, alias_to_canonical);
-            }
-        }
-        Expr::Tuple(tuple_expr) => {
-            for elt in &mut tuple_expr.elts {
-                rewrite_aliases_in_expr_impl(elt, alias_to_canonical);
-            }
-        }
-        Expr::Set(set_expr) => {
-            for elt in &mut set_expr.elts {
-                rewrite_aliases_in_expr_impl(elt, alias_to_canonical);
-            }
-        }
-        Expr::Dict(dict_expr) => {
-            for item in &mut dict_expr.items {
-                if let Some(ref mut key) = item.key {
-                    rewrite_aliases_in_expr_impl(key, alias_to_canonical);
-                }
-                rewrite_aliases_in_expr_impl(&mut item.value, alias_to_canonical);
-            }
-        }
-        Expr::BinOp(binop_expr) => {
-            rewrite_aliases_in_expr_impl(&mut binop_expr.left, alias_to_canonical);
-            rewrite_aliases_in_expr_impl(&mut binop_expr.right, alias_to_canonical);
-        }
-        Expr::UnaryOp(unary_expr) => {
-            rewrite_aliases_in_expr_impl(&mut unary_expr.operand, alias_to_canonical);
-        }
-        Expr::BoolOp(bool_expr) => {
-            for value in &mut bool_expr.values {
-                rewrite_aliases_in_expr_impl(value, alias_to_canonical);
-            }
-        }
-        Expr::Compare(compare_expr) => {
-            rewrite_aliases_in_expr_impl(&mut compare_expr.left, alias_to_canonical);
-            for comparator in &mut compare_expr.comparators {
-                rewrite_aliases_in_expr_impl(comparator, alias_to_canonical);
-            }
-        }
-        Expr::If(if_expr) => {
-            rewrite_aliases_in_expr_impl(&mut if_expr.test, alias_to_canonical);
-            rewrite_aliases_in_expr_impl(&mut if_expr.body, alias_to_canonical);
-            rewrite_aliases_in_expr_impl(&mut if_expr.orelse, alias_to_canonical);
-        }
-        Expr::Lambda(lambda_expr) => {
-            if let Some(ref mut params) = lambda_expr.parameters {
-                for arg in &mut params.args {
-                    if let Some(ref mut default) = arg.default {
-                        rewrite_aliases_in_expr_impl(default, alias_to_canonical);
+            // Check if this is an aliased import that should be rewritten
+            if let Some(canonical) = alias_to_canonical.get(name_expr.id.as_str()) {
+                debug!(
+                    "Rewriting name '{}' to '{}' (context: {:?})",
+                    name_expr.id.as_str(),
+                    canonical,
+                    name_expr.ctx
+                );
+                // For Store context (assignments), we only rename simple names
+                if matches!(name_expr.ctx, ExprContext::Store) {
+                    name_expr.id = canonical.clone().into();
+                } else {
+                    // For Load context, handle dotted names
+                    if canonical.contains('.') {
+                        // Convert to attribute access (e.g., pathlib.Path)
+                        let parts: Vec<&str> = canonical.split('.').collect();
+                        *expr = expressions::dotted_name(&parts, name_expr.ctx);
+                    } else {
+                        // Simple module name
+                        name_expr.id = canonical.clone().into();
                     }
                 }
             }
-            rewrite_aliases_in_expr_impl(&mut lambda_expr.body, alias_to_canonical);
         }
-        Expr::ListComp(comp_expr) => {
-            rewrite_aliases_in_expr_impl(&mut comp_expr.elt, alias_to_canonical);
-            for generator in &mut comp_expr.generators {
-                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
+        Expr::Attribute(attr_expr) => {
+            // Check if the base is an aliased module
+            if let Expr::Name(name_expr) = &mut *attr_expr.value {
+                if let Some(canonical) = alias_to_canonical.get(name_expr.id.as_str()) {
+                    debug!(
+                        "Rewriting attribute base '{}' to '{}' in attribute expression",
+                        name_expr.id.as_str(),
+                        canonical
+                    );
+                    name_expr.id = canonical.clone().into();
+                }
+            } else {
+                debug!(
+                    "Attribute base is not a Name expression, it's {:?}",
+                    std::mem::discriminant(&*attr_expr.value)
+                );
+            }
+            // Recursively process the value
+            rewrite_aliases_in_expr(&mut attr_expr.value, alias_to_canonical);
+        }
+        Expr::Call(call_expr) => {
+            // Debug the function being called
+            if let Expr::Name(name) = &*call_expr.func {
+                debug!("Call expression with function name: {}", name.id.as_str());
+            } else if let Expr::Attribute(attr) = &*call_expr.func
+                && let Expr::Name(base) = &*attr.value
+            {
+                debug!(
+                    "Call expression with attribute: {}.{}",
+                    base.id.as_str(),
+                    attr.attr.as_str()
+                );
+            }
+
+            rewrite_aliases_in_expr(&mut call_expr.func, alias_to_canonical);
+            for (i, arg) in call_expr.arguments.args.iter_mut().enumerate() {
+                debug!("  Rewriting call arg {i}");
+                rewrite_aliases_in_expr(arg, alias_to_canonical);
+            }
+            for keyword in &mut call_expr.arguments.keywords {
+                rewrite_aliases_in_expr(&mut keyword.value, alias_to_canonical);
+            }
+        }
+        // Handle other expression types recursively
+        Expr::List(list_expr) => {
+            debug!("Rewriting aliases in list expression");
+            for elem in &mut list_expr.elts {
+                rewrite_aliases_in_expr(elem, alias_to_canonical);
+            }
+        }
+        Expr::Tuple(tuple_expr) => {
+            debug!("Rewriting aliases in tuple expression");
+            for elem in &mut tuple_expr.elts {
+                rewrite_aliases_in_expr(elem, alias_to_canonical);
+            }
+        }
+        Expr::Subscript(subscript_expr) => {
+            debug!("Rewriting aliases in subscript expression");
+            rewrite_aliases_in_expr(&mut subscript_expr.value, alias_to_canonical);
+            rewrite_aliases_in_expr(&mut subscript_expr.slice, alias_to_canonical);
+        }
+        Expr::BinOp(binop) => {
+            rewrite_aliases_in_expr(&mut binop.left, alias_to_canonical);
+            rewrite_aliases_in_expr(&mut binop.right, alias_to_canonical);
+        }
+        Expr::UnaryOp(unaryop) => {
+            rewrite_aliases_in_expr(&mut unaryop.operand, alias_to_canonical);
+        }
+        Expr::Compare(compare) => {
+            rewrite_aliases_in_expr(&mut compare.left, alias_to_canonical);
+            for comparator in &mut compare.comparators {
+                rewrite_aliases_in_expr(comparator, alias_to_canonical);
+            }
+        }
+        Expr::BoolOp(boolop) => {
+            for value in &mut boolop.values {
+                rewrite_aliases_in_expr(value, alias_to_canonical);
+            }
+        }
+        Expr::Dict(dict) => {
+            for item in &mut dict.items {
+                if let Some(ref mut key) = item.key {
+                    rewrite_aliases_in_expr(key, alias_to_canonical);
+                }
+                rewrite_aliases_in_expr(&mut item.value, alias_to_canonical);
+            }
+        }
+        Expr::Set(set) => {
+            for elem in &mut set.elts {
+                rewrite_aliases_in_expr(elem, alias_to_canonical);
+            }
+        }
+        Expr::ListComp(comp) => {
+            rewrite_aliases_in_expr(&mut comp.elt, alias_to_canonical);
+            for generator in &mut comp.generators {
+                rewrite_aliases_in_expr(&mut generator.iter, alias_to_canonical);
                 for if_clause in &mut generator.ifs {
-                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
+                    rewrite_aliases_in_expr(if_clause, alias_to_canonical);
                 }
             }
         }
-        Expr::SetComp(comp_expr) => {
-            rewrite_aliases_in_expr_impl(&mut comp_expr.elt, alias_to_canonical);
-            for generator in &mut comp_expr.generators {
-                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
+        Expr::SetComp(comp) => {
+            rewrite_aliases_in_expr(&mut comp.elt, alias_to_canonical);
+            for generator in &mut comp.generators {
+                rewrite_aliases_in_expr(&mut generator.iter, alias_to_canonical);
                 for if_clause in &mut generator.ifs {
-                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
+                    rewrite_aliases_in_expr(if_clause, alias_to_canonical);
                 }
             }
         }
-        Expr::DictComp(comp_expr) => {
-            rewrite_aliases_in_expr_impl(&mut comp_expr.key, alias_to_canonical);
-            rewrite_aliases_in_expr_impl(&mut comp_expr.value, alias_to_canonical);
-            for generator in &mut comp_expr.generators {
-                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
+        Expr::DictComp(comp) => {
+            rewrite_aliases_in_expr(&mut comp.key, alias_to_canonical);
+            rewrite_aliases_in_expr(&mut comp.value, alias_to_canonical);
+            for generator in &mut comp.generators {
+                rewrite_aliases_in_expr(&mut generator.iter, alias_to_canonical);
                 for if_clause in &mut generator.ifs {
-                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
+                    rewrite_aliases_in_expr(if_clause, alias_to_canonical);
                 }
             }
         }
-        Expr::Generator(gen_expr) => {
-            rewrite_aliases_in_expr_impl(&mut gen_expr.elt, alias_to_canonical);
-            for generator in &mut gen_expr.generators {
-                rewrite_aliases_in_expr_impl(&mut generator.iter, alias_to_canonical);
+        Expr::Generator(comp) => {
+            rewrite_aliases_in_expr(&mut comp.elt, alias_to_canonical);
+            for generator in &mut comp.generators {
+                rewrite_aliases_in_expr(&mut generator.iter, alias_to_canonical);
                 for if_clause in &mut generator.ifs {
-                    rewrite_aliases_in_expr_impl(if_clause, alias_to_canonical);
+                    rewrite_aliases_in_expr(if_clause, alias_to_canonical);
                 }
             }
         }
-        Expr::Starred(starred_expr) => {
-            rewrite_aliases_in_expr_impl(&mut starred_expr.value, alias_to_canonical);
+        Expr::Lambda(lambda) => {
+            // Lambda parameters might have annotations
+            if let Some(ref mut params) = lambda.parameters {
+                for param in &mut params.posonlyargs {
+                    if let Some(ref mut annotation) = param.parameter.annotation {
+                        rewrite_aliases_in_expr(annotation, alias_to_canonical);
+                    }
+                }
+                for param in &mut params.args {
+                    if let Some(ref mut annotation) = param.parameter.annotation {
+                        rewrite_aliases_in_expr(annotation, alias_to_canonical);
+                    }
+                }
+                for param in &mut params.kwonlyargs {
+                    if let Some(ref mut annotation) = param.parameter.annotation {
+                        rewrite_aliases_in_expr(annotation, alias_to_canonical);
+                    }
+                }
+            }
+            // Process the body
+            rewrite_aliases_in_expr(&mut lambda.body, alias_to_canonical);
+        }
+        Expr::If(ifexp) => {
+            rewrite_aliases_in_expr(&mut ifexp.test, alias_to_canonical);
+            rewrite_aliases_in_expr(&mut ifexp.body, alias_to_canonical);
+            rewrite_aliases_in_expr(&mut ifexp.orelse, alias_to_canonical);
         }
         Expr::Yield(yield_expr) => {
             if let Some(ref mut value) = yield_expr.value {
-                rewrite_aliases_in_expr_impl(value, alias_to_canonical);
+                rewrite_aliases_in_expr(value, alias_to_canonical);
             }
         }
-        Expr::YieldFrom(yield_expr) => {
-            rewrite_aliases_in_expr_impl(&mut yield_expr.value, alias_to_canonical);
+        Expr::YieldFrom(yield_from) => {
+            rewrite_aliases_in_expr(&mut yield_from.value, alias_to_canonical);
         }
         Expr::Await(await_expr) => {
-            rewrite_aliases_in_expr_impl(&mut await_expr.value, alias_to_canonical);
+            rewrite_aliases_in_expr(&mut await_expr.value, alias_to_canonical);
         }
-        Expr::Slice(slice_expr) => {
-            if let Some(ref mut lower) = slice_expr.lower {
-                rewrite_aliases_in_expr_impl(lower, alias_to_canonical);
+        Expr::Starred(starred) => {
+            rewrite_aliases_in_expr(&mut starred.value, alias_to_canonical);
+        }
+        Expr::Slice(slice) => {
+            if let Some(ref mut lower) = slice.lower {
+                rewrite_aliases_in_expr(lower, alias_to_canonical);
             }
-            if let Some(ref mut upper) = slice_expr.upper {
-                rewrite_aliases_in_expr_impl(upper, alias_to_canonical);
+            if let Some(ref mut upper) = slice.upper {
+                rewrite_aliases_in_expr(upper, alias_to_canonical);
             }
-            if let Some(ref mut step) = slice_expr.step {
-                rewrite_aliases_in_expr_impl(step, alias_to_canonical);
+            if let Some(ref mut step) = slice.step {
+                rewrite_aliases_in_expr(step, alias_to_canonical);
             }
         }
-        Expr::Named(named_expr) => {
-            rewrite_aliases_in_expr_impl(&mut named_expr.target, alias_to_canonical);
-            rewrite_aliases_in_expr_impl(&mut named_expr.value, alias_to_canonical);
+        Expr::Named(named) => {
+            rewrite_aliases_in_expr(&mut named.value, alias_to_canonical);
         }
         Expr::FString(fstring) => {
             // Handle f-string interpolations by transforming each expression element
@@ -540,7 +600,7 @@ pub(super) fn rewrite_aliases_in_expr_impl(
                         // Clone the expression and rewrite aliases in it
                         let mut new_expr = (*expr_elem.expression).clone();
                         let old_expr_debug = format!("{new_expr:?}");
-                        rewrite_aliases_in_expr_impl(&mut new_expr, alias_to_canonical);
+                        rewrite_aliases_in_expr(&mut new_expr, alias_to_canonical);
                         let new_expr_debug = format!("{new_expr:?}");
 
                         if old_expr_debug != new_expr_debug {
@@ -914,4 +974,263 @@ pub(super) fn create_dotted_attribute_assignment(
     }
 
     Ok(stmt)
+}
+
+/// Recursively rewrite aliases in statements
+pub fn rewrite_aliases_in_stmt(stmt: &mut Stmt, alias_to_canonical: &FxIndexMap<String, String>) {
+    match stmt {
+        Stmt::Expr(expr_stmt) => {
+            rewrite_aliases_in_expr(&mut expr_stmt.value, alias_to_canonical);
+        }
+        Stmt::Assign(assign) => {
+            rewrite_aliases_in_expr(&mut assign.value, alias_to_canonical);
+            for target in &mut assign.targets {
+                rewrite_aliases_in_expr(target, alias_to_canonical);
+            }
+        }
+        Stmt::Return(return_stmt) => {
+            debug!("Rewriting aliases in return statement");
+            if let Some(ref mut value) = return_stmt.value {
+                rewrite_aliases_in_expr(value, alias_to_canonical);
+            }
+        }
+        Stmt::FunctionDef(func_def) => {
+            rewrite_aliases_in_function(func_def, alias_to_canonical);
+        }
+        Stmt::ClassDef(class_def) => {
+            rewrite_aliases_in_class(class_def, alias_to_canonical);
+        }
+        Stmt::AnnAssign(ann_assign) => {
+            // Rewrite the annotation
+            rewrite_aliases_in_expr(&mut ann_assign.annotation, alias_to_canonical);
+            // Rewrite the target
+            rewrite_aliases_in_expr(&mut ann_assign.target, alias_to_canonical);
+            // Rewrite the value if present
+            if let Some(ref mut value) = ann_assign.value {
+                rewrite_aliases_in_expr(value, alias_to_canonical);
+            }
+        }
+        Stmt::If(if_stmt) => {
+            rewrite_aliases_in_expr(&mut if_stmt.test, alias_to_canonical);
+            for stmt in &mut if_stmt.body {
+                rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+            }
+            for clause in &mut if_stmt.elif_else_clauses {
+                if let Some(ref mut condition) = clause.test {
+                    rewrite_aliases_in_expr(condition, alias_to_canonical);
+                }
+                for stmt in &mut clause.body {
+                    rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+                }
+            }
+        }
+        Stmt::While(while_stmt) => {
+            rewrite_aliases_in_expr(&mut while_stmt.test, alias_to_canonical);
+            for stmt in &mut while_stmt.body {
+                rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+            }
+            for stmt in &mut while_stmt.orelse {
+                rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+            }
+        }
+        Stmt::For(for_stmt) => {
+            rewrite_aliases_in_expr(&mut for_stmt.iter, alias_to_canonical);
+            for stmt in &mut for_stmt.body {
+                rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+            }
+            for stmt in &mut for_stmt.orelse {
+                rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+            }
+        }
+        Stmt::With(with_stmt) => {
+            for item in &mut with_stmt.items {
+                rewrite_aliases_in_expr(&mut item.context_expr, alias_to_canonical);
+            }
+            for stmt in &mut with_stmt.body {
+                rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+            }
+        }
+        Stmt::Try(try_stmt) => {
+            for stmt in &mut try_stmt.body {
+                rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+            }
+            for handler in &mut try_stmt.handlers {
+                rewrite_aliases_in_except_handler(handler, alias_to_canonical);
+            }
+            for stmt in &mut try_stmt.orelse {
+                rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+            }
+            for stmt in &mut try_stmt.finalbody {
+                rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+            }
+        }
+        Stmt::AugAssign(aug_assign) => {
+            rewrite_aliases_in_expr(&mut aug_assign.target, alias_to_canonical);
+            rewrite_aliases_in_expr(&mut aug_assign.value, alias_to_canonical);
+        }
+        Stmt::Raise(raise_stmt) => {
+            if let Some(ref mut exc) = raise_stmt.exc {
+                rewrite_aliases_in_expr(exc, alias_to_canonical);
+            }
+            if let Some(ref mut cause) = raise_stmt.cause {
+                rewrite_aliases_in_expr(cause, alias_to_canonical);
+            }
+        }
+        Stmt::Assert(assert_stmt) => {
+            rewrite_aliases_in_expr(&mut assert_stmt.test, alias_to_canonical);
+            if let Some(ref mut msg) = assert_stmt.msg {
+                rewrite_aliases_in_expr(msg, alias_to_canonical);
+            }
+        }
+        Stmt::Delete(delete_stmt) => {
+            for target in &mut delete_stmt.targets {
+                rewrite_aliases_in_expr(target, alias_to_canonical);
+            }
+        }
+        Stmt::Global(_)
+        | Stmt::Nonlocal(_)
+        | Stmt::Pass(_)
+        | Stmt::Break(_)
+        | Stmt::Continue(_) => {
+            // These statements don't contain expressions to rewrite
+        }
+        // Handle other statement types as needed
+        _ => {
+            debug!(
+                "Unhandled statement type in rewrite_aliases_in_stmt: {:?}",
+                std::mem::discriminant(stmt)
+            );
+        }
+    }
+}
+
+/// Rewrite aliases in exception handlers
+fn rewrite_aliases_in_except_handler(
+    handler: &mut ExceptHandler,
+    alias_to_canonical: &FxIndexMap<String, String>,
+) {
+    match handler {
+        ExceptHandler::ExceptHandler(except_handler) => {
+            if let Some(ref mut type_) = except_handler.type_ {
+                rewrite_aliases_in_expr(type_, alias_to_canonical);
+            }
+            for stmt in &mut except_handler.body {
+                rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+            }
+        }
+    }
+}
+
+/// Rewrite aliases in function definitions
+fn rewrite_aliases_in_function(
+    func_def: &mut StmtFunctionDef,
+    alias_to_canonical: &FxIndexMap<String, String>,
+) {
+    debug!("Rewriting aliases in function: {}", func_def.name.as_str());
+
+    // Rewrite parameter annotations
+    for param in &mut func_def.parameters.posonlyargs {
+        if let Some(ref mut annotation) = param.parameter.annotation {
+            rewrite_aliases_in_expr(annotation, alias_to_canonical);
+        }
+    }
+    for param in &mut func_def.parameters.args {
+        if let Some(ref mut annotation) = param.parameter.annotation {
+            rewrite_aliases_in_expr(annotation, alias_to_canonical);
+        }
+    }
+    for param in &mut func_def.parameters.kwonlyargs {
+        if let Some(ref mut annotation) = param.parameter.annotation {
+            rewrite_aliases_in_expr(annotation, alias_to_canonical);
+        }
+    }
+    if let Some(ref mut vararg) = func_def.parameters.vararg
+        && let Some(ref mut annotation) = vararg.annotation
+    {
+        rewrite_aliases_in_expr(annotation, alias_to_canonical);
+    }
+    if let Some(ref mut kwarg) = func_def.parameters.kwarg
+        && let Some(ref mut annotation) = kwarg.annotation
+    {
+        rewrite_aliases_in_expr(annotation, alias_to_canonical);
+    }
+
+    // Rewrite return type annotation
+    if let Some(ref mut returns) = func_def.returns {
+        rewrite_aliases_in_expr(returns, alias_to_canonical);
+    }
+
+    // First handle global statements specially
+    rewrite_global_statements_in_function(func_def, alias_to_canonical);
+
+    // Then rewrite the rest of the function body, including the global statements
+    // This ensures that all references are consistently renamed
+    for (idx, stmt) in func_def.body.iter_mut().enumerate() {
+        debug!(
+            "  Rewriting aliases in function body statement {}: {:?}",
+            idx,
+            std::mem::discriminant(stmt)
+        );
+        rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+    }
+}
+
+/// Rewrite only global statements in function, not other references
+fn rewrite_global_statements_in_function(
+    func_def: &mut StmtFunctionDef,
+    alias_to_canonical: &FxIndexMap<String, String>,
+) {
+    for stmt in &mut func_def.body {
+        rewrite_global_statements_only(stmt, alias_to_canonical);
+    }
+}
+
+/// Recursively rewrite only global statements, not other name references
+fn rewrite_global_statements_only(
+    stmt: &mut Stmt,
+    alias_to_canonical: &FxIndexMap<String, String>,
+) {
+    match stmt {
+        Stmt::Global(global_stmt) => {
+            // Apply renames to global variable names
+            for name in &mut global_stmt.names {
+                let name_str = name.as_str();
+                if let Some(new_name) = alias_to_canonical.get(name_str) {
+                    debug!("Rewriting global statement variable '{name_str}' to '{new_name}'");
+                    *name = Identifier::new(new_name, TextRange::default());
+                }
+            }
+        }
+        // For control flow statements, recurse into their bodies
+        Stmt::If(if_stmt) => {
+            for stmt in &mut if_stmt.body {
+                rewrite_global_statements_only(stmt, alias_to_canonical);
+            }
+            for clause in &mut if_stmt.elif_else_clauses {
+                for stmt in &mut clause.body {
+                    rewrite_global_statements_only(stmt, alias_to_canonical);
+                }
+            }
+        }
+        // Handle other control flow statements similarly...
+        _ => {}
+    }
+}
+
+/// Rewrite aliases in class definitions
+fn rewrite_aliases_in_class(
+    class_def: &mut StmtClassDef,
+    alias_to_canonical: &FxIndexMap<String, String>,
+) {
+    // Rewrite base classes
+    if let Some(arguments) = &mut class_def.arguments {
+        for base in &mut arguments.args {
+            rewrite_aliases_in_expr(base, alias_to_canonical);
+        }
+    }
+
+    // Rewrite class body
+    for stmt in &mut class_def.body {
+        rewrite_aliases_in_stmt(stmt, alias_to_canonical);
+    }
 }

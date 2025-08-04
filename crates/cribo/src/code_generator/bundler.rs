@@ -1204,17 +1204,27 @@ impl<'a> Bundler<'a> {
                         }
                     }
 
-                    // Apply renames and resolve import aliases in function body
+                    // First resolve import aliases in function body
                     for body_stmt in &mut func_def_clone.body {
                         Self::resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);
-                        self.rewrite_aliases_in_stmt(body_stmt, &module_renames);
-                        // Also apply semantic renames from context
-                        if let Some(semantic_renames) = ctx.module_renames.get(module_name) {
-                            self.rewrite_aliases_in_stmt(body_stmt, semantic_renames);
-                        }
                     }
 
-                    ctx.inlined_stmts.push(Stmt::FunctionDef(func_def_clone));
+                    // Create a temporary statement to rewrite the entire function properly
+                    let mut temp_stmt = Stmt::FunctionDef(func_def_clone);
+
+                    // Apply renames to the entire function (this will handle global statements
+                    // correctly)
+                    expression_handlers::rewrite_aliases_in_stmt(&mut temp_stmt, &module_renames);
+
+                    // Also apply semantic renames from context
+                    if let Some(semantic_renames) = ctx.module_renames.get(module_name) {
+                        expression_handlers::rewrite_aliases_in_stmt(
+                            &mut temp_stmt,
+                            semantic_renames,
+                        );
+                    }
+
+                    ctx.inlined_stmts.push(temp_stmt);
                 }
                 Stmt::ClassDef(class_def) => {
                     self.inline_class(class_def, module_name, &mut module_renames, ctx);
@@ -1538,7 +1548,7 @@ impl<'a> Bundler<'a> {
                 }
                 _ => {
                     // For other statements, use the existing rewrite method
-                    self.rewrite_aliases_in_stmt(stmt, entry_module_renames);
+                    expression_handlers::rewrite_aliases_in_stmt(stmt, entry_module_renames);
 
                     // Check if this is an assignment that was renamed
                     if let Stmt::Assign(assign) = &stmt {
@@ -4743,11 +4753,9 @@ impl<'a> Bundler<'a> {
         };
 
         // Apply renames to class body - classes don't create new scopes for globals
-        // We need to create a temporary Stmt to pass to rewrite_aliases_in_stmt
-        let mut temp_stmt = Stmt::ClassDef(class_def.clone());
-        self.rewrite_aliases_in_stmt(&mut temp_stmt, entry_module_renames);
-        if let Stmt::ClassDef(updated_class) = temp_stmt {
-            *class_def = updated_class;
+        // Apply renames to class body - classes don't create new scopes for globals
+        for stmt in &mut class_def.body {
+            expression_handlers::rewrite_aliases_in_stmt(stmt, entry_module_renames);
         }
 
         if needs_reassignment {
@@ -4760,225 +4768,8 @@ impl<'a> Bundler<'a> {
         }
     }
 
-    fn rewrite_aliases_in_stmt(
-        &self,
-        stmt: &mut Stmt,
-        alias_to_canonical: &FxIndexMap<String, String>,
-    ) {
-        match stmt {
-            Stmt::FunctionDef(func_def) => {
-                // Rewrite in parameter annotations and defaults
-                let params = &mut func_def.parameters;
-                for param in &mut params.args {
-                    if let Some(ref mut annotation) = param.parameter.annotation {
-                        expression_handlers::rewrite_aliases_in_expr(
-                            annotation,
-                            alias_to_canonical,
-                        );
-                    }
-                    if let Some(ref mut default) = param.default {
-                        expression_handlers::rewrite_aliases_in_expr(default, alias_to_canonical);
-                    }
-                }
-
-                // Rewrite return type annotation
-                if let Some(ref mut returns) = func_def.returns {
-                    expression_handlers::rewrite_aliases_in_expr(returns, alias_to_canonical);
-                }
-
-                // Rewrite in function body
-                for stmt in &mut func_def.body {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-            }
-            Stmt::ClassDef(class_def) => {
-                // Rewrite in base classes
-                if let Some(ref mut arguments) = class_def.arguments {
-                    for arg in &mut arguments.args {
-                        expression_handlers::rewrite_aliases_in_expr(arg, alias_to_canonical);
-                    }
-                }
-                // Rewrite in class body
-                for stmt in &mut class_def.body {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-            }
-            Stmt::If(if_stmt) => {
-                expression_handlers::rewrite_aliases_in_expr(&mut if_stmt.test, alias_to_canonical);
-                for stmt in &mut if_stmt.body {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-                for clause in &mut if_stmt.elif_else_clauses {
-                    if let Some(ref mut condition) = clause.test {
-                        expression_handlers::rewrite_aliases_in_expr(condition, alias_to_canonical);
-                    }
-                    for stmt in &mut clause.body {
-                        self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                    }
-                }
-            }
-            Stmt::While(while_stmt) => {
-                expression_handlers::rewrite_aliases_in_expr(
-                    &mut while_stmt.test,
-                    alias_to_canonical,
-                );
-                for stmt in &mut while_stmt.body {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-                for stmt in &mut while_stmt.orelse {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-            }
-            Stmt::For(for_stmt) => {
-                expression_handlers::rewrite_aliases_in_expr(
-                    &mut for_stmt.iter,
-                    alias_to_canonical,
-                );
-                for stmt in &mut for_stmt.body {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-                for stmt in &mut for_stmt.orelse {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-            }
-            Stmt::With(with_stmt) => {
-                for item in &mut with_stmt.items {
-                    expression_handlers::rewrite_aliases_in_expr(
-                        &mut item.context_expr,
-                        alias_to_canonical,
-                    );
-                }
-                for stmt in &mut with_stmt.body {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-            }
-            Stmt::Try(try_stmt) => {
-                for stmt in &mut try_stmt.body {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-                for handler in &mut try_stmt.handlers {
-                    self.rewrite_aliases_in_except_handler(handler, alias_to_canonical);
-                }
-                for stmt in &mut try_stmt.orelse {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-                for stmt in &mut try_stmt.finalbody {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-            }
-            Stmt::Assign(assign) => {
-                // Rewrite in targets
-                for target in &mut assign.targets {
-                    expression_handlers::rewrite_aliases_in_expr(target, alias_to_canonical);
-                }
-                // Rewrite in value
-                expression_handlers::rewrite_aliases_in_expr(&mut assign.value, alias_to_canonical);
-            }
-            Stmt::AugAssign(aug_assign) => {
-                expression_handlers::rewrite_aliases_in_expr(
-                    &mut aug_assign.target,
-                    alias_to_canonical,
-                );
-                expression_handlers::rewrite_aliases_in_expr(
-                    &mut aug_assign.value,
-                    alias_to_canonical,
-                );
-            }
-            Stmt::AnnAssign(ann_assign) => {
-                expression_handlers::rewrite_aliases_in_expr(
-                    &mut ann_assign.target,
-                    alias_to_canonical,
-                );
-                expression_handlers::rewrite_aliases_in_expr(
-                    &mut ann_assign.annotation,
-                    alias_to_canonical,
-                );
-                if let Some(ref mut value) = ann_assign.value {
-                    expression_handlers::rewrite_aliases_in_expr(value, alias_to_canonical);
-                }
-            }
-            Stmt::Expr(expr_stmt) => {
-                expression_handlers::rewrite_aliases_in_expr(
-                    &mut expr_stmt.value,
-                    alias_to_canonical,
-                );
-            }
-            Stmt::Return(return_stmt) => {
-                if let Some(ref mut value) = return_stmt.value {
-                    expression_handlers::rewrite_aliases_in_expr(value, alias_to_canonical);
-                }
-            }
-            Stmt::Raise(raise_stmt) => {
-                if let Some(ref mut exc) = raise_stmt.exc {
-                    expression_handlers::rewrite_aliases_in_expr(exc, alias_to_canonical);
-                }
-                if let Some(ref mut cause) = raise_stmt.cause {
-                    expression_handlers::rewrite_aliases_in_expr(cause, alias_to_canonical);
-                }
-            }
-            Stmt::Assert(assert_stmt) => {
-                expression_handlers::rewrite_aliases_in_expr(
-                    &mut assert_stmt.test,
-                    alias_to_canonical,
-                );
-                if let Some(ref mut msg) = assert_stmt.msg {
-                    expression_handlers::rewrite_aliases_in_expr(msg, alias_to_canonical);
-                }
-            }
-            Stmt::Delete(delete_stmt) => {
-                for target in &mut delete_stmt.targets {
-                    expression_handlers::rewrite_aliases_in_expr(target, alias_to_canonical);
-                }
-            }
-            Stmt::Global(global_stmt) => {
-                // Apply renames to global variable names
-                for name in &mut global_stmt.names {
-                    let name_str = name.as_str();
-                    if let Some(new_name) = alias_to_canonical.get(name_str) {
-                        log::debug!("Rewriting global variable '{name_str}' to '{new_name}'");
-                        *name = Identifier::new(new_name, TextRange::default());
-                    }
-                }
-            }
-            Stmt::Nonlocal(_) => {
-                // Nonlocal statements don't need rewriting in our use case
-            }
-            Stmt::Pass(_) | Stmt::Break(_) | Stmt::Continue(_) => {
-                // These don't contain expressions
-            }
-            Stmt::Import(_) | Stmt::ImportFrom(_) => {
-                // Import statements are handled separately and shouldn't be rewritten here
-            }
-            Stmt::TypeAlias(type_alias) => {
-                expression_handlers::rewrite_aliases_in_expr(
-                    &mut type_alias.value,
-                    alias_to_canonical,
-                );
-            }
-            Stmt::Match(_) => {
-                // Match statements are not handled in the original implementation
-            }
-            // IPython-specific statements
-            Stmt::IpyEscapeCommand(_) => {
-                // These don't contain expressions that need rewriting
-            }
-        }
-    }
-
-    /// Helper to rewrite aliases in except handlers to reduce nesting
-    fn rewrite_aliases_in_except_handler(
-        &self,
-        handler: &mut ruff_python_ast::ExceptHandler,
-        alias_to_canonical: &FxIndexMap<String, String>,
-    ) {
-        match handler {
-            ruff_python_ast::ExceptHandler::ExceptHandler(except_handler) => {
-                for stmt in &mut except_handler.body {
-                    self.rewrite_aliases_in_stmt(stmt, alias_to_canonical);
-                }
-            }
-        }
-    }
+    // rewrite_aliases_in_stmt and rewrite_aliases_in_except_handler have been moved to
+    // expression_handlers.rs
 
     /// Check if an assignment statement needs a reassignment due to renaming
     fn check_renamed_assignment(
@@ -6581,10 +6372,10 @@ impl<'a> Bundler<'a> {
         // Apply renames and resolve import aliases in class body
         for body_stmt in &mut class_def_clone.body {
             Self::resolve_import_aliases_in_stmt(body_stmt, &ctx.import_aliases);
-            self.rewrite_aliases_in_stmt(body_stmt, module_renames);
+            expression_handlers::rewrite_aliases_in_stmt(body_stmt, module_renames);
             // Also apply semantic renames from context
             if let Some(semantic_renames) = ctx.module_renames.get(module_name) {
-                self.rewrite_aliases_in_stmt(body_stmt, semantic_renames);
+                expression_handlers::rewrite_aliases_in_stmt(body_stmt, semantic_renames);
             }
         }
 
