@@ -253,6 +253,21 @@ pub fn transform_module_to_init_function<'a>(
                 target.id
             );
             builtin_locals.insert(target.id.to_string());
+        } else if let Stmt::AnnAssign(ann_assign) = stmt
+            && let Expr::Name(target) = ann_assign.target.as_ref()
+            && ann_assign.value.is_some()
+            && ruff_python_stdlib::builtins::is_python_builtin(
+                target.id.as_str(),
+                ctx.python_version,
+                false,
+            )
+        {
+            debug!(
+                "Found annotated built-in type '{}' that will be assigned as local variable in \
+                 init function",
+                target.id
+            );
+            builtin_locals.insert(target.id.to_string());
         }
     }
 
@@ -441,6 +456,71 @@ pub fn transform_module_to_init_function<'a>(
                             _ => None,
                         })
                     );
+                }
+            }
+            Stmt::AnnAssign(ann_assign) => {
+                // Handle annotated assignments similar to regular assignments
+                if ann_assign.value.is_some() {
+                    let mut ann_assign_clone = ann_assign.clone();
+
+                    // Use actual module-level variables if available, but filter to only exported
+                    // ones
+                    let module_level_vars = if let Some(ref global_info) = ctx.global_info {
+                        let all_vars = &global_info.module_level_vars;
+                        let mut exported_vars = rustc_hash::FxHashSet::default();
+                        for var in all_vars {
+                            if bundler.should_export_symbol(var, ctx.module_name) {
+                                exported_vars.insert(var.clone());
+                            }
+                        }
+                        exported_vars
+                    } else {
+                        rustc_hash::FxHashSet::default()
+                    };
+
+                    // Transform references to built-ins that will be shadowed
+                    if let Some(ref mut value) = ann_assign_clone.value {
+                        transform_expr_for_builtin_shadowing(
+                            value,
+                            &builtin_locals,
+                            ctx.python_version,
+                        );
+
+                        // Also transform module-level variable references
+                        transform_expr_for_module_vars(
+                            value,
+                            &module_level_vars,
+                            ctx.python_version,
+                        );
+                    }
+
+                    // Transform the annotation expression as well
+                    transform_expr_for_builtin_shadowing(
+                        &mut ann_assign_clone.annotation,
+                        &builtin_locals,
+                        ctx.python_version,
+                    );
+                    transform_expr_for_module_vars(
+                        &mut ann_assign_clone.annotation,
+                        &module_level_vars,
+                        ctx.python_version,
+                    );
+
+                    body.push(Stmt::AnnAssign(ann_assign_clone));
+
+                    // Also set as module attribute if it should be exported
+                    if let Expr::Name(target) = ann_assign.target.as_ref()
+                        && should_include_symbol(
+                            bundler,
+                            &target.id,
+                            ctx.module_name,
+                            module_scope_symbols,
+                        ) {
+                            body.push(crate::code_generator::module_registry::create_module_attr_assignment("module", &target.id));
+                        }
+                } else {
+                    // Type annotation without value, just add it
+                    body.push(stmt.clone());
                 }
             }
             Stmt::Try(_try_stmt) => {
