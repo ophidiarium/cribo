@@ -239,36 +239,37 @@ pub fn transform_module_to_init_function<'a>(
     // First, scan the body to find all built-in names that will be assigned as local variables
     let mut builtin_locals = rustc_hash::FxHashSet::default();
     for stmt in &ast.body {
-        if let Stmt::Assign(assign) = stmt
-            && assign.targets.len() == 1
-            && let Expr::Name(target) = &assign.targets[0]
+        let target_opt = match stmt {
+            Stmt::Assign(assign) if assign.targets.len() == 1 => {
+                if let Expr::Name(target) = &assign.targets[0] {
+                    Some(target)
+                } else {
+                    None
+                }
+            }
+            Stmt::AnnAssign(ann_assign) if ann_assign.value.is_some() => {
+                if let Expr::Name(target) = ann_assign.target.as_ref() {
+                    Some(target)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        if let Some(target) = target_opt
             && ruff_python_stdlib::builtins::is_python_builtin(
                 target.id.as_str(),
                 ctx.python_version,
                 false,
-            )
-        {
-            debug!(
-                "Found built-in type '{}' that will be assigned as local variable in init function",
-                target.id
-            );
-            builtin_locals.insert(target.id.to_string());
-        } else if let Stmt::AnnAssign(ann_assign) = stmt
-            && let Expr::Name(target) = ann_assign.target.as_ref()
-            && ann_assign.value.is_some()
-            && ruff_python_stdlib::builtins::is_python_builtin(
-                target.id.as_str(),
-                ctx.python_version,
-                false,
-            )
-        {
-            debug!(
-                "Found annotated built-in type '{}' that will be assigned as local variable in \
-                 init function",
-                target.id
-            );
-            builtin_locals.insert(target.id.to_string());
-        }
+            ) {
+                debug!(
+                    "Found built-in type '{}' that will be assigned as local variable in init \
+                     function",
+                    target.id
+                );
+                builtin_locals.insert(target.id.to_string());
+            }
     }
 
     // Helper function to get exported module-level variables
