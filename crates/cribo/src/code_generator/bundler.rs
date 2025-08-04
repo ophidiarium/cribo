@@ -6058,17 +6058,15 @@ impl<'a> Bundler<'a> {
                         // Check if this is a namespace attribute assignment of a built-in type
                         // e.g., compat.bytes = bytes
                         let is_namespace_builtin_assignment =
-                            if let Expr::Attribute(_attr) = &assign.targets[0] {
-                                if let Expr::Name(value_name) = assign.value.as_ref() {
-                                    // Check if the value is a built-in type
-                                    ruff_python_stdlib::builtins::is_python_builtin(
-                                        value_name.id.as_str(),
-                                        python_version,
-                                        false,
-                                    )
-                                } else {
-                                    false
-                                }
+                            if let (Expr::Attribute(_attr), Expr::Name(value_name)) =
+                                (&assign.targets[0], assign.value.as_ref())
+                            {
+                                // Check if the value is a built-in type
+                                ruff_python_stdlib::builtins::is_python_builtin(
+                                    value_name.id.as_str(),
+                                    python_version,
+                                    false,
+                                )
                             } else {
                                 false
                             };
