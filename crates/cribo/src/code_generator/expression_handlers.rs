@@ -1215,7 +1215,47 @@ fn rewrite_global_statements_only(
                 }
             }
         }
-        // Handle other control flow statements similarly...
+        Stmt::For(for_stmt) => {
+            for stmt in &mut for_stmt.body {
+                rewrite_global_statements_only(stmt, alias_to_canonical);
+            }
+            for stmt in &mut for_stmt.orelse {
+                rewrite_global_statements_only(stmt, alias_to_canonical);
+            }
+        }
+        Stmt::While(while_stmt) => {
+            for stmt in &mut while_stmt.body {
+                rewrite_global_statements_only(stmt, alias_to_canonical);
+            }
+            for stmt in &mut while_stmt.orelse {
+                rewrite_global_statements_only(stmt, alias_to_canonical);
+            }
+        }
+        Stmt::With(with_stmt) => {
+            for stmt in &mut with_stmt.body {
+                rewrite_global_statements_only(stmt, alias_to_canonical);
+            }
+        }
+        Stmt::Try(try_stmt) => {
+            for stmt in &mut try_stmt.body {
+                rewrite_global_statements_only(stmt, alias_to_canonical);
+            }
+            for handler in &mut try_stmt.handlers {
+                match handler {
+                    ExceptHandler::ExceptHandler(except_handler) => {
+                        for stmt in &mut except_handler.body {
+                            rewrite_global_statements_only(stmt, alias_to_canonical);
+                        }
+                    }
+                }
+            }
+            for stmt in &mut try_stmt.orelse {
+                rewrite_global_statements_only(stmt, alias_to_canonical);
+            }
+            for stmt in &mut try_stmt.finalbody {
+                rewrite_global_statements_only(stmt, alias_to_canonical);
+            }
+        }
         _ => {}
     }
 }
