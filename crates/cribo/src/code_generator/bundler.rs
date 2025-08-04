@@ -3,7 +3,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use cow_utils::CowUtils;
 use log::debug;
 use ruff_python_ast::{
     Alias, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName,
@@ -26,7 +25,9 @@ use crate::{
             RecursiveImportTransformer, RecursiveImportTransformerParams,
             resolve_relative_import_with_context,
         },
-        module_registry::{INIT_RESULT_VAR, generate_unique_name},
+        module_registry::{
+            INIT_RESULT_VAR, generate_unique_name, sanitize_module_name_for_identifier,
+        },
         namespace_manager,
     },
     cribo_graph::CriboGraph as DependencyGraph,
@@ -2890,7 +2891,7 @@ impl<'a> Bundler<'a> {
 
             if needs_namespace {
                 // Check if this namespace was already created
-                let namespace_var = module_name.cow_replace('.', "_").into_owned();
+                let namespace_var = sanitize_module_name_for_identifier(module_name);
                 let namespace_already_exists = self.created_namespaces.contains(&namespace_var);
 
                 log::debug!(
@@ -3277,7 +3278,7 @@ impl<'a> Bundler<'a> {
                     }
 
                     // Track the created namespace to prevent duplicate creation later
-                    let namespace_var = module_name.cow_replace('.', "_").into_owned();
+                    let namespace_var = sanitize_module_name_for_identifier(module_name);
                     self.created_namespaces.insert(namespace_var);
                 } else if self.inlined_modules.contains(module_name)
                     && !self.module_registry.contains_key(module_name)
@@ -3288,7 +3289,7 @@ impl<'a> Bundler<'a> {
                         "Module '{module_name}' has no symbols but needs a namespace object"
                     );
 
-                    let namespace_var = module_name.cow_replace('.', "_").into_owned();
+                    let namespace_var = sanitize_module_name_for_identifier(module_name);
                     let namespace_already_exists = self.created_namespaces.contains(&namespace_var);
 
                     if !namespace_already_exists {
@@ -3782,7 +3783,7 @@ impl<'a> Bundler<'a> {
             }
 
             // Check if this module has a namespace that needs population
-            let namespace_var = module_name.cow_replace('.', "_").into_owned();
+            let namespace_var = sanitize_module_name_for_identifier(module_name);
             if self.created_namespaces.contains(&namespace_var) {
                 log::debug!("Populating empty namespace '{namespace_var}' with symbols");
 
@@ -5846,7 +5847,7 @@ impl<'a> Bundler<'a> {
 
     /// Get a unique name for a symbol, using the module suffix pattern
     fn get_unique_name_with_module_suffix(&self, base_name: &str, module_name: &str) -> String {
-        let module_suffix = module_name.cow_replace('.', "_").into_owned();
+        let module_suffix = sanitize_module_name_for_identifier(module_name);
         format!("{base_name}_{module_suffix}")
     }
 
@@ -7124,7 +7125,7 @@ impl<'a> Bundler<'a> {
             }
 
             // Check if we should use a flattened namespace instead of creating an empty one
-            let flattened_name = partial_module.cow_replace('.', "_").into_owned();
+            let flattened_name = sanitize_module_name_for_identifier(&partial_module);
             let should_use_flattened = self.inlined_modules.contains(&partial_module)
                 && self
                     .namespaces_with_initial_symbols
@@ -7352,7 +7353,7 @@ impl<'a> Bundler<'a> {
                 if self
                     .symbols_populated_after_deferred
                     .contains(&(module_name.to_string(), (*symbol).clone()))
-                    && target_name == module_name.cow_replace('.', "_").as_ref()
+                    && target_name == sanitize_module_name_for_identifier(module_name).as_str()
                 {
                     log::debug!(
                         "Skipping symbol assignment {target_name}.{symbol} = {actual_symbol_name} \
@@ -7623,7 +7624,7 @@ impl<'a> Bundler<'a> {
         module_name: &str,
     ) -> Stmt {
         // Check if we should use a flattened namespace instead of creating an empty one
-        let flattened_name = module_name.cow_replace('.', "_").into_owned();
+        let flattened_name = sanitize_module_name_for_identifier(module_name);
         let should_use_flattened = self.inlined_modules.contains(module_name)
             && self.namespaces_with_initial_symbols.contains(module_name);
 

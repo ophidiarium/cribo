@@ -5,14 +5,13 @@
 
 use std::path::PathBuf;
 
-use cow_utils::CowUtils;
 use log::debug;
 use ruff_python_ast::{AtomicNodeIndex, ExprContext, Identifier, Keyword, Stmt, StmtImportFrom};
 use ruff_text_size::TextRange;
 
 use crate::{
     ast_builder::{self, expressions, statements},
-    code_generator::bundler::Bundler,
+    code_generator::{bundler::Bundler, module_registry::sanitize_module_name_for_identifier},
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -256,7 +255,7 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                         } else {
                             // The namespace object variable is created with underscores instead of
                             // dots
-                            let namespace_var = module_name.cow_replace('.', "_").into_owned();
+                            let namespace_var = sanitize_module_name_for_identifier(&module_name);
                             debug!(
                                 "Assigning inlined module namespace: {parent}.{attr} = \
                                  {namespace_var}"
@@ -425,7 +424,7 @@ pub(super) fn transform_namespace_package_imports(
                 // For namespace hybrid modules, we need to create the namespace object
                 // The inlined module's symbols are already renamed with module prefix
                 // e.g., message -> message_greetings_greeting
-                let _inlined_key = full_module_path.cow_replace('.', "_").into_owned();
+                let _inlined_key = sanitize_module_name_for_identifier(&full_module_path);
 
                 // Create a SimpleNamespace object manually with all the inlined symbols
                 // Since the module was inlined, we need to map the original names to the
@@ -438,7 +437,7 @@ pub(super) fn transform_namespace_package_imports(
                 // Add all the renamed symbols as attributes to the namespace
                 // Get the symbol renames for this module if available
                 if let Some(module_renames) = symbol_renames.get(&full_module_path) {
-                    let module_suffix = full_module_path.cow_replace('.', "_");
+                    let module_suffix = sanitize_module_name_for_identifier(&full_module_path);
                     for (original_name, renamed_name) in module_renames {
                         // Check if this is an identity mapping (no semantic rename)
                         let actual_renamed_name = if renamed_name == original_name {
@@ -491,7 +490,7 @@ pub(super) fn transform_namespace_package_imports(
 ///
 /// Helper function used by transform_namespace_package_imports.
 fn get_unique_name_with_module_suffix(base_name: &str, module_name: &str) -> String {
-    let module_suffix = module_name.cow_replace('.', "_").into_owned();
+    let module_suffix = sanitize_module_name_for_identifier(module_name);
     format!("{base_name}_{module_suffix}")
 }
 
@@ -629,7 +628,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
     if has_forward_references {
         log::debug!("Module '{module_name}' has forward references, creating empty namespace");
         // Create the namespace variable name
-        let namespace_var = module_name.cow_replace('.', "_").into_owned();
+        let namespace_var = sanitize_module_name_for_identifier(module_name);
 
         // Create empty namespace = types.SimpleNamespace() to avoid forward reference errors
         return Some(statements::simple_assign(
@@ -700,7 +699,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
     }
 
     // Create the namespace variable name
-    let namespace_var = module_name.cow_replace('.', "_").into_owned();
+    let namespace_var = sanitize_module_name_for_identifier(module_name);
 
     // namespace_var = types.SimpleNamespace(**kwargs)
     Some(statements::assign(
