@@ -359,16 +359,17 @@ impl<'a> Bundler<'a> {
                 {
                     // If local_variables is provided, check if the value exists as a local variable
                     if let Some(local_vars) = local_variables
-                        && !local_vars.contains(value.id.as_str()) {
-                            log::debug!(
-                                "Filtering out invalid assignment: {}.{} = {} (inlined submodule, \
-                                 no local var)",
-                                base.id.as_str(),
-                                attr.attr.as_str(),
-                                value.id.as_str()
-                            );
-                            return false;
-                        }
+                        && !local_vars.contains(value.id.as_str())
+                    {
+                        log::debug!(
+                            "Filtering out invalid assignment: {}.{} = {} (inlined submodule, no \
+                             local var)",
+                            base.id.as_str(),
+                            attr.attr.as_str(),
+                            value.id.as_str()
+                        );
+                        return false;
+                    }
                 }
 
                 if let Some(local_vars) = local_variables {
@@ -1111,7 +1112,7 @@ impl<'a> Bundler<'a> {
 
         // Reorder statements to ensure proper declaration order
         let statements = if self.circular_modules.contains(module_name) {
-            self.reorder_statements_for_circular_module(module_name, ast.body)
+            self.reorder_statements_for_circular_module(module_name, ast.body, ctx.python_version)
         } else {
             // Even for non-circular modules, ensure module-level variables are declared
             // before functions that might use them
@@ -2224,7 +2225,11 @@ impl<'a> Bundler<'a> {
                     // Skip pre-declarations for built-in types
                     // Built-in types are always available and pre-declaring them as None causes
                     // issues
-                    if ruff_python_stdlib::builtins::is_python_builtin(renamed_name, 8, false) {
+                    if ruff_python_stdlib::builtins::is_python_builtin(
+                        renamed_name,
+                        python_version,
+                        false,
+                    ) {
                         log::debug!(
                             "Skipping pre-declaration for built-in type: {renamed_name} (from \
                              {module_name}.{symbol_name})"
@@ -2669,6 +2674,7 @@ impl<'a> Bundler<'a> {
                 import_aliases: FxIndexMap::default(),
                 deferred_imports: &mut deferred_imports,
                 import_sources: FxIndexMap::default(),
+                python_version,
             };
             self.inline_module(module_name, ast.clone(), _module_path, &mut inline_ctx)?;
             log::debug!(
@@ -4511,7 +4517,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Check if an assignment is self-referential (e.g., x = x)
-    pub fn is_self_referential_assignment(&self, assign: &StmtAssign) -> bool {
+    pub fn is_self_referential_assignment(&self, assign: &StmtAssign, python_version: u8) -> bool {
         // Check if this is a simple assignment with a single target and value
         if assign.targets.len() == 1
             && let (Expr::Name(target), Expr::Name(value)) =
@@ -4523,7 +4529,7 @@ impl<'a> Bundler<'a> {
                 // self-referential They're re-exporting Python's built-in types
                 // through the module's namespace
                 let name = target.id.as_str();
-                if ruff_python_stdlib::builtins::is_python_builtin(name, 8, false) {
+                if ruff_python_stdlib::builtins::is_python_builtin(name, python_version, false) {
                     log::debug!(
                         "Assignment '{}' = '{}' is a built-in type re-export, not self-referential",
                         target.id,
@@ -5906,6 +5912,7 @@ impl<'a> Bundler<'a> {
         &self,
         module_name: &str,
         statements: Vec<Stmt>,
+        python_version: u8,
     ) -> Vec<Stmt> {
         // Get the ordered symbols for this module from the dependency graph
         let ordered_symbols = self
@@ -5938,7 +5945,7 @@ impl<'a> Bundler<'a> {
                 Stmt::Assign(assign) => {
                     if let Some(name) = self.extract_simple_assign_target(assign) {
                         // Skip self-referential assignments - they'll be handled later
-                        if self.is_self_referential_assignment(assign) {
+                        if self.is_self_referential_assignment(assign, python_version) {
                             log::debug!(
                                 "Skipping self-referential assignment '{name}' in circular module \
                                  reordering"
@@ -6585,7 +6592,7 @@ impl<'a> Bundler<'a> {
         let mut assign_clone = assign.clone();
 
         // Check if this is a self-referential assignment
-        let is_self_referential = self.is_self_referential_assignment(assign);
+        let is_self_referential = self.is_self_referential_assignment(assign, ctx.python_version);
 
         // Skip self-referential assignments entirely - they're meaningless
         if is_self_referential {

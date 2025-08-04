@@ -241,20 +241,19 @@ pub fn transform_module_to_init_function<'a>(
     for stmt in &ast.body {
         if let Stmt::Assign(assign) = stmt
             && assign.targets.len() == 1
-                && let Expr::Name(target) = &assign.targets[0]
-                && ruff_python_stdlib::builtins::is_python_builtin(
-                    target.id.as_str(),
-                    ctx.python_version,
-                    false,
-                )
-            {
-                debug!(
-                    "Found built-in type '{}' that will be assigned as local variable in init \
-                     function",
-                    target.id
-                );
-                builtin_locals.insert(target.id.to_string());
-            }
+            && let Expr::Name(target) = &assign.targets[0]
+            && ruff_python_stdlib::builtins::is_python_builtin(
+                target.id.as_str(),
+                ctx.python_version,
+                false,
+            )
+        {
+            debug!(
+                "Found built-in type '{}' that will be assigned as local variable in init function",
+                target.id
+            );
+            builtin_locals.insert(target.id.to_string());
+        }
     }
 
     // Process the body with a new recursive approach
@@ -344,7 +343,7 @@ pub fn transform_module_to_init_function<'a>(
 
                 // Skip self-referential assignments like `process = process`
                 // These are meaningless in the init function context and cause errors
-                if !bundler.is_self_referential_assignment(assign) {
+                if !bundler.is_self_referential_assignment(assign, ctx.python_version) {
                     // Clone and transform the assignment to handle __name__ references
                     let mut assign_clone = assign.clone();
 
@@ -562,7 +561,7 @@ pub fn transform_module_to_init_function<'a>(
         }
 
         if let Stmt::Assign(assign) = stmt
-            && !bundler.is_self_referential_assignment(assign)
+            && !bundler.is_self_referential_assignment(assign, ctx.python_version)
         {
             // For deferred imports that are assignments, also set as module attribute if
             // exported

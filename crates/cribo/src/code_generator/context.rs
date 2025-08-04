@@ -51,6 +51,8 @@ pub struct InlineContext<'a> {
     pub deferred_imports: &'a mut Vec<Stmt>,
     /// Maps imported symbols to their source modules (local_name -> source_module)
     pub import_sources: FxIndexMap<String, String>,
+    /// Python version for compatibility checks
+    pub python_version: u8,
 }
 
 /// Context for semantic analysis
