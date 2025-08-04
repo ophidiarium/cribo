@@ -1705,8 +1705,42 @@ fn transform_expr_for_builtin_shadowing(
                 transform_expr_for_builtin_shadowing(elem, builtin_locals, _python_version);
             }
         }
-        Expr::ListComp(_) | Expr::SetComp(_) | Expr::DictComp(_) | Expr::Generator(_) => {
-            // Comprehensions have their own scope, so we don't transform inside them
+        Expr::ListComp(comp) => {
+            // Only transform the iterator - the comprehension body has its own scope
+            for generator in &mut comp.generators {
+                transform_expr_for_builtin_shadowing(
+                    &mut generator.iter,
+                    builtin_locals,
+                    _python_version,
+                );
+            }
+        }
+        Expr::SetComp(comp) => {
+            for generator in &mut comp.generators {
+                transform_expr_for_builtin_shadowing(
+                    &mut generator.iter,
+                    builtin_locals,
+                    _python_version,
+                );
+            }
+        }
+        Expr::DictComp(comp) => {
+            for generator in &mut comp.generators {
+                transform_expr_for_builtin_shadowing(
+                    &mut generator.iter,
+                    builtin_locals,
+                    _python_version,
+                );
+            }
+        }
+        Expr::Generator(gen_expr) => {
+            for generator in &mut gen_expr.generators {
+                transform_expr_for_builtin_shadowing(
+                    &mut generator.iter,
+                    builtin_locals,
+                    _python_version,
+                );
+            }
         }
         Expr::BoolOp(boolop) => {
             for value in &mut boolop.values {
