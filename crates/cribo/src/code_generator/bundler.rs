@@ -349,6 +349,29 @@ impl<'a> Bundler<'a> {
                     return false;
                 }
 
+                // Filter out assignments where we're assigning an inlined submodule to itself
+                // BUT only if there's no local variable with that name
+                // For example: pkg.compat = compat where 'pkg.compat' is an inlined module
+                // and 'compat' is not a local variable (just the namespace we're trying to create)
+                if is_bundled_submodule
+                    && value_is_same_as_attr
+                    && self.inlined_modules.contains(&full_path)
+                {
+                    // If local_variables is provided, check if the value exists as a local variable
+                    if let Some(local_vars) = local_variables
+                        && !local_vars.contains(value.id.as_str())
+                    {
+                        log::debug!(
+                            "Filtering out invalid assignment: {}.{} = {} (inlined submodule, no \
+                             local var)",
+                            base.id.as_str(),
+                            attr.attr.as_str(),
+                            value.id.as_str()
+                        );
+                        return false;
+                    }
+                }
+
                 if let Some(local_vars) = local_variables {
                     // Additional filtering when local variables are provided
                     if is_bundled_submodule && value_is_same_as_attr {
@@ -1089,7 +1112,7 @@ impl<'a> Bundler<'a> {
 
         // Reorder statements to ensure proper declaration order
         let statements = if self.circular_modules.contains(module_name) {
-            self.reorder_statements_for_circular_module(module_name, ast.body)
+            self.reorder_statements_for_circular_module(module_name, ast.body, ctx.python_version)
         } else {
             // Even for non-circular modules, ensure module-level variables are declared
             // before functions that might use them
@@ -1362,13 +1385,41 @@ impl<'a> Bundler<'a> {
                     if let Expr::Attribute(target_attr) = &assign.targets[0]
                         && let Expr::Name(_) = target_attr.value.as_ref()
                     {
+                        // Special case: if the value is a simple name (e.g., pkg.compat = compat)
+                        // this needs the name to be defined first, so treat it as an attribute
+                        // access
+                        if let Expr::Name(value_name) = assign.value.as_ref() {
+                            log::debug!(
+                                "Found namespace assignment depending on name: {}.{} = {}",
+                                target_attr
+                                    .value
+                                    .as_ref()
+                                    .as_name_expr()
+                                    .expect(
+                                        "target_attr.value should be Expr::Name as checked by \
+                                         outer if let"
+                                    )
+                                    .id
+                                    .as_str(),
+                                target_attr.attr,
+                                value_name.id
+                            );
+                            attribute_accesses.push(stmt);
+                            continue;
+                        }
+
                         log::debug!(
                             "Found namespace population: {}.{}",
-                            if let Expr::Name(base) = target_attr.value.as_ref() {
-                                base.id.as_str()
-                            } else {
-                                "?"
-                            },
+                            target_attr
+                                .value
+                                .as_ref()
+                                .as_name_expr()
+                                .expect(
+                                    "target_attr.value should be Expr::Name as checked by outer \
+                                     if let"
+                                )
+                                .id
+                                .as_str(),
                             target_attr.attr
                         );
                         namespace_populations.push(stmt);
@@ -2181,6 +2232,21 @@ impl<'a> Bundler<'a> {
                 if let Some(module_renames) = symbol_renames.get(&module_name)
                     && let Some(renamed_name) = module_renames.get(&symbol_name)
                 {
+                    // Skip pre-declarations for built-in types
+                    // Built-in types are always available and pre-declaring them as None causes
+                    // issues
+                    if ruff_python_stdlib::builtins::is_python_builtin(
+                        renamed_name,
+                        python_version,
+                        false,
+                    ) {
+                        log::debug!(
+                            "Skipping pre-declaration for built-in type: {renamed_name} (from \
+                             {module_name}.{symbol_name})"
+                        );
+                        continue;
+                    }
+
                     log::debug!(
                         "Pre-declaring {renamed_name} (from {module_name}.{symbol_name}) due to \
                          forward reference"
@@ -2618,6 +2684,7 @@ impl<'a> Bundler<'a> {
                 import_aliases: FxIndexMap::default(),
                 deferred_imports: &mut deferred_imports,
                 import_sources: FxIndexMap::default(),
+                python_version,
             };
             self.inline_module(module_name, ast.clone(), _module_path, &mut inline_ctx)?;
             log::debug!(
@@ -2746,7 +2813,8 @@ impl<'a> Bundler<'a> {
         // Now reorder all collected inlined statements to ensure proper declaration order
         // This handles cross-module dependencies like classes inheriting from symbols defined in
         // other modules
-        let mut reordered_inlined_stmts = self.reorder_cross_module_statements(all_inlined_stmts);
+        let mut reordered_inlined_stmts =
+            self.reorder_cross_module_statements(all_inlined_stmts, python_version);
 
         // Filter out invalid assignments where we're trying to assign a module that uses an init
         // function For example, `mypkg.compat = compat` when `compat` is wrapped in an init
@@ -4460,22 +4528,34 @@ impl<'a> Bundler<'a> {
     }
 
     /// Check if an assignment is self-referential (e.g., x = x)
-    pub fn is_self_referential_assignment(&self, assign: &StmtAssign) -> bool {
+    pub fn is_self_referential_assignment(&self, assign: &StmtAssign, python_version: u8) -> bool {
         // Check if this is a simple assignment with a single target and value
         if assign.targets.len() == 1
             && let (Expr::Name(target), Expr::Name(value)) =
                 (&assign.targets[0], assign.value.as_ref())
         {
-            // It's self-referential if target and value have the same name
-            let is_self_ref = target.id == value.id;
-            if is_self_ref {
+            // Check if target and value have the same name
+            if target.id == value.id {
+                // Special case: Built-in types like `bytes = bytes`, `str = str` are NOT
+                // self-referential They're re-exporting Python's built-in types
+                // through the module's namespace
+                let name = target.id.as_str();
+                if ruff_python_stdlib::builtins::is_python_builtin(name, python_version, false) {
+                    log::debug!(
+                        "Assignment '{}' = '{}' is a built-in type re-export, not self-referential",
+                        target.id,
+                        value.id
+                    );
+                    return false;
+                }
+
                 log::debug!(
                     "Found self-referential assignment: {} = {}",
                     target.id,
                     value.id
                 );
+                return true;
             }
-            return is_self_ref;
         }
         false
     }
@@ -5843,6 +5923,7 @@ impl<'a> Bundler<'a> {
         &self,
         module_name: &str,
         statements: Vec<Stmt>,
+        python_version: u8,
     ) -> Vec<Stmt> {
         // Get the ordered symbols for this module from the dependency graph
         let ordered_symbols = self
@@ -5875,7 +5956,7 @@ impl<'a> Bundler<'a> {
                 Stmt::Assign(assign) => {
                     if let Some(name) = self.extract_simple_assign_target(assign) {
                         // Skip self-referential assignments - they'll be handled later
-                        if self.is_self_referential_assignment(assign) {
+                        if self.is_self_referential_assignment(assign, python_version) {
                             log::debug!(
                                 "Skipping self-referential assignment '{name}' in circular module \
                                  reordering"
@@ -5933,7 +6014,11 @@ impl<'a> Bundler<'a> {
     /// Reorder statements from multiple modules to ensure proper declaration order
     /// This handles cross-module dependencies like classes inheriting from symbols defined in other
     /// modules
-    fn reorder_cross_module_statements(&self, statements: Vec<Stmt>) -> Vec<Stmt> {
+    fn reorder_cross_module_statements(
+        &self,
+        statements: Vec<Stmt>,
+        python_version: u8,
+    ) -> Vec<Stmt> {
         let mut imports: Vec<Stmt> = Vec::new();
         let mut classes: Vec<Stmt> = Vec::new();
         let mut functions: Vec<Stmt> = Vec::new();
@@ -5956,6 +6041,8 @@ impl<'a> Bundler<'a> {
         // Separate assignments that define base classes from other assignments
         let mut base_class_assignments: Vec<Stmt> = Vec::new();
         let mut regular_assignments: Vec<Stmt> = Vec::new();
+        let mut builtin_restorations: Vec<Stmt> = Vec::new();
+        let mut namespace_builtin_assignments: Vec<Stmt> = Vec::new();
 
         // Categorize statements
         for stmt in statements {
@@ -5973,6 +6060,29 @@ impl<'a> Bundler<'a> {
 
                     if is_attribute_assignment {
                         debug!("Found attribute assignment: {stmt:?}");
+
+                        // Check if this is a namespace attribute assignment of a built-in type
+                        // e.g., compat.bytes = bytes
+                        let is_namespace_builtin_assignment =
+                            if let (Expr::Attribute(_attr), Expr::Name(value_name)) =
+                                (&assign.targets[0], assign.value.as_ref())
+                            {
+                                // Check if the value is a built-in type
+                                ruff_python_stdlib::builtins::is_python_builtin(
+                                    value_name.id.as_str(),
+                                    python_version,
+                                    false,
+                                )
+                            } else {
+                                false
+                            };
+
+                        if is_namespace_builtin_assignment {
+                            log::debug!("Found namespace builtin assignment: {stmt:?}");
+                            namespace_builtin_assignments.push(stmt);
+                            continue;
+                        }
+
                         // Check if this is a module namespace assignment (e.g., parent.child =
                         // child_namespace) These need to be ordered with
                         // regular assignments, not deferred
@@ -6014,31 +6124,53 @@ impl<'a> Bundler<'a> {
                             other_stmts.push(stmt);
                         }
                     } else {
-                        // Check if this assignment defines a base class symbol
-                        let defines_base_class = if assign.targets.len() == 1 {
-                            if let Expr::Name(target) = &assign.targets[0] {
-                                // Only consider it a base class assignment if:
-                                // 1. The target is used as a base class
-                                // 2. The value is an attribute access (e.g., json.JSONDecodeError)
-                                if base_class_symbols.contains(target.id.as_str()) {
-                                    match assign.value.as_ref() {
-                                        Expr::Attribute(_) => true, // e.g., json.JSONDecodeError
-                                        _ => false,
+                        // Check if this is a built-in type restoration (e.g., bytes = bytes)
+                        let is_builtin_restoration =
+                            if let ([Expr::Name(target)], Expr::Name(value)) =
+                                (assign.targets.as_slice(), assign.value.as_ref())
+                            {
+                                // Check if it's a self-assignment of a built-in type
+                                target.id == value.id
+                                    && ruff_python_stdlib::builtins::is_python_builtin(
+                                        target.id.as_str(),
+                                        python_version,
+                                        false,
+                                    )
+                            } else {
+                                false
+                            };
+
+                        if is_builtin_restoration {
+                            builtin_restorations.push(stmt);
+                        } else {
+                            // Check if this assignment defines a base class symbol
+                            let defines_base_class = if assign.targets.len() == 1 {
+                                if let Expr::Name(target) = &assign.targets[0] {
+                                    // Only consider it a base class assignment if:
+                                    // 1. The target is used as a base class
+                                    // 2. The value is an attribute access (e.g.,
+                                    //    json.JSONDecodeError)
+                                    if base_class_symbols.contains(target.id.as_str()) {
+                                        match assign.value.as_ref() {
+                                            Expr::Attribute(_) => true, /* e.g., json. */
+                                            // JSONDecodeError
+                                            _ => false,
+                                        }
+                                    } else {
+                                        false
                                     }
                                 } else {
                                     false
                                 }
                             } else {
                                 false
-                            }
-                        } else {
-                            false
-                        };
+                            };
 
-                        if defines_base_class {
-                            base_class_assignments.push(stmt);
-                        } else {
-                            regular_assignments.push(stmt);
+                            if defines_base_class {
+                                base_class_assignments.push(stmt);
+                            } else {
+                                regular_assignments.push(stmt);
+                            }
                         }
                     }
                 }
@@ -6056,13 +6188,17 @@ impl<'a> Bundler<'a> {
 
         // Build the reordered list:
         // 1. Imports first
-        // 2. Base class assignments (must come before class definitions)
-        // 3. Regular assignments
-        // 4. Classes (must come before functions that might use them)
-        // 5. Functions (may depend on classes)
-        // 6. Other statements (including class attribute assignments)
+        // 2. Built-in type restorations (must come very early to restore types)
+        // 3. Namespace built-in assignments (e.g., compat.bytes = bytes)
+        // 4. Base class assignments (must come before class definitions)
+        // 5. Regular assignments
+        // 6. Classes (must come before functions that might use them)
+        // 7. Functions (may depend on classes)
+        // 8. Other statements (including class attribute assignments)
         let mut reordered = Vec::new();
         reordered.extend(imports);
+        reordered.extend(builtin_restorations);
+        reordered.extend(namespace_builtin_assignments);
         reordered.extend(base_class_assignments);
         reordered.extend(regular_assignments);
         reordered.extend(classes);
@@ -6466,7 +6602,7 @@ impl<'a> Bundler<'a> {
         let mut assign_clone = assign.clone();
 
         // Check if this is a self-referential assignment
-        let is_self_referential = self.is_self_referential_assignment(assign);
+        let is_self_referential = self.is_self_referential_assignment(assign, ctx.python_version);
 
         // Skip self-referential assignments entirely - they're meaningless
         if is_self_referential {

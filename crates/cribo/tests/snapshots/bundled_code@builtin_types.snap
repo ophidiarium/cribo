@@ -14,15 +14,21 @@ def __cribo_init___cribo_97f65c_compat_module():
     module.__name__ = 'compat_module'
     """Module with side effects that assigns builtin types to variables.\n\nThis minimal test case reproduces the bug where builtin types are incorrectly\ntransformed to module.str, module.int, etc. when the bundler wraps modules\nwith side effects in init functions.\n"""
     print("Loading compat module...")
-    builtin_str = str
+    str = __import__('builtins').str
+    module.str = str
+    int = __import__('builtins').int
+    module.int = int
+    bytes = __import__('builtins').bytes
+    module.bytes = bytes
+    builtin_str = __import__('builtins').str
     module.builtin_str = builtin_str
-    builtin_int = int
+    builtin_int = __import__('builtins').int
     module.builtin_int = builtin_int
-    builtin_bytes = bytes
+    builtin_bytes = __import__('builtins').bytes
     module.builtin_bytes = builtin_bytes
-    basestring = str, bytes
+    basestring = __import__('builtins').str, __import__('builtins').bytes
     module.basestring = basestring
-    numeric_types = int, float
+    numeric_types = __import__('builtins').int, float
     module.numeric_types = numeric_types
     return module
 """Test that builtin type assignments work in modules with side effects."""
