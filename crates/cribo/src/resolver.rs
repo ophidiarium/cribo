@@ -765,9 +765,10 @@ impl ModuleResolver {
 
         // Append the name part if provided
         if let Some(name_part) = name
-            && !name_part.is_empty() {
-                package_parts.push(name_part);
-            }
+            && !name_part.is_empty()
+        {
+            package_parts.push(name_part);
+        }
 
         package_parts.join(".")
     }
