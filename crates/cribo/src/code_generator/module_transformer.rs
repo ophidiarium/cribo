@@ -236,6 +236,27 @@ pub fn transform_module_to_init_function<'a>(
         None
     };
 
+    // First, scan the body to find all built-in names that will be assigned as local variables
+    let mut builtin_locals = rustc_hash::FxHashSet::default();
+    for stmt in &ast.body {
+        if let Stmt::Assign(assign) = stmt
+            && assign.targets.len() == 1
+                && let Expr::Name(target) = &assign.targets[0]
+                && ruff_python_stdlib::builtins::is_python_builtin(
+                    target.id.as_str(),
+                    ctx.python_version,
+                    false,
+                )
+            {
+                debug!(
+                    "Found built-in type '{}' that will be assigned as local variable in init \
+                     function",
+                    target.id
+                );
+                builtin_locals.insert(target.id.to_string());
+            }
+    }
+
     // Process the body with a new recursive approach
     let processed_body =
         bundler.process_body_recursive(ast.body, ctx.module_name, module_scope_symbols);
@@ -327,53 +348,36 @@ pub fn transform_module_to_init_function<'a>(
                     // Clone and transform the assignment to handle __name__ references
                     let mut assign_clone = assign.clone();
 
-                    // Special handling for built-in type assignments like `str = str`
-                    // Inside a function, these cause UnboundLocalError, so we need to
-                    // use a trick: reference the built-in through __builtins__
-                    if assign.targets.len() == 1
-                        && let (Expr::Name(target), Expr::Name(value)) =
-                            (&assign.targets[0], assign.value.as_ref())
-                        && target.id == value.id
-                        && ruff_python_stdlib::builtins::is_python_builtin(
-                            target.id.as_str(),
-                            ctx.python_version,
-                            false,
-                        )
-                    {
-                        debug!(
-                            "Transforming built-in type assignment '{}' = '{}' to use \
-                             __builtins__.{}",
-                            target.id, value.id, value.id
-                        );
-
-                        // Transform the right-hand side to __builtins__.str (or whatever built-in)
-                        // __builtins__ is always available in Python without import
-                        assign_clone.value = Box::new(ast_builder::expressions::attribute(
-                            ast_builder::expressions::name("__builtins__", ExprContext::Load),
-                            value.id.as_str(),
-                            ExprContext::Load,
-                        ));
-                    } else {
-                        // Use actual module-level variables if available, but filter to only
-                        // exported ones
-                        let module_level_vars = if let Some(ref global_info) = ctx.global_info {
-                            let all_vars = &global_info.module_level_vars;
-                            let mut exported_vars = rustc_hash::FxHashSet::default();
-                            for var in all_vars {
-                                if bundler.should_export_symbol(var, ctx.module_name) {
-                                    exported_vars.insert(var.clone());
-                                }
+                    // Use actual module-level variables if available, but filter to only
+                    // exported ones
+                    let module_level_vars = if let Some(ref global_info) = ctx.global_info {
+                        let all_vars = &global_info.module_level_vars;
+                        let mut exported_vars = rustc_hash::FxHashSet::default();
+                        for var in all_vars {
+                            if bundler.should_export_symbol(var, ctx.module_name) {
+                                exported_vars.insert(var.clone());
                             }
-                            exported_vars
-                        } else {
-                            rustc_hash::FxHashSet::default()
-                        };
-                        transform_expr_for_module_vars(
-                            &mut assign_clone.value,
-                            &module_level_vars,
-                            ctx.python_version,
-                        );
-                    }
+                        }
+                        exported_vars
+                    } else {
+                        rustc_hash::FxHashSet::default()
+                    };
+
+                    // Special handling for assignments involving built-in types
+                    // We need to transform any reference to a built-in that will be assigned
+                    // as a local variable later in this function
+                    transform_expr_for_builtin_shadowing(
+                        &mut assign_clone.value,
+                        &builtin_locals,
+                        ctx.python_version,
+                    );
+
+                    // Also transform module-level variable references
+                    transform_expr_for_module_vars(
+                        &mut assign_clone.value,
+                        &module_level_vars,
+                        ctx.python_version,
+                    );
 
                     // For simple assignments, also set as module attribute if it should be
                     // exported
@@ -1457,6 +1461,173 @@ pub fn transform_ast_with_lifted_globals(
     global_info: &crate::semantic_bundler::ModuleGlobalInfo,
 ) {
     bundler.transform_ast_with_lifted_globals(ast, lifted_names, global_info);
+}
+
+/// Transform expressions to handle built-in name shadowing in init functions
+/// When a built-in name like 'str' is assigned as a local variable in the function,
+/// any reference to that built-in before the assignment needs to use __builtins__.name
+fn transform_expr_for_builtin_shadowing(
+    expr: &mut Expr,
+    builtin_locals: &rustc_hash::FxHashSet<String>,
+    _python_version: u8,
+) {
+    match expr {
+        Expr::Name(name) if name.ctx == ExprContext::Load => {
+            // If this name refers to a built-in that will be shadowed by a local assignment,
+            // transform it to use __builtins__.name
+            if builtin_locals.contains(name.id.as_str()) {
+                debug!(
+                    "Transforming built-in reference '{}' to avoid UnboundLocalError",
+                    name.id
+                );
+                // Use builtins module which is more reliable than __builtins__
+                // Generate: __import__('builtins').name
+                let import_call = ast_builder::expressions::call(
+                    ast_builder::expressions::name("__import__", ExprContext::Load),
+                    vec![ast_builder::expressions::string_literal("builtins")],
+                    vec![],
+                );
+                *expr = ast_builder::expressions::attribute(
+                    import_call,
+                    name.id.as_str(),
+                    ExprContext::Load,
+                );
+            }
+        }
+        // Recursively handle other expressions
+        Expr::Call(call) => {
+            transform_expr_for_builtin_shadowing(&mut call.func, builtin_locals, _python_version);
+            for arg in &mut call.arguments.args {
+                transform_expr_for_builtin_shadowing(arg, builtin_locals, _python_version);
+            }
+            for kw in &mut call.arguments.keywords {
+                transform_expr_for_builtin_shadowing(
+                    &mut kw.value,
+                    builtin_locals,
+                    _python_version,
+                );
+            }
+        }
+        Expr::Attribute(attr) => {
+            transform_expr_for_builtin_shadowing(&mut attr.value, builtin_locals, _python_version);
+        }
+        Expr::Tuple(tuple) => {
+            for elem in &mut tuple.elts {
+                transform_expr_for_builtin_shadowing(elem, builtin_locals, _python_version);
+            }
+        }
+        Expr::List(list) => {
+            for elem in &mut list.elts {
+                transform_expr_for_builtin_shadowing(elem, builtin_locals, _python_version);
+            }
+        }
+        Expr::BinOp(binop) => {
+            transform_expr_for_builtin_shadowing(&mut binop.left, builtin_locals, _python_version);
+            transform_expr_for_builtin_shadowing(&mut binop.right, builtin_locals, _python_version);
+        }
+        Expr::UnaryOp(unaryop) => {
+            transform_expr_for_builtin_shadowing(
+                &mut unaryop.operand,
+                builtin_locals,
+                _python_version,
+            );
+        }
+        Expr::If(if_expr) => {
+            transform_expr_for_builtin_shadowing(
+                &mut if_expr.test,
+                builtin_locals,
+                _python_version,
+            );
+            transform_expr_for_builtin_shadowing(
+                &mut if_expr.body,
+                builtin_locals,
+                _python_version,
+            );
+            transform_expr_for_builtin_shadowing(
+                &mut if_expr.orelse,
+                builtin_locals,
+                _python_version,
+            );
+        }
+        Expr::Lambda(lambda) => {
+            // Don't transform inside lambda bodies as they have their own scope
+            // Only transform default arguments
+            if let Some(ref mut params) = lambda.parameters {
+                for arg in &mut params.args {
+                    if let Some(ref mut default) = arg.default {
+                        transform_expr_for_builtin_shadowing(
+                            default,
+                            builtin_locals,
+                            _python_version,
+                        );
+                    }
+                }
+                for arg in &mut params.posonlyargs {
+                    if let Some(ref mut default) = arg.default {
+                        transform_expr_for_builtin_shadowing(
+                            default,
+                            builtin_locals,
+                            _python_version,
+                        );
+                    }
+                }
+                for arg in &mut params.kwonlyargs {
+                    if let Some(ref mut default) = arg.default {
+                        transform_expr_for_builtin_shadowing(
+                            default,
+                            builtin_locals,
+                            _python_version,
+                        );
+                    }
+                }
+            }
+        }
+        Expr::Compare(compare) => {
+            transform_expr_for_builtin_shadowing(
+                &mut compare.left,
+                builtin_locals,
+                _python_version,
+            );
+            for comparator in &mut compare.comparators {
+                transform_expr_for_builtin_shadowing(comparator, builtin_locals, _python_version);
+            }
+        }
+        Expr::Subscript(subscript) => {
+            transform_expr_for_builtin_shadowing(
+                &mut subscript.value,
+                builtin_locals,
+                _python_version,
+            );
+            transform_expr_for_builtin_shadowing(
+                &mut subscript.slice,
+                builtin_locals,
+                _python_version,
+            );
+        }
+        Expr::Dict(dict) => {
+            for item in &mut dict.items {
+                if let Some(ref mut key) = item.key {
+                    transform_expr_for_builtin_shadowing(key, builtin_locals, _python_version);
+                }
+                transform_expr_for_builtin_shadowing(
+                    &mut item.value,
+                    builtin_locals,
+                    _python_version,
+                );
+            }
+        }
+        Expr::Set(set) => {
+            for elem in &mut set.elts {
+                transform_expr_for_builtin_shadowing(elem, builtin_locals, _python_version);
+            }
+        }
+        Expr::ListComp(_) | Expr::SetComp(_) | Expr::DictComp(_) | Expr::Generator(_) => {
+            // Comprehensions have their own scope, so we don't transform inside them
+        }
+        _ => {
+            // Other expression types don't need transformation
+        }
+    }
 }
 
 /// Helper function to determine if a symbol should be included in the module namespace
