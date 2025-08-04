@@ -1275,22 +1275,6 @@ impl<'a> Bundler<'a> {
         Ok(Vec::new()) // Statements are accumulated in ctx.inlined_stmts
     }
 
-    /// Sort wrapped modules by dependencies
-    fn sort_wrapped_modules_by_dependencies(
-        &self,
-        wrapped_modules: &[String],
-        _all_modules: &[(String, PathBuf, Vec<String>)],
-        graph: &DependencyGraph,
-    ) -> Vec<String> {
-        use crate::analyzers::dependency_analyzer::DependencyAnalyzer;
-
-        // Convert wrapped_modules slice to Vec for DependencyAnalyzer
-        let module_names: Vec<String> = wrapped_modules.to_vec();
-
-        // Use DependencyAnalyzer to sort
-        DependencyAnalyzer::sort_wrapped_modules_by_dependencies(module_names, graph)
-    }
-
     /// Get imports from entry module
     fn get_entry_module_imports(
         &self,
@@ -3360,9 +3344,9 @@ impl<'a> Bundler<'a> {
             // Sort wrapped modules by their dependencies to ensure correct initialization order
             // This is critical for namespace imports in circular dependencies
             debug!("Wrapped modules before sorting: {wrapped_modules_to_init:?}");
-            let sorted_wrapped = self.sort_wrapped_modules_by_dependencies(
-                &wrapped_modules_to_init,
-                params.sorted_modules,
+            use crate::analyzers::dependency_analyzer::DependencyAnalyzer;
+            let sorted_wrapped = DependencyAnalyzer::sort_wrapped_modules_by_dependencies(
+                wrapped_modules_to_init,
                 params.graph,
             );
             debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
