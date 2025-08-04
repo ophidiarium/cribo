@@ -172,11 +172,6 @@ impl GlobalsLifter {
         }
     }
 
-    /// Get the lifted global declarations
-    pub fn get_lifted_declarations(&self) -> Vec<Stmt> {
-        self.lifted_declarations.clone()
-    }
-
     /// Get the lifted names mapping
     pub fn get_lifted_names(&self) -> &FxIndexMap<String, String> {
         &self.lifted_names
@@ -208,7 +203,7 @@ pub fn process_wrapper_module_globals(
     // Create GlobalsLifter and collect declarations
     if !global_info.global_declarations.is_empty() {
         let globals_lifter = GlobalsLifter::new(&global_info);
-        all_lifted_declarations.extend(globals_lifter.get_lifted_declarations());
+        all_lifted_declarations.extend_from_slice(&globals_lifter.lifted_declarations);
     }
 
     module_globals.insert(params.module_name.to_string(), global_info);
