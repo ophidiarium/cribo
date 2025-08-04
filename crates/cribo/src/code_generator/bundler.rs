@@ -12,7 +12,10 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
-    analyzers::{ImportAnalyzer, SymbolAnalyzer, namespace_analyzer::NamespaceAnalyzer},
+    analyzers::{
+        ImportAnalyzer, SymbolAnalyzer, dependency_analyzer::DependencyAnalyzer,
+        namespace_analyzer::NamespaceAnalyzer,
+    },
     ast_builder::{expressions, other, statements},
     code_generator::{
         circular_deps::SymbolDependencyGraph,
@@ -1275,22 +1278,6 @@ impl<'a> Bundler<'a> {
         Ok(Vec::new()) // Statements are accumulated in ctx.inlined_stmts
     }
 
-    /// Sort wrapped modules by dependencies
-    fn sort_wrapped_modules_by_dependencies(
-        &self,
-        wrapped_modules: &[String],
-        _all_modules: &[(String, PathBuf, Vec<String>)],
-        graph: &DependencyGraph,
-    ) -> Vec<String> {
-        use crate::analyzers::dependency_analyzer::DependencyAnalyzer;
-
-        // Convert wrapped_modules slice to Vec for DependencyAnalyzer
-        let module_names: Vec<String> = wrapped_modules.to_vec();
-
-        // Use DependencyAnalyzer to sort
-        DependencyAnalyzer::sort_wrapped_modules_by_dependencies(module_names, graph)
-    }
-
     /// Get imports from entry module
     fn get_entry_module_imports(
         &self,
@@ -1444,52 +1431,6 @@ impl<'a> Bundler<'a> {
                 "Reordered {} deferred imports to prevent forward references",
                 imports.len()
             );
-        }
-    }
-
-    /// Collect all Name expressions that a given expression depends on
-    fn collect_name_dependencies(expr: &Expr, deps: &mut FxIndexSet<String>) {
-        match expr {
-            Expr::Name(name) => {
-                deps.insert(name.id.to_string());
-            }
-            Expr::Attribute(attr) => {
-                Self::collect_name_dependencies(&attr.value, deps);
-            }
-            Expr::Call(call) => {
-                Self::collect_name_dependencies(&call.func, deps);
-                for arg in &call.arguments.args {
-                    Self::collect_name_dependencies(arg, deps);
-                }
-            }
-            Expr::BinOp(binop) => {
-                Self::collect_name_dependencies(&binop.left, deps);
-                Self::collect_name_dependencies(&binop.right, deps);
-            }
-            Expr::UnaryOp(unaryop) => {
-                Self::collect_name_dependencies(&unaryop.operand, deps);
-            }
-            Expr::List(list) => {
-                for item in &list.elts {
-                    Self::collect_name_dependencies(item, deps);
-                }
-            }
-            Expr::Tuple(tuple) => {
-                for item in &tuple.elts {
-                    Self::collect_name_dependencies(item, deps);
-                }
-            }
-            Expr::Dict(dict) => {
-                for item in &dict.items {
-                    if let Some(key) = &item.key {
-                        Self::collect_name_dependencies(key, deps);
-                    }
-                    Self::collect_name_dependencies(&item.value, deps);
-                }
-            }
-            _ => {
-                // For other expression types, we don't need to track dependencies
-            }
         }
     }
 
@@ -3360,9 +3301,8 @@ impl<'a> Bundler<'a> {
             // Sort wrapped modules by their dependencies to ensure correct initialization order
             // This is critical for namespace imports in circular dependencies
             debug!("Wrapped modules before sorting: {wrapped_modules_to_init:?}");
-            let sorted_wrapped = self.sort_wrapped_modules_by_dependencies(
-                &wrapped_modules_to_init,
-                params.sorted_modules,
+            let sorted_wrapped = DependencyAnalyzer::sort_wrapped_modules_by_dependencies(
+                wrapped_modules_to_init,
                 params.graph,
             );
             debug!("Wrapped modules after sorting: {sorted_wrapped:?}");
