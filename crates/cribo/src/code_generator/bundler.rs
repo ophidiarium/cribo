@@ -2866,20 +2866,7 @@ impl<'a> Bundler<'a> {
                 .is_some_and(|exports| exports.is_some());
 
             // Check if this is a submodule that needs a namespace
-            let needs_namespace_for_submodule =
-                if let Some(parent_module) = module_name.rsplit_once('.').map(|(p, _)| p) {
-                    if self.inlined_modules.contains(parent_module) && has_exports {
-                        log::debug!(
-                            "Submodule '{module_name}' needs namespace because parent \
-                             '{parent_module}' is inlined and exports"
-                        );
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
+            let needs_namespace_for_submodule = self.submodule_needs_namespace(module_name);
 
             // Check if module needs a namespace object:
             // 1. It's imported as a namespace (import module)
@@ -8387,6 +8374,32 @@ impl<'a> Bundler<'a> {
                 log::warn!("Circular inheritance detected, returning classes in original order");
                 class_blocks
             }
+        }
+    }
+
+    /// Check if a submodule needs a namespace object.
+    ///
+    /// A submodule needs a namespace if:
+    /// 1. Its parent module is inlined
+    /// 2. The submodule has exports (meaning it's not just internal)
+    fn submodule_needs_namespace(&self, module_name: &str) -> bool {
+        if let Some(parent_module) = module_name.rsplit_once('.').map(|(parent, _)| parent) {
+            if self.inlined_modules.contains(parent_module)
+                && self
+                    .module_exports
+                    .get(module_name)
+                    .is_some_and(|exports| exports.is_some())
+            {
+                log::debug!(
+                    "Submodule '{module_name}' needs namespace because parent '{parent_module}' \
+                     is inlined and submodule has exports"
+                );
+                true
+            } else {
+                false
+            }
+        } else {
+            false
         }
     }
 }
