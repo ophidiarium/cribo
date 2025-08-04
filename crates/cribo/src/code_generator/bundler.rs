@@ -978,39 +978,6 @@ impl<'a> Bundler<'a> {
         Ok(sorted_modules)
     }
 
-    /// Process wrapper module globals (matching original implementation)
-    fn process_wrapper_module_globals(
-        &self,
-        params: &ProcessGlobalsParams,
-        module_globals: &mut FxIndexMap<String, crate::semantic_bundler::ModuleGlobalInfo>,
-        all_lifted_declarations: &mut Vec<Stmt>,
-    ) {
-        // Get module ID from graph
-        let module = match params
-            .semantic_ctx
-            .graph
-            .get_module_by_name(params.module_name)
-        {
-            Some(m) => m,
-            None => return,
-        };
-
-        let module_id = module.module_id;
-        let global_info = params.semantic_ctx.semantic_bundler.analyze_module_globals(
-            module_id,
-            params.ast,
-            params.module_name,
-        );
-
-        // Create GlobalsLifter and collect declarations
-        if !global_info.global_declarations.is_empty() {
-            let globals_lifter = crate::code_generator::globals::GlobalsLifter::new(&global_info);
-            all_lifted_declarations.extend(globals_lifter.get_lifted_declarations());
-        }
-
-        module_globals.insert(params.module_name.to_string(), global_info);
-    }
-
     /// Transform module to cache init function
     fn transform_module_to_cache_init_function(
         &mut self,
@@ -2484,7 +2451,7 @@ impl<'a> Bundler<'a> {
                         ast,
                         semantic_ctx: &semantic_ctx,
                     };
-                    self.process_wrapper_module_globals(
+                    crate::code_generator::globals::process_wrapper_module_globals(
                         &params,
                         &mut module_globals,
                         &mut lifted_declarations,
@@ -3311,7 +3278,7 @@ impl<'a> Bundler<'a> {
                     ast,
                     semantic_ctx: &semantic_ctx,
                 };
-                self.process_wrapper_module_globals(
+                crate::code_generator::globals::process_wrapper_module_globals(
                     &params,
                     &mut module_globals,
                     &mut all_lifted_declarations,
