@@ -2883,8 +2883,8 @@ impl<'a> Bundler<'a> {
                                 .is_some_and(|exports| exports.is_some())
                         {
                             log::debug!(
-                                "Submodule '{module_name}' needs namespace because parent '{parent_module}' is inlined \
-                                 and submodule has exports"
+                                "Submodule '{module_name}' needs namespace because parent \
+                                 '{parent_module}' is inlined and submodule has exports"
                             );
                             true
                         } else {
@@ -2920,14 +2920,13 @@ impl<'a> Bundler<'a> {
                             .check_module_has_forward_references(module_name, module_rename_map);
 
                         // Create a SimpleNamespace for this module only if it doesn't exist
-                        let namespace_stmt =
+                        if let Some(namespace_stmt) =
                             namespace_manager::create_namespace_for_inlined_module_static(
                                 self,
                                 module_name,
                                 module_rename_map,
-                            );
-                        // Only add the statement if it's not a pass statement
-                        if !matches!(namespace_stmt, Stmt::Pass(_)) {
+                            )
+                        {
                             final_body.push(namespace_stmt);
                         }
 
@@ -4677,7 +4676,8 @@ impl<'a> Bundler<'a> {
                 let potential_sibling = format!("{current_package}.{name_str}");
                 if self.inlined_modules.contains(&potential_sibling) {
                     log::debug!(
-                        "Assignment references sibling namespace module: {potential_sibling} (via name {name_str})"
+                        "Assignment references sibling namespace module: {potential_sibling} (via \
+                         name {name_str})"
                     );
                     return true;
                 }

@@ -250,8 +250,8 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                         // create_namespace_statements
                         if bundler.required_namespaces.contains(&module_name) {
                             debug!(
-                                "Skipping underscore namespace creation for '{module_name}' - already \
-                                 created directly"
+                                "Skipping underscore namespace creation for '{module_name}' - \
+                                 already created directly"
                             );
                         } else {
                             // The namespace object variable is created with underscores instead of
@@ -267,7 +267,8 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                             // namespace was created
                             if !bundler.created_namespaces.contains(&namespace_var) {
                                 debug!(
-                                    "Creating empty namespace for module '{module_name}' before assignment"
+                                    "Creating empty namespace for module '{module_name}' before \
+                                     assignment"
                                 );
                                 // Create empty namespace = types.SimpleNamespace()
                                 final_body.push(statements::simple_assign(
@@ -606,18 +607,17 @@ pub(super) fn create_namespace_statements(bundler: &mut Bundler) -> Vec<Stmt> {
 ///
 /// Creates a types.SimpleNamespace object with all the module's symbols,
 /// handling forward references and tree-shaking.
+/// Returns None if the namespace was already created directly.
 pub(super) fn create_namespace_for_inlined_module_static(
     bundler: &mut Bundler,
     module_name: &str,
     module_renames: &FxIndexMap<String, String>,
-) -> Stmt {
+) -> Option<Stmt> {
     // If this namespace was already created directly (e.g., core.utils), skip creating underscore
     // variable
     if bundler.required_namespaces.contains(module_name) {
-        log::debug!(
-            "Module '{module_name}' namespace already created directly, returning pass statement"
-        );
-        return statements::pass();
+        log::debug!("Module '{module_name}' namespace already created directly, skipping");
+        return None;
     }
 
     // Check if this module has forward references that would cause NameError
@@ -632,10 +632,10 @@ pub(super) fn create_namespace_for_inlined_module_static(
         let namespace_var = module_name.cow_replace('.', "_").into_owned();
 
         // Create empty namespace = types.SimpleNamespace() to avoid forward reference errors
-        return statements::simple_assign(
+        return Some(statements::simple_assign(
             &namespace_var,
             expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
-        );
+        ));
     }
     // Create a types.SimpleNamespace with all the module's symbols
     let mut keywords = Vec::new();
@@ -703,8 +703,8 @@ pub(super) fn create_namespace_for_inlined_module_static(
     let namespace_var = module_name.cow_replace('.', "_").into_owned();
 
     // namespace_var = types.SimpleNamespace(**kwargs)
-    statements::assign(
+    Some(statements::assign(
         vec![expressions::name(&namespace_var, ExprContext::Store)],
         expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
-    )
+    ))
 }
