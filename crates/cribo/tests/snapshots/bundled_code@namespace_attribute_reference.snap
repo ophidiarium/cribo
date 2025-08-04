@@ -30,6 +30,8 @@ def __cribo_init___cribo_19d82f_mypkg_compat():
                 self.msg = msg
                 self.doc = doc
                 self.pos = pos
+    bytes = __builtins__.bytes
+    module.bytes = bytes
     basestring = str
     module.basestring = basestring
     return module

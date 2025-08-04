@@ -326,25 +326,54 @@ pub fn transform_module_to_init_function<'a>(
                 if !bundler.is_self_referential_assignment(assign) {
                     // Clone and transform the assignment to handle __name__ references
                     let mut assign_clone = assign.clone();
-                    // Use actual module-level variables if available, but filter to only
-                    // exported ones
-                    let module_level_vars = if let Some(ref global_info) = ctx.global_info {
-                        let all_vars = &global_info.module_level_vars;
-                        let mut exported_vars = rustc_hash::FxHashSet::default();
-                        for var in all_vars {
-                            if bundler.should_export_symbol(var, ctx.module_name) {
-                                exported_vars.insert(var.clone());
-                            }
-                        }
-                        exported_vars
+
+                    // Special handling for built-in type assignments like `str = str`
+                    // Inside a function, these cause UnboundLocalError, so we need to
+                    // use a trick: reference the built-in through __builtins__
+                    if assign.targets.len() == 1
+                        && let (Expr::Name(target), Expr::Name(value)) =
+                            (&assign.targets[0], assign.value.as_ref())
+                        && target.id == value.id
+                        && ruff_python_stdlib::builtins::is_python_builtin(
+                            target.id.as_str(),
+                            ctx.python_version,
+                            false,
+                        )
+                    {
+                        debug!(
+                            "Transforming built-in type assignment '{}' = '{}' to use \
+                             __builtins__.{}",
+                            target.id, value.id, value.id
+                        );
+
+                        // Transform the right-hand side to __builtins__.str (or whatever built-in)
+                        // __builtins__ is always available in Python without import
+                        assign_clone.value = Box::new(ast_builder::expressions::attribute(
+                            ast_builder::expressions::name("__builtins__", ExprContext::Load),
+                            value.id.as_str(),
+                            ExprContext::Load,
+                        ));
                     } else {
-                        rustc_hash::FxHashSet::default()
-                    };
-                    transform_expr_for_module_vars(
-                        &mut assign_clone.value,
-                        &module_level_vars,
-                        ctx.python_version,
-                    );
+                        // Use actual module-level variables if available, but filter to only
+                        // exported ones
+                        let module_level_vars = if let Some(ref global_info) = ctx.global_info {
+                            let all_vars = &global_info.module_level_vars;
+                            let mut exported_vars = rustc_hash::FxHashSet::default();
+                            for var in all_vars {
+                                if bundler.should_export_symbol(var, ctx.module_name) {
+                                    exported_vars.insert(var.clone());
+                                }
+                            }
+                            exported_vars
+                        } else {
+                            rustc_hash::FxHashSet::default()
+                        };
+                        transform_expr_for_module_vars(
+                            &mut assign_clone.value,
+                            &module_level_vars,
+                            ctx.python_version,
+                        );
+                    }
 
                     // For simple assignments, also set as module attribute if it should be
                     // exported
