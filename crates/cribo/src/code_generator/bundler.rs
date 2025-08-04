@@ -2858,42 +2858,35 @@ impl<'a> Bundler<'a> {
                 continue;
             }
 
+            // Check if module has exports
+            let has_exports = self
+                .module_exports
+                .get(module_name)
+                .is_some_and(|exports| exports.is_some());
+
+            // Check if this is a submodule that needs a namespace
+            let needs_namespace_for_submodule =
+                if let Some(parent_module) = module_name.rsplit_once('.').map(|(p, _)| p) {
+                    if self.inlined_modules.contains(parent_module) && has_exports {
+                        log::debug!(
+                            "Submodule '{module_name}' needs namespace because parent \
+                             '{parent_module}' is inlined and exports"
+                        );
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
             // Check if module needs a namespace object:
             // 1. It's imported as a namespace (import module)
             // 2. It's directly imported and has exports
             // 3. It's a submodule that's imported by its parent module via from . import
             let needs_namespace = self.namespace_imported_modules.contains_key(module_name)
-                || (directly_imported_modules.contains(module_name)
-                    && self
-                        .module_exports
-                        .get(module_name)
-                        .is_some_and(|exports| exports.is_some()))
-                || {
-                    // Check if this is a submodule that needs a namespace
-                    if let Some(parent_module) =
-                        module_name.rsplit_once('.').map(|(parent, _)| parent)
-                    {
-                        // For inlined submodules, we need to create namespaces if:
-                        // 1. The parent module exists and is also inlined
-                        // 2. The submodule has exports (meaning it's not just internal)
-                        if self.inlined_modules.contains(parent_module)
-                            && self
-                                .module_exports
-                                .get(module_name)
-                                .is_some_and(|exports| exports.is_some())
-                        {
-                            log::debug!(
-                                "Submodule '{module_name}' needs namespace because parent \
-                                 '{parent_module}' is inlined and submodule has exports"
-                            );
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                };
+                || (directly_imported_modules.contains(module_name) && has_exports)
+                || needs_namespace_for_submodule;
 
             if needs_namespace {
                 // Check if this namespace was already created
