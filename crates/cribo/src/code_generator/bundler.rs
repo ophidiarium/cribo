@@ -127,8 +127,9 @@ pub struct Bundler<'a> {
     /// Format: (module_name, symbol_name)
     pub(crate) symbols_populated_after_deferred: FxIndexSet<(String, String)>,
     /// Track modules whose __all__ attribute is accessed in the code
+    /// Set of (accessing_module, accessed_alias) pairs to handle alias collisions
     /// Only these modules need their __all__ emitted in the bundle
-    pub(crate) modules_accessing_all: FxIndexSet<String>,
+    pub(crate) modules_with_accessed_all: FxIndexSet<(String, String)>,
 }
 
 impl<'a> std::fmt::Debug for Bundler<'a> {
@@ -196,7 +197,7 @@ impl<'a> Bundler<'a> {
             namespaces_with_initial_symbols: FxIndexSet::default(),
             namespace_assignments_made: FxIndexSet::default(),
             symbols_populated_after_deferred: FxIndexSet::default(),
-            modules_accessing_all: FxIndexSet::default(),
+            modules_with_accessed_all: FxIndexSet::default(),
         }
     }
 
@@ -1565,10 +1566,12 @@ impl<'a> Bundler<'a> {
         }
 
         // Extract modules that access __all__ from the pre-computed graph data
-        for (base_name, accessing_modules) in params.graph.get_modules_accessing_all() {
-            self.modules_accessing_all.insert(base_name.clone());
-            for module_name in accessing_modules {
-                log::debug!("Module '{module_name}' accesses {base_name}.__all__");
+        // Store (accessing_module, accessed_alias) pairs to handle alias collisions
+        for (alias_name, accessing_modules) in params.graph.get_modules_accessing_all() {
+            for accessing_module in accessing_modules {
+                self.modules_with_accessed_all
+                    .insert((accessing_module.clone(), alias_name.clone()));
+                log::debug!("Module '{accessing_module}' accesses {alias_name}.__all__");
             }
         }
 
@@ -6888,7 +6891,11 @@ impl<'a> Bundler<'a> {
 
             if all_assignment_exists {
                 log::debug!("Skipping duplicate __all__ assignment for namespace '{target_name}'");
-            } else if self.modules_accessing_all.contains(target_name) {
+            } else if self
+                .modules_with_accessed_all
+                .iter()
+                .any(|(_, alias)| alias == target_name)
+            {
                 // Only create __all__ assignment if the code actually accesses it
                 let all_list = expressions::list(
                     filtered_exports

@@ -909,11 +909,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             .bundler
                                             .modules_with_explicit_all
                                             .contains(&full_module_path)
-                                        && (self.bundler.modules_accessing_all.contains(local_name)
-                                            || self
-                                                .bundler
-                                                .modules_accessing_all
-                                                .contains(&full_module_path))
+                                        && self.bundler.modules_with_accessed_all.iter().any(
+                                            |(module, alias)| {
+                                                module == self.module_name && alias == local_name
+                                            },
+                                        )
                                     {
                                         let export_strings: Vec<&str> =
                                             filtered_exports.iter().map(|s| s.as_str()).collect();
@@ -991,11 +991,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             .bundler
                                             .modules_with_explicit_all
                                             .contains(&full_module_path)
-                                        && (self.bundler.modules_accessing_all.contains(local_name)
-                                            || self
-                                                .bundler
-                                                .modules_accessing_all
-                                                .contains(&full_module_path))
+                                        && self.bundler.modules_with_accessed_all.iter().any(
+                                            |(module, alias)| {
+                                                module == self.module_name && alias == local_name
+                                            },
+                                        )
                                     {
                                         let export_strings: Vec<&str> =
                                             filtered_exports.iter().map(|s| s.as_str()).collect();
