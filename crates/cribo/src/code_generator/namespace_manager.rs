@@ -230,68 +230,14 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                 } else if bundler.inlined_modules.contains(&module_name)
                     && !bundler.module_registry.contains_key(&module_name)
                 {
-                    // For inlined modules that are NOT wrapper modules, we need to assign the
-                    // namespace object But first check if this namespace
-                    // already has wrapper submodules initialized If so, skip
-                    // the assignment to avoid overwriting the properly initialized namespace
-                    let has_initialized_wrapper_submodules = bundler
-                        .module_registry
-                        .keys()
-                        .any(|wrapper_name| wrapper_name.starts_with(&format!("{module_name}.")));
-
-                    if has_initialized_wrapper_submodules {
-                        debug!(
-                            "Skipping namespace assignment for '{module_name}' - it already has \
-                             initialized wrapper submodules"
-                        );
-                    } else {
-                        // Check if this namespace was already created directly by
-                        // create_namespace_statements
-                        if bundler.required_namespaces.contains(&module_name) {
-                            debug!(
-                                "Skipping underscore namespace creation for '{module_name}' - \
-                                 already created directly"
-                            );
-                        } else {
-                            // The namespace object variable is created with underscores instead of
-                            // dots
-                            let namespace_var = sanitize_module_name_for_identifier(&module_name);
-                            debug!(
-                                "Assigning inlined module namespace: {parent}.{attr} = \
-                                 {namespace_var}"
-                            );
-
-                            // First ensure the namespace variable exists
-                            // This handles cases where the module has no symbols and thus no
-                            // namespace was created
-                            if !bundler.created_namespaces.contains(&namespace_var) {
-                                debug!(
-                                    "Creating empty namespace for module '{module_name}' before \
-                                     assignment"
-                                );
-                                // Create empty namespace = types.SimpleNamespace()
-                                final_body.push(statements::simple_assign(
-                                    &namespace_var,
-                                    expressions::call(
-                                        expressions::simple_namespace_ctor(),
-                                        vec![],
-                                        vec![],
-                                    ),
-                                ));
-                                bundler.created_namespaces.insert(namespace_var.clone());
-                            }
-
-                            // Create assignment: parent.attr = namespace_var
-                            final_body.push(statements::assign(
-                                vec![expressions::attribute(
-                                    expressions::name(&parent, ExprContext::Load),
-                                    &attr,
-                                    ExprContext::Store,
-                                )],
-                                expressions::name(&namespace_var, ExprContext::Load),
-                            ));
-                        }
-                    }
+                    // For inlined modules that are NOT wrapper modules, handle namespace assignment
+                    handle_inlined_module_assignment(
+                        bundler,
+                        &parent,
+                        &attr,
+                        &module_name,
+                        final_body,
+                    );
                 } else {
                     debug!("Module '{module_name}' is not in inlined_modules, checking assignment");
                     // Check if this would be a redundant self-assignment
@@ -706,4 +652,63 @@ pub(super) fn create_namespace_for_inlined_module_static(
         vec![expressions::name(&namespace_var, ExprContext::Store)],
         expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
     ))
+}
+
+/// Handle assignment for inlined modules that are not wrapper modules.
+///
+/// This helper function reduces nesting in generate_submodule_attributes_with_exclusions
+/// by extracting the logic for handling inlined module namespace assignments.
+fn handle_inlined_module_assignment(
+    bundler: &mut Bundler,
+    parent: &str,
+    attr: &str,
+    module_name: &str,
+    final_body: &mut Vec<Stmt>,
+) {
+    // Check if namespace has wrapper submodules
+    let has_initialized_wrapper_submodules = bundler
+        .module_registry
+        .keys()
+        .any(|wrapper_name| wrapper_name.starts_with(&format!("{module_name}.")));
+
+    if has_initialized_wrapper_submodules {
+        debug!(
+            "Skipping namespace assignment for '{module_name}' - it already has initialized \
+             wrapper submodules"
+        );
+        return;
+    }
+
+    // Check if namespace was already created directly
+    if bundler.required_namespaces.contains(module_name) {
+        debug!(
+            "Skipping underscore namespace creation for '{module_name}' - already created directly"
+        );
+        return;
+    }
+
+    // Create namespace variable and assignment
+    let namespace_var = sanitize_module_name_for_identifier(module_name);
+    debug!("Assigning inlined module namespace: {parent}.{attr} = {namespace_var}");
+
+    // Ensure namespace variable exists
+    if !bundler.created_namespaces.contains(&namespace_var) {
+        debug!("Creating empty namespace for module '{module_name}' before assignment");
+        // Create empty namespace = types.SimpleNamespace()
+        final_body.push(statements::simple_assign(
+            &namespace_var,
+            expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
+        ));
+        bundler.created_namespaces.insert(namespace_var.clone());
+    }
+
+    // Create assignment: parent.attr = namespace_var
+    final_body.push(statements::assign(
+        vec![expressions::attribute(
+            expressions::name(parent, ExprContext::Load),
+            attr,
+            ExprContext::Store,
+        )],
+        expressions::name(&namespace_var, ExprContext::Load),
+    ));
 }
