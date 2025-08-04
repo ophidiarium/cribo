@@ -400,23 +400,9 @@ pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<
             }
         }
         Expr::Attribute(attr_expr) => {
-            // Check if the base is an aliased module
-            if let Expr::Name(name_expr) = &mut *attr_expr.value {
-                if let Some(canonical) = alias_to_canonical.get(name_expr.id.as_str()) {
-                    debug!(
-                        "Rewriting attribute base '{}' to '{}' in attribute expression",
-                        name_expr.id.as_str(),
-                        canonical
-                    );
-                    name_expr.id = canonical.clone().into();
-                }
-            } else {
-                debug!(
-                    "Attribute base is not a Name expression, it's {:?}",
-                    std::mem::discriminant(&*attr_expr.value)
-                );
-            }
-            // Recursively process the value
+            // Recursively process the value - this will correctly handle
+            // dotted names like "pathlib.Path" by converting them to proper
+            // attribute expressions
             rewrite_aliases_in_expr(&mut attr_expr.value, alias_to_canonical);
         }
         Expr::Call(call_expr) => {
