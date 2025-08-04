@@ -449,7 +449,7 @@ impl BundleOrchestrator {
         let mut build_params = GraphBuildParams {
             entry_path,
             entry_module_name: &entry_module_name,
-            resolver: &mut resolver,
+            resolver: &resolver,
             graph,
         };
         let parsed_modules = self.build_dependency_graph(&mut build_params)?;
@@ -657,7 +657,7 @@ impl BundleOrchestrator {
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
-        let mut resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
+        let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
         let sorted_modules =
             self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
@@ -673,7 +673,7 @@ impl BundleOrchestrator {
         let bundled_code = self.emit_static_bundle(StaticBundleParams {
             sorted_modules: &module_data,
             parsed_modules: Some(&parsed_modules),
-            resolver: &mut resolver,
+            resolver: &resolver,
             entry_module_name: &entry_module_name,
             graph: &graph,
             circular_dep_analysis: circular_dep_analysis.as_ref(),
@@ -682,7 +682,7 @@ impl BundleOrchestrator {
 
         // Generate requirements.txt if requested
         if emit_requirements {
-            self.write_requirements_file_for_stdout(&module_data, &mut resolver)?;
+            self.write_requirements_file_for_stdout(&module_data, &resolver)?;
         }
 
         Ok(bundled_code)
@@ -707,7 +707,7 @@ impl BundleOrchestrator {
             self.bundle_core(entry_path, &mut graph, &mut resolver_opt)?;
 
         // Extract the resolver (it's guaranteed to be Some after bundle_core)
-        let mut resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
+        let resolver = resolver_opt.expect("Resolver should be initialized by bundle_core");
 
         let sorted_modules =
             self.get_sorted_modules_from_graph(&graph, circular_dep_analysis.as_ref())?;
@@ -717,7 +717,7 @@ impl BundleOrchestrator {
         let bundled_code = self.emit_static_bundle(StaticBundleParams {
             sorted_modules: &sorted_modules,
             parsed_modules: Some(&parsed_modules), // Use pre-parsed modules to avoid double parsing
-            resolver: &mut resolver,
+            resolver: &resolver,
             entry_module_name: &entry_module_name,
             graph: &graph,
             circular_dep_analysis: circular_dep_analysis.as_ref(),
@@ -726,7 +726,7 @@ impl BundleOrchestrator {
 
         // Generate requirements.txt if requested
         if emit_requirements {
-            self.write_requirements_file(&sorted_modules, &mut resolver, output_path)?;
+            self.write_requirements_file(&sorted_modules, &resolver, output_path)?;
         }
 
         // Write output file
@@ -1459,7 +1459,7 @@ impl BundleOrchestrator {
     fn write_requirements_file_for_stdout(
         &self,
         sorted_modules: &[(String, PathBuf, Vec<String>)],
-        resolver: &mut ModuleResolver,
+        resolver: &ModuleResolver,
     ) -> Result<()> {
         let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
         if !requirements_content.is_empty() {
@@ -1480,7 +1480,7 @@ impl BundleOrchestrator {
     fn write_requirements_file(
         &self,
         sorted_modules: &[(String, PathBuf, Vec<String>)],
-        resolver: &mut ModuleResolver,
+        resolver: &ModuleResolver,
         output_path: &Path,
     ) -> Result<()> {
         let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
@@ -1623,7 +1623,7 @@ impl BundleOrchestrator {
     fn generate_requirements(
         &self,
         modules: &[(String, PathBuf, Vec<String>)],
-        resolver: &mut ModuleResolver,
+        resolver: &ModuleResolver,
     ) -> Result<String> {
         let mut third_party_imports = IndexSet::new();
 
