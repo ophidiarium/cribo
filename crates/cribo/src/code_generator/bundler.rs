@@ -1395,7 +1395,10 @@ impl<'a> Bundler<'a> {
                                     .value
                                     .as_ref()
                                     .as_name_expr()
-                                    .unwrap()
+                                    .expect(
+                                        "target_attr.value should be Expr::Name as checked by \
+                                         outer if let"
+                                    )
                                     .id
                                     .as_str(),
                                 target_attr.attr,
@@ -1411,7 +1414,10 @@ impl<'a> Bundler<'a> {
                                 .value
                                 .as_ref()
                                 .as_name_expr()
-                                .unwrap()
+                                .expect(
+                                    "target_attr.value should be Expr::Name as checked by outer \
+                                     if let"
+                                )
                                 .id
                                 .as_str(),
                             target_attr.attr
