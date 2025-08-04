@@ -1010,6 +1010,31 @@ impl BundleOrchestrator {
             }
         }
 
+        // Aggregate __all__ access information from all modules
+        let mut all_accesses = Vec::new();
+        for module_graph in params.graph.modules.values() {
+            for item in module_graph.items.values() {
+                // Check attribute accesses for __all__
+                for (base_name, attributes) in &item.attribute_accesses {
+                    if attributes.contains("__all__") {
+                        // This module accesses base_name.__all__
+                        all_accesses.push((base_name.clone(), module_graph.module_name.clone()));
+                        log::debug!(
+                            "Module '{}' accesses {base_name}.__all__",
+                            module_graph.module_name
+                        );
+                    }
+                }
+            }
+        }
+
+        // Now update the graph with the collected accesses
+        for (base_name, accessing_module) in all_accesses {
+            params
+                .graph
+                .add_module_accessing_all(base_name, accessing_module);
+        }
+
         info!(
             "Phase 2 complete: dependency graph built with {} modules",
             params.graph.modules.len()

@@ -1564,20 +1564,11 @@ impl<'a> Bundler<'a> {
             );
         }
 
-        // Extract modules that access __all__ from the dependency graph
-        for module_graph in params.graph.modules.values() {
-            for item in module_graph.items.values() {
-                // Check attribute accesses for __all__
-                for (base_name, attributes) in &item.attribute_accesses {
-                    if attributes.contains("__all__") {
-                        // This module accesses base_name.__all__
-                        self.modules_accessing_all.insert(base_name.clone());
-                        log::debug!(
-                            "Module '{}' accesses {base_name}.__all__",
-                            module_graph.module_name
-                        );
-                    }
-                }
+        // Extract modules that access __all__ from the pre-computed graph data
+        for (base_name, accessing_modules) in params.graph.get_modules_accessing_all() {
+            self.modules_accessing_all.insert(base_name.clone());
+            for module_name in accessing_modules {
+                log::debug!("Module '{module_name}' accesses {base_name}.__all__");
             }
         }
 
