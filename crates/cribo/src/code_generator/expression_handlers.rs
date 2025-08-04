@@ -581,6 +581,7 @@ pub fn rewrite_aliases_in_expr(expr: &mut Expr, alias_to_canonical: &FxIndexMap<
             }
         }
         Expr::Named(named) => {
+            rewrite_aliases_in_expr(&mut named.target, alias_to_canonical);
             rewrite_aliases_in_expr(&mut named.value, alias_to_canonical);
         }
         Expr::FString(fstring) => {
