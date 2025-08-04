@@ -190,13 +190,12 @@ pub fn process_wrapper_module_globals(
     all_lifted_declarations: &mut Vec<Stmt>,
 ) {
     // Get module ID from graph
-    let module = match params
+    let Some(module) = params
         .semantic_ctx
         .graph
         .get_module_by_name(params.module_name)
-    {
-        Some(m) => m,
-        None => return,
+    else {
+        return;
     };
 
     let module_id = module.module_id;
