@@ -166,23 +166,21 @@ impl<'a> RecursiveImportTransformer<'a> {
                             )
                             .unwrap_or_else(|| module_name.to_string())
                     } else {
-                        // Fallback to manual resolution if package path not found
-                        let level = module_name.chars().take_while(|&c| c == '.').count();
+                        // Use resolver's method for package name resolution when path not found
+                        let level = module_name.chars().take_while(|&c| c == '.').count() as u32;
                         let name_part = module_name.trim_start_matches('.');
 
-                        let mut package_parts: Vec<&str> = package.split('.').collect();
-
-                        // Go up 'level - 1' levels (one dot means current package)
-                        if level > 1 && package_parts.len() >= level - 1 {
-                            package_parts.truncate(package_parts.len() - (level - 1));
-                        }
-
-                        // Append the name part if it's not empty
-                        if !name_part.is_empty() {
-                            package_parts.push(name_part);
-                        }
-
-                        package_parts.join(".")
+                        self.bundler
+                            .resolver
+                            .resolve_relative_import_from_package_name(
+                                level,
+                                if name_part.is_empty() {
+                                    None
+                                } else {
+                                    Some(name_part)
+                                },
+                                package,
+                            )
                     }
                 } else {
                     module_name.to_string()

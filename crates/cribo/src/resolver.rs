@@ -733,10 +733,11 @@ impl ModuleResolver {
 
         // If name is provided, split it and append
         if let Some(name) = name
-            && !name.is_empty() {
-                let name_parts: Vec<&str> = name.split('.').collect();
-                current_parts.extend(name_parts.into_iter().map(|s| s.to_string()));
-            }
+            && !name.is_empty()
+        {
+            let name_parts: Vec<&str> = name.split('.').collect();
+            current_parts.extend(name_parts.into_iter().map(|s| s.to_string()));
+        }
 
         if current_parts.is_empty() {
             // If we're at the root after applying relative levels, return empty string
@@ -745,6 +746,30 @@ impl ModuleResolver {
         } else {
             Some(current_parts.join("."))
         }
+    }
+
+    /// Resolve a relative import given a package name (not path)
+    /// This is used when we have a package string like "foo.bar" instead of a file path
+    pub fn resolve_relative_import_from_package_name(
+        &self,
+        level: u32,
+        name: Option<&str>,
+        package_name: &str,
+    ) -> String {
+        let mut package_parts: Vec<&str> = package_name.split('.').collect();
+
+        // Go up 'level - 1' levels (one dot means current package)
+        if level > 1 && package_parts.len() >= (level as usize) - 1 {
+            package_parts.truncate(package_parts.len() - ((level as usize) - 1));
+        }
+
+        // Append the name part if provided
+        if let Some(name_part) = name
+            && !name_part.is_empty() {
+                package_parts.push(name_part);
+            }
+
+        package_parts.join(".")
     }
 
     /// Convert a filesystem path to module path components
