@@ -902,12 +902,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         .collect();
 
                                     // Add __all__ attribute to the namespace with filtered exports
-                                    // BUT ONLY if the original module had an explicit __all__
+                                    // BUT ONLY if the original module had an explicit __all__ AND
+                                    // the code actually accesses this module's __all__
                                     if !filtered_exports.is_empty()
                                         && self
                                             .bundler
                                             .modules_with_explicit_all
                                             .contains(&full_module_path)
+                                        && (self.bundler.modules_accessing_all.contains(local_name)
+                                            || self
+                                                .bundler
+                                                .modules_accessing_all
+                                                .contains(&full_module_path))
                                     {
                                         let export_strings: Vec<&str> =
                                             filtered_exports.iter().map(|s| s.as_str()).collect();
@@ -978,12 +984,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         .collect();
 
                                     // Add __all__ attribute to the namespace with filtered exports
-                                    // BUT ONLY if the original module had an explicit __all__
+                                    // BUT ONLY if the original module had an explicit __all__ AND
+                                    // the code actually accesses this module's __all__
                                     if !filtered_exports.is_empty()
                                         && self
                                             .bundler
                                             .modules_with_explicit_all
                                             .contains(&full_module_path)
+                                        && (self.bundler.modules_accessing_all.contains(local_name)
+                                            || self
+                                                .bundler
+                                                .modules_accessing_all
+                                                .contains(&full_module_path))
                                     {
                                         let export_strings: Vec<&str> =
                                             filtered_exports.iter().map(|s| s.as_str()).collect();

@@ -16,6 +16,5 @@ greeting = types.SimpleNamespace()
 greeting.message = message_2
 message_1 = greeting.message
 greetings_greeting.message = message_2
-greetings.__all__ = ['message']
 greetings.message = message_1
 print(greetings.message)

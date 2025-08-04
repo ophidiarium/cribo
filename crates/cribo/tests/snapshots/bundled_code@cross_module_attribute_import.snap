@@ -45,5 +45,4 @@ mypackage.core = mypackage_core
 mypackage_core.process_data = process_data
 mypackage___version__.__version__ = __version__
 """Test cross-module attribute import with circular dependencies that require init functions."""
-mypackage.__all__ = ['get_full_info']
 print(mypackage.get_full_info())

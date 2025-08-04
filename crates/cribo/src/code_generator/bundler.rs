@@ -126,6 +126,9 @@ pub struct Bundler<'a> {
     /// Track which namespace symbols have been populated after deferred imports
     /// Format: (module_name, symbol_name)
     pub(crate) symbols_populated_after_deferred: FxIndexSet<(String, String)>,
+    /// Track modules whose __all__ attribute is accessed in the code
+    /// Only these modules need their __all__ emitted in the bundle
+    pub(crate) modules_accessing_all: FxIndexSet<String>,
 }
 
 impl<'a> std::fmt::Debug for Bundler<'a> {
@@ -193,6 +196,7 @@ impl<'a> Bundler<'a> {
             namespaces_with_initial_symbols: FxIndexSet::default(),
             namespace_assignments_made: FxIndexSet::default(),
             symbols_populated_after_deferred: FxIndexSet::default(),
+            modules_accessing_all: FxIndexSet::default(),
         }
     }
 
@@ -1558,6 +1562,23 @@ impl<'a> Bundler<'a> {
                     .map(|s| s.len())
                     .unwrap_or(0)
             );
+        }
+
+        // Extract modules that access __all__ from the dependency graph
+        for module_graph in params.graph.modules.values() {
+            for item in module_graph.items.values() {
+                // Check attribute accesses for __all__
+                for (base_name, attributes) in &item.attribute_accesses {
+                    if attributes.contains("__all__") {
+                        // This module accesses base_name.__all__
+                        self.modules_accessing_all.insert(base_name.clone());
+                        log::debug!(
+                            "Module '{}' accesses {base_name}.__all__",
+                            module_graph.module_name
+                        );
+                    }
+                }
+            }
         }
 
         log::debug!("Entry module name: {}", params.entry_module_name);
@@ -6876,8 +6897,8 @@ impl<'a> Bundler<'a> {
 
             if all_assignment_exists {
                 log::debug!("Skipping duplicate __all__ assignment for namespace '{target_name}'");
-            } else {
-                // Create __all__ = [...] assignment with filtered exports
+            } else if self.modules_accessing_all.contains(target_name) {
+                // Only create __all__ assignment if the code actually accesses it
                 let all_list = expressions::list(
                     filtered_exports
                         .iter()
@@ -6897,7 +6918,12 @@ impl<'a> Bundler<'a> {
 
                 log::info!(
                     "Created __all__ assignment for namespace '{target_name}' with exports: \
-                     {filtered_exports:?}"
+                     {filtered_exports:?} (accessed in code)"
+                );
+            } else {
+                log::debug!(
+                    "Skipping __all__ assignment for namespace '{target_name}' - not accessed in \
+                     code"
                 );
             }
 

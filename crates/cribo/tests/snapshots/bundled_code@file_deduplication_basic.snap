@@ -18,7 +18,6 @@ app.utils = app_utils
 app_utils.get_name = get_name
 app_utils.helper = helper
 app.utils = types.SimpleNamespace()
-app.utils.__all__ = ['get_name', 'helper']
 app.utils.get_name = get_name
 app.utils.helper = helper
 app_utils = app_utils

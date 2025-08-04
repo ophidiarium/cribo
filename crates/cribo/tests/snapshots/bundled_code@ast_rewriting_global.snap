@@ -115,7 +115,6 @@ foo_1 = "main_foo"
 foo = foo_1
 bar_1 = "main_bar"
 bar = bar_1
-module_global_keyword.__all__ = ['foo', 'get_foo', 'modify_foo']
 module_globals_dict = __cribo_init___cribo_5101f4_module_globals_dict()
 module_mixed_patterns = __cribo_init___cribo_c75306_module_mixed_patterns()
 assert foo_1 == "main_foo"

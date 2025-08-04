@@ -45,7 +45,6 @@ JSONDecodeError = mypkg.compat.JSONDecodeError
 mypkg.exceptions = mypkg_exceptions
 mypkg_exceptions.BaseException = BaseException
 mypkg_exceptions.CustomJSONError = CustomJSONError
-mypkg.__all__ = ['CustomJSONError']
 mypkg.CustomJSONError = CustomJSONError
 try:
     raise mypkg.CustomJSONError("Test error", "doc", 42)

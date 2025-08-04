@@ -20,7 +20,6 @@ def process_c():
     value = get_value_a()
     return f"C(using_{value})"
 module_a = types.SimpleNamespace(process_a=process_a, get_value_a=get_value_a)
-module_a.__all__ = ['get_value_a', 'process_a']
 def main():
     result = module_a.process_a()
     print(f"Result: {result}")

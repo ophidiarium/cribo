@@ -23,7 +23,6 @@ utils.get_user_agent = get_user_agent
 mypackage_utils.get_user_agent = get_user_agent
 mypackage___version__.__version__ = __version__
 """Test fixture for importing __version__ in a complex module structure."""
-mypackage.__all__ = ['__version__']
 mypackage.__version__ = __version__
 print(f"User agent: {get_user_agent()}")
 print(f"Package version: {mypackage.__version__}")

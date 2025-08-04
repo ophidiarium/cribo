@@ -70,7 +70,6 @@ def __cribo_init___cribo_244765_compat_module():
     return module
 """Test conditional imports and exports without explicit __all__."""
 compat_module = __cribo_init___cribo_244765_compat_module()
-exceptions_module.__all__ = ['BaseError']
 print("compat_module has JSONDecodeError:", hasattr(compat_module, "JSONDecodeError"))
 if hasattr(compat_module, "JSONDecodeError"):
     print("✓ Can access compat_module.JSONDecodeError")
