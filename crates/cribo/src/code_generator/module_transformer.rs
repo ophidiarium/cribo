@@ -271,6 +271,23 @@ pub fn transform_module_to_init_function<'a>(
         }
     }
 
+    // Helper function to get exported module-level variables
+    let get_exported_module_vars =
+        |bundler: &Bundler, ctx: &ModuleTransformContext| -> rustc_hash::FxHashSet<String> {
+            if let Some(ref global_info) = ctx.global_info {
+                let all_vars = &global_info.module_level_vars;
+                let mut exported_vars = rustc_hash::FxHashSet::default();
+                for var in all_vars {
+                    if bundler.should_export_symbol(var, ctx.module_name) {
+                        exported_vars.insert(var.to_string());
+                    }
+                }
+                exported_vars
+            } else {
+                rustc_hash::FxHashSet::default()
+            }
+        };
+
     // Process the body with a new recursive approach
     let processed_body =
         bundler.process_body_recursive(ast.body, ctx.module_name, module_scope_symbols);
@@ -364,18 +381,7 @@ pub fn transform_module_to_init_function<'a>(
 
                     // Use actual module-level variables if available, but filter to only
                     // exported ones
-                    let module_level_vars = if let Some(ref global_info) = ctx.global_info {
-                        let all_vars = &global_info.module_level_vars;
-                        let mut exported_vars = rustc_hash::FxHashSet::default();
-                        for var in all_vars {
-                            if bundler.should_export_symbol(var, ctx.module_name) {
-                                exported_vars.insert(var.clone());
-                            }
-                        }
-                        exported_vars
-                    } else {
-                        rustc_hash::FxHashSet::default()
-                    };
+                    let module_level_vars = get_exported_module_vars(bundler, &ctx);
 
                     // Special handling for assignments involving built-in types
                     // We need to transform any reference to a built-in that will be assigned
@@ -461,18 +467,7 @@ pub fn transform_module_to_init_function<'a>(
 
                     // Use actual module-level variables if available, but filter to only exported
                     // ones
-                    let module_level_vars = if let Some(ref global_info) = ctx.global_info {
-                        let all_vars = &global_info.module_level_vars;
-                        let mut exported_vars = rustc_hash::FxHashSet::default();
-                        for var in all_vars {
-                            if bundler.should_export_symbol(var, ctx.module_name) {
-                                exported_vars.insert(var.clone());
-                            }
-                        }
-                        exported_vars
-                    } else {
-                        rustc_hash::FxHashSet::default()
-                    };
+                    let module_level_vars = get_exported_module_vars(bundler, &ctx);
 
                     // Transform references to built-ins that will be shadowed
                     if let Some(ref mut value) = ann_assign_clone.value {
