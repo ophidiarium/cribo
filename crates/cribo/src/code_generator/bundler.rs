@@ -12,7 +12,10 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
-    analyzers::{ImportAnalyzer, SymbolAnalyzer, namespace_analyzer::NamespaceAnalyzer},
+    analyzers::{
+        ImportAnalyzer, SymbolAnalyzer, dependency_analyzer::DependencyAnalyzer,
+        namespace_analyzer::NamespaceAnalyzer,
+    },
     ast_builder::{expressions, other, statements},
     code_generator::{
         circular_deps::SymbolDependencyGraph,
@@ -3344,7 +3347,6 @@ impl<'a> Bundler<'a> {
             // Sort wrapped modules by their dependencies to ensure correct initialization order
             // This is critical for namespace imports in circular dependencies
             debug!("Wrapped modules before sorting: {wrapped_modules_to_init:?}");
-            use crate::analyzers::dependency_analyzer::DependencyAnalyzer;
             let sorted_wrapped = DependencyAnalyzer::sort_wrapped_modules_by_dependencies(
                 wrapped_modules_to_init,
                 params.graph,
