@@ -20,6 +20,7 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
+    analyzers::dependency_analyzer::DependencyAnalyzer,
     ast_builder,
     code_generator::{
         bundler::Bundler,
@@ -1926,8 +1927,6 @@ pub fn sort_wrapper_modules_by_dependencies(
     wrapper_modules: &[(String, ModModule, PathBuf, String)],
     graph: &crate::cribo_graph::CriboGraph,
 ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
-    use crate::analyzers::dependency_analyzer::DependencyAnalyzer;
-
     // Extract module names
     let wrapper_names: Vec<String> = wrapper_modules
         .iter()
