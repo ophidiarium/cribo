@@ -2374,7 +2374,7 @@ impl<'a> Bundler<'a> {
         // namespace hybrids
         let inlining_result = super::inliner::inline_all_modules(
             self,
-            inlinable_modules.clone(),
+            &inlinable_modules,
             &module_exports_map,
             &mut symbol_renames,
             &mut global_symbols,

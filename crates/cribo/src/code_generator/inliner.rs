@@ -626,7 +626,7 @@ impl Bundler<'_> {
 /// Inline all modules into the bundle
 pub fn inline_all_modules(
     bundler: &mut Bundler,
-    inlinable_modules: Vec<(String, ModModule, std::path::PathBuf, String)>,
+    inlinable_modules: &[(String, ModModule, std::path::PathBuf, String)],
     module_exports_map: &FxIndexMap<String, Option<Vec<String>>>,
     symbol_renames: &mut FxIndexMap<String, FxIndexMap<String, String>>,
     global_symbols: &mut FxIndexSet<String>,
@@ -635,7 +635,7 @@ pub fn inline_all_modules(
     let mut all_deferred_imports = Vec::new();
     let mut all_inlined_stmts = Vec::new();
 
-    for (module_name, ast, module_path, _content_hash) in &inlinable_modules {
+    for (module_name, ast, module_path, _content_hash) in inlinable_modules {
         debug!("Inlining module '{module_name}'");
 
         let mut inlined_stmts = Vec::new();
