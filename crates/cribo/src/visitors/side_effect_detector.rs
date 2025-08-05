@@ -309,17 +309,9 @@ impl<'a> Visitor<'a> for SideEffectDetector {
             }
 
             // Import statements are handled separately by the bundler
-            Stmt::Import(_) | Stmt::ImportFrom(_) => {
-                return; // Don't call walk_stmt
-            }
-
             // Type alias statements are safe
-            Stmt::TypeAlias(_) => {
-                return; // Don't call walk_stmt
-            }
-
             // Pass statements are no-ops
-            Stmt::Pass(_) => {
+            Stmt::Import(_) | Stmt::ImportFrom(_) | Stmt::TypeAlias(_) | Stmt::Pass(_) => {
                 return; // Don't call walk_stmt
             }
 
@@ -358,23 +350,7 @@ impl<'a> Visitor<'a> for SideEffectDetector {
                 return; // Don't walk further
             }
 
-            // These are definitely side effects
-            Stmt::If(_)
-            | Stmt::While(_)
-            | Stmt::For(_)
-            | Stmt::With(_)
-            | Stmt::Match(_)
-            | Stmt::Raise(_)
-            | Stmt::Try(_)
-            | Stmt::Assert(_)
-            | Stmt::Global(_)
-            | Stmt::Nonlocal(_)
-            | Stmt::Delete(_) => {
-                self.has_side_effects = true;
-                return;
-            }
-
-            // Any other statement type is considered a side effect
+            // These are definitely side effects (including any other statement type)
             _ => {
                 self.has_side_effects = true;
                 return;
@@ -420,12 +396,10 @@ impl<'a> Visitor<'a> for SideEffectDetector {
 
                 // Attribute access is only a side effect if the base object might have side effects
                 // For now, we'll walk into it to check if the base has side effects
-                Expr::Attribute(_) => {
-                    // Continue walking to check the base object
-                }
-
                 // For other expressions, continue walking to check nested expressions
-                _ => {}
+                _ => {
+                    // Continue walking to check the base object/nested expressions
+                }
             }
         }
 

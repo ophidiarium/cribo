@@ -131,14 +131,12 @@ pub fn get_synthetic_module_name(module_name: &str, content_hash: &str) -> Strin
 /// This is a simple character replacement - collision handling should be done by the caller
 pub fn sanitize_module_name_for_identifier(name: &str) -> String {
     name.chars()
-        .map(|c| match c {
-            // Replace common invalid characters with descriptive names
-            '-' => '_',
-            '.' => '_',
-            ' ' => '_',
-            // For other non-alphanumeric characters, replace with underscore
-            c if c.is_alphanumeric() || c == '_' => c,
-            _ => '_',
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
         })
         .collect::<String>()
 }

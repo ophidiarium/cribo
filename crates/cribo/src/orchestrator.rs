@@ -815,10 +815,8 @@ impl BundleOrchestrator {
         let mut imports = Vec::new();
         for item_data in items.values() {
             match &item_data.item_type {
-                crate::cribo_graph::ItemType::Import { module, alias: _ } => {
-                    imports.push(module.clone());
-                }
-                crate::cribo_graph::ItemType::FromImport { module, .. } => {
+                crate::cribo_graph::ItemType::Import { module, .. }
+                | crate::cribo_graph::ItemType::FromImport { module, .. } => {
                     imports.push(module.clone());
                 }
                 _ => {}

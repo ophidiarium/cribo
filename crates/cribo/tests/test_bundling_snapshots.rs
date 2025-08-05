@@ -254,7 +254,9 @@ fn test_bundling_fixtures() {
                 );
             }
             // pyfail_: Expected to fail, and it did - good!
-            (false, true, _) => {
+            // xfail_: Python succeeded, will check bundling failure later
+            // Normal fixture: Succeeded as expected
+            (false, true, _) | (true, false, true | false) => {
                 // Continue to bundling
             }
             // xfail_: Python execution MUST succeed (only bundling should fail)
@@ -272,10 +274,6 @@ fn test_bundling_fixtures() {
                     stderr.trim()
                 );
             }
-            // xfail_: Python succeeded, will check bundling failure later
-            (true, false, true) => {
-                // Continue to bundling
-            }
             // Normal fixture: MUST succeed in Python execution
             (false, false, false) => {
                 let stderr = String::from_utf8_lossy(&original_output.stderr);
@@ -289,10 +287,6 @@ fn test_bundling_fixtures() {
                     stdout.trim(),
                     stderr.trim()
                 );
-            }
-            // Normal fixture: Succeeded as expected
-            (true, false, false) => {
-                // Continue to bundling
             }
         }
 
