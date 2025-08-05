@@ -109,19 +109,6 @@ pub struct ExportInfo {
     pub exported_names: Option<Vec<String>>,
     /// Whether __all__ is modified dynamically
     pub is_dynamic: bool,
-    /// Re-exports from other modules
-    pub re_exports: Vec<ReExport>,
-}
-
-/// Represents a re-export from another module
-#[derive(Debug, Clone)]
-pub struct ReExport {
-    /// The module being imported from
-    pub from_module: String,
-    /// Names being imported and their aliases (name, alias)
-    pub names: Vec<(String, Option<String>)>,
-    /// Whether this is a star import
-    pub is_star: bool,
 }
 
 /// Information about an unused import

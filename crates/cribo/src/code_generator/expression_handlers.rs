@@ -12,7 +12,7 @@ use ruff_text_size::TextRange;
 
 use super::bundler::Bundler;
 use crate::{
-    ast_builder::{expressions, statements},
+    ast_builder::expressions,
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -154,48 +154,6 @@ pub(super) fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
             a1.attr == a2.attr && expr_equals(&a1.value, &a2.value)
         }
         _ => false,
-    }
-}
-
-/// Extract string list from expression (used for parsing __all__ declarations)
-pub(super) fn extract_string_list_from_expr(expr: &Expr) -> Option<Vec<String>> {
-    match expr {
-        Expr::List(list_expr) => {
-            let mut exports = Vec::new();
-            for element in &list_expr.elts {
-                if let Expr::StringLiteral(string_lit) = element {
-                    let string_value = string_lit.value.to_str();
-                    exports.push(string_value.to_string());
-                }
-            }
-            Some(exports)
-        }
-        Expr::Tuple(tuple_expr) => {
-            let mut exports = Vec::new();
-            for element in &tuple_expr.elts {
-                if let Expr::StringLiteral(string_lit) = element {
-                    let string_value = string_lit.value.to_str();
-                    exports.push(string_value.to_string());
-                }
-            }
-            Some(exports)
-        }
-        _ => None, // Other expressions like computed lists are not supported
-    }
-}
-
-/// Convert expression to dotted name string
-pub(super) fn expr_to_dotted_name(expr: &Expr) -> String {
-    match expr {
-        Expr::Name(name) => name.id.to_string(),
-        Expr::Attribute(attr) => {
-            let value_name = expr_to_dotted_name(&attr.value);
-            format!("{}.{}", value_name, attr.attr)
-        }
-        _ => {
-            // For non-name expressions, return a placeholder
-            "<complex_expr>".to_string()
-        }
     }
 }
 
@@ -915,52 +873,6 @@ pub(super) fn transform_fstring_expression(
     };
 
     (new_element, was_transformed)
-}
-
-/// Create namespace attribute assignment
-pub(super) fn create_namespace_attribute(bundler: &mut Bundler, parent: &str, child: &str) -> Stmt {
-    // Create: parent.child = types.SimpleNamespace()
-    let mut stmt = statements::assign(
-        vec![expressions::attribute(
-            expressions::name(parent, ExprContext::Load),
-            child,
-            ExprContext::Store,
-        )],
-        expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
-    );
-
-    // Set the node index for transformation tracking
-    if let Stmt::Assign(assign) = &mut stmt {
-        assign.node_index = bundler
-            .transformation_context
-            .create_new_node(format!("Create namespace attribute {parent}.{child}"));
-    }
-
-    stmt
-}
-
-/// Create dotted attribute assignment
-pub(super) fn create_dotted_attribute_assignment(
-    bundler: &mut Bundler,
-    dotted_name: &str,
-    value_expr: Expr,
-) -> Result<Stmt, String> {
-    let parts: Vec<&str> = dotted_name.split('.').collect();
-    if parts.is_empty() {
-        return Err("Empty dotted name".to_string());
-    }
-
-    let target_expr = expressions::dotted_name(&parts, ExprContext::Store);
-    let mut stmt = statements::assign(vec![target_expr], value_expr);
-
-    // Set the node index for transformation tracking
-    if let Stmt::Assign(assign) = &mut stmt {
-        assign.node_index = bundler
-            .transformation_context
-            .create_new_node(format!("create_dotted_attribute_assignment({dotted_name})"));
-    }
-
-    Ok(stmt)
 }
 
 /// Recursively rewrite aliases in statements
