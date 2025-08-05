@@ -132,12 +132,11 @@ pub fn call(func: Expr, args: Vec<Expr>, keywords: Vec<Keyword>) -> Expr {
 /// let expr = dotted_name(&["sys", "modules", "get"], ExprContext::Load);
 /// ```
 pub fn dotted_name(parts: &[&str], ctx: ExprContext) -> Expr {
-    if parts.is_empty() {
-        panic!(
-            "Cannot create a dotted name: the 'parts' array must contain at least one string. \
-             Ensure the input is non-empty before calling this function."
-        );
-    }
+    assert!(
+        !parts.is_empty(),
+        "Cannot create a dotted name: the 'parts' array must contain at least one string. Ensure \
+         the input is non-empty before calling this function."
+    );
 
     let mut result = name(
         parts[0],
@@ -220,11 +219,11 @@ pub(crate) fn simple_namespace_ctor() -> Expr {
 
 /// Extracts the original flags from an f-string value.
 ///
-/// This function searches through the f-string parts to find the first FString part
-/// and returns its flags. If no FString part is found, returns empty flags.
+/// This function searches through the f-string parts to find the first `FString` part
+/// and returns its flags. If no `FString` part is found, returns empty flags.
 ///
 /// # Arguments
-/// * `value` - The FStringValue to extract flags from
+/// * `value` - The `FStringValue` to extract flags from
 ///
 /// # Example
 /// ```rust

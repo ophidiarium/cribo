@@ -42,7 +42,7 @@ pub enum SymbolKind {
     },
     /// A variable assignment
     Variable {
-        /// Whether this appears to be a constant (UPPER_CASE naming)
+        /// Whether this appears to be a constant (`UPPER_CASE` naming)
         is_constant: bool,
     },
     /// An import statement
@@ -59,7 +59,7 @@ pub struct CollectedSymbols {
     pub global_symbols: FxIndexMap<String, SymbolInfo>,
     /// Symbols organized by their scope
     pub scoped_symbols: FxIndexMap<ScopePath, Vec<SymbolInfo>>,
-    /// Module-level renames from imports (alias -> actual_name)
+    /// Module-level renames from imports (alias -> `actual_name`)
     pub module_renames: FxIndexMap<String, String>,
 }
 

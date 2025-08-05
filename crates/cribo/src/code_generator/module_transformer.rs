@@ -46,7 +46,9 @@ pub fn transform_module_to_init_function<'a>(
 
     // Apply globals lifting if needed
     let lifted_names = if let Some(ref global_info) = ctx.global_info {
-        if !global_info.global_declarations.is_empty() {
+        if global_info.global_declarations.is_empty() {
+            None
+        } else {
             let globals_lifter = GlobalsLifter::new(global_info);
             let lifted_names = globals_lifter.get_lifted_names().clone();
 
@@ -54,8 +56,6 @@ pub fn transform_module_to_init_function<'a>(
             transform_ast_with_lifted_globals(bundler, &mut ast, &lifted_names, global_info);
 
             Some(lifted_names)
-        } else {
-            None
         }
     } else {
         None
@@ -84,11 +84,17 @@ pub fn transform_module_to_init_function<'a>(
             let resolved_module = if import_from.level > 0 {
                 bundler.resolver.resolve_relative_to_absolute_module_name(
                     import_from.level,
-                    import_from.module.as_ref().map(|id| id.as_str()),
+                    import_from
+                        .module
+                        .as_ref()
+                        .map(ruff_python_ast::Identifier::as_str),
                     ctx.module_path,
                 )
             } else {
-                import_from.module.as_ref().map(|m| m.to_string())
+                import_from
+                    .module
+                    .as_ref()
+                    .map(std::string::ToString::to_string)
             };
 
             if let Some(ref module) = resolved_module {
@@ -301,7 +307,12 @@ pub fn transform_module_to_init_function<'a>(
             }
             Stmt::ImportFrom(import_from) => {
                 // Skip __future__ imports - they cannot appear inside functions
-                if import_from.module.as_ref().map(|m| m.as_str()) == Some("__future__") {
+                if import_from
+                    .module
+                    .as_ref()
+                    .map(ruff_python_ast::Identifier::as_str)
+                    == Some("__future__")
+                {
                     continue;
                 }
 
@@ -373,7 +384,16 @@ pub fn transform_module_to_init_function<'a>(
 
                 // Skip self-referential assignments like `process = process`
                 // These are meaningless in the init function context and cause errors
-                if !bundler.is_self_referential_assignment(assign, ctx.python_version) {
+                if bundler.is_self_referential_assignment(assign, ctx.python_version) {
+                    debug!(
+                        "Skipping self-referential assignment in module '{}': {:?}",
+                        ctx.module_name,
+                        assign.targets.first().and_then(|t| match t {
+                            Expr::Name(name) => Some(name.id.as_str()),
+                            _ => None,
+                        })
+                    );
+                } else {
                     // Clone and transform the assignment to handle __name__ references
                     let mut assign_clone = assign.clone();
 
@@ -447,15 +467,6 @@ pub fn transform_module_to_init_function<'a>(
                             );
                         }
                     }
-                } else {
-                    debug!(
-                        "Skipping self-referential assignment in module '{}': {:?}",
-                        ctx.module_name,
-                        assign.targets.first().and_then(|t| match t {
-                            Expr::Name(name) => Some(name.id.as_str()),
-                            _ => None,
-                        })
-                    );
                 }
             }
             Stmt::AnnAssign(ann_assign) => {
@@ -1036,10 +1047,10 @@ fn transform_stmt_for_module_vars(
             }
             // Transform class arguments (base classes and keyword arguments)
             if let Some(ref mut arguments) = class_def.arguments {
-                for arg in arguments.args.iter_mut() {
+                for arg in &mut arguments.args {
                     transform_expr_for_module_vars(arg, module_level_vars, python_version);
                 }
-                for keyword in arguments.keywords.iter_mut() {
+                for keyword in &mut arguments.keywords {
                     transform_expr_for_module_vars(
                         &mut keyword.value,
                         module_level_vars,
@@ -1782,8 +1793,7 @@ fn create_namespace_for_inlined_submodule(
                         .module_exports
                         .get(full_module_name)
                         .and_then(|exports| exports.as_ref())
-                        .map(|exports| exports.contains(&symbol))
-                        .unwrap_or(false);
+                        .is_some_and(|exports| exports.contains(&symbol));
 
                     if module_has_all_export {
                         log::debug!(

@@ -24,7 +24,7 @@ pre-commit:
       stage_fixed: true
     lint:
       glob: '**/*.rs'
-      run: cargo clippy --all-targets --all-features --fix --allow-dirty -- -D warnings
+      run: cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged -- -W clippy::pedantic
       stage_fixed: true
     taplo:
       glob: '**/*.toml'

@@ -248,32 +248,7 @@ impl DependencyAnalyzer {
                             stack.push((dep.clone(), false));
                         } else if rec_stack.contains(dep) {
                             // Found a cycle - reconstruct the path
-                            let mut cycle = Vec::new();
-                            let mut current = node.clone();
-
-                            // Add the current node
-                            cycle.push(current.clone());
-
-                            // Follow parent pointers until we reach the dependency that creates the
-                            // cycle
-                            while current != *dep {
-                                if let Some(parent_node) = parent.get(&current) {
-                                    current = parent_node.clone();
-                                    cycle.push(current.clone());
-                                } else {
-                                    break;
-                                }
-                            }
-
-                            // The cycle should be in the correct order now
-                            cycle.reverse();
-
-                            // Remove any nodes before the actual cycle starts
-                            if let Some(pos) = cycle.iter().position(|x| x == dep) {
-                                cycle = cycle[pos..].to_vec();
-                            }
-
-                            return Some(cycle);
+                            return Some(Self::reconstruct_cycle(&parent, node.clone(), dep));
                         }
                     }
                 }
@@ -281,6 +256,38 @@ impl DependencyAnalyzer {
         }
 
         None
+    }
+
+    /// Reconstruct a cycle from parent pointers
+    fn reconstruct_cycle(
+        parent: &FxIndexMap<String, String>,
+        start_node: String,
+        cycle_target: &str,
+    ) -> Vec<String> {
+        let mut cycle = Vec::new();
+        let mut current = start_node;
+
+        // Add the current node
+        cycle.push(current.clone());
+
+        // Follow parent pointers until we reach the dependency that creates the cycle
+        while current != *cycle_target {
+            let Some(parent_node) = parent.get(&current) else {
+                break;
+            };
+            current = parent_node.clone();
+            cycle.push(current.clone());
+        }
+
+        // The cycle should be in the correct order now
+        cycle.reverse();
+
+        // Remove any nodes before the actual cycle starts
+        if let Some(pos) = cycle.iter().position(|x| x == cycle_target) {
+            cycle = cycle[pos..].to_vec();
+        }
+
+        cycle
     }
 
     /// Analyze circular dependencies and classify them
@@ -529,15 +536,15 @@ mod tests {
         let mut deps = FxIndexMap::default();
         deps.insert(
             "a".to_string(),
-            ["b", "c"].iter().map(|s| s.to_string()).collect(),
+            ["b", "c"].iter().map(|s| (*s).to_string()).collect(),
         );
         deps.insert(
             "b".to_string(),
-            ["d"].iter().map(|s| s.to_string()).collect(),
+            ["d"].iter().map(|s| (*s).to_string()).collect(),
         );
         deps.insert(
             "c".to_string(),
-            ["d"].iter().map(|s| s.to_string()).collect(),
+            ["d"].iter().map(|s| (*s).to_string()).collect(),
         );
         deps.insert("d".to_string(), FxIndexSet::default());
 
@@ -577,15 +584,15 @@ mod tests {
         let mut deps = FxIndexMap::default();
         deps.insert(
             "a".to_string(),
-            ["b"].iter().map(|s| s.to_string()).collect(),
+            ["b"].iter().map(|s| (*s).to_string()).collect(),
         );
         deps.insert(
             "b".to_string(),
-            ["c"].iter().map(|s| s.to_string()).collect(),
+            ["c"].iter().map(|s| (*s).to_string()).collect(),
         );
         deps.insert(
             "c".to_string(),
-            ["a"].iter().map(|s| s.to_string()).collect(),
+            ["a"].iter().map(|s| (*s).to_string()).collect(),
         );
 
         let result = DependencyAnalyzer::topological_sort(&deps);

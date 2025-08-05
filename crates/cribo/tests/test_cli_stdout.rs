@@ -11,7 +11,7 @@ fn get_fixture_path(relative_path: &str) -> String {
     test_fixture_path.to_string_lossy().to_string()
 }
 
-/// Run cribo with given arguments and return (stdout, stderr, exit_code)
+/// Run cribo with given arguments and return (stdout, stderr, `exit_code`)
 fn run_cribo(args: &[&str]) -> (String, String, i32) {
     // Use the pre-built binary instead of cargo run for performance
     let cribo_exe = env!("CARGO_BIN_EXE_cribo");

@@ -85,11 +85,10 @@ impl SymbolDependencyGraph {
                 // Walk through edges to find the cycle
                 for edge in graph.edges(current) {
                     let target = edge.target();
-                    if target != cycle_info {
-                        cycle_symbols.push(graph[target].clone());
-                    } else {
+                    if target == cycle_info {
                         break;
                     }
+                    cycle_symbols.push(graph[target].clone());
                 }
 
                 panic!(
@@ -151,7 +150,7 @@ impl SymbolDependencyGraph {
             Ok(sorted_nodes) => {
                 // Store in topological order (dependencies first)
                 self.sorted_symbols.clear();
-                for node_idx in sorted_nodes.into_iter() {
+                for node_idx in sorted_nodes {
                     self.sorted_symbols.push(graph[node_idx].clone());
                 }
                 Ok(())
@@ -174,11 +173,10 @@ impl SymbolDependencyGraph {
                 // Walk through edges to find the cycle
                 for edge in graph.edges(current) {
                     let target = edge.target();
-                    if target != cycle_info {
-                        cycle_symbols.push(graph[target].clone());
-                    } else {
+                    if target == cycle_info {
                         break;
                     }
+                    cycle_symbols.push(graph[target].clone());
                 }
 
                 panic!(

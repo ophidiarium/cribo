@@ -50,7 +50,7 @@ impl<T> Combine for Option<IndexSet<T>>
 where
     T: Eq + std::hash::Hash,
 {
-    /// Combine two IndexSets by extending the set in `self` with the set in `other`, if they're
+    /// Combine two `IndexSets` by extending the set in `self` with the set in `other`, if they're
     /// both `Some`.
     fn combine(self, other: Option<IndexSet<T>>) -> Option<IndexSet<T>> {
         match (self, other) {

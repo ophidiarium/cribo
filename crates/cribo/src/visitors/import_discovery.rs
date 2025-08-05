@@ -46,7 +46,7 @@ pub enum ImportType {
     From,
     /// from . import ... (relative)
     Relative { level: u32 },
-    /// importlib.import_module("module") with static string
+    /// `importlib.import_module("module`") with static string
     ImportlibStatic,
 }
 
@@ -71,10 +71,10 @@ pub struct DiscoveredImport {
     pub is_used_in_init: bool,
     /// Whether this import can be moved to function scope
     pub is_movable: bool,
-    /// Whether this import is only used within TYPE_CHECKING blocks
+    /// Whether this import is only used within `TYPE_CHECKING` blocks
     pub is_type_checking_only: bool,
-    /// Package context for relative ImportlibStatic imports (e.g., "package" in
-    /// importlib.import_module(".submodule", "package"))
+    /// Package context for relative `ImportlibStatic` imports (e.g., "package" in
+    /// `importlib.import_module(".submodule`", "package"))
     pub package_context: Option<String>,
 }
 
@@ -128,7 +128,7 @@ pub struct ImportDiscoveryVisitor<'a> {
     has_importlib: bool,
 }
 
-impl<'a> Default for ImportDiscoveryVisitor<'a> {
+impl Default for ImportDiscoveryVisitor<'_> {
     fn default() -> Self {
         Self::new()
     }
@@ -277,7 +277,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         !requires_module_level && !import.is_used_in_init
     }
 
-    /// Check if a condition is a TYPE_CHECKING check
+    /// Check if a condition is a `TYPE_CHECKING` check
     fn is_type_checking_condition(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Name(name) => name.id.as_str() == "TYPE_CHECKING",
@@ -321,7 +321,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         ) || module_name.starts_with('_')
     }
 
-    /// Check if this is a static importlib.import_module call
+    /// Check if this is a static `importlib.import_module` call
     fn is_static_importlib_call(&self, call: &ExprCall) -> bool {
         match &*call.func {
             // importlib.import_module(...) or il.import_module(...) where il is an alias
@@ -365,7 +365,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
         false
     }
 
-    /// Extract literal module name from importlib.import_module call
+    /// Extract literal module name from `importlib.import_module` call
     fn extract_literal_module_name(&self, call: &ExprCall) -> Option<String> {
         // Only handle static string literals
         if let Some(arg) = call.arguments.args.first()
@@ -393,8 +393,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
             let imported_as = alias
                 .asname
                 .as_ref()
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| module_name.clone());
+                .map_or_else(|| module_name.clone(), std::string::ToString::to_string);
 
             // Track the import mapping
             self.imported_names
@@ -409,7 +408,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
                 module_name: Some(module_name),
                 names: vec![(
                     alias.name.to_string(),
-                    alias.asname.as_ref().map(|n| n.to_string()),
+                    alias.asname.as_ref().map(std::string::ToString::to_string),
                 )],
                 location: self.current_location(),
                 range: stmt.range,
@@ -427,14 +426,14 @@ impl<'a> ImportDiscoveryVisitor<'a> {
 
     /// Record a from import statement
     fn record_import_from(&mut self, stmt: &StmtImportFrom) {
-        let module_name = stmt.module.as_ref().map(|m| m.to_string());
+        let module_name = stmt.module.as_ref().map(std::string::ToString::to_string);
 
         let names: Vec<(String, Option<String>)> = stmt
             .names
             .iter()
             .map(|alias| {
                 let name = alias.name.to_string();
-                let asname = alias.asname.as_ref().map(|n| n.to_string());
+                let asname = alias.asname.as_ref().map(std::string::ToString::to_string);
 
                 // Track import mappings
                 let imported_as = asname.as_ref().unwrap_or(&name).clone();
@@ -650,10 +649,10 @@ mod tests {
 
     #[test]
     fn test_module_level_import() {
-        let source = r#"
+        let source = r"
 import os
 from sys import path
-"#;
+";
         let parsed = parse_module(source).expect("Failed to parse test module");
         let mut visitor = ImportDiscoveryVisitor::new();
         for stmt in &parsed.syntax().body {
@@ -672,12 +671,12 @@ from sys import path
 
     #[test]
     fn test_function_scoped_import() {
-        let source = r#"
+        let source = r"
 def my_function():
     import json
     from datetime import datetime
     return json.dumps({})
-"#;
+";
         let parsed = parse_module(source).expect("Failed to parse test module");
         let mut visitor = ImportDiscoveryVisitor::new();
         for stmt in &parsed.syntax().body {
@@ -699,12 +698,12 @@ def my_function():
 
     #[test]
     fn test_class_method_import() {
-        let source = r#"
+        let source = r"
 class MyClass:
     def method(self):
         from collections import defaultdict
         return defaultdict(list)
-"#;
+";
         let parsed = parse_module(source).expect("Failed to parse test module");
         let mut visitor = ImportDiscoveryVisitor::new();
         for stmt in &parsed.syntax().body {
@@ -747,14 +746,14 @@ if True:
 
     #[test]
     fn test_nested_function_in_method_not_misclassified() {
-        let source = r#"
+        let source = r"
 class MyClass:
     def method(self):
         def nested_function():
             import os
             return os.path.join('a', 'b')
         return nested_function()
-"#;
+";
         let parsed = parse_module(source).expect("Failed to parse test module");
         let mut visitor = ImportDiscoveryVisitor::new();
         for stmt in &parsed.syntax().body {
@@ -839,11 +838,11 @@ def load_module():
 
     #[test]
     fn test_relative_imports() {
-        let source = r#"
+        let source = r"
 from . import utils
 from .. import parent_module
 from ...package import sibling
-"#;
+";
         let parsed = parse_module(source).expect("Failed to parse test module");
         let mut visitor = ImportDiscoveryVisitor::new();
         for stmt in &parsed.syntax().body {

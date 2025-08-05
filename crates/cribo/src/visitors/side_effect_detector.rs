@@ -513,7 +513,7 @@ mod tests {
     use super::*;
 
     fn parse_python(source: &str) -> Result<ModModule, ParseError> {
-        parse_module(source).map(|parsed| parsed.into_syntax())
+        parse_module(source).map(ruff_python_parser::Parsed::into_syntax)
     }
 
     #[test]
@@ -535,22 +535,22 @@ z = [1, 2, 3]
 
     #[test]
     fn test_side_effects_function_call() {
-        let source = r#"
+        let source = r"
 def foo():
     pass
 
 foo()  # This is a side effect
-"#;
+";
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(SideEffectDetector::check_module(&module));
     }
 
     #[test]
     fn test_side_effects_imported_name() {
-        let source = r#"
+        let source = r"
 import django.setup
 x = django  # Using imported name that has side effects
-"#;
+";
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(SideEffectDetector::check_module(&module));
     }
@@ -579,22 +579,22 @@ def foo():
 
     #[test]
     fn test_side_effects_control_flow() {
-        let source = r#"
+        let source = r"
 if True:
     x = 1
-"#;
+";
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(SideEffectDetector::check_module(&module));
     }
 
     #[test]
     fn test_side_effects_in_assignment() {
-        let source = r#"
+        let source = r"
 def get_value():
     return 42
 
 x = get_value()  # Function call in assignment is a side effect
-"#;
+";
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(SideEffectDetector::check_module(&module));
     }
@@ -615,21 +615,21 @@ y = [(i, i * 2) for i in [1, 2, 3]]
 
     #[test]
     fn test_side_effects_annotated_assignment() {
-        let source = r#"
+        let source = r"
 def get_value():
     return 42
 
 x: int = get_value()  # Function call in annotation assignment is a side effect
-"#;
+";
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(SideEffectDetector::check_module(&module));
     }
 
     #[test]
     fn test_no_side_effects_annotated_assignment_without_value() {
-        let source = r#"
+        let source = r"
 x: int  # Just annotation, no value, no side effect
-"#;
+";
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(!SideEffectDetector::check_module(&module));
     }
@@ -658,10 +658,10 @@ __all__.append("baz")  # Also safe
 
     #[test]
     fn test_side_effects_regular_augmented_assignment() {
-        let source = r#"
+        let source = r"
 x = 0
 x += 1  # Regular augmented assignment is a side effect
-"#;
+";
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(SideEffectDetector::check_module(&module));
     }
@@ -682,24 +682,24 @@ b"bytes"  # Bare bytes
 
     #[test]
     fn test_imported_name_root_binding() {
-        let source = r#"
+        let source = r"
 import requests.adapters
 x = requests  # Using the root binding of a third-party module (always a side effect)
-"#;
+";
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(SideEffectDetector::check_module(&module));
     }
 
     #[test]
     fn test_no_side_effects_safe_stdlib_import() {
-        let source = r#"
+        let source = r"
 import os
 import json
 import typing
 x = os  # Safe stdlib module usage is not a side effect
 y = json
 z = typing
-"#;
+";
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(!SideEffectDetector::check_module(&module));
     }
@@ -760,7 +760,7 @@ def my_function(x: get_type()) -> get_type():  # Annotations execute at import t
 
     #[test]
     fn test_no_side_effects_simple_decorator() {
-        let source = r#"
+        let source = r"
 @property  # Built-in decorator, no side effect
 def my_property(self):
     return self._value
@@ -768,7 +768,7 @@ def my_property(self):
 @staticmethod  # Built-in decorator, no side effect
 def my_static_method():
     pass
-"#;
+";
         let module = parse_python(source).expect("Failed to parse test Python code");
         assert!(!SideEffectDetector::check_module(&module));
     }

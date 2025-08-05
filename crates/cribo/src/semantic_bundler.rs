@@ -1,4 +1,4 @@
-//! Semantic analysis for Python bundling using ruff_python_semantic
+//! Semantic analysis for Python bundling using `ruff_python_semantic`
 //!
 //! This module leverages ruff's existing semantic analysis infrastructure
 //! to detect symbol conflicts across modules during bundling.
@@ -148,8 +148,7 @@ impl<'a> SemanticModelBuilder<'a> {
                     let name = alias
                         .asname
                         .as_ref()
-                        .map(|n| n.as_str())
-                        .unwrap_or(alias.name.as_str());
+                        .map_or(alias.name.as_str(), ruff_python_ast::Identifier::as_str);
                     self.add_binding(
                         name,
                         alias.range,
@@ -166,15 +165,17 @@ impl<'a> SemanticModelBuilder<'a> {
             }
             Stmt::ImportFrom(import_from) => {
                 // Get the module name
-                let module_name = import_from.module.as_ref().map(|m| m.to_string());
+                let module_name = import_from
+                    .module
+                    .as_ref()
+                    .map(std::string::ToString::to_string);
 
                 for alias in &import_from.names {
                     let original_name = alias.name.as_str();
                     let local_name = alias
                         .asname
                         .as_ref()
-                        .map(|n| n.as_str())
-                        .unwrap_or(original_name);
+                        .map_or(original_name, ruff_python_ast::Identifier::as_str);
 
                     if local_name != "*" {
                         // Track the enhanced import information
@@ -320,19 +321,16 @@ impl<'a> SemanticModelBuilder<'a> {
             let binding = &semantic.bindings[binding_id];
 
             // Include ALL symbols except builtins
-            match &binding.kind {
-                BindingKind::Builtin => {
-                    log::trace!("Skipping builtin binding: {name}");
-                }
-                _ => {
-                    // Include all non-builtin symbols: classes, functions, assignments, imports
-                    log::trace!(
-                        "Adding module-scope symbol '{}' of kind {:?}",
-                        name,
-                        binding.kind
-                    );
-                    symbols.insert(name.to_string());
-                }
+            if let BindingKind::Builtin = &binding.kind {
+                log::trace!("Skipping builtin binding: {name}");
+            } else {
+                // Include all non-builtin symbols: classes, functions, assignments, imports
+                log::trace!(
+                    "Adding module-scope symbol '{}' of kind {:?}",
+                    name,
+                    binding.kind
+                );
+                symbols.insert(name.to_string());
             }
         }
 
@@ -359,7 +357,7 @@ pub struct ModuleSemanticInfo {
 pub struct SymbolRegistry {
     /// Symbol name -> list of modules that define it
     pub symbols: FxIndexMap<String, Vec<ModuleId>>,
-    /// Renames: (ModuleId, OriginalName) -> NewName
+    /// Renames: (`ModuleId`, `OriginalName`) -> `NewName`
     pub renames: FxIndexMap<(ModuleId, String), String>,
 }
 
@@ -416,7 +414,7 @@ impl SymbolRegistry {
     pub fn get_rename(&self, module_id: &ModuleId, original: &str) -> Option<&str> {
         self.renames
             .get(&(*module_id, original.to_string()))
-            .map(|s| s.as_str())
+            .map(std::string::String::as_str)
     }
 }
 
@@ -515,21 +513,20 @@ impl SemanticBundler {
 
         for symbol in &exported_symbols {
             // Check if this symbol is a FromImport by looking at the semantic model
-            let is_from_import = binding_lookup
-                .get(symbol.as_str())
-                .map(|&id| matches!(semantic_model.bindings[id].kind, BindingKind::FromImport(_)))
-                .unwrap_or(false);
+            let is_from_import = binding_lookup.get(symbol.as_str()).is_some_and(|&id| {
+                matches!(semantic_model.bindings[id].kind, BindingKind::FromImport(_))
+            });
 
-            if !is_from_import {
-                self.global_symbols
-                    .register_symbol(symbol.clone(), module_id);
-            } else {
+            if is_from_import {
                 log::debug!(
                     "Skipping registration of FromImport symbol '{}' from module {} for conflict \
                      resolution",
                     symbol,
                     module_id.as_u32()
                 );
+            } else {
+                self.global_symbols
+                    .register_symbol(symbol.clone(), module_id);
             }
         }
 

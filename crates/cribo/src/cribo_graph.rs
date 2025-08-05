@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-/// CriboGraph: Advanced dependency graph implementation for Python bundling
+/// `CriboGraph`: Advanced dependency graph implementation for Python bundling
 ///
 /// This module provides a sophisticated dependency tracking system that combines:
 /// - Fine-grained item-level tracking (inspired by Turbopack)
@@ -30,7 +30,7 @@ impl ModuleId {
         Self(id)
     }
 
-    /// Returns the underlying u32 value of the ModuleId
+    /// Returns the underlying u32 value of the `ModuleId`
     #[inline]
     pub const fn as_u32(&self) -> u32 {
         self.0
@@ -353,16 +353,15 @@ impl CriboGraph {
             if let Some(existing_canonical) = self.module_canonical_paths.get(&existing_id) {
                 if existing_canonical == &canonical_path {
                     return existing_id; // Same import name, same file - reuse
-                } else {
-                    // Error: same import name but different files
-                    // This shouldn't happen with proper PYTHONPATH management
-                    log::error!(
-                        "Import name '{name}' refers to different files: {existing_canonical:?} \
-                         and {canonical_path:?}. This may indicate a PYTHONPATH configuration \
-                         issue or naming conflict. Consider using unique module names or \
-                         adjusting your Python path configuration."
-                    );
                 }
+                // Error: same import name but different files
+                // This shouldn't happen with proper PYTHONPATH management
+                log::error!(
+                    "Import name '{name}' refers to different files: {existing_canonical:?} and \
+                     {canonical_path:?}. This may indicate a PYTHONPATH configuration issue or \
+                     naming conflict. Consider using unique module names or adjusting your Python \
+                     path configuration."
+                );
             }
         }
 

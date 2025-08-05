@@ -11,7 +11,7 @@ use crate::{
 
 /// Result of stdlib normalization
 pub struct NormalizationResult {
-    /// Mapping of aliases to canonical names (e.g., "PyPath" -> "pathlib.Path")
+    /// Mapping of aliases to canonical names (e.g., "`PyPath`" -> "pathlib.Path")
     pub alias_to_canonical: FxIndexMap<String, String>,
     /// Set of modules that were created by normalization (e.g., "abc", "collections")
     pub normalized_modules: FxIndexSet<String>,
@@ -19,8 +19,8 @@ pub struct NormalizationResult {
 
 /// Normalizes stdlib import aliases within a module's AST
 /// Converts "import json as j" to "import json" and rewrites all "j.dumps" to "json.dumps"
-/// Also converts "from pathlib import Path as PyPath" to "import pathlib" and rewrites "PyPath" to
-/// "pathlib.Path"
+/// Also converts "from pathlib import Path as `PyPath`" to "import pathlib" and rewrites "`PyPath`"
+/// to "pathlib.Path"
 pub fn normalize_stdlib_imports(ast: &mut ModModule) -> NormalizationResult {
     let normalizer = StdlibNormalizer::new();
     normalizer.normalize(ast)
@@ -130,7 +130,10 @@ impl StdlibNormalizer {
                         import_stmt
                             .names
                             .iter()
-                            .map(|a| (a.name.as_str(), a.asname.as_ref().map(|n| n.as_str())))
+                            .map(|a| (
+                                a.name.as_str(),
+                                a.asname.as_ref().map(ruff_python_ast::Identifier::as_str)
+                            ))
                             .collect::<Vec<_>>()
                     );
                     self.normalize_import_aliases(import_stmt);
@@ -265,7 +268,7 @@ impl StdlibNormalizer {
         }
     }
 
-    /// Create an assignment statement: local_name = full_path
+    /// Create an assignment statement: `local_name` = `full_path`
     fn create_assignment_statement(&self, local_name: &str, full_path: &str) -> Stmt {
         // Parse the full path to create attribute access
         // e.g., "collections.abc.MutableMapping" becomes collections.abc.MutableMapping
@@ -350,7 +353,7 @@ impl StdlibNormalizer {
         }
     }
 
-    /// Handle submodule imports by adding to new_imports and implicit_exports
+    /// Handle submodule imports by adding to `new_imports` and `implicit_exports`
     fn handle_submodule_import(
         &self,
         submodule_path: &str,
