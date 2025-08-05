@@ -7490,7 +7490,7 @@ impl Bundler<'_> {
 
                 // Add initialization statements after global declarations
                 if !added_init && !init_stmts.is_empty() {
-                    new_body.extend(init_stmts.iter().cloned());
+                    new_body.extend_from_slice(init_stmts);
                     added_init = true;
                 }
             } else {
