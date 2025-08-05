@@ -3,15 +3,15 @@
 //! This module handles the complex transformation of Python module ASTs into
 //! initialization functions that can be called to create module objects.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use log::debug;
 #[allow(unused_imports)] // These imports are used in pattern matching
 use ruff_python_ast::{
-    Arguments, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprAwait, ExprBoolOp,
-    ExprCall, ExprCompare, ExprContext, ExprDictComp, ExprFString, ExprGenerator, ExprLambda,
-    ExprListComp, ExprName, ExprNamed, ExprSet, ExprSetComp, ExprSlice, ExprStarred,
+    Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprAwait,
+    ExprBoolOp, ExprCall, ExprCompare, ExprContext, ExprDictComp, ExprFString, ExprGenerator,
+    ExprLambda, ExprListComp, ExprName, ExprNamed, ExprSet, ExprSetComp, ExprSlice, ExprStarred,
     ExprStringLiteral, ExprYield, ExprYieldFrom, Identifier, ModModule, Stmt, StmtAnnAssign,
     StmtAssert, StmtAssign, StmtAugAssign, StmtClassDef, StmtDelete, StmtFunctionDef, StmtGlobal,
     StmtMatch, StmtRaise, StmtReturn, StmtTry, StmtWhile, StmtWith, StringLiteral,
@@ -24,6 +24,7 @@ use crate::{
     code_generator::{
         bundler::Bundler,
         context::ModuleTransformContext,
+        expression_handlers,
         globals::{GlobalsLifter, transform_globals_in_stmt},
         import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
@@ -376,7 +377,7 @@ pub fn transform_module_to_init_function<'a>(
             }
             Stmt::Assign(assign) => {
                 // Skip __all__ assignments - they have no meaning for types.SimpleNamespace
-                if let Some(name) = bundler.extract_simple_assign_target(assign)
+                if let Some(name) = expression_handlers::extract_simple_assign_target(assign)
                     && name == "__all__"
                 {
                     continue;
@@ -384,7 +385,7 @@ pub fn transform_module_to_init_function<'a>(
 
                 // Skip self-referential assignments like `process = process`
                 // These are meaningless in the init function context and cause errors
-                if bundler.is_self_referential_assignment(assign, ctx.python_version) {
+                if expression_handlers::is_self_referential_assignment(assign, ctx.python_version) {
                     debug!(
                         "Skipping self-referential assignment in module '{}': {:?}",
                         ctx.module_name,
@@ -418,7 +419,7 @@ pub fn transform_module_to_init_function<'a>(
                     body.push(Stmt::Assign(assign_clone));
 
                     // Check if this assignment came from a transformed import
-                    if let Some(name) = bundler.extract_simple_assign_target(assign) {
+                    if let Some(name) = expression_handlers::extract_simple_assign_target(assign) {
                         debug!(
                             "Checking assignment '{}' in module '{}' (imports_from_inlined: {:?})",
                             name, ctx.module_name, imports_from_inlined
@@ -434,7 +435,9 @@ pub fn transform_module_to_init_function<'a>(
                                 debug!("Exporting imported symbol '{name}' as module attribute");
                                 body.push(crate::code_generator::module_registry::create_module_attr_assignment("module", &name));
                             }
-                        } else if let Some(name) = bundler.extract_simple_assign_target(assign) {
+                        } else if let Some(name) =
+                            expression_handlers::extract_simple_assign_target(assign)
+                        {
                             // Check if this variable is used by exported functions
                             if vars_used_by_exported_functions.contains(&name) {
                                 // Use a special case: if no scope info available, include vars used
@@ -641,7 +644,7 @@ pub fn transform_module_to_init_function<'a>(
         }
 
         if let Stmt::Assign(assign) = stmt
-            && !bundler.is_self_referential_assignment(assign, ctx.python_version)
+            && !expression_handlers::is_self_referential_assignment(assign, ctx.python_version)
         {
             // For deferred imports that are assignments, also set as module attribute if
             // exported
@@ -1740,7 +1743,7 @@ fn add_module_attr_if_exported(
     body: &mut Vec<Stmt>,
     module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
 ) {
-    if let Some(name) = bundler.extract_simple_assign_target(assign)
+    if let Some(name) = expression_handlers::extract_simple_assign_target(assign)
         && should_include_symbol(bundler, &name, module_name, module_scope_symbols)
     {
         body.push(
@@ -1888,4 +1891,69 @@ fn renamed_symbol_exists(
     }
 
     false
+}
+
+/// Transform module to cache init function by adding @functools.cache decorator
+pub fn transform_module_to_cache_init_function(
+    bundler: &Bundler,
+    ctx: &ModuleTransformContext,
+    ast: ModModule,
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+) -> Result<Stmt> {
+    use ruff_python_ast::Decorator;
+
+    // Call the regular transform_module_to_init_function to get the function
+    let stmt = transform_module_to_init_function(bundler, ctx, ast, symbol_renames)?;
+
+    // Add the @functools.cache decorator
+    if let Stmt::FunctionDef(mut func_def) = stmt {
+        func_def.decorator_list = vec![Decorator {
+            range: TextRange::default(),
+            node_index: AtomicNodeIndex::dummy(),
+            expression: ast_builder::expressions::attribute(
+                ast_builder::expressions::name("functools", ExprContext::Load),
+                "cache",
+                ExprContext::Load,
+            ),
+        }];
+        return Ok(Stmt::FunctionDef(func_def));
+    }
+
+    // Should not happen
+    unreachable!("transform_module_to_init_function should return a FunctionDef")
+}
+
+/// Sort wrapper modules by dependencies
+pub fn sort_wrapper_modules_by_dependencies(
+    wrapper_modules: &[(String, ModModule, PathBuf, String)],
+    graph: &crate::cribo_graph::CriboGraph,
+) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
+    use crate::analyzers::dependency_analyzer::DependencyAnalyzer;
+
+    // Extract module names
+    let wrapper_names: Vec<String> = wrapper_modules
+        .iter()
+        .map(|(name, _, _, _)| name.clone())
+        .collect();
+
+    // Get all modules for the analyzer (wrapper modules are a subset)
+    let all_modules = wrapper_modules;
+
+    // Use DependencyAnalyzer to sort
+    let sorted_names =
+        DependencyAnalyzer::sort_wrapper_modules_by_dependencies(wrapper_names, all_modules, graph);
+
+    // Create a map for quick lookup
+    let module_map: FxIndexMap<String, (String, ModModule, PathBuf, String)> = wrapper_modules
+        .iter()
+        .map(|m| (m.0.clone(), m.clone()))
+        .collect();
+
+    // Map sorted names back to full modules
+    let sorted_modules = sorted_names
+        .into_iter()
+        .filter_map(|module_name| module_map.get(&module_name).cloned())
+        .collect();
+
+    Ok(sorted_modules)
 }

@@ -351,7 +351,7 @@ impl Bundler<'_> {
         module_renames: &mut FxIndexMap<String, String>,
         ctx: &mut InlineContext,
     ) {
-        let Some(name) = self.extract_simple_assign_target(assign) else {
+        let Some(name) = expression_handlers::extract_simple_assign_target(assign) else {
             return;
         };
 
@@ -375,7 +375,8 @@ impl Bundler<'_> {
         let mut assign_clone = assign.clone();
 
         // Check if this is a self-referential assignment
-        let is_self_referential = self.is_self_referential_assignment(assign, ctx.python_version);
+        let is_self_referential =
+            expression_handlers::is_self_referential_assignment(assign, ctx.python_version);
 
         // Skip self-referential assignments entirely - they're meaningless
         if is_self_referential {
