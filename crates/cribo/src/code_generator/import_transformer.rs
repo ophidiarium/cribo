@@ -1996,21 +1996,10 @@ fn rewrite_import_with_renames(
                                 );
                                 // For now, we'll create the statements without tracking duplicates
                                 let mut temp_assignments = FxIndexSet::default();
-                                let mut ctx = crate::code_generator::namespace_manager::NamespacePopulationContext {
-                                    inlined_modules: &bundler.inlined_modules,
-                                    module_exports: &bundler.module_exports,
-                                    tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
-                                    bundled_modules: &bundler.bundled_modules,
-                                    namespace_assignments_made: &mut temp_assignments,
-                                    modules_with_accessed_all: &bundler.modules_with_accessed_all,
-                                    module_registry: &bundler.module_registry,
-                                    module_asts: &bundler.module_asts,
-                                    symbols_populated_after_deferred: &bundler.symbols_populated_after_deferred,
-                                    namespaces_with_initial_symbols: &bundler.namespaces_with_initial_symbols,
-                                    global_deferred_imports: &bundler.global_deferred_imports,
-                                    init_functions: &bundler.init_functions,
-                                    resolver: bundler.resolver,
-                                };
+                                let mut ctx = create_namespace_population_context(
+                                    bundler,
+                                    &mut temp_assignments,
+                                );
                                 let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
                                     &mut ctx,
                                     &partial_module,
@@ -2049,23 +2038,7 @@ fn rewrite_import_with_renames(
                         // For now, we'll create the statements without tracking duplicates
                         let mut temp_assignments = FxIndexSet::default();
                         let mut ctx =
-                            crate::code_generator::namespace_manager::NamespacePopulationContext {
-                                inlined_modules: &bundler.inlined_modules,
-                                module_exports: &bundler.module_exports,
-                                tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
-                                bundled_modules: &bundler.bundled_modules,
-                                namespace_assignments_made: &mut temp_assignments,
-                                modules_with_accessed_all: &bundler.modules_with_accessed_all,
-                                module_registry: &bundler.module_registry,
-                                module_asts: &bundler.module_asts,
-                                symbols_populated_after_deferred: &bundler
-                                    .symbols_populated_after_deferred,
-                                namespaces_with_initial_symbols: &bundler
-                                    .namespaces_with_initial_symbols,
-                                global_deferred_imports: &bundler.global_deferred_imports,
-                                init_functions: &bundler.init_functions,
-                                resolver: bundler.resolver,
-                            };
+                            create_namespace_population_context(bundler, &mut temp_assignments);
                         let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
                             &mut ctx,
                             target_name.as_str(),
@@ -2127,22 +2100,7 @@ fn rewrite_import_with_renames(
                 );
                 // For now, we'll create the statements without tracking duplicates
                 let mut temp_assignments = FxIndexSet::default();
-                let mut ctx =
-                    crate::code_generator::namespace_manager::NamespacePopulationContext {
-                        inlined_modules: &bundler.inlined_modules,
-                        module_exports: &bundler.module_exports,
-                        tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
-                        bundled_modules: &bundler.bundled_modules,
-                        namespace_assignments_made: &mut temp_assignments,
-                        modules_with_accessed_all: &bundler.modules_with_accessed_all,
-                        module_registry: &bundler.module_registry,
-                        module_asts: &bundler.module_asts,
-                        symbols_populated_after_deferred: &bundler.symbols_populated_after_deferred,
-                        namespaces_with_initial_symbols: &bundler.namespaces_with_initial_symbols,
-                        global_deferred_imports: &bundler.global_deferred_imports,
-                        init_functions: &bundler.init_functions,
-                        resolver: bundler.resolver,
-                    };
+                let mut ctx = create_namespace_population_context(bundler, &mut temp_assignments);
                 let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
                     &mut ctx,
                     target_name.as_str(),
@@ -2159,6 +2117,31 @@ fn rewrite_import_with_renames(
     } else {
         // Keep original import for non-bundled modules
         vec![Stmt::Import(import_stmt)]
+    }
+}
+
+/// Create a `NamespacePopulationContext` for populating namespace symbols.
+///
+/// This helper function reduces code duplication when creating the context
+/// for namespace population operations in import transformation.
+fn create_namespace_population_context<'a>(
+    bundler: &'a crate::code_generator::bundler::Bundler,
+    temp_assignments: &'a mut crate::types::FxIndexSet<(String, String)>,
+) -> crate::code_generator::namespace_manager::NamespacePopulationContext<'a> {
+    crate::code_generator::namespace_manager::NamespacePopulationContext {
+        inlined_modules: &bundler.inlined_modules,
+        module_exports: &bundler.module_exports,
+        tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
+        bundled_modules: &bundler.bundled_modules,
+        namespace_assignments_made: temp_assignments,
+        modules_with_accessed_all: &bundler.modules_with_accessed_all,
+        module_registry: &bundler.module_registry,
+        module_asts: &bundler.module_asts,
+        symbols_populated_after_deferred: &bundler.symbols_populated_after_deferred,
+        namespaces_with_initial_symbols: &bundler.namespaces_with_initial_symbols,
+        global_deferred_imports: &bundler.global_deferred_imports,
+        init_functions: &bundler.init_functions,
+        resolver: bundler.resolver,
     }
 }
 
