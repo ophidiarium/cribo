@@ -34,7 +34,7 @@ pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
 
 /// Normalize line endings to LF (\n) for cross-platform consistency
 /// This ensures reproducible builds regardless of the platform where bundling occurs
-pub fn normalize_line_endings(content: String) -> String {
+pub fn normalize_line_endings(content: &str) -> String {
     // Replace Windows CRLF (\r\n) and Mac CR (\r) with Unix LF (\n)
     content
         .cow_replace("\r\n", "\n")

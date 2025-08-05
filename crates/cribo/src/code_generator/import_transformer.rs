@@ -65,6 +65,7 @@ pub struct RecursiveImportTransformer<'a> {
 
 impl<'a> RecursiveImportTransformer<'a> {
     /// Create a new transformer from parameters
+    #[allow(clippy::needless_pass_by_value)] // params contains mutable references
     pub fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
         Self {
             bundler: params.bundler,
@@ -2214,7 +2215,7 @@ fn rewrite_import_from(
             log::debug!("Module '{module_name}' is a wrapper module in module_registry");
             // This is a wrapper module, we need to transform it
             return bundler.transform_bundled_import_from_multiple_with_current_module(
-                import_from,
+                &import_from,
                 &module_name,
                 inside_wrapper_init,
                 Some(current_module),
@@ -2249,7 +2250,7 @@ fn rewrite_import_from(
             absolute_import.module = Some(Identifier::new(&module_name, TextRange::default()));
         }
         bundler.transform_bundled_import_from_multiple_with_current_module(
-            absolute_import,
+            &absolute_import,
             &module_name,
             inside_wrapper_init,
             Some(current_module),
@@ -2277,7 +2278,7 @@ fn rewrite_import_from(
         );
         #[allow(clippy::too_many_arguments)]
         crate::code_generator::module_registry::create_assignments_for_inlined_imports(
-            import_from,
+            &import_from,
             &module_name,
             symbol_renames,
             &bundler.module_registry,

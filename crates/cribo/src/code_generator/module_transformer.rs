@@ -34,7 +34,7 @@ use crate::{
 /// Transforms a module AST into an initialization function
 pub fn transform_module_to_init_function<'a>(
     bundler: &'a Bundler<'a>,
-    ctx: ModuleTransformContext,
+    ctx: &ModuleTransformContext,
     mut ast: ModModule,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
 ) -> Result<Stmt> {
@@ -210,7 +210,7 @@ pub fn transform_module_to_init_function<'a>(
         };
 
         if let Some(module_id) = module_id {
-            if let Some(module_info) = semantic_bundler.get_module_info(&module_id) {
+            if let Some(module_info) = semantic_bundler.get_module_info(module_id) {
                 debug!(
                     "Found module-scope symbols for '{}': {:?}",
                     ctx.module_name, module_info.module_scope_symbols
@@ -399,7 +399,7 @@ pub fn transform_module_to_init_function<'a>(
 
                     // Use actual module-level variables if available, but filter to only
                     // exported ones
-                    let module_level_vars = get_exported_module_vars(bundler, &ctx);
+                    let module_level_vars = get_exported_module_vars(bundler, ctx);
 
                     // Special handling for assignments involving built-in types
                     // We need to transform any reference to a built-in that will be assigned
@@ -476,7 +476,7 @@ pub fn transform_module_to_init_function<'a>(
 
                     // Use actual module-level variables if available, but filter to only exported
                     // ones
-                    let module_level_vars = get_exported_module_vars(bundler, &ctx);
+                    let module_level_vars = get_exported_module_vars(bundler, ctx);
 
                     // Transform references to built-ins that will be shadowed
                     if let Some(ref mut value) = ann_assign_clone.value {
