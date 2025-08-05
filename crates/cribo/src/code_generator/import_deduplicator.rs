@@ -322,7 +322,10 @@ fn collect_unique_imports_for_hoisting(
             module_name.to_string(),
             crate::ast_builder::statements::import(vec![crate::ast_builder::other::alias(
                 module_name,
-                alias.asname.as_ref().map(|name| name.as_str()),
+                alias
+                    .asname
+                    .as_ref()
+                    .map(ruff_python_ast::Identifier::as_str),
             )]),
         ));
     }
@@ -463,14 +466,11 @@ pub(super) fn deduplicate_deferred_imports_with_existing(
                                      {func_name}"
                                 );
                                 continue; // Skip this statement entirely
-                            } else {
-                                log::debug!(
-                                    "Adding new module init assignment: {key} = {func_name}"
-                                );
-                                seen_assignments.insert(key);
-                                result.push(stmt);
-                                continue;
                             }
+                            log::debug!("Adding new module init assignment: {key} = {func_name}");
+                            seen_assignments.insert(key);
+                            result.push(stmt);
+                            continue;
                         }
                     }
                 }
@@ -551,7 +551,11 @@ pub(super) fn is_duplicate_import_from(
         if is_third_party {
             return existing_body.iter().any(|existing| {
                 if let Stmt::ImportFrom(existing_import) = existing {
-                    existing_import.module.as_ref().map(|m| m.as_str()) == Some(module_name)
+                    existing_import
+                        .module
+                        .as_ref()
+                        .map(ruff_python_ast::Identifier::as_str)
+                        == Some(module_name)
                         && import_names_match(&import_from.names, &existing_import.names)
                 } else {
                     false
@@ -680,38 +684,17 @@ pub(super) fn trim_unused_imports_from_modules(
 
                                 // Check if this import is only used by symbols that were
                                 // tree-shaken
-                                let mut used_by_surviving_code = false;
-
-                                // First check if any surviving symbol uses this import
-                                for symbol in &used_symbols {
-                                    if module_dep_graph.does_symbol_use_import(symbol, local_name) {
-                                        used_by_surviving_code = true;
-                                        break;
-                                    }
-                                }
-
-                                // Also check if the module has side effects and uses this
-                                // import at module level
-                                if !used_by_surviving_code
-                                    && shaker.module_has_side_effects(module_name)
-                                {
-                                    // Check if any module-level code uses this import
-                                    for item in module_dep_graph.items.values() {
-                                        if matches!(
-                                            item.item_type,
-                                            crate::cribo_graph::ItemType::Expression
-                                                | crate::cribo_graph::ItemType::Assignment { .. }
-                                        ) && item.read_vars.contains(local_name)
-                                        {
-                                            used_by_surviving_code = true;
-                                            log::debug!(
-                                                "Import '{local_name}' is used by module-level \
-                                                 code in module with side effects"
-                                            );
-                                            break;
-                                        }
-                                    }
-                                }
+                                let used_by_surviving_code = is_import_used_by_surviving_symbols(
+                                    &used_symbols,
+                                    module_dep_graph,
+                                    local_name,
+                                )
+                                    || is_import_used_by_side_effect_code(
+                                        shaker,
+                                        module_name,
+                                        module_dep_graph,
+                                        local_name,
+                                    );
 
                                 if !used_by_surviving_code {
                                     // This import is not used by any surviving symbol or
@@ -756,21 +739,16 @@ pub(super) fn trim_unused_imports_from_modules(
 
                             // Check if this import is only used by symbols that were
                             // tree-shaken
-                            let mut used_by_surviving_code = false;
-
-                            // Check if any surviving symbol uses this import
                             log::debug!(
                                 "Checking if any of {} surviving symbols use import \
                                  '{import_name}'",
                                 used_symbols.len()
                             );
-                            for symbol in &used_symbols {
-                                if module_dep_graph.does_symbol_use_import(symbol, import_name) {
-                                    log::debug!("Symbol '{symbol}' uses import '{import_name}'");
-                                    used_by_surviving_code = true;
-                                    break;
-                                }
-                            }
+                            let mut used_by_surviving_code = is_import_used_by_surviving_symbols(
+                                &used_symbols,
+                                module_dep_graph,
+                                import_name,
+                            );
 
                             // Also check if any module-level code that has side effects uses it
                             if !used_by_surviving_code {
@@ -778,56 +756,20 @@ pub(super) fn trim_unused_imports_from_modules(
                                     "No surviving symbols use '{import_name}', checking \
                                      module-level side effects"
                                 );
-                                for item in module_dep_graph.items.values() {
-                                    if item.has_side_effects
-                                        && !matches!(
-                                            item.item_type,
-                                            crate::cribo_graph::ItemType::Import { .. }
-                                                | crate::cribo_graph::ItemType::FromImport { .. }
-                                        )
-                                        && (item.read_vars.contains(import_name)
-                                            || item.eventual_read_vars.contains(import_name))
-                                    {
-                                        log::debug!(
-                                            "Module-level item {:?} with side effects uses \
-                                             '{import_name}'",
-                                            item.item_type
-                                        );
-                                        used_by_surviving_code = true;
-                                        break;
-                                    }
-                                }
+                                used_by_surviving_code = is_module_import_used_by_side_effects(
+                                    module_dep_graph,
+                                    import_name,
+                                );
                             }
 
                             // Special case: Check if this import is only used by assignment
-                            // statements that were removed by
-                            // tree-shaking (e.g., ABC = abc.ABC after normalizing
-                            // from abc import ABC)
+                            // statements that were removed by tree-shaking
                             if !used_by_surviving_code {
-                                // Check if any assignment that uses this import is kept
-                                for item in module_dep_graph.items.values() {
-                                    if let crate::cribo_graph::ItemType::Assignment { targets } =
-                                        &item.item_type
-                                    {
-                                        // Check if this assignment reads the import
-                                        if item.read_vars.contains(import_name) {
-                                            // Check if any of the assignment targets are kept
-                                            for target in targets {
-                                                if used_symbols.contains(target) {
-                                                    log::debug!(
-                                                        "Import '{import_name}' is used by \
-                                                         surviving assignment to '{target}'"
-                                                    );
-                                                    used_by_surviving_code = true;
-                                                    break;
-                                                }
-                                            }
-                                            if used_by_surviving_code {
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
+                                used_by_surviving_code = is_import_used_by_surviving_assignments(
+                                    module_dep_graph,
+                                    import_name,
+                                    &used_symbols,
+                                );
                             }
 
                             // Extra check for normalized imports: If this is a normalized
@@ -886,6 +828,70 @@ pub(super) fn trim_unused_imports_from_modules(
     Ok(trimmed_modules)
 }
 
+/// Check if an import is used by any surviving symbol after tree-shaking
+fn is_import_used_by_surviving_symbols(
+    used_symbols: &FxIndexSet<String>,
+    module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+    local_name: &str,
+) -> bool {
+    used_symbols
+        .iter()
+        .any(|symbol| module_dep_graph.does_symbol_use_import(symbol, local_name))
+}
+
+/// Check if an import is used by module-level code with side effects
+fn is_import_used_by_side_effect_code(
+    shaker: &TreeShaker,
+    module_name: &str,
+    module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+    local_name: &str,
+) -> bool {
+    if !shaker.module_has_side_effects(module_name) {
+        return false;
+    }
+
+    module_dep_graph.items.values().any(|item| {
+        matches!(
+            item.item_type,
+            crate::cribo_graph::ItemType::Expression
+                | crate::cribo_graph::ItemType::Assignment { .. }
+        ) && item.read_vars.contains(local_name)
+    })
+}
+
+/// Check if a module import is used by surviving code in a module with side effects
+fn is_module_import_used_by_side_effects(
+    module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+    import_name: &str,
+) -> bool {
+    module_dep_graph.items.values().any(|item| {
+        item.has_side_effects
+            && !matches!(
+                item.item_type,
+                crate::cribo_graph::ItemType::Import { .. }
+                    | crate::cribo_graph::ItemType::FromImport { .. }
+            )
+            && (item.read_vars.contains(import_name)
+                || item.eventual_read_vars.contains(import_name))
+    })
+}
+
+/// Check if an import is used by surviving assignment statements
+fn is_import_used_by_surviving_assignments(
+    module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
+    import_name: &str,
+    used_symbols: &FxIndexSet<String>,
+) -> bool {
+    module_dep_graph.items.values().any(|item| {
+        if let crate::cribo_graph::ItemType::Assignment { targets } = &item.item_type {
+            item.read_vars.contains(import_name)
+                && targets.iter().any(|target| used_symbols.contains(target))
+        } else {
+            false
+        }
+    })
+}
+
 /// Log details about unused imports for debugging
 fn log_unused_imports_details(unused_imports: &[crate::analyzers::types::UnusedImportInfo]) {
     if log::log_enabled!(log::Level::Debug) {
@@ -907,8 +913,7 @@ fn should_remove_import_stmt(
                 let local_name = alias
                     .asname
                     .as_ref()
-                    .map(|n| n.as_str())
-                    .unwrap_or(alias.name.as_str());
+                    .map_or(alias.name.as_str(), ruff_python_ast::Identifier::as_str);
 
                 unused_imports.iter().any(|unused| {
                     log::trace!(
@@ -940,8 +945,7 @@ fn should_remove_import_stmt(
                 let local_name = alias
                     .asname
                     .as_ref()
-                    .map(|n| n.as_str())
-                    .unwrap_or(alias.name.as_str());
+                    .map_or(alias.name.as_str(), ruff_python_ast::Identifier::as_str);
 
                 unused_imports.iter().any(|unused| {
                     // Match by both name and module for from imports
@@ -955,8 +959,7 @@ fn should_remove_import_stmt(
                     import_from_stmt
                         .module
                         .as_ref()
-                        .map(|m| m.as_str())
-                        .unwrap_or("<None>"),
+                        .map_or("<None>", ruff_python_ast::Identifier::as_str),
                     import_from_stmt
                         .names
                         .iter()

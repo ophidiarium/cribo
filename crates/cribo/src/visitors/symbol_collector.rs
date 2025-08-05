@@ -79,7 +79,7 @@ impl SymbolCollector {
     fn is_constant_name(name: &str) -> bool {
         name.chars()
             .all(|c| c.is_uppercase() || c == '_' || c.is_numeric())
-            && name.chars().any(|c| c.is_alphabetic())
+            && name.chars().any(char::is_alphabetic)
     }
 
     /// Add a symbol to the appropriate collection
@@ -201,7 +201,7 @@ impl SymbolCollector {
         // Handle relative imports properly
         let from_module = import.module.as_ref().map_or_else(
             || ".".repeat(import.level as usize),
-            |mod_name| mod_name.to_string(),
+            std::string::ToString::to_string,
         );
 
         for alias in &import.names {
@@ -349,10 +349,10 @@ CONSTANT = "value"
 
     #[test]
     fn test_import_aliases() {
-        let code = r#"
+        let code = r"
 import numpy as np
 from typing import List as L
-"#;
+";
         let parsed = parse_module(code).expect("Failed to parse test module");
         let module = parsed.into_syntax();
         let symbols = SymbolCollector::analyze(&module);

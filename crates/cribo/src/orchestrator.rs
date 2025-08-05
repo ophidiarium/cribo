@@ -43,11 +43,11 @@ pub struct ModuleInfo {
 /// Central registry for module information
 /// This is the single source of truth for module identity throughout the bundling process
 pub struct ModuleRegistry {
-    /// Map from ModuleId to complete module information
+    /// Map from `ModuleId` to complete module information
     modules: FxIndexMap<ModuleId, ModuleInfo>,
-    /// Map from canonical name to ModuleId for fast lookups
+    /// Map from canonical name to `ModuleId` for fast lookups
     name_to_id: FxIndexMap<String, ModuleId>,
-    /// Map from resolved path to ModuleId for fast lookups
+    /// Map from resolved path to `ModuleId` for fast lookups
     path_to_id: FxIndexMap<PathBuf, ModuleId>,
 }
 
@@ -75,13 +75,16 @@ impl ModuleRegistry {
 
         // Check if module already exists and validate consistency
         if let Some(existing) = self.modules.get(&id) {
-            if existing.canonical_name != name || existing.resolved_path != path {
-                panic!(
-                    "Attempting to register module {:?} with conflicting data. Existing: {} at \
-                     {:?}, New: {} at {:?}",
-                    id, existing.canonical_name, existing.resolved_path, name, path
-                );
-            }
+            assert!(
+                !(existing.canonical_name != name || existing.resolved_path != path),
+                "Attempting to register module {:?} with conflicting data. Existing: {} at {:?}, \
+                 New: {} at {:?}",
+                id,
+                existing.canonical_name,
+                existing.resolved_path,
+                name,
+                path
+            );
             return; // Module already registered with same data
         }
 
@@ -187,7 +190,7 @@ impl BundleOrchestrator {
     }
 
     /// Single entry point for parsing and processing modules
-    /// This is THE ONLY place where ruff_python_parser::parse_module should be called
+    /// This is THE ONLY place where `ruff_python_parser::parse_module` should be called
     ///
     /// Pipeline:
     /// 1. Check cache
@@ -748,7 +751,7 @@ impl BundleOrchestrator {
         // that breaks cycles by removing edges within strongly connected components
 
         // Get all module IDs
-        let all_module_ids: Vec<_> = graph.modules.keys().cloned().collect();
+        let all_module_ids: Vec<_> = graph.modules.keys().copied().collect();
 
         // Collect all modules that are part of circular dependencies
         let mut cycle_module_names = IndexSet::new();
@@ -995,7 +998,7 @@ impl BundleOrchestrator {
         // Then, add all dependency edges
         info!("Phase 2: Creating dependency edges...");
         for (module_name, _module_path, imports, _ast, _source) in &parsed_modules {
-            let from_id = module_id_map.get(module_name).cloned();
+            let from_id = module_id_map.get(module_name).copied();
             for import in imports {
                 if let Some(from_module_id) = from_id {
                     let mut context = DependencyContext {
@@ -1150,7 +1153,7 @@ impl BundleOrchestrator {
         }
     }
 
-    /// Helper to process ImportlibStatic imports
+    /// Helper to process `ImportlibStatic` imports
     fn process_importlib_static_import(
         &self,
         import: &crate::visitors::DiscoveredImport,
@@ -1162,7 +1165,7 @@ impl BundleOrchestrator {
         }
     }
 
-    /// Process relative imports and add to IndexSet
+    /// Process relative imports and add to `IndexSet`
     fn process_relative_import_set(
         &self,
         import: &crate::visitors::DiscoveredImport,
@@ -1171,12 +1174,11 @@ impl BundleOrchestrator {
         imports: &mut IndexSet<String>,
     ) {
         // Get resolver reference
-        let resolver_ref = match resolver {
-            Some(resolver) => resolver,
-            None => {
-                debug!("No resolver available for relative import resolution");
-                return;
-            }
+        let resolver_ref = if let Some(resolver) = resolver {
+            resolver
+        } else {
+            debug!("No resolver available for relative import resolution");
+            return;
         };
 
         let base_module = match resolver_ref.resolve_relative_to_absolute_module_name(
@@ -1229,7 +1231,7 @@ impl BundleOrchestrator {
         }
     }
 
-    /// Process a single name import that might be a submodule (IndexSet version)
+    /// Process a single name import that might be a submodule (`IndexSet` version)
     fn process_single_name_import_set(
         &self,
         import: &crate::visitors::DiscoveredImport,
@@ -1246,7 +1248,7 @@ impl BundleOrchestrator {
         }
     }
 
-    /// Check if any imported names are actually submodules (IndexSet version)
+    /// Check if any imported names are actually submodules (`IndexSet` version)
     fn check_submodule_imports_set(
         &self,
         module_name: &str,
@@ -1308,19 +1310,16 @@ impl BundleOrchestrator {
         import: &str,
         params: &mut DiscoveryParams,
     ) {
-        match params.resolver.classify_import(parent_module) {
-            ImportType::FirstParty => {
-                if let Ok(Some(parent_path)) = params.resolver.resolve_module_path(parent_module) {
-                    debug!(
-                        "Adding parent package '{parent_module}' to discovery queue for import \
-                         '{import}'"
-                    );
-                    self.add_to_discovery_queue_if_new(parent_module, parent_path, params);
-                }
+        if params.resolver.classify_import(parent_module) == ImportType::FirstParty {
+            if let Ok(Some(parent_path)) = params.resolver.resolve_module_path(parent_module) {
+                debug!(
+                    "Adding parent package '{parent_module}' to discovery queue for import \
+                     '{import}'"
+                );
+                self.add_to_discovery_queue_if_new(parent_module, parent_path, params);
             }
-            _ => {
-                // Parent is not first-party, processing stops here
-            }
+        } else {
+            // Parent is not first-party, processing stops here
         }
     }
 
@@ -1385,18 +1384,18 @@ impl BundleOrchestrator {
                         self.add_parent_packages_to_discovery(import, params);
                     } else {
                         // If the import is not in an error handler, this is a fatal error
-                        if !is_in_error_handler {
+                        if is_in_error_handler {
+                            debug!(
+                                "Failed to resolve first-party module '{import}' but it's in an \
+                                 error handler (try/except or with suppress)"
+                            );
+                        } else {
                             return Err(anyhow!(
                                 "Failed to resolve first-party module '{}'. \nThis import would \
                                  fail at runtime with: ModuleNotFoundError: No module named '{}'",
                                 import,
                                 import
                             ));
-                        } else {
-                            debug!(
-                                "Failed to resolve first-party module '{import}' but it's in an \
-                                 error handler (try/except or with suppress)"
-                            );
                         }
                     }
                 }
@@ -1487,7 +1486,9 @@ impl BundleOrchestrator {
         resolver: &ModuleResolver,
     ) -> Result<()> {
         let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
-        if !requirements_content.is_empty() {
+        if requirements_content.is_empty() {
+            info!("No third-party dependencies found, skipping requirements.txt");
+        } else {
             let requirements_path = Path::new("requirements.txt");
 
             fs::write(requirements_path, requirements_content).with_context(|| {
@@ -1495,8 +1496,6 @@ impl BundleOrchestrator {
             })?;
 
             info!("Requirements written to: {requirements_path:?}");
-        } else {
-            info!("No third-party dependencies found, skipping requirements.txt");
         }
         Ok(())
     }
@@ -1509,7 +1508,9 @@ impl BundleOrchestrator {
         output_path: &Path,
     ) -> Result<()> {
         let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
-        if !requirements_content.is_empty() {
+        if requirements_content.is_empty() {
+            info!("No third-party dependencies found, skipping requirements.txt");
+        } else {
             let requirements_path = output_path
                 .parent()
                 .unwrap_or_else(|| Path::new("."))
@@ -1520,8 +1521,6 @@ impl BundleOrchestrator {
             })?;
 
             info!("Requirements written to: {requirements_path:?}");
-        } else {
-            info!("No third-party dependencies found, skipping requirements.txt");
         }
         Ok(())
     }

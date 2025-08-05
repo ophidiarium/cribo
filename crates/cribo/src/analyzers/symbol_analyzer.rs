@@ -16,7 +16,7 @@ use crate::{
 pub struct SymbolAnalyzer;
 
 impl SymbolAnalyzer {
-    /// Collect global symbols from modules (matching bundler's collect_global_symbols)
+    /// Collect global symbols from modules (matching bundler's `collect_global_symbols`)
     pub fn collect_global_symbols(
         modules: &[(String, ModModule, std::path::PathBuf, String)],
         entry_module_name: &str,
@@ -319,7 +319,7 @@ VERSION = "1.0.0"
 
     #[test]
     fn test_detect_hard_dependencies() {
-        let code = r#"
+        let code = r"
 import base_module
 from typing import Protocol
 
@@ -328,7 +328,7 @@ class MyClass(base_module.BaseClass):
 
 class MyProtocol(Protocol):
     pass
-"#;
+";
         let parsed = parse_module(code).expect("Failed to parse test module");
         let module = parsed.into_syntax();
 

@@ -81,7 +81,7 @@ pub fn system_config_file() -> Option<PathBuf> {
         // path is found.
         let candidate = Path::new("/etc").join(CONFIG_DIR).join(CONFIG_FILE);
         match candidate.try_exists() {
-            Ok(true) => Some(candidate.to_path_buf()),
+            Ok(true) => Some(candidate.clone()),
             Ok(false) => None,
             Err(err) => {
                 log::warn!("Failed to query system configuration file: {err}");

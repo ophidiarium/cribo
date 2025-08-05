@@ -4,7 +4,7 @@ use std::{env, fs, process::Command};
 
 use tempfile::TempDir;
 
-/// Run cribo with given arguments and return (stdout, stderr, exit_code)
+/// Run cribo with given arguments and return (stdout, stderr, `exit_code`)
 fn run_cribo(args: &[&str]) -> (String, String, i32) {
     let cribo_exe = env!("CARGO_BIN_EXE_cribo");
 

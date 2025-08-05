@@ -28,7 +28,7 @@ pub struct GlobalsLifter {
     pub lifted_declarations: Vec<Stmt>,
 }
 
-/// Transform globals() references in expressions
+/// Transform `globals()` references in expressions
 pub fn transform_globals_in_expr(expr: &mut Expr) {
     match expr {
         Expr::Call(call_expr) => {
@@ -86,7 +86,7 @@ pub fn transform_globals_in_expr(expr: &mut Expr) {
     }
 }
 
-/// Transform globals() calls in a statement
+/// Transform `globals()` calls in a statement
 pub fn transform_globals_in_stmt(stmt: &mut Stmt) {
     match stmt {
         Stmt::Expr(expr_stmt) => {

@@ -217,7 +217,7 @@ pub fn create_module_attr_assignment(module_var: &str, attr_name: &str) -> Stmt 
     )
 }
 
-/// Create a reassignment statement (original_name = renamed_name)
+/// Create a reassignment statement (`original_name` = `renamed_name`)
 pub fn create_reassignment(original_name: &str, renamed_name: &str) -> Stmt {
     ast_builder::statements::simple_assign(
         original_name,
@@ -288,8 +288,7 @@ pub fn create_assignments_for_inlined_imports(
             let actual_name = if let Some(module_renames) = symbol_renames.get(module_name) {
                 module_renames
                     .get(imported_name)
-                    .map(|s| s.as_str())
-                    .unwrap_or(imported_name)
+                    .map_or(imported_name, std::string::String::as_str)
             } else {
                 imported_name
             };
@@ -330,7 +329,7 @@ pub fn is_init_function(name: &str) -> bool {
 }
 
 /// Register a module with its synthetic name and init function
-/// Returns (synthetic_name, init_func_name)
+/// Returns (`synthetic_name`, `init_func_name`)
 pub fn register_module(
     module_name: &str,
     content_hash: &str,

@@ -273,11 +273,11 @@ mod tests {
 
     #[test]
     fn test_variable_reads() {
-        let code = r#"
+        let code = r"
 x = 1
 y = x + 2
 print(y)
-"#;
+";
         let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let collected = VariableCollector::analyze(&module);
@@ -297,12 +297,12 @@ print(y)
 
     #[test]
     fn test_global_declarations() {
-        let code = r#"
+        let code = r"
 def foo():
     global x, y
     x = 1
     y = 2
-"#;
+";
         let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let collected = VariableCollector::analyze(&module);
@@ -326,10 +326,10 @@ def foo():
 
     #[test]
     fn test_augmented_assignment() {
-        let code = r#"
+        let code = r"
 x = 1
 x += 2
-"#;
+";
         let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let collected = VariableCollector::analyze(&module);
@@ -340,13 +340,13 @@ x += 2
 
     #[test]
     fn test_augmented_assignment_complex_targets() {
-        let code = r#"
+        let code = r"
 obj = {'attr': 5}
 arr = [1, 2, 3]
 i = 0
 obj.attr += 1
 arr[i] += 10
-"#;
+";
         let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let collected = VariableCollector::analyze(&module);
@@ -392,10 +392,10 @@ arr[i] += 10
 
     #[test]
     fn test_deletion() {
-        let code = r#"
+        let code = r"
 x = 1
 del x
-"#;
+";
         let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let collected = VariableCollector::analyze(&module);
@@ -410,11 +410,11 @@ del x
 
     #[test]
     fn test_static_collect_function_globals() {
-        let code = r#"
+        let code = r"
 def foo():
     global x, y
     x = 1
-"#;
+";
         let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
 
@@ -428,14 +428,14 @@ def foo():
 
     #[test]
     fn test_nested_function_globals() {
-        let code = r#"
+        let code = r"
 def outer():
     global x
     def inner():
         global y
         y = 2
     x = 1
-"#;
+";
         let parsed = parse_module(code).expect("Test code should parse successfully");
         let module = parsed.into_syntax();
         let collected = VariableCollector::analyze(&module);
