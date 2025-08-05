@@ -5,10 +5,9 @@
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
-    AtomicNodeIndex, BoolOp, Expr, ExprAttribute, ExprBinOp, ExprBoolOp, ExprCall, ExprContext,
-    ExprList, ExprName, ExprNoneLiteral, ExprSlice, ExprStringLiteral, ExprSubscript, ExprTuple,
-    ExprUnaryOp, FStringFlags, FStringPart, FStringValue, Keyword, Operator, StringLiteral,
-    StringLiteralFlags, StringLiteralValue, UnaryOp,
+    AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprList, ExprName,
+    ExprNoneLiteral, ExprStringLiteral, ExprUnaryOp, FStringFlags, FStringPart, FStringValue,
+    Keyword, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
 };
 use ruff_text_size::TextRange;
 
@@ -158,30 +157,6 @@ pub fn dotted_name(parts: &[&str], ctx: ExprContext) -> Expr {
     result
 }
 
-/// Creates a subscript expression node.
-///
-/// # Arguments
-/// * `value` - The object being subscripted
-/// * `slice` - The slice expression
-/// * `ctx` - The expression context
-///
-/// # Example
-/// ```rust
-/// // Creates: `obj[key]`
-/// let obj = name("obj", ExprContext::Load);
-/// let key = string_literal("key");
-/// let expr = subscript(obj, key, ExprContext::Load);
-/// ```
-pub fn subscript(value: Expr, slice: Expr, ctx: ExprContext) -> Expr {
-    Expr::Subscript(ExprSubscript {
-        value: Box::new(value),
-        slice: Box::new(slice),
-        ctx,
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
-    })
-}
-
 /// Creates a list expression node.
 ///
 /// # Arguments
@@ -207,77 +182,6 @@ pub fn list(elts: Vec<Expr>, ctx: ExprContext) -> Expr {
     })
 }
 
-/// Creates a tuple expression node.
-///
-/// # Arguments
-/// * `elts` - The tuple elements
-/// * `ctx` - The expression context
-///
-/// # Example
-/// ```rust
-/// // Creates: `(a, b, c)`
-/// let elements = vec![
-///     name("a", ExprContext::Load),
-///     name("b", ExprContext::Load),
-///     name("c", ExprContext::Load),
-/// ];
-/// let expr = tuple(elements, ExprContext::Load);
-/// ```
-pub fn tuple(elts: Vec<Expr>, ctx: ExprContext) -> Expr {
-    Expr::Tuple(ExprTuple {
-        elts,
-        ctx,
-        parenthesized: true,
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
-    })
-}
-
-/// Creates a boolean operation expression node.
-///
-/// # Arguments
-/// * `op` - The boolean operator (And, Or)
-/// * `values` - The operand expressions
-///
-/// # Example
-/// ```rust
-/// // Creates: `a and b`
-/// let operands = vec![name("a", ExprContext::Load), name("b", ExprContext::Load)];
-/// let expr = bool_op(BoolOp::And, operands);
-/// ```
-pub fn bool_op(op: BoolOp, values: Vec<Expr>) -> Expr {
-    Expr::BoolOp(ExprBoolOp {
-        op,
-        values,
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
-    })
-}
-
-/// Creates a binary operation expression node.
-///
-/// # Arguments
-/// * `left` - The left operand
-/// * `op` - The binary operator
-/// * `right` - The right operand
-///
-/// # Example
-/// ```rust
-/// // Creates: `a + b`
-/// let left = name("a", ExprContext::Load);
-/// let right = name("b", ExprContext::Load);
-/// let expr = bin_op(left, Operator::Add, right);
-/// ```
-pub fn bin_op(left: Expr, op: Operator, right: Expr) -> Expr {
-    Expr::BinOp(ExprBinOp {
-        left: Box::new(left),
-        op,
-        right: Box::new(right),
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
-    })
-}
-
 /// Creates a unary operation expression node.
 ///
 /// # Arguments
@@ -294,32 +198,6 @@ pub fn unary_op(op: UnaryOp, operand: Expr) -> Expr {
     Expr::UnaryOp(ExprUnaryOp {
         op,
         operand: Box::new(operand),
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
-    })
-}
-
-/// Creates a slice expression node.
-///
-/// # Arguments
-/// * `lower` - The lower bound (optional)
-/// * `upper` - The upper bound (optional)
-/// * `step` - The step value (optional)
-///
-/// # Example
-/// ```rust
-/// // Creates: `1:10:2`
-/// let expr = slice(
-///     Some(string_literal("1")),
-///     Some(string_literal("10")),
-///     Some(string_literal("2")),
-/// );
-/// ```
-pub fn slice(lower: Option<Expr>, upper: Option<Expr>, step: Option<Expr>) -> Expr {
-    Expr::Slice(ExprSlice {
-        lower: lower.map(Box::new),
-        upper: upper.map(Box::new),
-        step: step.map(Box::new),
         range: TextRange::default(),
         node_index: AtomicNodeIndex::dummy(),
     })

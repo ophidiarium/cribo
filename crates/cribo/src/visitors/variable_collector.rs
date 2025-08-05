@@ -3,8 +3,10 @@
 //! This visitor traverses the AST to collect information about variable usage,
 //! including reads, writes, deletions, and global/nonlocal declarations.
 
+#[cfg(test)]
+use ruff_python_ast::ModModule;
 use ruff_python_ast::{
-    Expr, ModModule, Stmt,
+    Expr, Stmt,
     visitor::{Visitor, walk_expr, walk_stmt},
 };
 use ruff_text_size::TextRange;
@@ -46,8 +48,9 @@ impl VariableCollector {
         }
     }
 
-    /// Analyze a module and return collected variables
-    pub fn analyze(module: &ModModule) -> CollectedVariables {
+    /// Analyze a module and return collected variables (used in tests)
+    #[cfg(test)]
+    fn analyze(module: &ModModule) -> CollectedVariables {
         let mut collector = Self::new();
         collector.visit_body(&module.body);
         collector.collected
