@@ -846,20 +846,13 @@ fn is_import_used_by_side_effect_code(
         return false;
     }
 
-    for item in module_dep_graph.items.values() {
-        if matches!(
+    module_dep_graph.items.values().any(|item| {
+        matches!(
             item.item_type,
             crate::cribo_graph::ItemType::Expression
                 | crate::cribo_graph::ItemType::Assignment { .. }
         ) && item.read_vars.contains(local_name)
-        {
-            log::debug!(
-                "Import '{local_name}' is used by module-level code in module with side effects"
-            );
-            return true;
-        }
-    }
-    false
+    })
 }
 
 /// Check if a module import is used by surviving code in a module with side effects
