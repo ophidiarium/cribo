@@ -5,9 +5,8 @@
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
-    Alias, Arguments, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprContext, Identifier,
-    Parameters, Stmt, StmtAssign, StmtClassDef, StmtExpr, StmtFunctionDef, StmtGlobal, StmtIf,
-    StmtImport, StmtImportFrom, StmtPass, StmtRaise, StmtReturn, StmtTry,
+    Alias, AtomicNodeIndex, Decorator, Expr, ExprContext, Identifier, Parameters, Stmt, StmtAssign,
+    StmtExpr, StmtFunctionDef, StmtGlobal, StmtImport, StmtImportFrom, StmtPass, StmtReturn,
 };
 use ruff_text_size::TextRange;
 
@@ -205,134 +204,6 @@ pub fn global(names: Vec<&str>) -> Stmt {
             .into_iter()
             .map(|s| Identifier::new(s, TextRange::default()))
             .collect(),
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
-    })
-}
-
-/// Creates an if statement node.
-///
-/// # Arguments
-/// * `test` - The condition expression
-/// * `body` - The statements to execute if the condition is true
-/// * `orelse` - The statements to execute if the condition is false (optional)
-///
-/// # Example
-/// ```rust
-/// // Creates: `if condition: body_stmt else: else_stmt`
-/// let condition = expressions::name("condition", ExprContext::Load);
-/// let body_stmt = pass();
-/// let else_stmt = pass();
-/// let stmt = if_stmt(condition, vec![body_stmt], vec![else_stmt]);
-/// ```
-pub fn if_stmt(test: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> Stmt {
-    use ruff_python_ast::ElifElseClause;
-
-    let mut elif_else_clauses = Vec::new();
-
-    // If there's an orelse, add it as an else clause
-    if !orelse.is_empty() {
-        elif_else_clauses.push(ElifElseClause {
-            test: None, // None indicates else clause
-            body: orelse,
-            range: TextRange::default(),
-            node_index: AtomicNodeIndex::dummy(),
-        });
-    }
-
-    Stmt::If(StmtIf {
-        test: Box::new(test),
-        body,
-        elif_else_clauses,
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
-    })
-}
-
-/// Creates a raise statement node.
-///
-/// # Arguments
-/// * `exc` - The exception to raise (None for bare `raise`)
-/// * `cause` - The exception cause (for `raise ... from ...`)
-///
-/// # Example
-/// ```rust
-/// // Creates: `raise ValueError("message")`
-/// let exc = expressions::call(
-///     expressions::name("ValueError", ExprContext::Load),
-///     vec![expressions::string_literal("message")],
-///     vec![],
-/// );
-/// let stmt = raise(Some(exc), None);
-///
-/// // Creates: `raise`
-/// let stmt = raise(None, None);
-/// ```
-pub fn raise(exc: Option<Expr>, cause: Option<Expr>) -> Stmt {
-    Stmt::Raise(StmtRaise {
-        exc: exc.map(Box::new),
-        cause: cause.map(Box::new),
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
-    })
-}
-
-/// Creates a try statement node.
-///
-/// # Arguments
-/// * `body` - The statements in the try block
-/// * `handlers` - The exception handlers
-/// * `orelse` - The else clause statements
-/// * `finalbody` - The finally clause statements
-///
-/// # Example
-/// ```rust
-/// // Creates: `try: body except Exception: pass`
-/// use crate::ast_builder::other;
-/// let body_stmt = pass();
-/// let handler = other::except_handler(
-///     Some(expressions::name("Exception", ExprContext::Load)),
-///     None,
-///     vec![pass()],
-/// );
-/// let stmt = try_stmt(vec![body_stmt], vec![handler], vec![], vec![]);
-/// ```
-pub fn try_stmt(
-    body: Vec<Stmt>,
-    handlers: Vec<ExceptHandler>,
-    orelse: Vec<Stmt>,
-    finalbody: Vec<Stmt>,
-) -> Stmt {
-    Stmt::Try(StmtTry {
-        body,
-        handlers,
-        orelse,
-        finalbody,
-        is_star: false, // Regular try, not try*
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
-    })
-}
-
-/// Creates a class definition statement node.
-///
-/// # Arguments
-/// * `name` - The class name
-/// * `arguments` - The class arguments (base classes and metaclass)
-/// * `body` - The class body statements
-///
-/// # Example
-/// ```rust
-/// // Creates: `class MyClass: pass`
-/// let stmt = class_def("MyClass", None, vec![pass()]);
-/// ```
-pub fn class_def(name: &str, arguments: Option<Arguments>, body: Vec<Stmt>) -> Stmt {
-    Stmt::ClassDef(StmtClassDef {
-        name: Identifier::new(name, TextRange::default()),
-        type_params: None, // Generic type parameters
-        arguments: arguments.map(Box::new),
-        body,
-        decorator_list: Vec::new(),
         range: TextRange::default(),
         node_index: AtomicNodeIndex::dummy(),
     })

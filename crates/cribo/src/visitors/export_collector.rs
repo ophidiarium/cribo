@@ -4,12 +4,12 @@
 //! re-exports from imports, and implicit exports.
 
 use ruff_python_ast::{
-    Expr, ModModule, Stmt, StmtImportFrom,
+    Expr, ModModule, Stmt,
     visitor::{Visitor, walk_stmt},
 };
 
 use super::utils::extract_string_list_from_expr;
-use crate::analyzers::types::{ExportInfo, ReExport};
+use crate::analyzers::types::ExportInfo;
 
 /// Visitor that collects export information from a module
 pub struct ExportCollector {
@@ -34,7 +34,6 @@ impl ExportCollector {
             export_info: ExportInfo {
                 exported_names: None,
                 is_dynamic: false,
-                re_exports: Vec::new(),
             },
             has_dynamic_all: false,
             current_all: None,
@@ -63,46 +62,6 @@ impl ExportCollector {
         }
         result.names
     }
-
-    /// Check if this is a re-export pattern in __init__.py
-    fn check_for_reexport(&mut self, import: &StmtImportFrom) {
-        // Only consider relative imports in __init__.py context
-        if import.level > 0 {
-            let dots = ".".repeat(import.level as usize);
-            let from_module = if let Some(ref module) = import.module {
-                format!("{}{}", dots, module.as_str())
-            } else {
-                dots
-            };
-
-            // Check if this is a star import
-            if import.names.len() == 1 && import.names[0].name.as_str() == "*" {
-                self.export_info.re_exports.push(ReExport {
-                    from_module,
-                    names: vec![],
-                    is_star: true,
-                });
-            } else {
-                // Collect specific imports
-                let names: Vec<(String, Option<String>)> = import
-                    .names
-                    .iter()
-                    .map(|alias| {
-                        (
-                            alias.name.to_string(),
-                            alias.asname.as_ref().map(|s| s.to_string()),
-                        )
-                    })
-                    .collect();
-
-                self.export_info.re_exports.push(ReExport {
-                    from_module,
-                    names,
-                    is_star: false,
-                });
-            }
-        }
-    }
 }
 
 impl<'a> Visitor<'a> for ExportCollector {
@@ -125,9 +84,8 @@ impl<'a> Visitor<'a> for ExportCollector {
                     self.has_dynamic_all = true;
                 }
             }
-            Stmt::ImportFrom(import) => {
-                // Check for re-export patterns
-                self.check_for_reexport(import);
+            Stmt::ImportFrom(_) => {
+                // Import from statements - no processing needed
             }
             _ => {}
         }
@@ -186,36 +144,6 @@ __all__ += ["bar"]
         let export_info = ExportCollector::analyze(&module);
 
         assert!(export_info.is_dynamic);
-    }
-
-    #[test]
-    fn test_reexports() {
-        let code = r#"
-from .submodule import foo, bar as baz
-from . import module
-from ..parent import *
-"#;
-        let parsed = parse_module(code).expect("Test code should parse successfully");
-        let module = parsed.into_syntax();
-        let export_info = ExportCollector::analyze(&module);
-
-        assert_eq!(export_info.re_exports.len(), 3);
-
-        // Check first re-export
-        assert_eq!(export_info.re_exports[0].from_module, ".submodule");
-        assert_eq!(export_info.re_exports[0].names.len(), 2);
-        assert_eq!(
-            export_info.re_exports[0].names[0],
-            ("foo".to_string(), None)
-        );
-        assert_eq!(
-            export_info.re_exports[0].names[1],
-            ("bar".to_string(), Some("baz".to_string()))
-        );
-
-        // Check star import
-        assert_eq!(export_info.re_exports[2].from_module, "..parent");
-        assert!(export_info.re_exports[2].is_star);
     }
 
     #[test]

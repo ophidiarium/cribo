@@ -2270,7 +2270,6 @@ fn rewrite_import_from(
 ///
 /// This function resolves relative imports (e.g., `from . import foo` or `from ..bar import baz`)
 /// to absolute module names based on the current module and its file path.
-
 /// Handle imports from inlined modules
 pub(super) fn handle_imports_from_inlined_module_with_context(
     bundler: &Bundler,
