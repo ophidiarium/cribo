@@ -1990,7 +1990,7 @@ fn rewrite_import_with_renames(
                                 // namespace_assignments_made
                                 // from here since bundler is immutable. This will be handled during
                                 // the main bundle process where bundler is mutable.
-                                log::warn!(
+                                log::debug!(
                                     "Cannot track namespace assignments for '{partial_module}' in \
                                      import transformer due to immutability"
                                 );
@@ -2031,7 +2031,7 @@ fn rewrite_import_with_renames(
                         // Note: This is a limitation - we can't mutate namespace_assignments_made
                         // from here since bundler is immutable. This will be handled during
                         // the main bundle process where bundler is mutable.
-                        log::warn!(
+                        log::debug!(
                             "Cannot track namespace assignments for '{module_name}' in import \
                              transformer due to immutability"
                         );
@@ -2094,7 +2094,7 @@ fn rewrite_import_with_renames(
                 // Note: This is a limitation - we can't mutate namespace_assignments_made
                 // from here since bundler is immutable. This will be handled during
                 // the main bundle process where bundler is mutable.
-                log::warn!(
+                log::debug!(
                     "Cannot track namespace assignments for '{module_name}' in import transformer \
                      due to immutability"
                 );
