@@ -878,23 +878,14 @@ fn is_import_used_by_surviving_assignments(
     import_name: &str,
     used_symbols: &FxIndexSet<String>,
 ) -> bool {
-    for item in module_dep_graph.items.values() {
+    module_dep_graph.items.values().any(|item| {
         if let crate::cribo_graph::ItemType::Assignment { targets } = &item.item_type {
-            // Check if this assignment reads the import
-            if item.read_vars.contains(import_name) {
-                // Check if any of the assignment targets are kept
-                for target in targets {
-                    if used_symbols.contains(target) {
-                        log::debug!(
-                            "Import '{import_name}' is used by surviving assignment to '{target}'"
-                        );
-                        return true;
-                    }
-                }
-            }
+            item.read_vars.contains(import_name)
+                && targets.iter().any(|target| used_symbols.contains(target))
+        } else {
+            false
         }
-    }
-    false
+    })
 }
 
 /// Log details about unused imports for debugging
