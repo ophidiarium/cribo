@@ -10,6 +10,5 @@ import types
 import xml.etree.ElementTree
 message = "Hello"
 greeting = types.SimpleNamespace(message=message)
-greeting.__all__ = ['message']
 print(xml.etree.ElementTree.__name__)
 print(greeting.message)

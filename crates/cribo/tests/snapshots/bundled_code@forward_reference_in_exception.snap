@@ -33,7 +33,6 @@ myrequests_compat.JSONDecodeError = JSONDecodeError_2
 myrequests_compat.builtin_str = builtin_str
 myrequests_compat.is_str = is_str
 """Test case for forward reference to init function"""
-myrequests.__all__ = ['JSONDecodeError', 'MutableMapping', 'compat']
 myrequests.JSONDecodeError = JSONDecodeError_1
 myrequests.MutableMapping = MutableMapping_1
 print(f"MutableMapping: {myrequests.MutableMapping}")

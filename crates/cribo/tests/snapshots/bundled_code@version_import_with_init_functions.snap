@@ -22,10 +22,8 @@ mypackage.utils = mypackage_utils
 mypackage_utils.get_user_agent = get_user_agent
 mypackage___version__.__version__ = __version__
 """Test fixture for version imports with complex module initialization."""
-mypackage.__all__ = ['__version__']
 mypackage.__version__ = __version__
 mypackage.utils = types.SimpleNamespace()
-mypackage.utils.__all__ = ['get_user_agent']
 mypackage.utils.get_user_agent = get_user_agent
 print(f"User agent: {mypackage.utils.get_user_agent()}")
 print(f"Version from package: {mypackage.__version__}")

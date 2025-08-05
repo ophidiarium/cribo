@@ -9,5 +9,4 @@ input_file: crates/cribo/tests/fixtures/stickytape_script_with_single_local_impo
 import types
 message = "Hello"
 greeting = types.SimpleNamespace(message=message)
-greeting.__all__ = ['message']
 print(greeting.message)
