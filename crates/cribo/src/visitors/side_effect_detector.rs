@@ -350,7 +350,7 @@ impl<'a> Visitor<'a> for SideEffectDetector {
                 return; // Don't walk further
             }
 
-            // These are definitely side effects (including any other statement type)
+            // All remaining statement types are conservatively considered to have side effects.
             _ => {
                 self.has_side_effects = true;
                 return;
