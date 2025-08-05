@@ -138,13 +138,13 @@ fn benchmark_dependency_graph(c: &mut Criterion) {
             let mut graph = CriboGraph::new();
 
             // Add modules
-            let main_id = graph.add_module("main".to_string(), PathBuf::from("main.py"));
+            let main_id = graph.add_module("main".to_string(), &PathBuf::from("main.py"));
             let utils_id = graph.add_module(
                 "utils.helpers".to_string(),
-                PathBuf::from("utils/helpers.py"),
+                &PathBuf::from("utils/helpers.py"),
             );
             let models_id =
-                graph.add_module("models.user".to_string(), PathBuf::from("models/user.py"));
+                graph.add_module("models.user".to_string(), &PathBuf::from("models/user.py"));
 
             // Add dependencies - main depends on utils and models
             graph.add_module_dependency(main_id, utils_id);

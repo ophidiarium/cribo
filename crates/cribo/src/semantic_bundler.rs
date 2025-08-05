@@ -411,9 +411,9 @@ impl SymbolRegistry {
     }
 
     /// Get rename for a symbol if it exists
-    pub fn get_rename(&self, module_id: &ModuleId, original: &str) -> Option<&str> {
+    pub fn get_rename(&self, module_id: ModuleId, original: &str) -> Option<&str> {
         self.renames
-            .get(&(*module_id, original.to_string()))
+            .get(&(module_id, original.to_string()))
             .map(std::string::String::as_str)
     }
 }
@@ -568,8 +568,8 @@ impl SemanticBundler {
     }
 
     /// Get module semantic info
-    pub fn get_module_info(&self, module_id: &ModuleId) -> Option<&ModuleSemanticInfo> {
-        self.module_semantics.get(module_id)
+    pub fn get_module_info(&self, module_id: ModuleId) -> Option<&ModuleSemanticInfo> {
+        self.module_semantics.get(&module_id)
     }
 
     /// Get symbol registry

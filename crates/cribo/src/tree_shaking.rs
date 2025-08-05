@@ -936,7 +936,7 @@ mod tests {
         // Create a simple module with used and unused functions
         let module_id = graph.add_module(
             "test_module".to_string(),
-            std::path::PathBuf::from("test.py"),
+            &std::path::PathBuf::from("test.py"),
         );
         let module = graph
             .modules
@@ -983,7 +983,7 @@ mod tests {
 
         // Add entry module that uses only used_func
         let entry_id =
-            graph.add_module("__main__".to_string(), std::path::PathBuf::from("main.py"));
+            graph.add_module("__main__".to_string(), &std::path::PathBuf::from("main.py"));
         let entry = graph
             .modules
             .get_mut(&entry_id)
