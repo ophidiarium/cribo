@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.9](https://github.com/ophidiarium/cribo/compare/v0.5.8...v0.5.9) (2025-08-05)
+
+
+### Bug Fixes
+
+* resolve clippy pedantic warnings for pass-by-value arguments ([#252](https://github.com/ophidiarium/cribo/issues/252)) ([09853c1](https://github.com/ophidiarium/cribo/commit/09853c1fc98b148c446814a1ced881c7db645477))
+
 ## [0.5.8](https://github.com/ophidiarium/cribo/compare/v0.5.7...v0.5.8) (2025-08-05)
 
 
