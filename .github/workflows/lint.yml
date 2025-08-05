@@ -152,8 +152,9 @@ jobs:
               const prCyclo = prItems.reduce((s,o)=>s+o.metrics.cyclomatic.sum,0)/prCount;
               const prCog   = prItems.reduce((s,o)=>s+o.metrics.cognitive.sum,0)/prCount;
               const prFunc  = prItems.reduce((s,o)=>s+o.metrics.nom.functions,0);
+              const prLloc  = prItems.reduce((s,o)=>s+o.metrics.loc.lloc,0);
               // Baseline metrics (if exists)
-              let baseCyclo = prCyclo, baseCog = prCog, baseFunc = prFunc;
+              let baseCyclo = prCyclo, baseCog = prCog, baseFunc = prFunc, baseLloc = prLloc;
               const basePath = `${baseDir}/${rel}.json`;
               if (fs.existsSync(basePath)) {
                 const baseRaw = JSON.parse(fs.readFileSync(basePath,'utf8'));
@@ -162,11 +163,13 @@ jobs:
                 baseCyclo = baseItems.reduce((s,o)=>s+o.metrics.cyclomatic.sum,0)/baseCount;
                 baseCog   = baseItems.reduce((s,o)=>s+o.metrics.cognitive.sum,0)/baseCount;
                 baseFunc  = baseItems.reduce((s,o)=>s+o.metrics.nom.functions,0);
+                baseLloc  = baseItems.reduce((s,o)=>s+o.metrics.loc.lloc,0);
               }
               // Compute diffs and emojis
               const diffFunc = prFunc - baseFunc;
               const diffCyclo = (prCyclo - baseCyclo).toFixed(1);
               const diffCog = (prCog - baseCog).toFixed(1);
+              const diffLloc = prLloc - baseLloc;
               const emoji = d => d>0? '🔴': d<0? '🟢':'⚪';
               // Push row showing PR vs main values with emoji
               // Determine cell content: only emoji if unchanged, else "current (main) emoji"
@@ -179,8 +182,11 @@ jobs:
               const cogCell = prCog === baseCog
                 ? `${prCog.toFixed(0)} ${emoji(0)}`
                 : `${prCog.toFixed(0)} (main: ${baseCog.toFixed(0)}) ${emoji(diffCog)}`;
+              const llocCell = prLloc === baseLloc
+                ? `${prLloc} ${emoji(0)}`
+                : `${prLloc} (main: ${baseLloc}) ${emoji(diffLloc)}`;
               // Include numeric funcsVal for sorting, and formatted cells for display
-              rows.push({ file: fileLink, funcsVal: prFunc, funcs: funcsCell, cyclo: cycloCell, cog: cogCell });
+              rows.push({ file: fileLink, funcsVal: prFunc, funcs: funcsCell, cyclo: cycloCell, cog: cogCell, lloc: llocCell });
             });
             // Sort rows by numeric funcsVal descending
             rows.sort((a, b) => {
@@ -190,9 +196,9 @@ jobs:
             // Build markdown comparison table showing current vs main
             const commentTitle = '## [Rust-Code-Analysis](https://mozilla.github.io/rust-code-analysis/) Summary';
             let body = commentTitle + ' (this PR vs `main`)\n\n';
-            body += '| File | Functions | [Cyclomatic](https://en.wikipedia.org/wiki/Cyclomatic_complexity) | [Cognitive](https://www.sonarsource.com/blog/cognitive-complexity-because-testability-understandability/) |\n';
-            body += '|---|---:|---:|---:|\n';
-            rows.forEach(r => body += `| ${r.file} | ${r.funcs} | ${r.cyclo} | ${r.cog} |\n`);
+            body += '| File | Functions | [Cyclomatic](https://en.wikipedia.org/wiki/Cyclomatic_complexity) | [Cognitive](https://www.sonarsource.com/blog/cognitive-complexity-because-testability-understandability/) | LLOC |\n';
+            body += '|---|---:|---:|---:|---:|\n';
+            rows.forEach(r => body += `| ${r.file} | ${r.funcs} | ${r.cyclo} | ${r.cog} | ${r.lloc} |\n`);
             // find existing summary comment
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
