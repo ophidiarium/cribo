@@ -84,11 +84,11 @@ pub fn transform_module_to_init_function<'a>(
             let resolved_module = if import_from.level > 0 {
                 bundler.resolver.resolve_relative_to_absolute_module_name(
                     import_from.level,
-                    import_from.module.as_ref().map(|id| id.as_str()),
+                    import_from.module.as_ref().map(|n| n.as_str()),
                     ctx.module_path,
                 )
             } else {
-                import_from.module.as_ref().map(|m| m.to_string())
+                import_from.module.as_ref().map(|n| n.to_string())
             };
 
             if let Some(ref module) = resolved_module {
@@ -301,7 +301,7 @@ pub fn transform_module_to_init_function<'a>(
             }
             Stmt::ImportFrom(import_from) => {
                 // Skip __future__ imports - they cannot appear inside functions
-                if import_from.module.as_ref().map(|m| m.as_str()) == Some("__future__") {
+                if import_from.module.as_ref().map(|n| n.as_str()) == Some("__future__") {
                     continue;
                 }
 

@@ -2276,7 +2276,7 @@ impl<'a> Bundler<'a> {
                                     // Resolve relative import to absolute
                                     self.resolver.resolve_relative_to_absolute_module_name(
                                         import_from.level,
-                                        import_from.module.as_ref().map(|m| m.as_str()),
+                                        import_from.module.as_ref().map(|n| n.as_str()),
                                         module_path,
                                     )
                                 } else {
@@ -2350,7 +2350,7 @@ impl<'a> Bundler<'a> {
                         // This is a relative import, resolve it
                         self.resolver.resolve_relative_to_absolute_module_name(
                             import_from.level,
-                            import_from.module.as_ref().map(|m| m.as_str()),
+                            import_from.module.as_ref().map(|n| n.as_str()),
                             module_path,
                         )
                     } else {
@@ -4876,7 +4876,7 @@ impl<'a> Bundler<'a> {
                 }
                 Stmt::ImportFrom(import_from) => {
                     // Skip __future__ imports
-                    if import_from.module.as_ref().map(|m| m.as_str()) != Some("__future__") {
+                    if import_from.module.as_ref().map(|n| n.as_str()) != Some("__future__") {
                         result.push(stmt.clone());
 
                         // Add module attribute assignments for imported symbols when in conditional
@@ -7166,7 +7166,7 @@ impl<'a> Bundler<'a> {
                                     let resolved_module = if import_from.level > 0 {
                                         self.resolver.resolve_relative_to_absolute_module_name(
                                             import_from.level,
-                                            import_from.module.as_ref().map(|m| m.as_str()),
+                                            import_from.module.as_ref().map(|n| n.as_str()),
                                             module_path,
                                         )
                                     } else {

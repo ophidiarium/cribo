@@ -427,7 +427,7 @@ impl<'a> ImportDiscoveryVisitor<'a> {
 
     /// Record a from import statement
     fn record_import_from(&mut self, stmt: &StmtImportFrom) {
-        let module_name = stmt.module.as_ref().map(|m| m.to_string());
+        let module_name = stmt.module.as_ref().map(|n| n.to_string());
 
         let names: Vec<(String, Option<String>)> = stmt
             .names

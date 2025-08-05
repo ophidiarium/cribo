@@ -166,7 +166,7 @@ impl<'a> SemanticModelBuilder<'a> {
             }
             Stmt::ImportFrom(import_from) => {
                 // Get the module name
-                let module_name = import_from.module.as_ref().map(|m| m.to_string());
+                let module_name = import_from.module.as_ref().map(|n| n.to_string());
 
                 for alias in &import_from.names {
                     let original_name = alias.name.as_str();

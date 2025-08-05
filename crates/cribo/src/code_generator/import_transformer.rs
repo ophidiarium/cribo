@@ -550,12 +550,12 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 .resolver
                                 .resolve_relative_to_absolute_module_name(
                                     import_from.level,
-                                    import_from.module.as_ref().map(|id| id.as_str()),
+                                    import_from.module.as_ref().map(|n| n.as_str()),
                                     path,
                                 )
                         })
                     } else {
-                        import_from.module.as_ref().map(|m| m.to_string())
+                        import_from.module.as_ref().map(|n| n.to_string())
                     };
 
                     if let Some(resolved) = &resolved_module {
@@ -628,7 +628,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     fn handle_import_from(&mut self, import_from: &StmtImportFrom) -> Vec<Stmt> {
         log::debug!(
             "RecursiveImportTransformer::handle_import_from: from {:?} import {:?}",
-            import_from.module.as_ref().map(|m| m.as_str()),
+            import_from.module.as_ref().map(|n| n.as_str()),
             import_from
                 .names
                 .iter()
@@ -648,7 +648,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     )
             })
         } else {
-            import_from.module.as_ref().map(|m| m.to_string())
+            import_from.module.as_ref().map(|n| n.to_string())
         };
 
         log::debug!(
@@ -916,7 +916,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         )
                                     {
                                         let export_strings: Vec<&str> =
-                                            filtered_exports.iter().map(|s| s.as_str()).collect();
+                                            filtered_exports.iter().map(String::as_str).collect();
                                         self.deferred_imports.push(statements::set_list_attribute(
                                             local_name,
                                             "__all__",
@@ -998,7 +998,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         )
                                     {
                                         let export_strings: Vec<&str> =
-                                            filtered_exports.iter().map(|s| s.as_str()).collect();
+                                            filtered_exports.iter().map(String::as_str).collect();
                                         result_stmts.push(statements::set_list_attribute(
                                             local_name,
                                             "__all__",
@@ -1129,7 +1129,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 if let Some(renames) = self.symbol_renames.get(resolved) {
                                     renames
                                         .get(imported_name)
-                                        .map(|s| s.as_str())
+                                        .map(String::as_str)
                                         .unwrap_or(imported_name)
                                 } else {
                                     imported_name
@@ -2100,7 +2100,7 @@ fn rewrite_import_from(
     // Resolve relative imports to absolute module names
     log::debug!(
         "rewrite_import_from: Processing import {:?} in module '{}'",
-        import_from.module.as_ref().map(|m| m.as_str()),
+        import_from.module.as_ref().map(|n| n.as_str()),
         current_module
     );
     log::debug!(
@@ -2122,14 +2122,14 @@ fn rewrite_import_from(
             )
         })
     } else {
-        import_from.module.as_ref().map(|m| m.to_string())
+        import_from.module.as_ref().map(|n| n.to_string())
     };
 
     let Some(module_name) = resolved_module_name else {
         // If we can't resolve the module, return the original import
         log::warn!(
             "Could not resolve module name for import {:?}, keeping original import",
-            import_from.module.as_ref().map(|m| m.as_str())
+            import_from.module.as_ref().map(|n| n.as_str())
         );
         return vec![Stmt::ImportFrom(import_from)];
     };

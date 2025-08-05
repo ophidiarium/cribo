@@ -191,7 +191,7 @@ impl<'a> GraphBuilder<'a> {
         let module_name = import_from
             .module
             .as_ref()
-            .map(|m| m.as_str())
+            .map(|n| n.as_str())
             .unwrap_or("");
 
         // Skip __future__ imports as they're handled separately

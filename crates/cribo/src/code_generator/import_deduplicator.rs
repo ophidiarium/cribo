@@ -322,7 +322,7 @@ fn collect_unique_imports_for_hoisting(
             module_name.to_string(),
             crate::ast_builder::statements::import(vec![crate::ast_builder::other::alias(
                 module_name,
-                alias.asname.as_ref().map(|name| name.as_str()),
+                alias.asname.as_ref().map(|n| n.as_str()),
             )]),
         ));
     }
@@ -551,7 +551,7 @@ pub(super) fn is_duplicate_import_from(
         if is_third_party {
             return existing_body.iter().any(|existing| {
                 if let Stmt::ImportFrom(existing_import) = existing {
-                    existing_import.module.as_ref().map(|m| m.as_str()) == Some(module_name)
+                    existing_import.module.as_ref().map(|n| n.as_str()) == Some(module_name)
                         && import_names_match(&import_from.names, &existing_import.names)
                 } else {
                     false
@@ -957,7 +957,7 @@ fn should_remove_import_stmt(
                     import_from_stmt
                         .module
                         .as_ref()
-                        .map(|m| m.as_str())
+                        .map(|n| n.as_str())
                         .unwrap_or("<None>"),
                     import_from_stmt
                         .names

@@ -4,7 +4,7 @@ use std::{
     env, fs,
     io::Write,
     path::Path,
-    process::Command,
+    process::{Child, Command},
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -238,7 +238,7 @@ fn test_bundling_fixtures() {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
-            .and_then(|child| child.wait_with_output())
+            .and_then(Child::wait_with_output)
             .expect("Failed to execute original fixture");
 
         // Handle Python execution based on fixture type

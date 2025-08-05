@@ -567,7 +567,7 @@ impl ModuleResolver {
 
         // Try to get explicit VIRTUAL_ENV
         let explicit_virtualenv = virtualenv_override
-            .map(|v| v.to_owned())
+            .map(|p| p.to_owned())
             .or_else(|| std::env::var("VIRTUAL_ENV").ok());
 
         let virtualenv_paths = if let Some(virtualenv_path) = explicit_virtualenv {

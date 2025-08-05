@@ -293,7 +293,7 @@ impl ImportRewriter {
         import_from: &StmtImportFrom,
         movable_imports: &[&MovableImport],
     ) -> bool {
-        let stmt_module = import_from.module.as_ref().map(|m| m.to_string());
+        let stmt_module = import_from.module.as_ref().map(|n| n.to_string());
         let stmt_level = import_from.level;
 
         movable_imports.iter().any(|mi| {
