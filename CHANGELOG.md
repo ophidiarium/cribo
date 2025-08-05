@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.8](https://github.com/ophidiarium/cribo/compare/v0.5.7...v0.5.8) (2025-08-05)
+
+
+### Bug Fixes
+
+* handle built-in type re-exports correctly in bundled output ([#240](https://github.com/ophidiarium/cribo/issues/240)) ([770d29a](https://github.com/ophidiarium/cribo/commit/770d29ae11dc79b440dbfb57a4a5dadd4268b515))
+* resolve __all__ completely statically ([#247](https://github.com/ophidiarium/cribo/issues/247)) ([b842f10](https://github.com/ophidiarium/cribo/commit/b842f1084f707f51624742ee1f9ab4f65b883c54))
+* resolve forward reference errors and redundant namespace creation ([#241](https://github.com/ophidiarium/cribo/issues/241)) ([54813ad](https://github.com/ophidiarium/cribo/commit/54813ad16c20d9ce598c16b57f81a36aeeb35c2c))
+
 ## [0.5.7](https://github.com/ophidiarium/cribo/compare/v0.5.6...v0.5.7) (2025-07-31)
 
 
