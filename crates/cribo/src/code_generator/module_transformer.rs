@@ -912,7 +912,9 @@ fn transform_expr_for_module_vars(
             // For now, we skip transforming f-strings as they would need to be rebuilt
             // TODO: Implement f-string transformation if needed
         }
-        // Literals don't contain variable references
+        // Literals and name expressions that don't need transformation
+        // - Literals don't contain variable references
+        // - Name expressions that don't match the conditional pattern (e.g., Store context)
         Expr::StringLiteral(_)
         | Expr::BytesLiteral(_)
         | Expr::NumberLiteral(_)
@@ -920,9 +922,8 @@ fn transform_expr_for_module_vars(
         | Expr::NoneLiteral(_)
         | Expr::EllipsisLiteral(_)
         | Expr::TString(_)
-        | Expr::IpyEscapeCommand(_) => {}
-        // Name expressions that don't match the conditional pattern (e.g., Store context)
-        Expr::Name(_) => {}
+        | Expr::IpyEscapeCommand(_)
+        | Expr::Name(_) => {}
     }
 }
 

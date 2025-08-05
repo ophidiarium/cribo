@@ -84,9 +84,7 @@ impl<'a> Visitor<'a> for ExportCollector {
                     self.has_dynamic_all = true;
                 }
             }
-            Stmt::ImportFrom(_) => {
-                // Import from statements - no processing needed
-            }
+            // Import from statements and other statements - no processing needed
             _ => {}
         }
 

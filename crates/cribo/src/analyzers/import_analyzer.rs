@@ -143,8 +143,8 @@ impl ImportAnalyzer {
 
                 if Self::is_import_unused(&ctx) {
                     let module_name = match &import_data.item_type {
-                        crate::cribo_graph::ItemType::Import { module, .. } => module.clone(),
-                        crate::cribo_graph::ItemType::FromImport { module, .. } => module.clone(),
+                        crate::cribo_graph::ItemType::Import { module, .. }
+                        | crate::cribo_graph::ItemType::FromImport { module, .. } => module.clone(),
                         _ => continue,
                     };
 
