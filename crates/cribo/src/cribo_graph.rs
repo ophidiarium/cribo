@@ -344,7 +344,7 @@ impl CriboGraph {
     /// Add a new module to the graph
     pub fn add_module(&mut self, name: String, path: &Path) -> ModuleId {
         // Always work with canonical paths
-        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
 
         // Check if this exact import name already exists
         if let Some(&existing_id) = self.module_names.get(&name) {
