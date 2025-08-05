@@ -3,17 +3,52 @@
 //! This module provides functions for creating and managing Python namespace objects
 //! that simulate module structures in bundled code.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use log::debug;
-use ruff_python_ast::{AtomicNodeIndex, ExprContext, Identifier, Keyword, Stmt, StmtImportFrom};
+use log::{debug, info};
+use ruff_python_ast::{
+    AtomicNodeIndex, Expr, ExprContext, Identifier, Keyword, ModModule, Stmt, StmtImportFrom,
+};
 use ruff_text_size::TextRange;
 
 use crate::{
+    analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{self, expressions, statements},
     code_generator::{bundler::Bundler, module_registry::sanitize_module_name_for_identifier},
     types::{FxIndexMap, FxIndexSet},
 };
+
+/// Context for populating namespace with module symbols.
+///
+/// This struct encapsulates the state required by the namespace population function,
+/// which was previously accessed directly from the `Bundler` struct.
+pub struct NamespacePopulationContext<'a> {
+    pub inlined_modules: &'a FxIndexSet<String>,
+    pub module_exports: &'a FxIndexMap<String, Option<Vec<String>>>,
+    pub tree_shaking_keep_symbols: &'a Option<FxIndexMap<String, FxIndexSet<String>>>,
+    pub bundled_modules: &'a FxIndexSet<String>,
+    pub namespace_assignments_made: &'a mut FxIndexSet<(String, String)>,
+    pub modules_with_accessed_all: &'a FxIndexSet<(String, String)>,
+    pub module_registry: &'a FxIndexMap<String, String>,
+    pub module_asts: &'a Option<Vec<(String, ModModule, PathBuf, String)>>,
+    pub symbols_populated_after_deferred: &'a FxIndexSet<(String, String)>,
+    pub namespaces_with_initial_symbols: &'a FxIndexSet<String>,
+    pub global_deferred_imports: &'a FxIndexMap<(String, String), String>,
+    pub init_functions: &'a FxIndexMap<String, String>,
+    pub resolver: &'a crate::resolver::ModuleResolver,
+}
+
+impl NamespacePopulationContext<'_> {
+    /// Check if a symbol is kept by tree shaking.
+    pub fn is_symbol_kept_by_tree_shaking(&self, module_name: &str, symbol_name: &str) -> bool {
+        match &self.tree_shaking_keep_symbols {
+            Some(kept_symbols) => kept_symbols
+                .get(module_name)
+                .is_some_and(|symbols| symbols.contains(symbol_name)),
+            None => true, // No tree shaking, all symbols are kept
+        }
+    }
+}
 
 /// Generates submodule attributes with exclusions for namespace organization.
 ///
@@ -711,4 +746,464 @@ fn handle_inlined_module_assignment(
         )],
         expressions::name(&namespace_var, ExprContext::Load),
     ));
+}
+
+/// Populate a namespace object with all symbols from a given module, applying renames.
+///
+/// This function generates AST statements to populate a namespace object with symbols
+/// from a module, handling tree-shaking, re-exports, and symbol renaming.
+pub fn populate_namespace_with_module_symbols(
+    ctx: &mut NamespacePopulationContext,
+    target_name: &str,
+    module_name: &str,
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+) -> Vec<Stmt> {
+    let mut result_stmts = Vec::new();
+
+    // Get the module's exports
+    if let Some(exports) = ctx.module_exports.get(module_name).and_then(|e| e.as_ref()) {
+        // Build the namespace access expression for the target
+        let parts: Vec<&str> = target_name.split('.').collect();
+
+        // First, add __all__ attribute to the namespace
+        // Create the target expression for __all__
+        let all_target = expressions::dotted_name(&parts, ExprContext::Load);
+
+        // Filter exports to only include symbols that survived tree-shaking
+        let filtered_exports = SymbolAnalyzer::filter_exports_by_tree_shaking(
+            exports,
+            module_name,
+            ctx.tree_shaking_keep_symbols.as_ref(),
+            true,
+        );
+
+        // Check if __all__ assignment already exists for this namespace
+        let all_assignment_exists = result_stmts.iter().any(|stmt| {
+            if let Stmt::Assign(assign) = stmt
+                && let [Expr::Attribute(attr)] = assign.targets.as_slice()
+                && let Expr::Name(base) = attr.value.as_ref()
+            {
+                return base.id.as_str() == target_name && attr.attr.as_str() == "__all__";
+            }
+            false
+        });
+
+        if all_assignment_exists {
+            debug!("Skipping duplicate __all__ assignment for namespace '{target_name}'");
+        } else if ctx
+            .modules_with_accessed_all
+            .iter()
+            .any(|(_, alias)| alias == target_name)
+        {
+            // Only create __all__ assignment if the code actually accesses it
+            let all_list = expressions::list(
+                filtered_exports
+                    .iter()
+                    .map(|name| expressions::string_literal(name.as_str()))
+                    .collect(),
+                ExprContext::Load,
+            );
+
+            // Create __all__ assignment statement
+            result_stmts.push(statements::assign(
+                vec![expressions::attribute(
+                    all_target,
+                    "__all__",
+                    ExprContext::Store,
+                )],
+                all_list,
+            ));
+
+            info!(
+                "Created __all__ assignment for namespace '{target_name}' with exports: \
+                 {filtered_exports:?} (accessed in code)"
+            );
+        } else {
+            debug!(
+                "Skipping __all__ assignment for namespace '{target_name}' - not accessed in code"
+            );
+        }
+
+        // Skip individual symbol assignments if this namespace was already created with initial
+        // symbols
+        if ctx.namespaces_with_initial_symbols.contains(module_name) {
+            debug!(
+                "Skipping individual symbol assignments for '{module_name}' - namespace created \
+                 with initial symbols"
+            );
+            return result_stmts;
+        }
+
+        // For each exported symbol that survived tree-shaking, add it to the namespace
+        'symbol_loop: for symbol in &filtered_exports {
+            let symbol_name = symbol.as_str();
+
+            // For re-exported symbols, check if the original symbol is kept by tree-shaking
+            let should_include = if ctx.tree_shaking_keep_symbols.is_some() {
+                // First check if this symbol is directly defined in this module
+                if ctx.is_symbol_kept_by_tree_shaking(module_name, symbol_name) {
+                    true
+                } else {
+                    // If not, check if this is a re-exported symbol from another module
+                    // For modules with __all__, we always include symbols that are re-exported
+                    // even if they're not directly defined in the module
+                    let module_has_all_export = ctx
+                        .module_exports
+                        .get(module_name)
+                        .and_then(|exports| exports.as_ref())
+                        .is_some_and(|exports| exports.contains(&symbol_name.to_string()));
+
+                    if module_has_all_export {
+                        debug!(
+                            "Including re-exported symbol {symbol_name} from module {module_name} \
+                             (in __all__)"
+                        );
+                        true
+                    } else {
+                        false
+                    }
+                }
+            } else {
+                // No tree-shaking, include everything
+                true
+            };
+
+            if !should_include {
+                debug!(
+                    "Skipping namespace assignment for {module_name}.{symbol_name} - removed by \
+                     tree-shaking"
+                );
+                continue;
+            }
+
+            // Check if this symbol is actually a submodule
+            let full_submodule_path = format!("{module_name}.{symbol_name}");
+            let is_bundled_submodule = ctx.bundled_modules.contains(&full_submodule_path);
+            let is_inlined = ctx.inlined_modules.contains(&full_submodule_path);
+            let uses_init_function = ctx.module_registry.contains_key(&full_submodule_path);
+
+            if is_bundled_submodule {
+                debug!(
+                    "Symbol '{symbol_name}' in module '{module_name}' is a submodule (bundled: \
+                     {is_bundled_submodule}, inlined: {is_inlined}, uses_init: \
+                     {uses_init_function})"
+                );
+
+                // For inlined submodules, check if the parent module re-exports a symbol
+                // with the same name as the submodule (e.g., __version__ from __version__
+                // module)
+                if is_inlined {
+                    // Check if the submodule has a symbol with the same name as itself
+                    if let Some(submodule_exports) = ctx
+                        .module_exports
+                        .get(&full_submodule_path)
+                        .and_then(|e| e.as_ref())
+                        && submodule_exports.contains(&symbol_name.to_string())
+                    {
+                        // The submodule exports a symbol with the same name as itself
+                        // Check if the parent module re-exports this symbol
+                        debug!(
+                            "Submodule '{full_submodule_path}' exports symbol '{symbol_name}' \
+                             with same name"
+                        );
+
+                        // Get the renamed symbol from the submodule
+                        if let Some(submodule_renames) = symbol_renames.get(&full_submodule_path)
+                            && let Some(renamed) = submodule_renames.get(symbol_name)
+                        {
+                            info!(
+                                "Creating namespace assignment: {target_name}.{symbol_name} = \
+                                 {renamed} (re-exported from submodule)"
+                            );
+
+                            // Create the assignment
+                            let target = expressions::dotted_name(&parts, ExprContext::Load);
+                            result_stmts.push(statements::assign(
+                                vec![expressions::attribute(
+                                    target,
+                                    symbol_name,
+                                    ExprContext::Store,
+                                )],
+                                expressions::name(renamed, ExprContext::Load),
+                            ));
+                            continue 'symbol_loop;
+                        }
+                    }
+                }
+
+                // Skip other submodules - they are handled separately
+                // This prevents creating invalid assignments like `mypkg.compat = compat`
+                // when `compat` is a submodule, not a local variable
+                continue;
+            }
+
+            // Get the renamed symbol if it exists
+            let actual_symbol_name = if let Some(module_renames) = symbol_renames.get(module_name) {
+                module_renames
+                    .get(symbol_name)
+                    .cloned()
+                    .unwrap_or_else(|| symbol_name.to_string())
+            } else {
+                symbol_name.to_string()
+            };
+
+            // Create the target expression
+            // For simple modules, this will be the module name directly
+            // For dotted modules (e.g., greetings.greeting), build the chain
+            let target = expressions::dotted_name(&parts, ExprContext::Load);
+
+            // Check if this specific symbol was already populated after deferred imports
+            // This happens for modules that had forward references and were populated later
+            if ctx
+                .symbols_populated_after_deferred
+                .contains(&(module_name.to_string(), symbol_name.to_string()))
+                && target_name == sanitize_module_name_for_identifier(module_name).as_str()
+            {
+                debug!(
+                    "Skipping symbol assignment {target_name}.{symbol_name} = \
+                     {actual_symbol_name} - this specific symbol was already populated after \
+                     deferred imports"
+                );
+                continue;
+            }
+
+            // Check if this assignment already exists in result_stmts
+            let assignment_exists = result_stmts.iter().any(|stmt| {
+                if let Stmt::Assign(assign) = stmt
+                    && assign.targets.len() == 1
+                    && let Expr::Attribute(attr) = &assign.targets[0]
+                {
+                    // Check if this is the same assignment target
+                    if let Expr::Name(base) = attr.value.as_ref() {
+                        return base.id.as_str() == target_name
+                            && attr.attr.as_str() == symbol_name;
+                    }
+                }
+                false
+            });
+
+            if assignment_exists {
+                debug!(
+                    "Skipping duplicate namespace assignment: {target_name}.{symbol_name} = \
+                     {actual_symbol_name}"
+                );
+                continue;
+            }
+
+            // Also check if this is a parent module assignment that might already exist
+            // For example, if we're processing mypkg.exceptions and the symbol CustomJSONError
+            // is in mypkg's __all__, check if mypkg.CustomJSONError = CustomJSONError already
+            // exists
+            if module_name.contains('.') {
+                let parent_module = module_name
+                    .rsplit_once('.')
+                    .map_or("", |(parent, _)| parent);
+                if !parent_module.is_empty()
+                    && let Some(Some(parent_exports)) = ctx.module_exports.get(parent_module)
+                    && parent_exports.contains(&symbol_name.to_string())
+                {
+                    // This symbol is re-exported by the parent module
+                    // Check if the parent assignment already exists
+                    let parent_assignment_exists = result_stmts.iter().any(|stmt| {
+                        if let Stmt::Assign(assign) = stmt
+                            && assign.targets.len() == 1
+                            && let Expr::Attribute(attr) = &assign.targets[0]
+                        {
+                            // Check if this is the same assignment
+                            if let Expr::Name(base) = attr.value.as_ref() {
+                                return base.id.as_str() == parent_module
+                                    && attr.attr.as_str() == symbol_name;
+                            }
+                        }
+                        false
+                    });
+
+                    if parent_assignment_exists {
+                        debug!(
+                            "Skipping duplicate namespace assignment: {target_name}.{symbol_name} \
+                             = {actual_symbol_name} (already exists in result_stmts) - in \
+                             populate_namespace_with_module_symbols"
+                        );
+                        continue;
+                    }
+                }
+            }
+
+            // Check if symbol is a dunder name
+            if symbol_name.starts_with("__") && symbol_name.ends_with("__") {
+                // For dunder names, check if they're in the __all__ list
+                if !exports.contains(&symbol_name.to_string()) {
+                    debug!(
+                        "Skipping dunder name '{symbol_name}' not in __all__ for module \
+                         '{module_name}'"
+                    );
+                    continue;
+                }
+            }
+
+            // Also check if this assignment was already made by deferred imports
+            // This handles the case where imports create namespace assignments that
+            // would be duplicated by __all__ processing
+            if !ctx.global_deferred_imports.is_empty() {
+                // Check if this symbol was deferred by the same module (intra-module imports)
+                let key = (module_name.to_string(), symbol_name.to_string());
+                if ctx.global_deferred_imports.contains_key(&key) {
+                    debug!(
+                        "Skipping namespace assignment for '{symbol_name}' - already created by \
+                         deferred import from module '{module_name}'"
+                    );
+                    continue;
+                }
+            }
+
+            // For wrapper modules, check if the symbol is imported from an inlined submodule
+            // These symbols are already added via module attribute assignments
+            if ctx.module_registry.contains_key(module_name)
+                && is_symbol_from_inlined_submodule(ctx, module_name, symbol_name)
+            {
+                continue 'symbol_loop;
+            }
+
+            // Check if this is a submodule that uses an init function
+            let full_submodule_path = format!("{module_name}.{symbol_name}");
+            let uses_init_function = ctx
+                .module_registry
+                .get(&full_submodule_path)
+                .and_then(|synthetic_name| ctx.init_functions.get(synthetic_name))
+                .is_some();
+
+            if uses_init_function {
+                // This is a submodule that uses an init function
+                // The assignment will be handled by the init function call
+                debug!(
+                    "Skipping namespace assignment for '{target_name}.{symbol_name}' - it uses an \
+                     init function"
+                );
+                continue;
+            }
+
+            // Check if this is an inlined submodule (no local variable exists)
+            let is_inlined_submodule = ctx.inlined_modules.contains(&full_submodule_path);
+            if is_inlined_submodule {
+                debug!(
+                    "Skipping namespace assignment for '{target_name}.{symbol_name}' - it's an \
+                     inlined submodule"
+                );
+                continue;
+            }
+
+            // Check if this is a submodule at all (vs a symbol defined in the module)
+            let is_bundled_submodule = ctx.bundled_modules.contains(&full_submodule_path);
+            if is_bundled_submodule {
+                // This is a submodule that's bundled but neither inlined nor uses init
+                // function This can happen when the submodule is
+                // handled differently (e.g., by deferred imports)
+                debug!(
+                    "Skipping namespace assignment for '{target_name}.{symbol_name}' - it's a \
+                     bundled submodule"
+                );
+                continue;
+            }
+
+            info!(
+                "Creating namespace assignment: {target_name}.{symbol_name} = \
+                 {actual_symbol_name} (in populate_namespace_with_module_symbols)"
+            );
+
+            // Now add the symbol as an attribute (e.g., greetings.greeting.get_greeting =
+            // get_greeting_greetings_greeting)
+            result_stmts.push(statements::assign(
+                vec![expressions::attribute(
+                    target,
+                    symbol_name,
+                    ExprContext::Store,
+                )],
+                expressions::name(&actual_symbol_name, ExprContext::Load),
+            ));
+
+            // Track that we've made this assignment
+            let assignment_key = (target_name.to_string(), symbol_name.to_string());
+            ctx.namespace_assignments_made.insert(assignment_key);
+        }
+    }
+
+    result_stmts
+}
+
+/// Check if a symbol in a wrapper module is imported from an inlined submodule.
+///
+/// This helper function reduces nesting in `populate_namespace_with_module_symbols`
+/// by extracting the logic for checking if a symbol is already handled via module
+/// attribute assignments.
+fn is_symbol_from_inlined_submodule(
+    ctx: &NamespacePopulationContext,
+    module_name: &str,
+    symbol_name: &str,
+) -> bool {
+    debug!(
+        "Module '{module_name}' is a wrapper module, checking if symbol '{symbol_name}' is \
+         imported from inlined submodule"
+    );
+
+    let Some(module_asts) = ctx.module_asts.as_ref() else {
+        return false;
+    };
+
+    // Find the module's AST to check its imports
+    let Some((_, ast, module_path, _)) = module_asts
+        .iter()
+        .find(|(name, _, _, _)| name == module_name)
+    else {
+        return false;
+    };
+
+    // Check if this symbol is imported from an inlined submodule
+    for stmt in &ast.body {
+        let Stmt::ImportFrom(import_from) = stmt else {
+            continue;
+        };
+
+        let resolved_module = resolve_import_module(ctx, import_from, module_path);
+
+        if let Some(ref resolved) = resolved_module {
+            // Check if the resolved module is inlined
+            if ctx.inlined_modules.contains(resolved) {
+                // Check if our symbol is in this import
+                for alias in &import_from.names {
+                    if alias.name.as_str() == symbol_name {
+                        debug!(
+                            "Skipping namespace assignment for '{symbol_name}' - already imported \
+                             from inlined module '{resolved}' and added as module attribute"
+                        );
+                        // Skip this symbol - it's already added via module attributes
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Resolve the module name from an import statement.
+///
+/// This helper function reduces nesting by extracting the module resolution logic.
+fn resolve_import_module(
+    ctx: &NamespacePopulationContext,
+    import_from: &StmtImportFrom,
+    module_path: &Path,
+) -> Option<String> {
+    if import_from.level > 0 {
+        ctx.resolver.resolve_relative_to_absolute_module_name(
+            import_from.level,
+            import_from
+                .module
+                .as_ref()
+                .map(ruff_python_ast::Identifier::as_str),
+            module_path,
+        )
+    } else {
+        import_from.module.as_ref().map(|m| m.as_str().to_string())
+    }
 }

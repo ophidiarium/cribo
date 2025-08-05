@@ -10,10 +10,6 @@ pre-commit:
     install:
       skip: true
       run: rustup component add rustfmt clippy
-    format:
-      glob: '**/*.rs'
-      run: cargo fmt -- {staged_files}
-      stage_fixed: true
     markdownlint:
       glob: '*.md'
       run: markdownlint-cli2 --fix --no-globs {staged_files} || true
@@ -25,6 +21,10 @@ pre-commit:
     lint:
       glob: '**/*.rs'
       run: cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged -- -W clippy::pedantic
+      stage_fixed: true
+    format:
+      glob: '**/*.rs'
+      run: cargo fmt -- {staged_files}
       stage_fixed: true
     taplo:
       glob: '**/*.toml'
