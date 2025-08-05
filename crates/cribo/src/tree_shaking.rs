@@ -12,18 +12,18 @@ use crate::cribo_graph::{CriboGraph, ItemData, ItemType, ModuleId};
 /// Tree shaker that removes unused symbols from modules
 #[derive(Debug)]
 pub struct TreeShaker {
-    /// Module items from semantic analysis (reused from CriboGraph)
+    /// Module items from semantic analysis (reused from `CriboGraph`)
     module_items: IndexMap<String, Vec<ItemData>>,
     /// Track which symbols are used across module boundaries
     cross_module_refs: IndexMap<(String, String), IndexSet<String>>,
-    /// Final set of symbols to keep (module_name, symbol_name)
+    /// Final set of symbols to keep (`module_name`, `symbol_name`)
     used_symbols: IndexSet<(String, String)>,
     /// Map from module ID to module name
     _module_names: IndexMap<ModuleId, String>,
 }
 
 impl TreeShaker {
-    /// Create a tree shaker from an existing CriboGraph
+    /// Create a tree shaker from an existing `CriboGraph`
     pub fn from_graph(graph: &CriboGraph) -> Self {
         let mut module_items = IndexMap::new();
         let mut module_names = IndexMap::new();

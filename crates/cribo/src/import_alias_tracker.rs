@@ -14,9 +14,9 @@ pub struct EnhancedFromImport {
     /// The module being imported from (e.g., "requests.compat" in `from requests.compat import
     /// ...`)
     pub module: String,
-    /// The original name being imported (e.g., "JSONDecodeError")
+    /// The original name being imported (e.g., "`JSONDecodeError`")
     pub original_name: String,
-    /// The local alias used, if any (e.g., "CompatJSONDecodeError" in `... as
+    /// The local alias used, if any (e.g., "`CompatJSONDecodeError`" in `... as
     /// CompatJSONDecodeError`)
     pub local_alias: Option<String>,
 }
@@ -24,7 +24,7 @@ pub struct EnhancedFromImport {
 /// Tracks import alias information across modules
 #[derive(Debug, Default)]
 pub struct ImportAliasTracker {
-    /// Maps (module_id, local_name) to the enhanced import information
+    /// Maps (`module_id`, `local_name`) to the enhanced import information
     imports: FxHashMap<(ModuleId, String), EnhancedFromImport>,
 }
 

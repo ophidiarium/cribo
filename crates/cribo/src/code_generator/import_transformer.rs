@@ -19,7 +19,7 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
-/// Parameters for creating a RecursiveImportTransformer
+/// Parameters for creating a `RecursiveImportTransformer`
 #[derive(Debug)]
 pub struct RecursiveImportTransformerParams<'a> {
     pub bundler: &'a Bundler<'a>,
@@ -39,7 +39,7 @@ pub struct RecursiveImportTransformer<'a> {
     module_path: Option<&'a Path>,
     symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
     /// Maps import aliases to their actual module names
-    /// e.g., "helper_utils" -> "utils.helpers"
+    /// e.g., "`helper_utils`" -> "utils.helpers"
     pub(crate) import_aliases: FxIndexMap<String, String>,
     /// Deferred import assignments for cross-module imports
     deferred_imports: &'a mut Vec<Stmt>,
@@ -51,15 +51,15 @@ pub struct RecursiveImportTransformer<'a> {
     global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
     /// Track local variable assignments to avoid treating them as module aliases
     local_variables: FxIndexSet<String>,
-    /// Track if any importlib.import_module calls were transformed
+    /// Track if any `importlib.import_module` calls were transformed
     pub(crate) importlib_transformed: bool,
-    /// Track variables that were assigned from importlib.import_module() of inlined modules
+    /// Track variables that were assigned from `importlib.import_module()` of inlined modules
     /// Maps variable name to the inlined module name
     importlib_inlined_modules: FxIndexMap<String, String>,
     /// Track if we created any types.SimpleNamespace calls
     pub(crate) created_namespace_objects: bool,
     /// Track imports from wrapper modules that need to be rewritten
-    /// Maps local name to (wrapper_module, original_name)
+    /// Maps local name to (`wrapper_module`, `original_name`)
     wrapper_module_imports: FxIndexMap<String, (String, String)>,
 }
 
@@ -106,7 +106,7 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
     }
 
-    /// Check if this is an importlib.import_module() call
+    /// Check if this is an `importlib.import_module()` call
     fn is_importlib_import_module_call(&self, call: &ExprCall) -> bool {
         match &call.func.as_ref() {
             // Direct call: importlib.import_module()
@@ -296,7 +296,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         Self::extract_base_class_name(base).unwrap_or_default();
 
                                     // Check if this specific base is a hard dependency
-                                    let is_hard_dep_base = if !base_str.is_empty() {
+                                    let is_hard_dep_base = if base_str.is_empty() {
+                                        // If we can't extract the base class name, skip
+                                        // transformation to be safe
+                                        true
+                                    } else {
                                         self.bundler.hard_dependencies.iter().any(|dep| {
                                             dep.module_name == self.module_name
                                                 && dep.class_name == class_name
@@ -305,16 +309,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                         .base_class
                                                         .ends_with(&format!(".{base_str}")))
                                         })
-                                    } else {
-                                        // If we can't extract the base class name, skip
-                                        // transformation to be safe
-                                        true
                                     };
 
-                                    if !is_hard_dep_base {
-                                        // Not a hard dependency base, transform normally
-                                        self.transform_expr(base);
-                                    } else {
+                                    if is_hard_dep_base {
                                         log::debug!(
                                             "Skipping transformation of hard dependency base \
                                              class {} for class {class_name}",
@@ -324,6 +321,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                 &base_str
                                             }
                                         );
+                                    } else {
+                                        // Not a hard dependency base, transform normally
+                                        self.transform_expr(base);
                                     }
                                 } else {
                                     // No hard dependencies, transform normally
@@ -550,12 +550,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 .resolver
                                 .resolve_relative_to_absolute_module_name(
                                     import_from.level,
-                                    import_from.module.as_ref().map(|n| n.as_str()),
+                                    import_from
+                                        .module
+                                        .as_ref()
+                                        .map(ruff_python_ast::Identifier::as_str),
                                     path,
                                 )
                         })
                     } else {
-                        import_from.module.as_ref().map(|n| n.to_string())
+                        import_from
+                            .module
+                            .as_ref()
+                            .map(std::string::ToString::to_string)
                     };
 
                     if let Some(resolved) = &resolved_module {
@@ -624,11 +630,14 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
     }
 
-    /// Handle ImportFrom statements
+    /// Handle `ImportFrom` statements
     fn handle_import_from(&mut self, import_from: &StmtImportFrom) -> Vec<Stmt> {
         log::debug!(
             "RecursiveImportTransformer::handle_import_from: from {:?} import {:?}",
-            import_from.module.as_ref().map(|n| n.as_str()),
+            import_from
+                .module
+                .as_ref()
+                .map(ruff_python_ast::Identifier::as_str),
             import_from
                 .names
                 .iter()
@@ -643,12 +652,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                     .resolver
                     .resolve_relative_to_absolute_module_name(
                         import_from.level,
-                        import_from.module.as_ref().map(|id| id.as_str()),
+                        import_from
+                            .module
+                            .as_ref()
+                            .map(ruff_python_ast::Identifier::as_str),
                         path,
                     )
             })
         } else {
-            import_from.module.as_ref().map(|n| n.to_string())
+            import_from
+                .module
+                .as_ref()
+                .map(std::string::ToString::to_string)
         };
 
         log::debug!(
@@ -785,8 +800,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         .module_exports
                                         .get(&module_name_string)
                                         .and_then(|opt| opt.as_ref())
-                                        .map(|exports| exports.contains(&imported_name.to_string()))
-                                        .unwrap_or(false);
+                                        .is_some_and(|exports| {
+                                            exports.contains(&imported_name.to_string())
+                                        });
 
                                     if parent_exports {
                                         // Check if this is a submodule that was inlined or uses an
@@ -1064,15 +1080,14 @@ impl<'a> RecursiveImportTransformer<'a> {
             if result_stmts.is_empty() {
                 log::debug!("  Import handling deferred, returning empty");
                 return vec![];
-            } else {
-                log::debug!(
-                    "  Returning {} transformed statements for import",
-                    result_stmts.len()
-                );
-                log::debug!("  Statements: {result_stmts:?}");
-                // We've already handled the import completely, don't fall through to other handling
-                return result_stmts;
             }
+            log::debug!(
+                "  Returning {} transformed statements for import",
+                result_stmts.len()
+            );
+            log::debug!("  Statements: {result_stmts:?}");
+            // We've already handled the import completely, don't fall through to other handling
+            return result_stmts;
         }
 
         if let Some(ref resolved) = resolved_module {
@@ -1129,8 +1144,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 if let Some(renames) = self.symbol_renames.get(resolved) {
                                     renames
                                         .get(imported_name)
-                                        .map(String::as_str)
-                                        .unwrap_or(imported_name)
+                                        .map_or(imported_name, String::as_str)
                                 } else {
                                     imported_name
                                 };
@@ -1144,16 +1158,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                             }
                         }
                         return assignments;
-                    } else {
-                        // Original behavior for non-circular modules importing from circular
-                        // modules
-                        return handle_imports_from_inlined_module_with_context(
-                            self.bundler,
-                            import_from,
-                            resolved,
-                            self.symbol_renames,
-                        );
                     }
+                    // Original behavior for non-circular modules importing from circular
+                    // modules
+                    return handle_imports_from_inlined_module_with_context(
+                        self.bundler,
+                        import_from,
+                        resolved,
+                        self.symbol_renames,
+                    );
                 } else {
                     log::debug!("  Module '{resolved}' is inlined, handling import assignments");
                     // For the entry module, we should not defer these imports
@@ -1166,11 +1179,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                     );
 
                     // Only defer if we're not in the entry module
-                    if !self.is_entry_module {
-                        self.deferred_imports.extend(import_stmts);
-                        // Return empty - these imports will be added after all modules are inlined
-                        return vec![];
-                    } else {
+                    if self.is_entry_module {
                         // For entry module, return the imports immediately
                         if !import_stmts.is_empty() {
                             return import_stmts;
@@ -1182,6 +1191,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                             "  handle_imports_from_inlined_module returned empty for entry \
                              module, checking for submodule imports"
                         );
+                    } else {
+                        self.deferred_imports.extend(import_stmts);
+                        // Return empty - these imports will be added after all modules are inlined
+                        return vec![];
                     }
                 }
             }
@@ -1746,7 +1759,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     }
 
     /// Collect the full dotted attribute path from a potentially nested attribute expression
-    /// Returns (base_name, [attr1, attr2, ...])
+    /// Returns (`base_name`, [attr1, attr2, ...])
     /// For example: greetings.greeting.message returns (Some("greetings"), ["greeting", "message"])
     fn collect_attribute_path(&self, expr: &Expr) -> (Option<String>, Vec<String>) {
         let mut attrs = Vec::new();
@@ -1985,17 +1998,17 @@ fn rewrite_import_with_renames(
                         // the module's exports
 
                         // Check if namespace already exists
-                        if !bundler.created_namespaces.contains(target_name.as_str()) {
+                        if bundler.created_namespaces.contains(target_name.as_str()) {
+                            log::debug!(
+                                "Skipping namespace creation for '{}' - already created globally",
+                                target_name.as_str()
+                            );
+                        } else {
                             let namespace_stmt = bundler.create_namespace_object_for_module(
                                 target_name.as_str(),
                                 module_name,
                             );
                             result_stmts.push(namespace_stmt);
-                        } else {
-                            log::debug!(
-                                "Skipping namespace creation for '{}' - already created globally",
-                                target_name.as_str()
-                            );
                         }
 
                         // Always populate the namespace with symbols
@@ -2038,15 +2051,15 @@ fn rewrite_import_with_renames(
 
                 // Create namespace object with the module's exports
                 // Check if namespace already exists
-                if !bundler.created_namespaces.contains(target_name.as_str()) {
-                    let namespace_stmt = bundler
-                        .create_namespace_object_for_module(target_name.as_str(), module_name);
-                    result_stmts.push(namespace_stmt);
-                } else {
+                if bundler.created_namespaces.contains(target_name.as_str()) {
                     log::debug!(
                         "Skipping namespace creation for '{}' - already created globally",
                         target_name.as_str()
                     );
+                } else {
+                    let namespace_stmt = bundler
+                        .create_namespace_object_for_module(target_name.as_str(), module_name);
+                    result_stmts.push(namespace_stmt);
                 }
 
                 // Always populate the namespace with symbols
@@ -2081,9 +2094,8 @@ fn has_bundled_submodules(
         if bundler.bundled_modules.contains(&full_module_path) {
             log::trace!("    -> YES, it's bundled");
             return true;
-        } else {
-            log::trace!("    -> NO, not bundled");
         }
+        log::trace!("    -> NO, not bundled");
     }
     false
 }
@@ -2100,7 +2112,10 @@ fn rewrite_import_from(
     // Resolve relative imports to absolute module names
     log::debug!(
         "rewrite_import_from: Processing import {:?} in module '{}'",
-        import_from.module.as_ref().map(|n| n.as_str()),
+        import_from
+            .module
+            .as_ref()
+            .map(ruff_python_ast::Identifier::as_str),
         current_module
     );
     log::debug!(
@@ -2108,7 +2123,10 @@ fn rewrite_import_from(
         import_from
             .names
             .iter()
-            .map(|a| (a.name.as_str(), a.asname.as_ref().map(|n| n.as_str())))
+            .map(|a| (
+                a.name.as_str(),
+                a.asname.as_ref().map(ruff_python_ast::Identifier::as_str)
+            ))
             .collect::<Vec<_>>()
     );
     log::trace!("  bundled_modules size: {}", bundler.bundled_modules.len());
@@ -2117,19 +2135,28 @@ fn rewrite_import_from(
         module_path.and_then(|path| {
             bundler.resolver.resolve_relative_to_absolute_module_name(
                 import_from.level,
-                import_from.module.as_ref().map(|id| id.as_str()),
+                import_from
+                    .module
+                    .as_ref()
+                    .map(ruff_python_ast::Identifier::as_str),
                 path,
             )
         })
     } else {
-        import_from.module.as_ref().map(|n| n.to_string())
+        import_from
+            .module
+            .as_ref()
+            .map(std::string::ToString::to_string)
     };
 
     let Some(module_name) = resolved_module_name else {
         // If we can't resolve the module, return the original import
         log::warn!(
             "Could not resolve module name for import {:?}, keeping original import",
-            import_from.module.as_ref().map(|n| n.as_str())
+            import_from
+                .module
+                .as_ref()
+                .map(ruff_python_ast::Identifier::as_str)
         );
         return vec![Stmt::ImportFrom(import_from)];
     };

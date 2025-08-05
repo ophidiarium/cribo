@@ -11,7 +11,7 @@ use ruff_python_stdlib::sys;
 
 use crate::config::Config;
 
-/// Check if a module is part of the Python standard library using ruff_python_stdlib
+/// Check if a module is part of the Python standard library using `ruff_python_stdlib`
 fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
     // Check direct match using ruff_python_stdlib
     if sys::is_known_standard_library(python_version, module_name) {
@@ -76,7 +76,7 @@ pub struct ModuleResolver {
     python_version: u8,
     /// PYTHONPATH override for testing
     pythonpath_override: Option<String>,
-    /// VIRTUAL_ENV override for testing
+    /// `VIRTUAL_ENV` override for testing
     virtualenv_override: Option<String>,
 }
 
@@ -97,7 +97,8 @@ impl ModuleResolver {
         Self::new_with_overrides(config, None, None)
     }
 
-    /// Create a new ModuleResolver with optional PYTHONPATH and VIRTUAL_ENV overrides for testing
+    /// Create a new `ModuleResolver` with optional PYTHONPATH and `VIRTUAL_ENV` overrides for
+    /// testing
     pub fn new_with_overrides(
         config: Config,
         pythonpath_override: Option<&str>,
@@ -110,8 +111,8 @@ impl ModuleResolver {
             virtualenv_packages_cache: RefCell::new(None),
             entry_dir: None,
             python_version: 38, // Default to Python 3.8
-            pythonpath_override: pythonpath_override.map(|s| s.to_string()),
-            virtualenv_override: virtualenv_override.map(|s| s.to_string()),
+            pythonpath_override: pythonpath_override.map(std::string::ToString::to_string),
+            virtualenv_override: virtualenv_override.map(std::string::ToString::to_string),
         })
     }
 
@@ -152,7 +153,7 @@ impl ModuleResolver {
 
         // 2. Add PYTHONPATH directories
         let pythonpath = pythonpath_override
-            .map(|p| p.to_owned())
+            .map(std::borrow::ToOwned::to_owned)
             .or_else(|| std::env::var("PYTHONPATH").ok());
 
         if let Some(pythonpath) = pythonpath {
@@ -229,11 +230,10 @@ impl ModuleResolver {
                 // Don't cache relative imports as they depend on context
                 // Different modules might resolve the same relative import differently
                 return Ok(resolved);
-            } else {
-                // No context for relative import - don't cache this negative result
-                warn!("Cannot resolve relative import '{module_name}' without module context");
-                return Ok(None);
             }
+            // No context for relative import - don't cache this negative result
+            warn!("Cannot resolve relative import '{module_name}' without module context");
+            return Ok(None);
         }
 
         // Try each search directory in order
@@ -293,10 +293,10 @@ impl ModuleResolver {
         Ok(None)
     }
 
-    /// Resolve an ImportlibStatic import that may have invalid Python identifiers
+    /// Resolve an `ImportlibStatic` import that may have invalid Python identifiers
     /// This handles cases like importlib.import_module("data-processor")
-    /// Resolve ImportlibStatic imports with optional package context for relative imports
-    /// Returns a tuple of (resolved_module_name, path)
+    /// Resolve `ImportlibStatic` imports with optional package context for relative imports
+    /// Returns a tuple of (`resolved_module_name`, path)
     pub fn resolve_importlib_static_with_context(
         &self,
         module_name: &str,
@@ -567,7 +567,7 @@ impl ModuleResolver {
 
         // Try to get explicit VIRTUAL_ENV
         let explicit_virtualenv = virtualenv_override
-            .map(|p| p.to_owned())
+            .map(std::borrow::ToOwned::to_owned)
             .or_else(|| std::env::var("VIRTUAL_ENV").ok());
 
         let virtualenv_paths = if let Some(virtualenv_path) = explicit_virtualenv {
@@ -736,7 +736,7 @@ impl ModuleResolver {
             && !name.is_empty()
         {
             let name_parts: Vec<&str> = name.split('.').collect();
-            current_parts.extend(name_parts.into_iter().map(|s| s.to_string()));
+            current_parts.extend(name_parts.into_iter().map(std::string::ToString::to_string));
         }
 
         if current_parts.is_empty() {

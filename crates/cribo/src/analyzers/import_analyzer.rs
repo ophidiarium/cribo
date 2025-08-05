@@ -242,8 +242,8 @@ impl ImportAnalyzer {
     }
 
     /// Check if a name is in the module's __all__ export list
-    /// This is the single source of truth for __all__ exports, using the reexported_names
-    /// field which is populated by the ExportCollector during graph building
+    /// This is the single source of truth for __all__ exports, using the `reexported_names`
+    /// field which is populated by the `ExportCollector` during graph building
     fn is_in_module_exports(module: &crate::cribo_graph::ModuleDepGraph, name: &str) -> bool {
         // Look for __all__ assignment
         for item_data in module.items.values() {
@@ -636,20 +636,20 @@ mod tests {
 
     #[test]
     fn test_find_directly_imported_modules() {
-        let code1 = r#"
+        let code1 = r"
 import module_a
 import module_b as mb
 
 def func():
     import module_c
-"#;
+";
         let parsed1 = parse_module(code1).expect("Test code should parse successfully");
         let ast1 = parsed1.into_syntax();
 
-        let code2 = r#"
+        let code2 = r"
 def other_func():
     pass
-"#;
+";
         let parsed2 = parse_module(code2).expect("Test code should parse successfully");
         let ast2 = parsed2.into_syntax();
 
@@ -796,14 +796,14 @@ match x:
 
     #[test]
     fn test_find_namespace_imported_modules() {
-        let code1 = r#"
+        let code1 = r"
 from pkg import module_a
 from pkg.sub import module_b
-"#;
+";
         let parsed1 = parse_module(code1).expect("Test code should parse successfully");
         let ast1 = parsed1.into_syntax();
 
-        let code2 = r#"pass"#;
+        let code2 = r"pass";
         let parsed2 = parse_module(code2).expect("Test code should parse successfully");
         let ast2 = parsed2.into_syntax();
 

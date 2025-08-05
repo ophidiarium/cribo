@@ -59,20 +59,20 @@ impl Combine for Config {
         Self {
             // For collections, higher precedence (self) completely replaces lower precedence
             // (other) if self has non-default values, otherwise use other
-            src: if self.src != Config::default().src {
-                self.src
-            } else {
+            src: if self.src == Config::default().src {
                 other.src
-            },
-            known_first_party: if !self.known_first_party.is_empty() {
-                self.known_first_party
             } else {
+                self.src
+            },
+            known_first_party: if self.known_first_party.is_empty() {
                 other.known_first_party
-            },
-            known_third_party: if !self.known_third_party.is_empty() {
-                self.known_third_party
             } else {
+                self.known_first_party
+            },
+            known_third_party: if self.known_third_party.is_empty() {
                 other.known_third_party
+            } else {
+                self.known_third_party
             },
             // For scalars, self always takes precedence
             preserve_comments: self.preserve_comments,
@@ -104,7 +104,7 @@ impl EnvConfig {
         if let Ok(src_str) = env::var("CRIBO_SRC") {
             let paths: Vec<PathBuf> = src_str
                 .split(',')
-                .map(|s| s.trim())
+                .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(PathBuf::from)
                 .collect();
@@ -117,9 +117,9 @@ impl EnvConfig {
         if let Ok(first_party_str) = env::var("CRIBO_KNOWN_FIRST_PARTY") {
             let modules: IndexSet<String> = first_party_str
                 .split(',')
-                .map(|s| s.trim())
+                .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .map(|s| s.to_owned())
+                .map(std::borrow::ToOwned::to_owned)
                 .collect();
             if !modules.is_empty() {
                 config.known_first_party = Some(modules);
@@ -130,9 +130,9 @@ impl EnvConfig {
         if let Ok(third_party_str) = env::var("CRIBO_KNOWN_THIRD_PARTY") {
             let modules: IndexSet<String> = third_party_str
                 .split(',')
-                .map(|s| s.trim())
+                .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .map(|s| s.to_owned())
+                .map(std::borrow::ToOwned::to_owned)
                 .collect();
             if !modules.is_empty() {
                 config.known_third_party = Some(modules);

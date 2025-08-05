@@ -536,15 +536,15 @@ mod tests {
         let mut deps = FxIndexMap::default();
         deps.insert(
             "a".to_string(),
-            ["b", "c"].iter().map(|s| s.to_string()).collect(),
+            ["b", "c"].iter().map(|s| (*s).to_string()).collect(),
         );
         deps.insert(
             "b".to_string(),
-            ["d"].iter().map(|s| s.to_string()).collect(),
+            ["d"].iter().map(|s| (*s).to_string()).collect(),
         );
         deps.insert(
             "c".to_string(),
-            ["d"].iter().map(|s| s.to_string()).collect(),
+            ["d"].iter().map(|s| (*s).to_string()).collect(),
         );
         deps.insert("d".to_string(), FxIndexSet::default());
 
@@ -584,15 +584,15 @@ mod tests {
         let mut deps = FxIndexMap::default();
         deps.insert(
             "a".to_string(),
-            ["b"].iter().map(|s| s.to_string()).collect(),
+            ["b"].iter().map(|s| (*s).to_string()).collect(),
         );
         deps.insert(
             "b".to_string(),
-            ["c"].iter().map(|s| s.to_string()).collect(),
+            ["c"].iter().map(|s| (*s).to_string()).collect(),
         );
         deps.insert(
             "c".to_string(),
-            ["a"].iter().map(|s| s.to_string()).collect(),
+            ["a"].iter().map(|s| (*s).to_string()).collect(),
         );
 
         let result = DependencyAnalyzer::topological_sort(&deps);

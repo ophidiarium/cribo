@@ -434,7 +434,7 @@ pub(super) fn transform_namespace_package_imports(
 
 /// Get a unique name for a symbol, using the module suffix pattern.
 ///
-/// Helper function used by transform_namespace_package_imports.
+/// Helper function used by `transform_namespace_package_imports`.
 fn get_unique_name_with_module_suffix(base_name: &str, module_name: &str) -> String {
     let module_suffix = sanitize_module_name_for_identifier(module_name);
     format!("{base_name}_{module_suffix}")
@@ -485,7 +485,7 @@ pub(super) fn ensure_namespace_exists(bundler: &mut Bundler, namespace_path: &st
 
 /// Create namespace attribute assignment.
 ///
-/// Creates: parent.child = types.SimpleNamespace()
+/// Creates: parent.child = `types.SimpleNamespace()`
 pub(super) fn create_namespace_attribute(bundler: &mut Bundler, parent: &str, child: &str) -> Stmt {
     // Create: parent.child = types.SimpleNamespace()
     let mut stmt = statements::assign(
@@ -656,7 +656,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
 
 /// Handle assignment for inlined modules that are not wrapper modules.
 ///
-/// This helper function reduces nesting in generate_submodule_attributes_with_exclusions
+/// This helper function reduces nesting in `generate_submodule_attributes_with_exclusions`
 /// by extracting the logic for handling inlined module namespace assignments.
 fn handle_inlined_module_assignment(
     bundler: &mut Bundler,

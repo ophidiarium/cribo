@@ -103,7 +103,7 @@ pub struct Bundler<'a> {
     /// Module ASTs for resolving re-exports
     pub(crate) module_asts: Option<Vec<(String, ModModule, PathBuf, String)>>,
     /// Global registry of deferred imports to prevent duplication
-    /// Maps (module_name, symbol_name) to the source module that deferred it
+    /// Maps (`module_name`, `symbol_name`) to the source module that deferred it
     pub(crate) global_deferred_imports: FxIndexMap<(String, String), String>,
     /// Track all namespaces that need to be created before module initialization
     /// This ensures parent namespaces exist before any submodule assignments
@@ -121,21 +121,22 @@ pub struct Bundler<'a> {
     /// Whether to use the module cache model for circular dependencies
     pub(crate) use_module_cache: bool,
     /// Track namespaces that were created with initial symbols
-    /// These don't need symbol population via populate_namespace_with_module_symbols_with_renames
+    /// These don't need symbol population via
+    /// `populate_namespace_with_module_symbols_with_renames`
     pub(crate) namespaces_with_initial_symbols: FxIndexSet<String>,
     /// Track namespace assignments that have already been made to avoid duplicates
-    /// Format: (namespace_name, attribute_name)
+    /// Format: (`namespace_name`, `attribute_name`)
     pub(crate) namespace_assignments_made: FxIndexSet<(String, String)>,
     /// Track which namespace symbols have been populated after deferred imports
-    /// Format: (module_name, symbol_name)
+    /// Format: (`module_name`, `symbol_name`)
     pub(crate) symbols_populated_after_deferred: FxIndexSet<(String, String)>,
     /// Track modules whose __all__ attribute is accessed in the code
-    /// Set of (accessing_module, accessed_alias) pairs to handle alias collisions
+    /// Set of (`accessing_module`, `accessed_alias`) pairs to handle alias collisions
     /// Only these modules need their __all__ emitted in the bundle
     pub(crate) modules_with_accessed_all: FxIndexSet<(String, String)>,
 }
 
-impl<'a> std::fmt::Debug for Bundler<'a> {
+impl std::fmt::Debug for Bundler<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Bundler")
             .field("module_registry", &self.module_registry)
@@ -220,7 +221,7 @@ impl<'a> Bundler<'a> {
             bundler: &'b mut Bundler<'a>,
         }
 
-        impl<'b, 'a> SourceOrderVisitor<'_> for NodeIndexAssigner<'b, 'a> {
+        impl SourceOrderVisitor<'_> for NodeIndexAssigner<'_, '_> {
             fn visit_stmt(&mut self, stmt: &Stmt) {
                 // Check if this node has a dummy index (value 0)
                 let node_index = match stmt {
@@ -474,9 +475,8 @@ impl<'a> Bundler<'a> {
                 );
 
                 // Determine if current module is a submodule of the target module
-                let is_submodule_of_target = current_module
-                    .map(|curr| curr.starts_with(&format!("{module_name}.")))
-                    .unwrap_or(false);
+                let is_submodule_of_target =
+                    current_module.is_some_and(|curr| curr.starts_with(&format!("{module_name}.")));
 
                 // Check if parent module should be initialized
                 let should_initialize_parent = self.module_registry.contains_key(module_name)
@@ -851,12 +851,11 @@ impl<'a> Bundler<'a> {
         log::debug!("collect_module_renames: Processing module '{module_name}'");
 
         // Find the module ID for this module name
-        let module_id = match semantic_ctx.graph.get_module_by_name(module_name) {
-            Some(module) => module.module_id,
-            None => {
-                log::warn!("Module '{module_name}' not found in graph");
-                return;
-            }
+        let module_id = if let Some(module) = semantic_ctx.graph.get_module_by_name(module_name) {
+            module.module_id
+        } else {
+            log::warn!("Module '{module_name}' not found in graph");
+            return;
         };
 
         log::debug!("Module '{module_name}' has ID: {module_id:?}");
@@ -1112,7 +1111,10 @@ impl<'a> Bundler<'a> {
                             import_stmt
                                 .names
                                 .iter()
-                                .map(|a| (a.name.as_str(), a.asname.as_ref().map(|n| n.as_str())))
+                                .map(|a| (
+                                    a.name.as_str(),
+                                    a.asname.as_ref().map(ruff_python_ast::Identifier::as_str)
+                                ))
                                 .collect::<Vec<_>>()
                         );
                         ctx.inlined_stmts.push(stmt.clone());
@@ -1137,13 +1139,7 @@ impl<'a> Bundler<'a> {
                     {
                         if let Some(new_name) = module_rename_map.get(&func_name) {
                             // Only use semantic rename if it's actually different
-                            if new_name != &func_name {
-                                log::debug!(
-                                    "Using semantic rename for '{func_name}' to '{new_name}' in \
-                                     module '{module_name}'"
-                                );
-                                new_name.clone()
-                            } else {
+                            if new_name == &func_name {
                                 // Semantic rename is same as original, check if there's a conflict
                                 if ctx.global_symbols.contains(&func_name) {
                                     // There's a conflict, apply module suffix pattern
@@ -1156,6 +1152,12 @@ impl<'a> Bundler<'a> {
                                     // No conflict, use original name
                                     func_name.clone()
                                 }
+                            } else {
+                                log::debug!(
+                                    "Using semantic rename for '{func_name}' to '{new_name}' in \
+                                     module '{module_name}'"
+                                );
+                                new_name.clone()
                             }
                         } else {
                             // No semantic rename, check if there's a conflict
@@ -1442,7 +1444,7 @@ impl<'a> Bundler<'a> {
         }
     }
 
-    /// Check if module has forward references that would cause NameError
+    /// Check if module has forward references that would cause `NameError`
     pub(crate) fn check_module_has_forward_references(
         &self,
         module_name: &str,
@@ -1563,8 +1565,7 @@ impl<'a> Bundler<'a> {
                 "Tree shaking enabled, keeping symbols in {} modules",
                 self.tree_shaking_keep_symbols
                     .as_ref()
-                    .map(|s| s.len())
-                    .unwrap_or(0)
+                    .map_or(0, indexmap::IndexMap::len)
             );
         }
 
@@ -1932,7 +1933,12 @@ impl<'a> Bundler<'a> {
                             let child = parts[1];
 
                             // Check if the full namespace was already created
-                            if !self.required_namespaces.contains(module_name) {
+                            if self.required_namespaces.contains(module_name) {
+                                log::debug!(
+                                    "Skipping placeholder namespace attribute {parent}.{child} - \
+                                     already created as full namespace"
+                                );
+                            } else {
                                 log::debug!(
                                     "Creating placeholder namespace attribute {parent}.{child} \
                                      for wrapper module"
@@ -1942,11 +1948,6 @@ impl<'a> Bundler<'a> {
                                         self, parent, child,
                                     );
                                 final_body.push(placeholder_stmt);
-                            } else {
-                                log::debug!(
-                                    "Skipping placeholder namespace attribute {parent}.{child} - \
-                                     already created as full namespace"
-                                );
                             }
                         }
                     }
@@ -2259,8 +2260,7 @@ impl<'a> Bundler<'a> {
                                     let local_name = alias
                                         .asname
                                         .as_ref()
-                                        .map(|n| n.as_str())
-                                        .unwrap_or(imported_name);
+                                        .map_or(imported_name, ruff_python_ast::Identifier::as_str);
                                     import_map.insert(
                                         local_name.to_string(),
                                         (
@@ -2276,7 +2276,10 @@ impl<'a> Bundler<'a> {
                                     // Resolve relative import to absolute
                                     self.resolver.resolve_relative_to_absolute_module_name(
                                         import_from.level,
-                                        import_from.module.as_ref().map(|n| n.as_str()),
+                                        import_from
+                                            .module
+                                            .as_ref()
+                                            .map(ruff_python_ast::Identifier::as_str),
                                         module_path,
                                     )
                                 } else {
@@ -2286,11 +2289,10 @@ impl<'a> Bundler<'a> {
                                 if let Some(module_str) = resolved_module {
                                     for alias in &import_from.names {
                                         let imported_name = alias.name.as_str();
-                                        let local_name = alias
-                                            .asname
-                                            .as_ref()
-                                            .map(|n| n.as_str())
-                                            .unwrap_or(imported_name);
+                                        let local_name = alias.asname.as_ref().map_or(
+                                            imported_name,
+                                            ruff_python_ast::Identifier::as_str,
+                                        );
 
                                         // For "from X import Y", track the mapping
                                         let (actual_source, actual_import) =
@@ -2350,7 +2352,10 @@ impl<'a> Bundler<'a> {
                         // This is a relative import, resolve it
                         self.resolver.resolve_relative_to_absolute_module_name(
                             import_from.level,
-                            import_from.module.as_ref().map(|n| n.as_str()),
+                            import_from
+                                .module
+                                .as_ref()
+                                .map(ruff_python_ast::Identifier::as_str),
                             module_path,
                         )
                     } else {
@@ -2457,23 +2462,7 @@ impl<'a> Bundler<'a> {
 
                     // Initialize the wrapper module immediately after defining it
                     // ONLY for non-module-cache mode
-                    if !use_module_cache_for_wrappers {
-                        let init_stmts =
-                            crate::code_generator::module_registry::generate_module_init_call(
-                                &synthetic_name,
-                                module_name,
-                                self.init_functions.get(&synthetic_name).map(|s| s.as_str()),
-                                &self.module_registry,
-                                |statements, module_name, init_result_var| {
-                                    self.generate_merge_module_attributes(
-                                        statements,
-                                        module_name,
-                                        init_result_var,
-                                    );
-                                },
-                            );
-                        final_body.extend(init_stmts);
-                    } else {
+                    if use_module_cache_for_wrappers {
                         // For module cache mode, initialization happens later in dependency order
                         // But if this wrapper module is a source of hard dependencies, we need to
                         // handle it specially to avoid forward reference
@@ -2491,6 +2480,24 @@ impl<'a> Bundler<'a> {
                                  initialization"
                             );
                         }
+                    } else {
+                        let init_stmts =
+                            crate::code_generator::module_registry::generate_module_init_call(
+                                &synthetic_name,
+                                module_name,
+                                self.init_functions
+                                    .get(&synthetic_name)
+                                    .map(std::string::String::as_str),
+                                &self.module_registry,
+                                |statements, module_name, init_result_var| {
+                                    self.generate_merge_module_attributes(
+                                        statements,
+                                        module_name,
+                                        init_result_var,
+                                    );
+                                },
+                            );
+                        final_body.extend(init_stmts);
                     }
                     // Module is now initialized and assignments made
                 }
@@ -2648,7 +2655,9 @@ impl<'a> Bundler<'a> {
                                 false
                             };
 
-                        if !exports_symbol {
+                        if exports_symbol {
+                            true
+                        } else {
                             // Check if this would conflict with existing deferred imports
                             let has_conflict = all_deferred_imports.iter().any(|existing| {
                                 if let Stmt::Assign(existing_assign) = existing
@@ -2670,8 +2679,6 @@ impl<'a> Bundler<'a> {
                             } else {
                                 true
                             }
-                        } else {
-                            true
                         }
                     } else {
                         true
@@ -2708,7 +2715,12 @@ impl<'a> Bundler<'a> {
                         false
                     };
 
-                    if !is_duplicate {
+                    if is_duplicate {
+                        log::debug!(
+                            "Skipping duplicate deferred import from module '{module_name}': \
+                             {stmt:?}"
+                        );
+                    } else {
                         // Log what we're adding to deferred imports
                         if let Stmt::Assign(assign) = &stmt
                             && let Expr::Name(target) = &assign.targets[0]
@@ -2733,11 +2745,6 @@ impl<'a> Bundler<'a> {
                             }
                         }
                         all_deferred_imports.push(stmt);
-                    } else {
-                        log::debug!(
-                            "Skipping duplicate deferred import from module '{module_name}': \
-                             {stmt:?}"
-                        );
                     }
                 }
             }
@@ -2792,7 +2799,7 @@ impl<'a> Bundler<'a> {
             let has_exports = self
                 .module_exports
                 .get(module_name)
-                .is_some_and(|exports| exports.is_some());
+                .is_some_and(std::option::Option::is_some);
 
             // Check if this is a submodule that needs a namespace
             let needs_namespace_for_submodule = self.submodule_needs_namespace(module_name);
@@ -2823,39 +2830,7 @@ impl<'a> Bundler<'a> {
                         module_rename_map.len(),
                         module_rename_map.keys().collect::<Vec<_>>()
                     );
-                    if !namespace_already_exists {
-                        // Check if this module should have an empty namespace due to forward
-                        // references
-                        let has_forward_references = self
-                            .check_module_has_forward_references(module_name, module_rename_map);
-
-                        // Create a SimpleNamespace for this module only if it doesn't exist
-                        if let Some(namespace_stmt) =
-                            namespace_manager::create_namespace_for_inlined_module_static(
-                                self,
-                                module_name,
-                                module_rename_map,
-                            )
-                        {
-                            final_body.push(namespace_stmt);
-                        }
-
-                        // Parent-child namespace assignments will be handled later by
-                        // generate_submodule_attributes_with_exclusions, which runs after
-                        // all namespaces have been created
-
-                        // Only track as having initial symbols if we didn't create it empty
-                        if !has_forward_references {
-                            self.namespaces_with_initial_symbols
-                                .insert(module_name.to_string());
-                        } else {
-                            // We created an empty namespace, need to populate it later
-                            log::debug!(
-                                "Created empty namespace for '{module_name}', will populate with \
-                                 symbols later"
-                            );
-                        }
-                    } else {
+                    if namespace_already_exists {
                         // Namespace already exists, we need to add symbols to it instead
                         log::debug!(
                             "Namespace '{namespace_var}' already exists, adding symbols to it"
@@ -3130,17 +3105,16 @@ impl<'a> Bundler<'a> {
                                             // Track that we've made this assignment
                                             self.namespace_assignments_made.insert(assignment_key);
                                             continue;
-                                        } else {
-                                            // This is a submodule but neither inlined nor using
-                                            // init function
-                                            // This shouldn't happen for bundled modules
-                                            log::debug!(
-                                                "Unexpected state: submodule \
-                                                 '{full_submodule_path}' is bundled but neither \
-                                                 inlined nor using init function"
-                                            );
-                                            continue;
                                         }
+                                        // This is a submodule but neither inlined nor using
+                                        // init function
+                                        // This shouldn't happen for bundled modules
+                                        log::debug!(
+                                            "Unexpected state: submodule '{full_submodule_path}' \
+                                             is bundled but neither inlined nor using init \
+                                             function"
+                                        );
+                                        continue;
                                     }
 
                                     // This export wasn't renamed, add it directly
@@ -3190,6 +3164,38 @@ impl<'a> Bundler<'a> {
                                     self.namespace_assignments_made.insert(assignment_key);
                                 }
                             }
+                        }
+                    } else {
+                        // Check if this module should have an empty namespace due to forward
+                        // references
+                        let has_forward_references = self
+                            .check_module_has_forward_references(module_name, module_rename_map);
+
+                        // Create a SimpleNamespace for this module only if it doesn't exist
+                        if let Some(namespace_stmt) =
+                            namespace_manager::create_namespace_for_inlined_module_static(
+                                self,
+                                module_name,
+                                module_rename_map,
+                            )
+                        {
+                            final_body.push(namespace_stmt);
+                        }
+
+                        // Parent-child namespace assignments will be handled later by
+                        // generate_submodule_attributes_with_exclusions, which runs after
+                        // all namespaces have been created
+
+                        // Only track as having initial symbols if we didn't create it empty
+                        if has_forward_references {
+                            // We created an empty namespace, need to populate it later
+                            log::debug!(
+                                "Created empty namespace for '{module_name}', will populate with \
+                                 symbols later"
+                            );
+                        } else {
+                            self.namespaces_with_initial_symbols
+                                .insert(module_name.to_string());
                         }
                     }
 
@@ -4018,14 +4024,14 @@ impl<'a> Bundler<'a> {
                             &final_body,
                         );
 
-                        if !duplicate {
-                            // Imports have already been transformed by RecursiveImportTransformer
-                            final_body.push(stmt.clone());
-                        } else {
+                        if duplicate {
                             log::debug!(
                                 "Skipping duplicate import in entry module: {:?}",
                                 import_from.module
                             );
+                        } else {
+                            // Imports have already been transformed by RecursiveImportTransformer
+                            final_body.push(stmt.clone());
                         }
                     }
                     Stmt::Import(import_stmt) => {
@@ -4035,11 +4041,11 @@ impl<'a> Bundler<'a> {
                             &final_body,
                         );
 
-                        if !duplicate {
+                        if duplicate {
+                            log::debug!("Skipping duplicate import in entry module");
+                        } else {
                             // Imports have already been transformed by RecursiveImportTransformer
                             final_body.push(stmt.clone());
-                        } else {
-                            log::debug!("Skipping duplicate import in entry module");
                         }
                     }
                     Stmt::Assign(assign) => {
@@ -4279,10 +4285,10 @@ impl<'a> Bundler<'a> {
                     false
                 };
 
-                if !is_duplicate {
-                    all_deferred_imports.push(stmt);
-                } else {
+                if is_duplicate {
                     log::debug!("Skipping duplicate deferred import from entry module");
+                } else {
+                    all_deferred_imports.push(stmt);
                 }
             }
         }
@@ -4323,13 +4329,17 @@ impl<'a> Bundler<'a> {
                     .module_registry
                     .iter()
                     .find(|(_, syn_name)| *syn_name == &synthetic_name)
-                    .map(|(orig_name, _)| orig_name.to_string())
-                    .unwrap_or_else(|| synthetic_name.clone());
+                    .map_or_else(
+                        || synthetic_name.clone(),
+                        |(orig_name, _)| orig_name.to_string(),
+                    );
 
                 let init_stmts = crate::code_generator::module_registry::generate_module_init_call(
                     &synthetic_name,
                     &module_name,
-                    self.init_functions.get(&synthetic_name).map(|s| s.as_str()),
+                    self.init_functions
+                        .get(&synthetic_name)
+                        .map(std::string::String::as_str),
                     &self.module_registry,
                     |statements, module_name, init_result_var| {
                         self.generate_merge_module_attributes(
@@ -4760,7 +4770,7 @@ impl<'a> Bundler<'a> {
         self.process_body_recursive_impl(body, module_name, module_scope_symbols, false)
     }
 
-    /// Implementation of process_body_recursive with conditional context tracking
+    /// Implementation of `process_body_recursive` with conditional context tracking
     fn process_body_recursive_impl(
         &self,
         body: Vec<Stmt>,
@@ -4876,7 +4886,12 @@ impl<'a> Bundler<'a> {
                 }
                 Stmt::ImportFrom(import_from) => {
                     // Skip __future__ imports
-                    if import_from.module.as_ref().map(|n| n.as_str()) != Some("__future__") {
+                    if import_from
+                        .module
+                        .as_ref()
+                        .map(ruff_python_ast::Identifier::as_str)
+                        != Some("__future__")
+                    {
                         result.push(stmt.clone());
 
                         // Add module attribute assignments for imported symbols when in conditional
@@ -4894,18 +4909,18 @@ impl<'a> Bundler<'a> {
                                 // For conditional imports, always add module attributes for
                                 // non-private symbols regardless of
                                 // __all__ restrictions, since they can be defined at runtime
-                                if !local_name.starts_with('_') {
+                                if local_name.starts_with('_') {
+                                    log::debug!(
+                                        "NOT exporting conditional ImportFrom symbol \
+                                         '{local_name}' in module '{module_name}' (private symbol)"
+                                    );
+                                } else {
                                     log::debug!(
                                         "Adding module.{local_name} = {local_name} after \
                                          conditional import (bypassing __all__ restrictions)"
                                     );
                                     result.push(
                                         crate::code_generator::module_registry::create_module_attr_assignment("module", local_name),
-                                    );
-                                } else {
-                                    log::debug!(
-                                        "NOT exporting conditional ImportFrom symbol \
-                                         '{local_name}' in module '{module_name}' (private symbol)"
                                     );
                                 }
                             }
@@ -4945,8 +4960,7 @@ impl<'a> Bundler<'a> {
                             let local_name = alias
                                 .asname
                                 .as_ref()
-                                .map(|n| n.as_str())
-                                .unwrap_or(imported_name);
+                                .map_or(imported_name, ruff_python_ast::Identifier::as_str);
 
                             // For conditional imports, always add module attributes for non-private
                             // symbols regardless of __all__
@@ -6067,7 +6081,7 @@ impl<'a> Bundler<'a> {
                                         Expr::Name(name) => {
                                             // Check if it looks like a class name (starts with
                                             // uppercase)
-                                            name.id.chars().next().is_some_and(|c| c.is_uppercase())
+                                            name.id.chars().next().is_some_and(char::is_uppercase)
                                         }
                                         _ => false,
                                     }
@@ -6237,13 +6251,7 @@ impl<'a> Bundler<'a> {
         let renamed_name = if let Some(module_rename_map) = ctx.module_renames.get(module_name) {
             if let Some(new_name) = module_rename_map.get(&class_name) {
                 // Only use semantic rename if it's actually different
-                if new_name != &class_name {
-                    log::debug!(
-                        "Using semantic rename for class '{class_name}' to '{new_name}' in module \
-                         '{module_name}'"
-                    );
-                    new_name.clone()
-                } else {
+                if new_name == &class_name {
                     // Semantic rename is same as original, check if there's a conflict
                     if ctx.global_symbols.contains(&class_name) {
                         // There's a conflict, apply module suffix pattern
@@ -6254,6 +6262,12 @@ impl<'a> Bundler<'a> {
                         // No conflict, use original name
                         class_name.clone()
                     }
+                } else {
+                    log::debug!(
+                        "Using semantic rename for class '{class_name}' to '{new_name}' in module \
+                         '{module_name}'"
+                    );
+                    new_name.clone()
                 }
             } else {
                 // No semantic rename, check if there's a conflict
@@ -6436,13 +6450,7 @@ impl<'a> Bundler<'a> {
         let renamed_name = if let Some(module_rename_map) = ctx.module_renames.get(module_name) {
             if let Some(new_name) = module_rename_map.get(&name) {
                 // Only use semantic rename if it's actually different
-                if new_name != &name {
-                    log::debug!(
-                        "Using semantic rename for variable '{name}' to '{new_name}' in module \
-                         '{module_name}'"
-                    );
-                    new_name.clone()
-                } else {
+                if new_name == &name {
                     // Semantic rename is same as original, check if there's a conflict
                     if ctx.global_symbols.contains(&name) {
                         // There's a conflict, apply module suffix pattern
@@ -6452,6 +6460,12 @@ impl<'a> Bundler<'a> {
                         // No conflict, use original name
                         name.clone()
                     }
+                } else {
+                    log::debug!(
+                        "Using semantic rename for variable '{name}' to '{new_name}' in module \
+                         '{module_name}'"
+                    );
+                    new_name.clone()
                 }
             } else {
                 // No semantic rename, check if there's a conflict
@@ -6519,13 +6533,7 @@ impl<'a> Bundler<'a> {
         let renamed_name = if let Some(module_rename_map) = ctx.module_renames.get(module_name) {
             if let Some(new_name) = module_rename_map.get(&var_name) {
                 // Only use semantic rename if it's actually different
-                if new_name != &var_name {
-                    log::debug!(
-                        "Using semantic rename for annotated variable '{var_name}' to \
-                         '{new_name}' in module '{module_name}'"
-                    );
-                    new_name.clone()
-                } else {
+                if new_name == &var_name {
                     // Semantic rename is same as original, check if there's a conflict
                     if ctx.global_symbols.contains(&var_name) {
                         // There's a conflict, apply module suffix pattern
@@ -6536,6 +6544,12 @@ impl<'a> Bundler<'a> {
                         // No conflict, use original name
                         var_name.clone()
                     }
+                } else {
+                    log::debug!(
+                        "Using semantic rename for annotated variable '{var_name}' to \
+                         '{new_name}' in module '{module_name}'"
+                    );
+                    new_name.clone()
                 }
             } else {
                 // No semantic rename, check if there's a conflict
@@ -6655,7 +6669,7 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
 }
 
 // Helper methods for import rewriting
-impl<'a> Bundler<'a> {
+impl Bundler<'_> {
     /// Create a module reference assignment
     pub(super) fn create_module_reference_assignment(
         &self,
@@ -6952,8 +6966,7 @@ impl<'a> Bundler<'a> {
                             .module_exports
                             .get(module_name)
                             .and_then(|exports| exports.as_ref())
-                            .map(|exports| exports.contains(symbol))
-                            .unwrap_or(false);
+                            .is_some_and(|exports| exports.contains(symbol));
 
                         if module_has_all_export {
                             log::debug!(
@@ -7100,8 +7113,7 @@ impl<'a> Bundler<'a> {
                 if module_name.contains('.') {
                     let parent_module = module_name
                         .rsplit_once('.')
-                        .map(|(parent, _)| parent)
-                        .unwrap_or("");
+                        .map_or("", |(parent, _)| parent);
                     if !parent_module.is_empty()
                         && let Some(Some(parent_exports)) = self.module_exports.get(parent_module)
                         && parent_exports.contains(symbol)
@@ -7135,7 +7147,7 @@ impl<'a> Bundler<'a> {
                 // would be duplicated by __all__ processing
                 if !self.global_deferred_imports.is_empty() {
                     // Check if this symbol was deferred by the same module (intra-module imports)
-                    let key = (module_name.to_string(), symbol.to_string());
+                    let key = (module_name.to_string(), (*symbol).to_string());
                     if self.global_deferred_imports.contains_key(&key) {
                         log::debug!(
                             "Skipping namespace assignment for '{symbol}' - already created by \
@@ -7166,7 +7178,10 @@ impl<'a> Bundler<'a> {
                                     let resolved_module = if import_from.level > 0 {
                                         self.resolver.resolve_relative_to_absolute_module_name(
                                             import_from.level,
-                                            import_from.module.as_ref().map(|n| n.as_str()),
+                                            import_from
+                                                .module
+                                                .as_ref()
+                                                .map(ruff_python_ast::Identifier::as_str),
                                             module_path,
                                         )
                                     } else {
@@ -7208,8 +7223,7 @@ impl<'a> Bundler<'a> {
                         // the parent module
                         let parent_module = module_name
                             .rsplit_once('.')
-                            .map(|(parent, _)| parent)
-                            .unwrap_or("");
+                            .map_or("", |(parent, _)| parent);
                         if parent_module == target_name {
                             // We're creating an assignment on the parent module from a child module
                             // Check if this assignment already exists in result_stmts
@@ -7466,40 +7480,37 @@ impl<'a> Bundler<'a> {
         let mut added_init = false;
 
         for body_stmt in &mut func_def.body {
-            match body_stmt {
-                Stmt::Global(global_stmt) => {
-                    // Rewrite global statement to use lifted names
-                    for name in &mut global_stmt.names {
-                        if let Some(lifted_name) = params.lifted_names.get(name.as_str()) {
-                            *name = Identifier::new(lifted_name, TextRange::default());
-                        }
-                    }
-                    new_body.push(body_stmt.clone());
-
-                    // Add initialization statements after global declarations
-                    if !added_init && !init_stmts.is_empty() {
-                        new_body.extend(init_stmts.clone());
-                        added_init = true;
+            if let Stmt::Global(global_stmt) = body_stmt {
+                // Rewrite global statement to use lifted names
+                for name in &mut global_stmt.names {
+                    if let Some(lifted_name) = params.lifted_names.get(name.as_str()) {
+                        *name = Identifier::new(lifted_name, TextRange::default());
                     }
                 }
-                _ => {
-                    // Transform other statements recursively with function context
-                    self.transform_stmt_for_lifted_globals(
-                        body_stmt,
-                        params.lifted_names,
-                        params.global_info,
-                        Some(params.function_globals),
-                    );
-                    new_body.push(body_stmt.clone());
+                new_body.push(body_stmt.clone());
 
-                    // After transforming, check if we need to add synchronization
-                    self.add_global_sync_if_needed(
-                        body_stmt,
-                        params.function_globals,
-                        params.lifted_names,
-                        &mut new_body,
-                    );
+                // Add initialization statements after global declarations
+                if !added_init && !init_stmts.is_empty() {
+                    new_body.extend(init_stmts.clone());
+                    added_init = true;
                 }
+            } else {
+                // Transform other statements recursively with function context
+                self.transform_stmt_for_lifted_globals(
+                    body_stmt,
+                    params.lifted_names,
+                    params.global_info,
+                    Some(params.function_globals),
+                );
+                new_body.push(body_stmt.clone());
+
+                // After transforming, check if we need to add synchronization
+                self.add_global_sync_if_needed(
+                    body_stmt,
+                    params.function_globals,
+                    params.lifted_names,
+                    &mut new_body,
+                );
             }
         }
 
@@ -8082,21 +8093,18 @@ impl<'a> Bundler<'a> {
         }
 
         // Perform topological sort
-        match toposort(&graph, None) {
-            Ok(sorted_nodes) => {
-                // Convert back to class blocks in sorted order
-                let mut ordered = Vec::new();
-                for node in sorted_nodes {
-                    let idx = graph[node];
-                    ordered.push(class_blocks[idx].clone());
-                }
-                ordered
+        if let Ok(sorted_nodes) = toposort(&graph, None) {
+            // Convert back to class blocks in sorted order
+            let mut ordered = Vec::new();
+            for node in sorted_nodes {
+                let idx = graph[node];
+                ordered.push(class_blocks[idx].clone());
             }
-            Err(_) => {
-                // Circular inheritance detected, return as-is
-                log::warn!("Circular inheritance detected, returning classes in original order");
-                class_blocks
-            }
+            ordered
+        } else {
+            // Circular inheritance detected, return as-is
+            log::warn!("Circular inheritance detected, returning classes in original order");
+            class_blocks
         }
     }
 
@@ -8111,7 +8119,7 @@ impl<'a> Bundler<'a> {
                 && self
                     .module_exports
                     .get(module_name)
-                    .is_some_and(|exports| exports.is_some())
+                    .is_some_and(std::option::Option::is_some)
             {
                 log::debug!(
                     "Submodule '{module_name}' needs namespace because parent '{parent_module}' \

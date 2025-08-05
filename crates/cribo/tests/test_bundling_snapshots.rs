@@ -8,7 +8,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use once_cell::sync::Lazy;
 use pretty_assertions::assert_eq;
 // Ruff linting integration for cross-validation
 use ruff_linter::linter::{ParseSource, lint_only};
@@ -47,13 +46,13 @@ fn get_python_executable() -> String {
             .map(|output| output.status.success())
             .unwrap_or(false)
         {
-            return cmd.to_string();
+            return (*cmd).to_string();
         }
     }
     panic!("Could not find Python executable");
 }
 
-/// Run cribo with given arguments and return (stdout, stderr, exit_code)
+/// Run cribo with given arguments and return (stdout, stderr, `exit_code`)
 fn run_cribo(args: &[&str]) -> (String, String, i32) {
     let cribo_exe = env!("CARGO_BIN_EXE_cribo");
 
@@ -85,7 +84,7 @@ impl Drop for TestSummary {
     }
 }
 
-static SUMMARY: Lazy<TestSummary> = Lazy::new(TestSummary::default);
+static SUMMARY: std::sync::LazyLock<TestSummary> = std::sync::LazyLock::new(TestSummary::default);
 
 /// Structured execution results for better snapshot formatting
 #[derive(Debug)]
@@ -213,7 +212,7 @@ fn test_bundling_fixtures() {
     FIXTURE_COUNT.store(0, Ordering::Relaxed);
     insta::glob!("fixtures/", "*/main.py", |path| {
         // Initialize summary reporter on the first test run and increment count
-        Lazy::force(&SUMMARY);
+        std::sync::LazyLock::force(&SUMMARY);
         FIXTURE_COUNT.fetch_add(1, Ordering::Relaxed);
 
         // Extract fixture name from the path
@@ -335,14 +334,13 @@ fn test_bundling_fixtures() {
                 });
 
                 return;
-            } else {
-                // Unexpected bundling failure
-                panic!(
-                    "Bundling failed unexpectedly for {fixture_name}:\nExit code: \
-                     {bundle_exit_code}\nStderr: {}",
-                    bundle_stderr.trim()
-                );
             }
+            // Unexpected bundling failure
+            panic!(
+                "Bundling failed unexpectedly for {fixture_name}:\nExit code: \
+                 {bundle_exit_code}\nStderr: {}",
+                bundle_stderr.trim()
+            );
         }
 
         // For xfail_, bundling success is OK - we'll check execution later
@@ -395,15 +393,14 @@ fn test_bundling_fixtures() {
 
         // Check for F401 violations (unused imports) - fail if any are found
         // This ensures we catch regressions where imports aren't properly removed
-        if !ruff_results.f401_violations.is_empty() {
-            panic!(
-                "F401 violations (unused imports) detected in bundled code for fixture \
-                 '{}':\n{}\n\nThis indicates a regression in import handling. The bundler should \
-                 remove all unused imports.",
-                fixture_name,
-                ruff_results.f401_violations.join("\n")
-            );
-        }
+        assert!(
+            ruff_results.f401_violations.is_empty(),
+            "F401 violations (unused imports) detected in bundled code for fixture \
+             '{}':\n{}\n\nThis indicates a regression in import handling. The bundler should \
+             remove all unused imports.",
+            fixture_name,
+            ruff_results.f401_violations.join("\n")
+        );
 
         // Execute the bundled code via stdin for consistent snapshots
         let python_output = Command::new(&python_cmd)
@@ -488,12 +485,11 @@ fn test_bundling_fixtures() {
         if expects_bundling_failure {
             // xfail_ requires:
             // 1. Original fixture must run successfully
-            if !original_output.status.success() {
-                panic!(
-                    "Fixture '{fixture_name}' with xfail_ prefix: original fixture failed to run, \
-                     but it MUST succeed"
-                );
-            }
+            assert!(
+                original_output.status.success(),
+                "Fixture '{fixture_name}' with xfail_ prefix: original fixture failed to run, but \
+                 it MUST succeed"
+            );
 
             // 2. Bundled fixture must either: a. Fail during execution (different exit code) b.
             //    Produce different output than original
@@ -501,13 +497,12 @@ fn test_bundling_fixtures() {
 
             if bundled_success {
                 // Both original and bundled succeeded - check if outputs match
-                if bundled_stdout == original_stdout {
-                    panic!(
-                        "Fixture '{fixture_name}' with xfail_ prefix: bundled code succeeded and \
-                         produced same output as original.\nThis test is now fully passing. \
-                         Please remove the 'xfail_' prefix from the fixture directory name."
-                    );
-                }
+                assert!(
+                    (bundled_stdout != original_stdout),
+                    "Fixture '{fixture_name}' with xfail_ prefix: bundled code succeeded and \
+                     produced same output as original.\nThis test is now fully passing. Please \
+                     remove the 'xfail_' prefix from the fixture directory name."
+                );
                 // Outputs differ - this is expected for xfail
             }
             // If bundled failed, that's expected for xfail
@@ -650,7 +645,7 @@ fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
                 occurrences.len(),
                 occurrences
                     .iter()
-                    .map(|n| n.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
             ));

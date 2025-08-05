@@ -322,7 +322,10 @@ fn collect_unique_imports_for_hoisting(
             module_name.to_string(),
             crate::ast_builder::statements::import(vec![crate::ast_builder::other::alias(
                 module_name,
-                alias.asname.as_ref().map(|n| n.as_str()),
+                alias
+                    .asname
+                    .as_ref()
+                    .map(ruff_python_ast::Identifier::as_str),
             )]),
         ));
     }
@@ -463,14 +466,11 @@ pub(super) fn deduplicate_deferred_imports_with_existing(
                                      {func_name}"
                                 );
                                 continue; // Skip this statement entirely
-                            } else {
-                                log::debug!(
-                                    "Adding new module init assignment: {key} = {func_name}"
-                                );
-                                seen_assignments.insert(key);
-                                result.push(stmt);
-                                continue;
                             }
+                            log::debug!("Adding new module init assignment: {key} = {func_name}");
+                            seen_assignments.insert(key);
+                            result.push(stmt);
+                            continue;
                         }
                     }
                 }
@@ -551,7 +551,11 @@ pub(super) fn is_duplicate_import_from(
         if is_third_party {
             return existing_body.iter().any(|existing| {
                 if let Stmt::ImportFrom(existing_import) = existing {
-                    existing_import.module.as_ref().map(|n| n.as_str()) == Some(module_name)
+                    existing_import
+                        .module
+                        .as_ref()
+                        .map(ruff_python_ast::Identifier::as_str)
+                        == Some(module_name)
                         && import_names_match(&import_from.names, &existing_import.names)
                 } else {
                     false
@@ -909,8 +913,7 @@ fn should_remove_import_stmt(
                 let local_name = alias
                     .asname
                     .as_ref()
-                    .map(|n| n.as_str())
-                    .unwrap_or(alias.name.as_str());
+                    .map_or(alias.name.as_str(), ruff_python_ast::Identifier::as_str);
 
                 unused_imports.iter().any(|unused| {
                     log::trace!(
@@ -942,8 +945,7 @@ fn should_remove_import_stmt(
                 let local_name = alias
                     .asname
                     .as_ref()
-                    .map(|n| n.as_str())
-                    .unwrap_or(alias.name.as_str());
+                    .map_or(alias.name.as_str(), ruff_python_ast::Identifier::as_str);
 
                 unused_imports.iter().any(|unused| {
                     // Match by both name and module for from imports
@@ -957,8 +959,7 @@ fn should_remove_import_stmt(
                     import_from_stmt
                         .module
                         .as_ref()
-                        .map(|n| n.as_str())
-                        .unwrap_or("<None>"),
+                        .map_or("<None>", ruff_python_ast::Identifier::as_str),
                     import_from_stmt
                         .names
                         .iter()

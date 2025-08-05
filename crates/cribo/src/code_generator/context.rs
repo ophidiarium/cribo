@@ -45,11 +45,11 @@ pub struct InlineContext<'a> {
     pub global_symbols: &'a mut FxIndexSet<String>,
     pub module_renames: &'a mut FxIndexMap<String, FxIndexMap<String, String>>,
     pub inlined_stmts: &'a mut Vec<Stmt>,
-    /// Import aliases in the current module being inlined (alias -> actual_name)
+    /// Import aliases in the current module being inlined (alias -> `actual_name`)
     pub import_aliases: FxIndexMap<String, String>,
     /// Deferred import assignments that need to be placed after all modules are inlined
     pub deferred_imports: &'a mut Vec<Stmt>,
-    /// Maps imported symbols to their source modules (local_name -> source_module)
+    /// Maps imported symbols to their source modules (`local_name` -> `source_module`)
     pub import_sources: FxIndexMap<String, String>,
     /// Python version for compatibility checks
     pub python_version: u8,
@@ -71,7 +71,7 @@ pub struct ProcessGlobalsParams<'a> {
     pub semantic_ctx: &'a SemanticContext<'a>,
 }
 
-/// Parameters for bundle_modules function
+/// Parameters for `bundle_modules` function
 #[derive(Debug)]
 pub struct BundleParams<'a> {
     pub modules: &'a [(String, ModModule, PathBuf, String)], // (name, ast, path, content_hash)

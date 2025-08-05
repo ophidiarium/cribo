@@ -16,7 +16,7 @@ pub struct ExtractedExports {
 ///
 /// Returns:
 /// - `ExtractedExports` with names if all elements are string literals
-/// - `ExtractedExports` with is_dynamic=true if any element is not a string literal
+/// - `ExtractedExports` with `is_dynamic=true` if any element is not a string literal
 pub fn extract_string_list_from_expr(expr: &Expr) -> ExtractedExports {
     match expr {
         Expr::List(ExprList { elts, .. }) | Expr::Tuple(ExprTuple { elts, .. }) => {

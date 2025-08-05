@@ -31,9 +31,9 @@ pub struct IndexedAst {
 
 /// Visitor that assigns indices to all AST nodes
 struct IndexingVisitor {
-    /// Current index to assign (using RefCell for interior mutability)
+    /// Current index to assign (using `RefCell` for interior mutability)
     current_index: RefCell<u32>,
-    /// Base index for this module (e.g., 0, 1_000_000, 2_000_000)
+    /// Base index for this module (e.g., 0, `1_000_000`, `2_000_000`)
     base_index: u32,
 }
 
@@ -51,13 +51,14 @@ impl IndexingVisitor {
 
         // Check for overflow within module range
         let relative_index = *current - self.base_index;
-        if relative_index >= MODULE_INDEX_RANGE {
-            panic!(
-                "Module index overflow: attempted to assign index {} (relative: {}) which exceeds \
-                 MODULE_INDEX_RANGE ({})",
-                *current, relative_index, MODULE_INDEX_RANGE
-            );
-        }
+        assert!(
+            (relative_index < MODULE_INDEX_RANGE),
+            "Module index overflow: attempted to assign index {} (relative: {}) which exceeds \
+             MODULE_INDEX_RANGE ({})",
+            *current,
+            relative_index,
+            MODULE_INDEX_RANGE
+        );
 
         node_index.set(*current);
         let index = AtomicNodeIndex::from(*current).load();

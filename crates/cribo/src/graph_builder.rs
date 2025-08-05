@@ -1,4 +1,4 @@
-/// Graph builder that creates CriboGraph from Python AST
+/// Graph builder that creates `CriboGraph` from Python AST
 /// This module bridges the gap between ruff's AST and our dependency graph
 use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
@@ -18,13 +18,13 @@ struct ForStmtContext<'a, 'b> {
     attribute_accesses: &'a mut FxHashMap<String, FxHashSet<String>>,
 }
 
-/// Builds a ModuleDepGraph from a Python AST
+/// Builds a `ModuleDepGraph` from a Python AST
 pub struct GraphBuilder<'a> {
     graph: &'a mut ModuleDepGraph,
     current_scope: ScopeType,
     /// Track import aliases for importlib detection
     /// Maps local name -> module path (e.g., "il" -> "importlib", "im" ->
-    /// "importlib.import_module")
+    /// "`importlib.import_module`")
     import_aliases: FxHashMap<String, String>,
     /// Track which modules were created by stdlib normalization
     /// This helps with tree-shaking normalized imports
@@ -114,8 +114,7 @@ impl<'a> GraphBuilder<'a> {
             let local_name = alias
                 .asname
                 .as_ref()
-                .map(|n| n.as_str())
-                .unwrap_or(module_name);
+                .map_or(module_name, ruff_python_ast::Identifier::as_str);
 
             log::trace!("Processing import: {module_name} as {local_name}");
 
@@ -165,7 +164,7 @@ impl<'a> GraphBuilder<'a> {
             let item_data = ItemData {
                 item_type: ItemType::Import {
                     module: module_name.to_string(),
-                    alias: alias.asname.as_ref().map(|n| n.to_string()),
+                    alias: alias.asname.as_ref().map(std::string::ToString::to_string),
                 },
                 var_decls,
                 read_vars: FxHashSet::default(),
@@ -191,8 +190,7 @@ impl<'a> GraphBuilder<'a> {
         let module_name = import_from
             .module
             .as_ref()
-            .map(|n| n.as_str())
-            .unwrap_or("");
+            .map_or("", ruff_python_ast::Identifier::as_str);
 
         // Skip __future__ imports as they're handled separately
         if module_name == "__future__" {
@@ -227,17 +225,21 @@ impl<'a> GraphBuilder<'a> {
                 let local_name = alias
                     .asname
                     .as_ref()
-                    .map(|n| n.as_str())
-                    .unwrap_or(imported_name);
+                    .map_or(imported_name, ruff_python_ast::Identifier::as_str);
 
                 imported_names.insert(local_name.to_string());
                 names.push((
                     imported_name.to_string(),
-                    alias.asname.as_ref().map(|n| n.to_string()),
+                    alias.asname.as_ref().map(std::string::ToString::to_string),
                 ));
 
                 // Check for explicit re-export pattern: from foo import Bar as Bar
-                if alias.asname.as_ref().map(|n| n.as_str()) == Some(imported_name) {
+                if alias
+                    .asname
+                    .as_ref()
+                    .map(ruff_python_ast::Identifier::as_str)
+                    == Some(imported_name)
+                {
                     reexported_names.insert(local_name.to_string());
                 }
 
@@ -640,8 +642,7 @@ impl<'a> GraphBuilder<'a> {
             has_side_effects: ann_assign
                 .value
                 .as_ref()
-                .map(|v| Self::expression_has_side_effects(v))
-                .unwrap_or(false),
+                .is_some_and(|v| Self::expression_has_side_effects(v)),
             imported_names: FxHashSet::default(),
             reexported_names: FxHashSet::default(),
             defined_symbols: var_decls,
@@ -749,7 +750,7 @@ impl<'a> GraphBuilder<'a> {
 
         let item_data = ItemData {
             item_type: ItemType::If {
-                condition: "".to_string(), // Could extract condition text if needed
+                condition: String::new(), // Could extract condition text if needed
             },
             var_decls: FxHashSet::default(),
             read_vars,
@@ -1371,8 +1372,7 @@ impl<'a> GraphBuilder<'a> {
                             let local_name = alias
                                 .asname
                                 .as_ref()
-                                .map(|n| n.as_str())
-                                .unwrap_or(alias.name.as_str());
+                                .map_or(alias.name.as_str(), ruff_python_ast::Identifier::as_str);
                             read_vars.insert(local_name.to_string());
                         }
                     }
@@ -1383,11 +1383,10 @@ impl<'a> GraphBuilder<'a> {
                             // Star imports are complex, skip for now
                         } else {
                             for alias in &import_from.names {
-                                let local_name = alias
-                                    .asname
-                                    .as_ref()
-                                    .map(|n| n.as_str())
-                                    .unwrap_or(alias.name.as_str());
+                                let local_name = alias.asname.as_ref().map_or(
+                                    alias.name.as_str(),
+                                    ruff_python_ast::Identifier::as_str,
+                                );
                                 read_vars.insert(local_name.to_string());
                             }
                         }
@@ -1561,7 +1560,7 @@ impl<'a> GraphBuilder<'a> {
         ctx.stack.push(&for_stmt.orelse);
     }
 
-    /// Check if an expression is an importlib.import_module() call with a static string argument
+    /// Check if an expression is an `importlib.import_module()` call with a static string argument
     fn is_static_importlib_call(&self, expr: &Expr) -> Option<String> {
         if let Expr::Call(call) = expr {
             // Check if this is importlib.import_module() or an alias

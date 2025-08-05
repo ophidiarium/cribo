@@ -266,7 +266,7 @@ impl ImportRewriter {
                     for alias in &import_stmt.names {
                         let import = ImportStatement::Import {
                             module: alias.name.to_string(),
-                            alias: alias.asname.as_ref().map(|n| n.to_string()),
+                            alias: alias.asname.as_ref().map(std::string::ToString::to_string),
                         };
 
                         if movable_imports.iter().any(|mi| mi.import_stmt == import) {
@@ -293,7 +293,10 @@ impl ImportRewriter {
         import_from: &StmtImportFrom,
         movable_imports: &[&MovableImport],
     ) -> bool {
-        let stmt_module = import_from.module.as_ref().map(|n| n.to_string());
+        let stmt_module = import_from
+            .module
+            .as_ref()
+            .map(std::string::ToString::to_string);
         let stmt_level = import_from.level;
 
         movable_imports.iter().any(|mi| {
@@ -350,7 +353,10 @@ impl ImportRewriter {
             .map(|alias| {
                 (
                     alias.name.as_str(),
-                    alias.asname.as_ref().map(|n| n.as_str()),
+                    alias
+                        .asname
+                        .as_ref()
+                        .map(ruff_python_ast::Identifier::as_str),
                 )
             })
             .collect();
