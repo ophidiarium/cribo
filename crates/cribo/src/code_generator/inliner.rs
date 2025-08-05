@@ -38,42 +38,27 @@ impl Bundler<'_> {
         module_name: &str,
         ctx: &InlineContext,
     ) -> String {
-        if let Some(module_rename_map) = ctx.module_renames.get(module_name) {
-            if let Some(new_name) = module_rename_map.get(original_name) {
-                if new_name == original_name {
-                    // Semantic rename is same as original, check if there's a conflict
-                    if ctx.global_symbols.contains(original_name) {
-                        let base_name =
-                            self.get_unique_name_with_module_suffix(original_name, module_name);
-                        generate_unique_name(&base_name, ctx.global_symbols)
-                    } else {
-                        original_name.to_string()
-                    }
-                } else {
-                    debug!(
-                        "Using semantic rename for '{original_name}' to '{new_name}' in module \
-                         '{module_name}'"
-                    );
-                    new_name.clone()
-                }
-            } else {
-                // No semantic rename, check if there's a conflict
-                if ctx.global_symbols.contains(original_name) {
-                    let base_name =
-                        self.get_unique_name_with_module_suffix(original_name, module_name);
-                    generate_unique_name(&base_name, ctx.global_symbols)
-                } else {
-                    original_name.to_string()
-                }
-            }
+        // Check if there's a semantic rename that's different from the original
+        if let Some(new_name) = ctx
+            .module_renames
+            .get(module_name)
+            .and_then(|renames| renames.get(original_name))
+            .filter(|&name| name != original_name)
+        {
+            debug!(
+                "Using semantic rename for '{original_name}' to '{new_name}' in module \
+                 '{module_name}'"
+            );
+            return new_name.clone();
+        }
+
+        // No semantic rename, or semantic rename is the same as the original.
+        // Check for conflict.
+        if ctx.global_symbols.contains(original_name) {
+            let base_name = self.get_unique_name_with_module_suffix(original_name, module_name);
+            generate_unique_name(&base_name, ctx.global_symbols)
         } else {
-            // No semantic rename, check if there's a conflict
-            if ctx.global_symbols.contains(original_name) {
-                let base_name = self.get_unique_name_with_module_suffix(original_name, module_name);
-                generate_unique_name(&base_name, ctx.global_symbols)
-            } else {
-                original_name.to_string()
-            }
+            original_name.to_string()
         }
     }
 
