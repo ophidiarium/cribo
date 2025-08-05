@@ -860,8 +860,8 @@ fn is_module_import_used_by_side_effects(
     module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
     import_name: &str,
 ) -> bool {
-    for item in module_dep_graph.items.values() {
-        if item.has_side_effects
+    module_dep_graph.items.values().any(|item| {
+        item.has_side_effects
             && !matches!(
                 item.item_type,
                 crate::cribo_graph::ItemType::Import { .. }
@@ -869,15 +869,7 @@ fn is_module_import_used_by_side_effects(
             )
             && (item.read_vars.contains(import_name)
                 || item.eventual_read_vars.contains(import_name))
-        {
-            log::debug!(
-                "Module-level item {:?} with side effects uses '{import_name}'",
-                item.item_type
-            );
-            return true;
-        }
-    }
-    false
+    })
 }
 
 /// Check if an import is used by surviving assignment statements
