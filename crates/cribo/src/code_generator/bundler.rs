@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use anyhow::Result;
 use log::debug;
 use ruff_python_ast::{
-    Alias, AtomicNodeIndex, Decorator, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName,
-    Identifier, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
-    StmtImportFrom, visitor::source_order::SourceOrderVisitor,
+    Alias, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier,
+    ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom,
+    visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -26,9 +26,8 @@ use crate::{
         expression_handlers, import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{INIT_RESULT_VAR, sanitize_module_name_for_identifier},
-        namespace_manager,
+        module_transformer, namespace_manager,
     },
-    cribo_graph::CriboGraph as DependencyGraph,
     resolver::ModuleResolver,
     side_effects::{is_safe_stdlib_module, module_has_side_effects},
     transformation_context::TransformationContext,
@@ -944,78 +943,6 @@ impl<'a> Bundler<'a> {
         symbol_renames.insert(module_name.to_string(), module_renames);
     }
 
-    /// Sort wrapper modules by dependencies
-    fn sort_wrapper_modules_by_dependencies(
-        &self,
-        wrapper_modules: &[(String, ModModule, PathBuf, String)],
-        graph: &DependencyGraph,
-    ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
-        use crate::analyzers::dependency_analyzer::DependencyAnalyzer;
-
-        // Extract module names
-        let wrapper_names: Vec<String> = wrapper_modules
-            .iter()
-            .map(|(name, _, _, _)| name.clone())
-            .collect();
-
-        // Get all modules for the analyzer (wrapper modules are a subset)
-        let all_modules = wrapper_modules;
-
-        // Use DependencyAnalyzer to sort
-        let sorted_names = DependencyAnalyzer::sort_wrapper_modules_by_dependencies(
-            wrapper_names,
-            all_modules,
-            graph,
-        );
-
-        // Create a map for quick lookup
-        let module_map: FxIndexMap<String, (String, ModModule, PathBuf, String)> = wrapper_modules
-            .iter()
-            .map(|m| (m.0.clone(), m.clone()))
-            .collect();
-
-        // Map sorted names back to full modules
-        let sorted_modules = sorted_names
-            .into_iter()
-            .filter_map(|module_name| module_map.get(&module_name).cloned())
-            .collect();
-
-        Ok(sorted_modules)
-    }
-
-    /// Transform module to cache init function
-    fn transform_module_to_cache_init_function(
-        &mut self,
-        ctx: &ModuleTransformContext,
-        ast: ModModule,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-    ) -> Result<Stmt> {
-        // Call the regular transform_module_to_init_function to get the function
-        let stmt = crate::code_generator::module_transformer::transform_module_to_init_function(
-            self,
-            ctx,
-            ast,
-            symbol_renames,
-        )?;
-
-        // Add the @functools.cache decorator
-        if let Stmt::FunctionDef(mut func_def) = stmt {
-            func_def.decorator_list = vec![Decorator {
-                range: TextRange::default(),
-                node_index: AtomicNodeIndex::dummy(),
-                expression: expressions::attribute(
-                    expressions::name("functools", ExprContext::Load),
-                    "cache",
-                    ExprContext::Load,
-                ),
-            }];
-            return Ok(Stmt::FunctionDef(func_def));
-        }
-
-        // Should not happen
-        unreachable!("transform_module_to_init_function should return a FunctionDef")
-    }
-
     /// Build a map of imported symbols to their source modules by analyzing import statements
     pub(crate) fn build_import_source_map(
         &self,
@@ -1837,8 +1764,10 @@ impl<'a> Bundler<'a> {
         let wrapper_modules_saved = wrapper_modules;
 
         // Sort wrapper modules by their dependencies
-        let sorted_wrapper_modules =
-            self.sort_wrapper_modules_by_dependencies(&wrapper_modules_saved, params.graph)?;
+        let sorted_wrapper_modules = module_transformer::sort_wrapper_modules_by_dependencies(
+            &wrapper_modules_saved,
+            params.graph,
+        )?;
 
         // Build symbol-level dependency graph for circular modules if needed
         if !self.circular_modules.is_empty() {
@@ -2217,11 +2146,13 @@ impl<'a> Bundler<'a> {
                     // Generate init function with empty symbol_renames for now
                     let empty_renames = FxIndexMap::default();
                     // Always use cached init functions to ensure modules are only initialized once
-                    let init_function = self.transform_module_to_cache_init_function(
-                        &ctx,
-                        ast.clone(),
-                        &empty_renames,
-                    )?;
+                    let init_function =
+                        module_transformer::transform_module_to_cache_init_function(
+                            self,
+                            &ctx,
+                            ast.clone(),
+                            &empty_renames,
+                        )?;
                     final_body.push(init_function);
 
                     // Initialize the wrapper module immediately after defining it
@@ -2921,7 +2852,8 @@ impl<'a> Bundler<'a> {
                     python_version,
                 };
                 // Always use cached init functions to ensure modules are only initialized once
-                let init_function = self.transform_module_to_cache_init_function(
+                let init_function = module_transformer::transform_module_to_cache_init_function(
+                    self,
                     &ctx,
                     ast.clone(),
                     &symbol_renames,
@@ -4140,48 +4072,6 @@ impl<'a> Bundler<'a> {
     }
 
     /// Extract simple assignment target name
-    pub fn extract_simple_assign_target(&self, assign: &StmtAssign) -> Option<String> {
-        if assign.targets.len() == 1
-            && let Expr::Name(name) = &assign.targets[0]
-        {
-            return Some(name.id.to_string());
-        }
-        None
-    }
-
-    /// Check if an assignment is self-referential (e.g., x = x)
-    pub fn is_self_referential_assignment(&self, assign: &StmtAssign, python_version: u8) -> bool {
-        // Check if this is a simple assignment with a single target and value
-        if assign.targets.len() == 1
-            && let (Expr::Name(target), Expr::Name(value)) =
-                (&assign.targets[0], assign.value.as_ref())
-        {
-            // Check if target and value have the same name
-            if target.id == value.id {
-                // Special case: Built-in types like `bytes = bytes`, `str = str` are NOT
-                // self-referential They're re-exporting Python's built-in types
-                // through the module's namespace
-                let name = target.id.as_str();
-                if ruff_python_stdlib::builtins::is_python_builtin(name, python_version, false) {
-                    log::debug!(
-                        "Assignment '{}' = '{}' is a built-in type re-export, not self-referential",
-                        target.id,
-                        value.id
-                    );
-                    return false;
-                }
-
-                log::debug!(
-                    "Found self-referential assignment: {} = {}",
-                    target.id,
-                    value.id
-                );
-                return true;
-            }
-        }
-        false
-    }
-
     /// Check if an assignment references a module that will be created as a namespace
     pub(crate) fn assignment_references_namespace_module(
         &self,
@@ -4632,7 +4522,8 @@ impl<'a> Bundler<'a> {
                     // Check if this assignment should create a module attribute when in conditional
                     // context
                     if in_conditional_context
-                        && let Some(name) = self.extract_simple_assign_target(assign)
+                        && let Some(name) =
+                            expression_handlers::extract_simple_assign_target(assign)
                     {
                         // For conditional assignments, always add module attributes for non-private
                         // symbols regardless of __all__ restrictions, since
@@ -5398,9 +5289,12 @@ impl<'a> Bundler<'a> {
                     symbol_to_stmt.insert(class_def.name.to_string(), stmt);
                 }
                 Stmt::Assign(assign) => {
-                    if let Some(name) = self.extract_simple_assign_target(assign) {
+                    if let Some(name) = expression_handlers::extract_simple_assign_target(assign) {
                         // Skip self-referential assignments - they'll be handled later
-                        if self.is_self_referential_assignment(assign, python_version) {
+                        if expression_handlers::is_self_referential_assignment(
+                            assign,
+                            python_version,
+                        ) {
                             log::debug!(
                                 "Skipping self-referential assignment '{name}' in circular module \
                                  reordering"
