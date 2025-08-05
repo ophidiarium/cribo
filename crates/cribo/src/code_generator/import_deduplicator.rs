@@ -95,10 +95,14 @@ pub(super) fn stmt_uses_importlib(stmt: &Stmt) -> bool {
             .iter()
             .any(expression_handlers::expr_uses_importlib),
         // Statements that don't contain expressions
-        Stmt::Import(_) | Stmt::ImportFrom(_) => false, /* Already handled by import */
-        // transformation
-        Stmt::Pass(_) | Stmt::Break(_) | Stmt::Continue(_) => false,
-        Stmt::Global(_) | Stmt::Nonlocal(_) => false,
+        Stmt::Import(_)
+        | Stmt::ImportFrom(_) // Already handled by import transformation
+        | Stmt::Pass(_)
+        | Stmt::Break(_)
+        | Stmt::Continue(_)
+        | Stmt::Global(_)
+        | Stmt::Nonlocal(_)
+        | Stmt::IpyEscapeCommand(_) => false, // IPython specific, unlikely to use importlib
         // Match and TypeAlias need special handling
         Stmt::Match(match_stmt) => {
             expression_handlers::expr_uses_importlib(&match_stmt.subject)
@@ -108,7 +112,6 @@ pub(super) fn stmt_uses_importlib(stmt: &Stmt) -> bool {
                     .any(|case| case.body.iter().any(stmt_uses_importlib))
         }
         Stmt::TypeAlias(type_alias) => expression_handlers::expr_uses_importlib(&type_alias.value),
-        Stmt::IpyEscapeCommand(_) => false, // IPython specific, unlikely to use importlib
     }
 }
 

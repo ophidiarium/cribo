@@ -103,13 +103,15 @@ pub(super) fn expr_uses_importlib(expr: &Expr) -> bool {
                 || slice.upper.as_ref().is_some_and(|u| expr_uses_importlib(u))
                 || slice.step.as_ref().is_some_and(|s| expr_uses_importlib(s))
         }
-        // Literals don't use importlib
+        // Literals and other expressions that don't use importlib
         Expr::StringLiteral(_)
         | Expr::BytesLiteral(_)
         | Expr::NumberLiteral(_)
         | Expr::BooleanLiteral(_)
         | Expr::NoneLiteral(_)
-        | Expr::EllipsisLiteral(_) => false,
+        | Expr::EllipsisLiteral(_)
+        | Expr::IpyEscapeCommand(_) // IPython specific
+        | Expr::TString(_) => false, // Template strings
         // Check if any interpolated expressions in the f-string use importlib
         Expr::FString(fstring) => fstring.value.elements().any(|element| {
             if let ruff_python_ast::InterpolatedStringElement::Interpolation(expr_elem) = element {
@@ -118,10 +120,6 @@ pub(super) fn expr_uses_importlib(expr: &Expr) -> bool {
                 false
             }
         }),
-        // Match expressions not available in this ruff version
-        // Type expressions typically don't use importlib directly
-        Expr::IpyEscapeCommand(_) => false, // IPython specific
-        Expr::TString(_) => false,          // Template strings
     }
 }
 

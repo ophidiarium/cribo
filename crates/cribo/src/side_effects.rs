@@ -13,12 +13,9 @@ use crate::visitors::SideEffectDetector;
 pub fn is_safe_stdlib_module(module_name: &str) -> bool {
     match module_name {
         // Modules that modify global state - DO NOT HOIST
-        "antigravity" | "this" | "__hello__" | "__phello__" => false,
-        "site" | "sitecustomize" | "usercustomize" => false,
-        "readline" | "rlcompleter" => false,
-        "turtle" | "tkinter" => false,
-        "webbrowser" => false,
-        "platform" | "locale" => false,
+        "antigravity" | "this" | "__hello__" | "__phello__" | "site" | "sitecustomize"
+        | "usercustomize" | "readline" | "rlcompleter" | "turtle" | "tkinter" | "webbrowser"
+        | "platform" | "locale" => false,
 
         _ => {
             let root_module = module_name.split('.').next().unwrap_or(module_name);

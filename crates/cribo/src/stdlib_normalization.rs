@@ -244,16 +244,32 @@ impl StdlibNormalizer {
         // Check if this is a stdlib module itself (not just an attribute)
         match module_path {
             // Known stdlib submodules that need separate imports
-            "http.cookiejar" | "http.cookies" | "http.server" | "http.client" => true,
-            "urllib.parse" | "urllib.request" | "urllib.response" | "urllib.error"
-            | "urllib.robotparser" => true,
-            "xml.etree" | "xml.etree.ElementTree" | "xml.dom" | "xml.sax" | "xml.parsers" => true,
-            "email.mime" | "email.parser" | "email.message" | "email.utils" => true,
-            "collections.abc" => true,
-            "concurrent.futures" => true,
-            "importlib.util" | "importlib.machinery" | "importlib.resources" => true,
-            "multiprocessing.pool" | "multiprocessing.managers" => true,
-            "os.path" => true,
+            "http.cookiejar"
+            | "http.cookies"
+            | "http.server"
+            | "http.client"
+            | "urllib.parse"
+            | "urllib.request"
+            | "urllib.response"
+            | "urllib.error"
+            | "urllib.robotparser"
+            | "xml.etree"
+            | "xml.etree.ElementTree"
+            | "xml.dom"
+            | "xml.sax"
+            | "xml.parsers"
+            | "email.mime"
+            | "email.parser"
+            | "email.message"
+            | "email.utils"
+            | "collections.abc"
+            | "concurrent.futures"
+            | "importlib.util"
+            | "importlib.machinery"
+            | "importlib.resources"
+            | "multiprocessing.pool"
+            | "multiprocessing.managers"
+            | "os.path" => true,
             _ => {
                 // For other cases, check if it's a known stdlib module
                 let root = module_path.split('.').next().unwrap_or(module_path);
