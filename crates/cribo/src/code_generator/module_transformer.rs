@@ -912,8 +912,9 @@ fn transform_expr_for_module_vars(
             // For now, we skip transforming f-strings as they would need to be rebuilt
             // TODO: Implement f-string transformation if needed
         }
-        // Literals don't contain variable references
-        // Name expressions that don't match the conditional pattern (e.g., Store context)
+        // Literals and name expressions that don't need transformation
+        // - Literals don't contain variable references
+        // - Name expressions that don't match the conditional pattern (e.g., Store context)
         Expr::StringLiteral(_)
         | Expr::BytesLiteral(_)
         | Expr::NumberLiteral(_)
