@@ -66,7 +66,6 @@ pkg_compat.bytes = bytes
 pkg_compat.str = str
 pkg_utils.process_data = process_data
 """Test wrapper module pattern that triggers init functions with builtin types bug.\n\nThis reproduces the exact pattern from requests where:\n1. Multiple modules form circular dependencies (wrapper modules)\n2. One wrapper module (compat) has self-referential builtin assignments\n3. Another wrapper module (utils) accesses these as attributes\n4. The bundler generates init functions for wrapper modules\n"""
-pkg.__all__ = ['process_data', 'compat']
 pkg.process_data = process_data
 result = pkg.process_data(b"test")
 print(f"Result: {result}")

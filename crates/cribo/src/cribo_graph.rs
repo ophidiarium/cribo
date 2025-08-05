@@ -320,6 +320,9 @@ pub struct CriboGraph {
     /// Track the primary module ID for each file
     /// (The first import name discovered for this file)
     file_primary_module: FxHashMap<PathBuf, (String, ModuleId)>,
+    /// Track modules whose __all__ attribute is accessed
+    /// Maps module name to set of modules that access its __all__
+    modules_accessing_all: FxHashMap<String, FxHashSet<String>>,
 }
 
 impl CriboGraph {
@@ -335,6 +338,7 @@ impl CriboGraph {
             module_canonical_paths: FxHashMap::default(),
             file_to_import_names: FxHashMap::default(),
             file_primary_module: FxHashMap::default(),
+            modules_accessing_all: FxHashMap::default(),
         }
     }
 
@@ -434,6 +438,19 @@ impl CriboGraph {
         } else {
             None
         }
+    }
+
+    /// Get modules that access __all__ attribute
+    pub fn get_modules_accessing_all(&self) -> &FxHashMap<String, FxHashSet<String>> {
+        &self.modules_accessing_all
+    }
+
+    /// Add a module that accesses __all__ of another module
+    pub fn add_module_accessing_all(&mut self, base_module: String, accessing_module: String) {
+        self.modules_accessing_all
+            .entry(base_module)
+            .or_default()
+            .insert(accessing_module);
     }
 
     /// Add a dependency between modules (from depends on to)

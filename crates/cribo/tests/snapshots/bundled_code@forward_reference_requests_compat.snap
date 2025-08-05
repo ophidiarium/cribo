@@ -113,7 +113,6 @@ myrequests_exceptions.InvalidJSONError = InvalidJSONError
 myrequests_exceptions.JSONDecodeError = JSONDecodeError
 myrequests_cookies.CookieJar = CookieJar
 """Test that mimics requests' pattern causing forward reference."""
-myrequests.__all__ = ['CookieJar', 'JSONDecodeError']
 myrequests.CookieJar = CookieJar
 myrequests.JSONDecodeError = JSONDecodeError
 jar = myrequests.CookieJar()
