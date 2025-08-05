@@ -830,13 +830,9 @@ fn is_import_used_by_surviving_symbols(
     module_dep_graph: &crate::cribo_graph::ModuleDepGraph,
     local_name: &str,
 ) -> bool {
-    for symbol in used_symbols {
-        if module_dep_graph.does_symbol_use_import(symbol, local_name) {
-            log::debug!("Symbol '{symbol}' uses import '{local_name}'");
-            return true;
-        }
-    }
-    false
+    used_symbols
+        .iter()
+        .any(|symbol| module_dep_graph.does_symbol_use_import(symbol, local_name))
 }
 
 /// Check if an import is used by module-level code with side effects
