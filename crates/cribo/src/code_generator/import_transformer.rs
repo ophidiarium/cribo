@@ -1986,12 +1986,38 @@ fn rewrite_import_with_renames(
                             let partial_module = parts[..i].join(".");
                             // Only populate if this module was actually bundled and has exports
                             if bundler.bundled_modules.contains(&partial_module) {
-                                bundler.populate_namespace_with_module_symbols_with_renames(
+                                // Note: This is a limitation - we can't mutate
+                                // namespace_assignments_made
+                                // from here since bundler is immutable. This will be handled during
+                                // the main bundle process where bundler is mutable.
+                                log::warn!(
+                                    "Cannot track namespace assignments for '{partial_module}' in \
+                                     import transformer due to immutability"
+                                );
+                                // For now, we'll create the statements without tracking duplicates
+                                let mut temp_assignments = FxIndexSet::default();
+                                let mut ctx = crate::code_generator::namespace_manager::NamespacePopulationContext {
+                                    inlined_modules: &bundler.inlined_modules,
+                                    module_exports: &bundler.module_exports,
+                                    tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
+                                    bundled_modules: &bundler.bundled_modules,
+                                    namespace_assignments_made: &mut temp_assignments,
+                                    modules_with_accessed_all: &bundler.modules_with_accessed_all,
+                                    module_registry: &bundler.module_registry,
+                                    module_asts: &bundler.module_asts,
+                                    symbols_populated_after_deferred: &bundler.symbols_populated_after_deferred,
+                                    namespaces_with_initial_symbols: &bundler.namespaces_with_initial_symbols,
+                                    global_deferred_imports: &bundler.global_deferred_imports,
+                                    init_functions: &bundler.init_functions,
+                                    resolver: bundler.resolver,
+                                };
+                                let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                                    &mut ctx,
                                     &partial_module,
                                     &partial_module,
-                                    &mut result_stmts,
                                     symbol_renames,
                                 );
+                                result_stmts.extend(new_stmts);
                             }
                         }
                     } else {
@@ -2013,12 +2039,40 @@ fn rewrite_import_with_renames(
                         }
 
                         // Always populate the namespace with symbols
-                        bundler.populate_namespace_with_module_symbols_with_renames(
+                        // Note: This is a limitation - we can't mutate namespace_assignments_made
+                        // from here since bundler is immutable. This will be handled during
+                        // the main bundle process where bundler is mutable.
+                        log::warn!(
+                            "Cannot track namespace assignments for '{module_name}' in import \
+                             transformer due to immutability"
+                        );
+                        // For now, we'll create the statements without tracking duplicates
+                        let mut temp_assignments = FxIndexSet::default();
+                        let mut ctx =
+                            crate::code_generator::namespace_manager::NamespacePopulationContext {
+                                inlined_modules: &bundler.inlined_modules,
+                                module_exports: &bundler.module_exports,
+                                tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
+                                bundled_modules: &bundler.bundled_modules,
+                                namespace_assignments_made: &mut temp_assignments,
+                                modules_with_accessed_all: &bundler.modules_with_accessed_all,
+                                module_registry: &bundler.module_registry,
+                                module_asts: &bundler.module_asts,
+                                symbols_populated_after_deferred: &bundler
+                                    .symbols_populated_after_deferred,
+                                namespaces_with_initial_symbols: &bundler
+                                    .namespaces_with_initial_symbols,
+                                global_deferred_imports: &bundler.global_deferred_imports,
+                                init_functions: &bundler.init_functions,
+                                resolver: bundler.resolver,
+                            };
+                        let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                            &mut ctx,
                             target_name.as_str(),
                             module_name,
-                            &mut result_stmts,
                             symbol_renames,
                         );
+                        result_stmts.extend(new_stmts);
                     }
                 }
             } else {
@@ -2064,12 +2118,38 @@ fn rewrite_import_with_renames(
                 }
 
                 // Always populate the namespace with symbols
-                bundler.populate_namespace_with_module_symbols_with_renames(
+                // Note: This is a limitation - we can't mutate namespace_assignments_made
+                // from here since bundler is immutable. This will be handled during
+                // the main bundle process where bundler is mutable.
+                log::warn!(
+                    "Cannot track namespace assignments for '{module_name}' in import transformer \
+                     due to immutability"
+                );
+                // For now, we'll create the statements without tracking duplicates
+                let mut temp_assignments = FxIndexSet::default();
+                let mut ctx =
+                    crate::code_generator::namespace_manager::NamespacePopulationContext {
+                        inlined_modules: &bundler.inlined_modules,
+                        module_exports: &bundler.module_exports,
+                        tree_shaking_keep_symbols: &bundler.tree_shaking_keep_symbols,
+                        bundled_modules: &bundler.bundled_modules,
+                        namespace_assignments_made: &mut temp_assignments,
+                        modules_with_accessed_all: &bundler.modules_with_accessed_all,
+                        module_registry: &bundler.module_registry,
+                        module_asts: &bundler.module_asts,
+                        symbols_populated_after_deferred: &bundler.symbols_populated_after_deferred,
+                        namespaces_with_initial_symbols: &bundler.namespaces_with_initial_symbols,
+                        global_deferred_imports: &bundler.global_deferred_imports,
+                        init_functions: &bundler.init_functions,
+                        resolver: bundler.resolver,
+                    };
+                let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                    &mut ctx,
                     target_name.as_str(),
                     module_name,
-                    &mut result_stmts,
                     symbol_renames,
                 );
+                result_stmts.extend(new_stmts);
             }
         }
     }
