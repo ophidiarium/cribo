@@ -721,8 +721,12 @@ pub fn inline_all_modules(
                             if let Stmt::Assign(existing_assign) = existing
                                 && let [Expr::Name(existing_target)] =
                                     existing_assign.targets.as_slice()
+                                && existing_target.id.as_str() == target_name
                             {
-                                existing_target.id.as_str() == target_name
+                                expression_handlers::expr_equals(
+                                    &assign.value,
+                                    &existing_assign.value,
+                                )
                             } else {
                                 false
                             }
