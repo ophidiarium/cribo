@@ -31,6 +31,52 @@ pub struct InliningResult {
 }
 
 impl Bundler<'_> {
+    /// Resolve the renamed name for a symbol, considering semantic renames and conflicts
+    fn resolve_renamed_name(
+        &self,
+        original_name: &str,
+        module_name: &str,
+        ctx: &InlineContext,
+    ) -> String {
+        if let Some(module_rename_map) = ctx.module_renames.get(module_name) {
+            if let Some(new_name) = module_rename_map.get(original_name) {
+                if new_name == original_name {
+                    // Semantic rename is same as original, check if there's a conflict
+                    if ctx.global_symbols.contains(original_name) {
+                        let base_name =
+                            self.get_unique_name_with_module_suffix(original_name, module_name);
+                        generate_unique_name(&base_name, ctx.global_symbols)
+                    } else {
+                        original_name.to_string()
+                    }
+                } else {
+                    debug!(
+                        "Using semantic rename for '{original_name}' to '{new_name}' in module \
+                         '{module_name}'"
+                    );
+                    new_name.clone()
+                }
+            } else {
+                // No semantic rename, check if there's a conflict
+                if ctx.global_symbols.contains(original_name) {
+                    let base_name =
+                        self.get_unique_name_with_module_suffix(original_name, module_name);
+                    generate_unique_name(&base_name, ctx.global_symbols)
+                } else {
+                    original_name.to_string()
+                }
+            }
+        } else {
+            // No semantic rename, check if there's a conflict
+            if ctx.global_symbols.contains(original_name) {
+                let base_name = self.get_unique_name_with_module_suffix(original_name, module_name);
+                generate_unique_name(&base_name, ctx.global_symbols)
+            } else {
+                original_name.to_string()
+            }
+        }
+    }
+
     /// Inline a module
     pub fn inline_module(
         &mut self,
@@ -110,55 +156,7 @@ impl Bundler<'_> {
                     }
 
                     // Check if this symbol was renamed by semantic analysis
-                    let renamed_name = if let Some(module_rename_map) =
-                        ctx.module_renames.get(module_name)
-                    {
-                        if let Some(new_name) = module_rename_map.get(&func_name) {
-                            // Only use semantic rename if it's actually different
-                            if new_name == &func_name {
-                                // Semantic rename is same as original, check if there's a conflict
-                                if ctx.global_symbols.contains(&func_name) {
-                                    // There's a conflict, apply module suffix pattern
-                                    let base_name = self.get_unique_name_with_module_suffix(
-                                        &func_name,
-                                        module_name,
-                                    );
-                                    generate_unique_name(&base_name, ctx.global_symbols)
-                                } else {
-                                    // No conflict, use original name
-                                    func_name.clone()
-                                }
-                            } else {
-                                log::debug!(
-                                    "Using semantic rename for '{func_name}' to '{new_name}' in \
-                                     module '{module_name}'"
-                                );
-                                new_name.clone()
-                            }
-                        } else {
-                            // No semantic rename, check if there's a conflict
-                            if ctx.global_symbols.contains(&func_name) {
-                                // There's a conflict, apply module suffix pattern
-                                let base_name = self
-                                    .get_unique_name_with_module_suffix(&func_name, module_name);
-                                generate_unique_name(&base_name, ctx.global_symbols)
-                            } else {
-                                // No conflict, use original name
-                                func_name.clone()
-                            }
-                        }
-                    } else {
-                        // No semantic rename, check if there's a conflict
-                        if ctx.global_symbols.contains(&func_name) {
-                            // There's a conflict, apply module suffix pattern
-                            let base_name =
-                                self.get_unique_name_with_module_suffix(&func_name, module_name);
-                            generate_unique_name(&base_name, ctx.global_symbols)
-                        } else {
-                            // No conflict, use original name
-                            func_name.clone()
-                        }
-                    };
+                    let renamed_name = self.resolve_renamed_name(&func_name, module_name, ctx);
 
                     // Always track the symbol mapping, even if not renamed
                     module_renames.insert(func_name.clone(), renamed_name.clone());
@@ -278,50 +276,7 @@ impl Bundler<'_> {
         }
 
         // Check if this symbol was renamed by semantic analysis
-        let renamed_name = if let Some(module_rename_map) = ctx.module_renames.get(module_name) {
-            if let Some(new_name) = module_rename_map.get(&class_name) {
-                // Only use semantic rename if it's actually different
-                if new_name == &class_name {
-                    // Semantic rename is same as original, check if there's a conflict
-                    if ctx.global_symbols.contains(&class_name) {
-                        // There's a conflict, apply module suffix pattern
-                        let base_name =
-                            self.get_unique_name_with_module_suffix(&class_name, module_name);
-                        generate_unique_name(&base_name, ctx.global_symbols)
-                    } else {
-                        // No conflict, use original name
-                        class_name.clone()
-                    }
-                } else {
-                    log::debug!(
-                        "Using semantic rename for class '{class_name}' to '{new_name}' in module \
-                         '{module_name}'"
-                    );
-                    new_name.clone()
-                }
-            } else {
-                // No semantic rename, check if there's a conflict
-                if ctx.global_symbols.contains(&class_name) {
-                    // There's a conflict, apply module suffix pattern
-                    let base_name =
-                        self.get_unique_name_with_module_suffix(&class_name, module_name);
-                    generate_unique_name(&base_name, ctx.global_symbols)
-                } else {
-                    // No conflict, use original name
-                    class_name.clone()
-                }
-            }
-        } else {
-            // No semantic rename, check if there's a conflict
-            if ctx.global_symbols.contains(&class_name) {
-                // There's a conflict, apply module suffix pattern
-                let base_name = self.get_unique_name_with_module_suffix(&class_name, module_name);
-                generate_unique_name(&base_name, ctx.global_symbols)
-            } else {
-                // No conflict, use original name
-                class_name.clone()
-            }
-        };
+        let renamed_name = self.resolve_renamed_name(&class_name, module_name, ctx);
 
         // Always track the symbol mapping, even if not renamed
         module_renames.insert(class_name.clone(), renamed_name.clone());
@@ -445,23 +400,7 @@ impl Bundler<'_> {
             // (e.g., from a function or class definition)
             if !module_renames.contains_key(&name) {
                 // Only create a rename if we haven't seen this symbol yet
-                let renamed_name = if let Some(module_rename_map) =
-                    ctx.module_renames.get(module_name)
-                {
-                    if let Some(new_name) = module_rename_map.get(&name) {
-                        new_name.clone()
-                    } else if ctx.global_symbols.contains(&name) {
-                        let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                        generate_unique_name(&base_name, ctx.global_symbols)
-                    } else {
-                        name.clone()
-                    }
-                } else if ctx.global_symbols.contains(&name) {
-                    let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                    generate_unique_name(&base_name, ctx.global_symbols)
-                } else {
-                    name.clone()
-                };
+                let renamed_name = self.resolve_renamed_name(&name, module_name, ctx);
                 module_renames.insert(name.clone(), renamed_name.clone());
                 ctx.global_symbols.insert(renamed_name);
             }
@@ -477,48 +416,7 @@ impl Bundler<'_> {
 
         // Now create a new rename for the LHS
         // Check if this symbol was renamed by semantic analysis
-        let renamed_name = if let Some(module_rename_map) = ctx.module_renames.get(module_name) {
-            if let Some(new_name) = module_rename_map.get(&name) {
-                // Only use semantic rename if it's actually different
-                if new_name == &name {
-                    // Semantic rename is same as original, check if there's a conflict
-                    if ctx.global_symbols.contains(&name) {
-                        // There's a conflict, apply module suffix pattern
-                        let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                        generate_unique_name(&base_name, ctx.global_symbols)
-                    } else {
-                        // No conflict, use original name
-                        name.clone()
-                    }
-                } else {
-                    log::debug!(
-                        "Using semantic rename for variable '{name}' to '{new_name}' in module \
-                         '{module_name}'"
-                    );
-                    new_name.clone()
-                }
-            } else {
-                // No semantic rename, check if there's a conflict
-                if ctx.global_symbols.contains(&name) {
-                    // There's a conflict, apply module suffix pattern
-                    let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                    generate_unique_name(&base_name, ctx.global_symbols)
-                } else {
-                    // No conflict, use original name
-                    name.clone()
-                }
-            }
-        } else {
-            // No semantic rename, check if there's a conflict
-            if ctx.global_symbols.contains(&name) {
-                // There's a conflict, apply module suffix pattern
-                let base_name = self.get_unique_name_with_module_suffix(&name, module_name);
-                generate_unique_name(&base_name, ctx.global_symbols)
-            } else {
-                // No conflict, use original name
-                name.clone()
-            }
-        };
+        let renamed_name = self.resolve_renamed_name(&name, module_name, ctx);
 
         // Always track the symbol mapping, even if not renamed
         module_renames.insert(name.clone(), renamed_name.clone());
@@ -560,49 +458,7 @@ impl Bundler<'_> {
         }
 
         // Check if this symbol was renamed by semantic analysis
-        let renamed_name = if let Some(module_rename_map) = ctx.module_renames.get(module_name) {
-            if let Some(new_name) = module_rename_map.get(&var_name) {
-                // Only use semantic rename if it's actually different
-                if new_name == &var_name {
-                    // Semantic rename is same as original, check if there's a conflict
-                    if ctx.global_symbols.contains(&var_name) {
-                        // There's a conflict, apply module suffix pattern
-                        let base_name =
-                            self.get_unique_name_with_module_suffix(&var_name, module_name);
-                        generate_unique_name(&base_name, ctx.global_symbols)
-                    } else {
-                        // No conflict, use original name
-                        var_name.clone()
-                    }
-                } else {
-                    log::debug!(
-                        "Using semantic rename for annotated variable '{var_name}' to \
-                         '{new_name}' in module '{module_name}'"
-                    );
-                    new_name.clone()
-                }
-            } else {
-                // No semantic rename, check if there's a conflict
-                if ctx.global_symbols.contains(&var_name) {
-                    // There's a conflict, apply module suffix pattern
-                    let base_name = self.get_unique_name_with_module_suffix(&var_name, module_name);
-                    generate_unique_name(&base_name, ctx.global_symbols)
-                } else {
-                    // No conflict, use original name
-                    var_name.clone()
-                }
-            }
-        } else {
-            // No semantic rename, check if there's a conflict
-            if ctx.global_symbols.contains(&var_name) {
-                // There's a conflict, apply module suffix pattern
-                let base_name = self.get_unique_name_with_module_suffix(&var_name, module_name);
-                generate_unique_name(&base_name, ctx.global_symbols)
-            } else {
-                // No conflict, use original name
-                var_name.clone()
-            }
-        };
+        let renamed_name = self.resolve_renamed_name(&var_name, module_name, ctx);
 
         // Always track the symbol mapping, even if not renamed
         module_renames.insert(var_name.clone(), renamed_name.clone());
