@@ -38,6 +38,9 @@ use crate::{
     visitors::ExportCollector,
 };
 
+/// Type alias for complex import generation data structure
+type ImportGeneration = Vec<(String, Vec<(String, Option<String>)>, bool)>;
+
 /// Parameters for transforming functions with lifted globals
 struct TransformFunctionParams<'a> {
     lifted_names: &'a FxIndexMap<String, String>,
@@ -2510,8 +2513,7 @@ impl<'a> Bundler<'a> {
             }
 
             // Collect import statements to generate (to avoid borrow checker issues)
-            let mut imports_to_generate: Vec<(String, Vec<(String, Option<String>)>, bool)> =
-                Vec::new();
+            let mut imports_to_generate: ImportGeneration = Vec::new();
 
             // Analyze dependencies and determine what imports to generate
             for (source_module, deps) in deps_by_source {
