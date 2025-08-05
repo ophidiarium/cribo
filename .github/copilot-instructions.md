@@ -38,7 +38,8 @@ Entry Point → Orchestrator → Analyzers → Code Generator → Bundled Output
    - `namespace_analyzer.rs`: Detects namespace requirements
 
 3. **`code_generator/`** (Transformation Engine)
-   - `bundler.rs`: Main orchestration (72k tokens!)
+   - `bundler.rs`: Main orchestration
+   - `inliner.rs`: Module inlining logic for functions, classes, and assignments
    - `module_transformer.rs`: Module-level AST transformations
    - `expression_handlers.rs`: Creates/analyzes/transforms expressions
    - `namespace_manager.rs`: Manages namespace objects
