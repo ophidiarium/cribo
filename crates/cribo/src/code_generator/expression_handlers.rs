@@ -5,7 +5,7 @@
 
 use log::debug;
 use ruff_python_ast::{
-    ExceptHandler, Expr, ExprAttribute, ExprContext, Identifier, Stmt, StmtClassDef,
+    ExceptHandler, Expr, ExprAttribute, ExprContext, Identifier, Stmt, StmtAssign, StmtClassDef,
     StmtFunctionDef,
 };
 use ruff_text_size::TextRange;
@@ -1172,4 +1172,46 @@ fn rewrite_aliases_in_class(
     for stmt in &mut class_def.body {
         rewrite_aliases_in_stmt(stmt, alias_to_canonical);
     }
+}
+
+/// Extract target name from a simple assignment
+pub fn extract_simple_assign_target(assign: &StmtAssign) -> Option<String> {
+    if assign.targets.len() == 1
+        && let Expr::Name(name) = &assign.targets[0]
+    {
+        return Some(name.id.to_string());
+    }
+    None
+}
+
+/// Check if an assignment is self-referential (e.g., x = x)
+pub fn is_self_referential_assignment(assign: &StmtAssign, python_version: u8) -> bool {
+    // Check if this is a simple assignment with a single target and value
+    if assign.targets.len() == 1
+        && let (Expr::Name(target), Expr::Name(value)) = (&assign.targets[0], assign.value.as_ref())
+    {
+        // Check if target and value have the same name
+        if target.id == value.id {
+            // Special case: Built-in types like `bytes = bytes`, `str = str` are NOT
+            // self-referential They're re-exporting Python's built-in types
+            // through the module's namespace
+            let name = target.id.as_str();
+            if ruff_python_stdlib::builtins::is_python_builtin(name, python_version, false) {
+                log::debug!(
+                    "Assignment '{}' = '{}' is a built-in type re-export, not self-referential",
+                    target.id,
+                    value.id
+                );
+                return false;
+            }
+
+            log::debug!(
+                "Found self-referential assignment: {} = {}",
+                target.id,
+                value.id
+            );
+            return true;
+        }
+    }
+    false
 }
