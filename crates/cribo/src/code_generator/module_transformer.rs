@@ -1900,8 +1900,6 @@ pub fn transform_module_to_cache_init_function(
     ast: ModModule,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
 ) -> Result<Stmt> {
-    use ruff_python_ast::Decorator;
-
     // Call the regular transform_module_to_init_function to get the function
     let stmt = transform_module_to_init_function(bundler, ctx, ast, symbol_renames)?;
 
