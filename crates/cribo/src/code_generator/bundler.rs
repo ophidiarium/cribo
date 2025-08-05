@@ -409,7 +409,7 @@ impl<'a> Bundler<'a> {
     /// Transform bundled import from statement with context and current module
     pub(super) fn transform_bundled_import_from_multiple_with_current_module(
         &self,
-        import_from: StmtImportFrom,
+        import_from: &StmtImportFrom,
         module_name: &str,
         inside_wrapper_init: bool,
         current_module: Option<&str>,
@@ -864,7 +864,7 @@ impl<'a> Bundler<'a> {
         let mut module_renames = FxIndexMap::default();
 
         // Use ModuleSemanticInfo to get ALL exported symbols from the module
-        if let Some(module_info) = semantic_ctx.semantic_bundler.get_module_info(&module_id) {
+        if let Some(module_info) = semantic_ctx.semantic_bundler.get_module_info(module_id) {
             log::debug!(
                 "Module '{}' exports {} symbols: {:?}",
                 module_name,
@@ -885,8 +885,7 @@ impl<'a> Bundler<'a> {
                     );
                 }
 
-                if let Some(new_name) = semantic_ctx.symbol_registry.get_rename(&module_id, symbol)
-                {
+                if let Some(new_name) = semantic_ctx.symbol_registry.get_rename(module_id, symbol) {
                     module_renames.insert(symbol.to_string(), new_name.to_string());
                     log::debug!(
                         "Module '{module_name}': symbol '{symbol}' renamed to '{new_name}'"
@@ -989,7 +988,7 @@ impl<'a> Bundler<'a> {
     /// Transform module to cache init function
     fn transform_module_to_cache_init_function(
         &mut self,
-        ctx: ModuleTransformContext,
+        ctx: &ModuleTransformContext,
         ast: ModModule,
         symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Result<Stmt> {
@@ -1544,7 +1543,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Bundle multiple modules using the hybrid approach
-    pub fn bundle_modules(&mut self, params: BundleParams<'_>) -> Result<ModModule> {
+    pub fn bundle_modules(&mut self, params: &BundleParams<'_>) -> Result<ModModule> {
         let mut final_body = Vec::new();
 
         // Extract the Python version from params
@@ -2454,7 +2453,7 @@ impl<'a> Bundler<'a> {
                     let empty_renames = FxIndexMap::default();
                     // Always use cached init functions to ensure modules are only initialized once
                     let init_function = self.transform_module_to_cache_init_function(
-                        ctx,
+                        &ctx,
                         ast.clone(),
                         &empty_renames,
                     )?;
@@ -3289,7 +3288,7 @@ impl<'a> Bundler<'a> {
                 };
                 // Always use cached init functions to ensure modules are only initialized once
                 let init_function = self.transform_module_to_cache_init_function(
-                    ctx,
+                    &ctx,
                     ast.clone(),
                     &symbol_renames,
                 )?;
@@ -5377,7 +5376,7 @@ impl<'a> Bundler<'a> {
                         global_info,
                         function_globals: &function_globals,
                     };
-                    self.transform_function_body_for_lifted_globals(func_def, &params, init_stmts);
+                    self.transform_function_body_for_lifted_globals(func_def, &params, &init_stmts);
                 }
             }
             Stmt::Assign(assign) => {
@@ -7474,7 +7473,7 @@ impl Bundler<'_> {
         &self,
         func_def: &mut StmtFunctionDef,
         params: &TransformFunctionParams,
-        init_stmts: Vec<Stmt>,
+        init_stmts: &[Stmt],
     ) {
         let mut new_body = Vec::new();
         let mut added_init = false;
@@ -7491,7 +7490,7 @@ impl Bundler<'_> {
 
                 // Add initialization statements after global declarations
                 if !added_init && !init_stmts.is_empty() {
-                    new_body.extend(init_stmts.clone());
+                    new_body.extend(init_stmts.iter().cloned());
                     added_init = true;
                 }
             } else {

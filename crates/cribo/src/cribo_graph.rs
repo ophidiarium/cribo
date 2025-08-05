@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// `CriboGraph`: Advanced dependency graph implementation for Python bundling
 ///
@@ -32,7 +32,7 @@ impl ModuleId {
 
     /// Returns the underlying u32 value of the `ModuleId`
     #[inline]
-    pub const fn as_u32(&self) -> u32 {
+    pub const fn as_u32(self) -> u32 {
         self.0
     }
 }
@@ -342,9 +342,9 @@ impl CriboGraph {
     }
 
     /// Add a new module to the graph
-    pub fn add_module(&mut self, name: String, path: PathBuf) -> ModuleId {
+    pub fn add_module(&mut self, name: String, path: &Path) -> ModuleId {
         // Always work with canonical paths
-        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
+        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
         // Check if this exact import name already exists
         if let Some(&existing_id) = self.module_names.get(&name) {
@@ -593,8 +593,8 @@ mod tests {
     fn test_basic_module_graph() {
         let mut graph = CriboGraph::new();
 
-        let utils_id = graph.add_module("utils".to_string(), PathBuf::from("utils.py"));
-        let main_id = graph.add_module("main".to_string(), PathBuf::from("main.py"));
+        let utils_id = graph.add_module("utils".to_string(), &PathBuf::from("utils.py"));
+        let main_id = graph.add_module("main".to_string(), &PathBuf::from("main.py"));
 
         graph.add_module_dependency(main_id, utils_id);
 
@@ -610,9 +610,9 @@ mod tests {
         let mut graph = CriboGraph::new();
 
         // Create a three-module circular dependency: A -> B -> C -> A
-        let module_a = graph.add_module("module_a".to_string(), PathBuf::from("module_a.py"));
-        let module_b = graph.add_module("module_b".to_string(), PathBuf::from("module_b.py"));
-        let module_c = graph.add_module("module_c".to_string(), PathBuf::from("module_c.py"));
+        let module_a = graph.add_module("module_a".to_string(), &PathBuf::from("module_a.py"));
+        let module_b = graph.add_module("module_b".to_string(), &PathBuf::from("module_b.py"));
+        let module_c = graph.add_module("module_c".to_string(), &PathBuf::from("module_c.py"));
 
         graph.add_module_dependency(module_a, module_b);
         graph.add_module_dependency(module_b, module_c);
@@ -637,9 +637,9 @@ mod tests {
 
         // Create a circular dependency with "constants" in the name
         let constants_a =
-            graph.add_module("constants_a".to_string(), PathBuf::from("constants_a.py"));
+            graph.add_module("constants_a".to_string(), &PathBuf::from("constants_a.py"));
         let constants_b =
-            graph.add_module("constants_b".to_string(), PathBuf::from("constants_b.py"));
+            graph.add_module("constants_b".to_string(), &PathBuf::from("constants_b.py"));
 
         // Add some constant assignments to make these actual constant modules
         if let Some(module_a) = graph.modules.get_mut(&constants_a) {
@@ -710,7 +710,7 @@ mod tests {
 
         // Add a module with a canonical path
         let path = PathBuf::from("src/utils.py");
-        let utils_id = graph.add_module("utils".to_string(), path.clone());
+        let utils_id = graph.add_module("utils".to_string(), &path);
 
         // Add some items to the utils module
         let utils_module = graph
@@ -736,7 +736,7 @@ mod tests {
         });
 
         // Add the same file with a different import name
-        let alt_utils_id = graph.add_module("src.utils".to_string(), path);
+        let alt_utils_id = graph.add_module("src.utils".to_string(), &path);
 
         // Verify that both modules exist
         assert!(graph.modules.contains_key(&utils_id));

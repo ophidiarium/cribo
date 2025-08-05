@@ -220,7 +220,7 @@ pub fn create_reassignment(original_name: &str, renamed_name: &str) -> Stmt {
 /// Create assignments for inlined imports
 #[allow(clippy::too_many_arguments)]
 pub fn create_assignments_for_inlined_imports(
-    import_from: StmtImportFrom,
+    import_from: &StmtImportFrom,
     module_name: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     module_registry: &FxIndexMap<String, String>,

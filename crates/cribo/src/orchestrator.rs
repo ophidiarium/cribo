@@ -225,8 +225,7 @@ impl BundleOrchestrator {
             // we need to add it to the graph
             let module_id = if let Some(graph) = graph {
                 if cached.module_id.is_none() {
-                    let module_id =
-                        graph.add_module(module_name.to_string(), module_path.to_path_buf());
+                    let module_id = graph.add_module(module_name.to_string(), module_path);
 
                     // Perform semantic analysis
                     self.semantic_bundler.analyze_module(
@@ -266,7 +265,7 @@ impl BundleOrchestrator {
         // Step 1: Read and parse (ONLY place where parse_module is called)
         let source = fs::read_to_string(module_path)
             .with_context(|| format!("Failed to read file: {module_path:?}"))?;
-        let source = normalize_line_endings(source);
+        let source = normalize_line_endings(&source);
 
         let parsed = ruff_python_parser::parse_module(&source)
             .with_context(|| format!("Failed to parse Python file: {module_path:?}"))?;
@@ -274,7 +273,7 @@ impl BundleOrchestrator {
 
         // Step 2: Add to graph and perform semantic analysis (if graph provided)
         let module_id = if let Some(graph) = graph {
-            let module_id = graph.add_module(module_name.to_string(), module_path.to_path_buf());
+            let module_id = graph.add_module(module_name.to_string(), module_path);
 
             // Semantic analysis on raw AST
             self.semantic_bundler
@@ -673,7 +672,7 @@ impl BundleOrchestrator {
 
         // Generate bundled code
         info!("Using hybrid static bundler");
-        let bundled_code = self.emit_static_bundle(StaticBundleParams {
+        let bundled_code = self.emit_static_bundle(&StaticBundleParams {
             sorted_modules: &module_data,
             parsed_modules: Some(&parsed_modules),
             resolver: &resolver,
@@ -717,7 +716,7 @@ impl BundleOrchestrator {
 
         // Generate bundled code
         info!("Using hybrid static bundler");
-        let bundled_code = self.emit_static_bundle(StaticBundleParams {
+        let bundled_code = self.emit_static_bundle(&StaticBundleParams {
             sorted_modules: &sorted_modules,
             parsed_modules: Some(&parsed_modules), // Use pre-parsed modules to avoid double parsing
             resolver: &resolver,
@@ -942,7 +941,7 @@ impl BundleOrchestrator {
                     &import,
                     is_in_error_handler,
                     import_type,
-                    package_context,
+                    &package_context,
                     &mut discovery_params,
                 )?;
             }
@@ -1327,7 +1326,7 @@ impl BundleOrchestrator {
         import: &str,
         is_in_error_handler: bool,
         import_type: Option<crate::visitors::ImportType>,
-        package_context: Option<String>,
+        package_context: &Option<String>,
         params: &mut DiscoveryParams,
     ) -> Result<()> {
         // Special handling for ImportlibStatic imports that might have invalid Python identifiers
@@ -1524,7 +1523,7 @@ impl BundleOrchestrator {
     }
 
     /// Emit bundle using static bundler (no exec calls)
-    fn emit_static_bundle(&mut self, params: StaticBundleParams<'_>) -> Result<String> {
+    fn emit_static_bundle(&mut self, params: &StaticBundleParams<'_>) -> Result<String> {
         // First, detect and resolve conflicts after all modules have been analyzed
         let conflicts = self.semantic_bundler.detect_and_resolve_conflicts();
         if !conflicts.is_empty() {
@@ -1607,7 +1606,7 @@ impl BundleOrchestrator {
         }
 
         // Bundle all modules using static bundler
-        let bundled_ast = static_bundler.bundle_modules(crate::code_generator::BundleParams {
+        let bundled_ast = static_bundler.bundle_modules(&crate::code_generator::BundleParams {
             modules: &module_asts,
             sorted_modules: params.sorted_modules,
             entry_module_name: params.entry_module_name,
