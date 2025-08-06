@@ -121,7 +121,7 @@ impl ModuleResolver {
     pub fn set_entry_file(&mut self, entry_path: &Path) {
         if let Some(parent) = entry_path.parent() {
             self.entry_dir = Some(parent.to_path_buf());
-            debug!("Set entry directory to: {:?}", self.entry_dir);
+            debug!("Set entry directory to: {}", parent.display());
         }
     }
 
@@ -354,7 +354,7 @@ impl ModuleResolver {
                 // Single component - try as direct file
                 let file_path = search_dir.join(format!("{resolved_name}.py"));
                 if file_path.is_file() {
-                    debug!("Found ImportlibStatic module at: {file_path:?}");
+                    debug!("Found ImportlibStatic module at: {}", file_path.display());
                     let canonical = self.canonicalize_path(file_path);
                     return Ok(Some((resolved_name.clone(), canonical)));
                 }
@@ -367,7 +367,7 @@ impl ModuleResolver {
                     // Last component - try as file
                     let file_path = module_path.join(format!("{component}.py"));
                     if file_path.is_file() {
-                        debug!("Found ImportlibStatic module at: {file_path:?}");
+                        debug!("Found ImportlibStatic module at: {}", file_path.display());
                         let canonical = self.canonicalize_path(file_path);
                         return Ok(Some((resolved_name.clone(), canonical)));
                     }
@@ -378,7 +378,7 @@ impl ModuleResolver {
             // Try as a package directory with __init__.py
             let init_path = module_path.join("__init__.py");
             if init_path.is_file() {
-                debug!("Found ImportlibStatic package at: {init_path:?}");
+                debug!("Found ImportlibStatic package at: {}", init_path.display());
                 let canonical = self.canonicalize_path(init_path);
                 return Ok(Some((resolved_name.clone(), canonical)));
             }
@@ -416,7 +416,7 @@ impl ModuleResolver {
                 // Check for package first
                 let package_init = current_path.join(part).join("__init__.py");
                 if package_init.is_file() {
-                    debug!("Found package at: {package_init:?}");
+                    debug!("Found package at: {}", package_init.display());
                     let canonical = self.canonicalize_path(package_init);
                     return Ok(Some(canonical));
                 }
@@ -424,7 +424,7 @@ impl ModuleResolver {
                 // Check for module file
                 let module_file = current_path.join(format!("{part}.py"));
                 if module_file.is_file() {
-                    debug!("Found module file at: {module_file:?}");
+                    debug!("Found module file at: {}", module_file.display());
                     let canonical = self.canonicalize_path(module_file);
                     return Ok(Some(canonical));
                 }
@@ -432,7 +432,7 @@ impl ModuleResolver {
                 // Check for namespace package (directory without __init__.py)
                 let namespace_dir = current_path.join(part);
                 if namespace_dir.is_dir() {
-                    debug!("Found namespace package at: {namespace_dir:?}");
+                    debug!("Found namespace package at: {}", namespace_dir.display());
                     // Return the directory path to indicate this is a namespace package
                     let canonical = self.canonicalize_path(namespace_dir);
                     return Ok(Some(canonical));

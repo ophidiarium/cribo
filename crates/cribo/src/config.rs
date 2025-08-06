@@ -236,10 +236,10 @@ impl Config {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Config> {
         let path = path.as_ref();
         let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read config file: {path:?}"))?;
+            .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
         let config: Config = toml::from_str(&content)
-            .with_context(|| format!("Failed to parse config file: {path:?}"))?;
+            .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
 
         // Validate the target version
         config.python_version().with_context(|| {
@@ -258,9 +258,14 @@ impl Config {
         context: &str,
     ) -> Result<()> {
         if path.as_ref().exists() {
-            log::debug!("Loading {} from: {:?}", context, path.as_ref());
-            let loaded = Self::load_from_file(&path)
-                .with_context(|| format!("Failed to load {} from {:?}", context, path.as_ref()))?;
+            log::debug!("Loading {} from: {}", context, path.as_ref().display());
+            let loaded = Self::load_from_file(&path).with_context(|| {
+                format!(
+                    "Failed to load {} from {}",
+                    context,
+                    path.as_ref().display()
+                )
+            })?;
             *config = loaded.combine(config.clone());
         }
         Ok(())
