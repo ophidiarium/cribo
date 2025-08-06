@@ -433,13 +433,15 @@ pub(super) fn generate_predeclarations(
     for ((module, symbol), module_level_deps) in &bundler.symbol_dep_graph.module_level_dependencies
     {
         if bundler.circular_modules.contains(module) && !module_level_deps.is_empty() {
+            // Create symbol_key once outside the inner loop since it doesn't change
+            let symbol_key = (module.clone(), symbol.clone());
+
             // Check each module-level dependency
             for (dep_module, dep_symbol) in module_level_deps {
                 if bundler.circular_modules.contains(dep_module) {
                     // Get the order indices
                     // Note: We clone here for the lookup, but this is only done for circular
                     // modules which are typically a small subset of all modules
-                    let symbol_key = (module.clone(), symbol.clone());
                     let dep_key = (dep_module.clone(), dep_symbol.clone());
 
                     if let (Some(&sym_idx), Some(&dep_idx)) = (
