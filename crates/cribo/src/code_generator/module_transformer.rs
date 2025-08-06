@@ -24,11 +24,12 @@ use crate::{
     ast_builder,
     code_generator::{
         bundler::Bundler,
-        context::ModuleTransformContext,
+        context::{ModuleTransformContext, ProcessGlobalsParams, SemanticContext},
         expression_handlers,
         globals::{GlobalsLifter, transform_globals_in_stmt},
         import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
+        module_registry,
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -1953,4 +1954,80 @@ pub fn sort_wrapper_modules_by_dependencies(
         .collect();
 
     Ok(sorted_modules)
+}
+
+/// Process wrapper modules: sort them, handle globals, and generate init functions
+pub fn process_wrapper_modules(
+    bundler: &mut Bundler,
+    wrapper_modules: &[(String, ModModule, PathBuf, String)],
+    wrapper_modules_needed_by_inlined: &FxIndexSet<String>,
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    semantic_ctx: &SemanticContext,
+    python_version: u8,
+) -> Result<Vec<Stmt>> {
+    let mut result = Vec::new();
+
+    // Sort wrapper modules by dependencies
+    let sorted_wrapper_modules =
+        sort_wrapper_modules_by_dependencies(wrapper_modules, semantic_ctx.graph)?;
+
+    // Process globals for all wrapper modules
+    let mut module_globals = FxIndexMap::default();
+    let mut all_lifted_declarations = Vec::new();
+
+    for (module_name, ast, _, _) in &sorted_wrapper_modules {
+        let params = ProcessGlobalsParams {
+            module_name,
+            ast,
+            semantic_ctx,
+        };
+        crate::code_generator::globals::process_wrapper_module_globals(
+            &params,
+            &mut module_globals,
+            &mut all_lifted_declarations,
+        );
+    }
+
+    // Add lifted declarations if any
+    if !all_lifted_declarations.is_empty() {
+        debug!(
+            "Adding {} lifted global declarations for wrapper modules",
+            all_lifted_declarations.len()
+        );
+        result.extend(all_lifted_declarations.iter().cloned());
+        bundler
+            .lifted_global_declarations
+            .extend(all_lifted_declarations);
+    }
+
+    // Transform wrapper modules to init functions
+    for (module_name, ast, module_path, _) in &sorted_wrapper_modules {
+        // Skip modules that were already defined early for inlined module dependencies
+        if wrapper_modules_needed_by_inlined.contains(module_name) {
+            log::debug!("Skipping wrapper module '{module_name}' - already defined early");
+            continue;
+        }
+
+        let synthetic_name = &bundler.module_registry[module_name];
+        let global_info = module_globals.get(module_name).cloned();
+        let ctx = ModuleTransformContext {
+            module_name,
+            synthetic_name,
+            module_path,
+            global_info,
+            semantic_bundler: Some(semantic_ctx.semantic_bundler),
+            python_version,
+        };
+
+        // Always use cached init functions to ensure modules are only initialized once
+        let init_function =
+            transform_module_to_cache_init_function(bundler, &ctx, ast.clone(), symbol_renames)?;
+
+        result.push(init_function);
+    }
+
+    // Generate module registries and hook (always using module cache for wrapper modules)
+    result.extend(module_registry::generate_registries_and_hook());
+
+    Ok(result)
 }

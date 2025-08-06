@@ -2801,69 +2801,15 @@ impl<'a> Bundler<'a> {
         // Now transform wrapper modules into init functions AFTER inlining
         // This way we have access to symbol_renames for proper import resolution
         if has_wrapper_modules {
-            // Process all wrapper modules for globals
-            let mut module_globals = FxIndexMap::default();
-            let mut all_lifted_declarations = Vec::new();
-            for (module_name, ast, _, _) in &sorted_wrapper_modules {
-                let params = ProcessGlobalsParams {
-                    module_name,
-                    ast,
-                    semantic_ctx: &semantic_ctx,
-                };
-                crate::code_generator::globals::process_wrapper_module_globals(
-                    &params,
-                    &mut module_globals,
-                    &mut all_lifted_declarations,
-                );
-            }
-
-            // Store all lifted declarations
-            debug!(
-                "Collected {} total lifted declarations",
-                all_lifted_declarations.len()
-            );
-            self.lifted_global_declarations = all_lifted_declarations.clone();
-
-            // Add lifted global declarations to final body before init functions
-            if !all_lifted_declarations.is_empty() {
-                debug!(
-                    "Adding {} lifted global declarations to final body",
-                    all_lifted_declarations.len()
-                );
-                final_body.extend(all_lifted_declarations);
-            }
-
-            // Second pass: transform modules with global info
-            for (module_name, ast, module_path, _content_hash) in &sorted_wrapper_modules {
-                // Skip modules that were already defined early for inlined module dependencies
-                if wrapper_modules_needed_by_inlined.contains(module_name) {
-                    log::debug!("Skipping wrapper module '{module_name}' - already defined early");
-                    continue;
-                }
-
-                let synthetic_name = self.module_registry[module_name].clone();
-                let global_info = module_globals.get(module_name).cloned();
-                let ctx = ModuleTransformContext {
-                    module_name,
-                    synthetic_name: &synthetic_name,
-                    module_path,
-                    global_info,
-                    semantic_bundler: Some(semantic_ctx.semantic_bundler),
-                    python_version,
-                };
-                // Always use cached init functions to ensure modules are only initialized once
-                let init_function = module_transformer::transform_module_to_cache_init_function(
-                    self,
-                    &ctx,
-                    ast.clone(),
-                    &symbol_renames,
-                )?;
-                final_body.push(init_function);
-            }
-
-            // Now add the registries after init functions are defined
-            final_body
-                .extend(crate::code_generator::module_registry::generate_registries_and_hook());
+            let wrapper_stmts = module_transformer::process_wrapper_modules(
+                self,
+                &wrapper_modules_saved,
+                &wrapper_modules_needed_by_inlined,
+                &symbol_renames,
+                &semantic_ctx,
+                python_version,
+            )?;
+            final_body.extend(wrapper_stmts);
         }
 
         // Initialize wrapper modules in dependency order AFTER inlined modules are defined
@@ -4019,7 +3965,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Find modules that are imported directly
-    fn find_directly_imported_modules(
+    pub(super) fn find_directly_imported_modules(
         &self,
         modules: &[(String, ModModule, PathBuf, String)],
         entry_module_name: &str,
@@ -6817,7 +6763,7 @@ impl Bundler<'_> {
     /// A submodule needs a namespace if:
     /// 1. Its parent module is inlined
     /// 2. The submodule has exports (meaning it's not just internal)
-    fn submodule_needs_namespace(&self, module_name: &str) -> bool {
+    pub(super) fn submodule_needs_namespace(&self, module_name: &str) -> bool {
         if let Some(parent_module) = module_name.rsplit_once('.').map(|(parent, _)| parent) {
             if self.inlined_modules.contains(parent_module)
                 && self
