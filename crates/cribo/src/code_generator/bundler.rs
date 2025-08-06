@@ -1241,6 +1241,13 @@ impl<'a> Bundler<'a> {
         }
     }
 
+    /// Check if a file is __init__.py or __main__.py
+    fn is_package_init_or_main(path: &std::path::Path) -> bool {
+        path.file_name()
+            .and_then(|f| f.to_str())
+            .is_some_and(|name| name == "__init__.py" || name == "__main__.py")
+    }
+
     /// Initialize the bundler with parameters and basic settings
     fn initialize_bundler(&mut self, params: &BundleParams<'_>) {
         // Store tree shaking decisions if provided
@@ -1291,16 +1298,14 @@ impl<'a> Bundler<'a> {
             .iter()
             .find(|(name, _, _, _)| name == params.entry_module_name)
         {
-            let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
-            file_name == "__init__.py" || file_name == "__main__.py"
+            Self::is_package_init_or_main(path)
         } else if let Some((_, path, _)) = params
             .sorted_modules
             .iter()
             .find(|(name, _, _)| name == params.entry_module_name)
         {
             // Fallback to sorted_modules if not found in modules
-            let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            file_name == "__init__.py" || file_name == "__main__.py"
+            Self::is_package_init_or_main(path)
         } else {
             false
         };
