@@ -61,6 +61,10 @@ pub struct RecursiveImportTransformer<'a> {
     /// Track imports from wrapper modules that need to be rewritten
     /// Maps local name to (`wrapper_module`, `original_name`)
     wrapper_module_imports: FxIndexMap<String, (String, String)>,
+    /// Track which modules have already been populated with symbols in this transformation session
+    /// This prevents duplicate namespace assignments when multiple imports reference the same
+    /// module
+    populated_modules: FxIndexSet<String>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -82,6 +86,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             importlib_inlined_modules: FxIndexMap::default(),
             created_namespace_objects: false,
             wrapper_module_imports: FxIndexMap::default(),
+            populated_modules: FxIndexSet::default(),
         }
     }
 
@@ -484,6 +489,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.bundler,
                         import_stmt.clone(),
                         self.symbol_renames,
+                        &mut self.populated_modules,
                     );
                     log::debug!(
                         "rewrite_import_with_renames for module '{}': import {:?} -> {} statements",
@@ -1963,6 +1969,7 @@ fn rewrite_import_with_renames(
     bundler: &Bundler,
     import_stmt: StmtImport,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    populated_modules: &mut FxIndexSet<String>,
 ) -> Vec<Stmt> {
     // Check each import individually
     let mut result_stmts = Vec::new();
@@ -2019,7 +2026,10 @@ fn rewrite_import_with_renames(
                         for i in 1..=parts.len() {
                             let partial_module = parts[..i].join(".");
                             // Only populate if this module was actually bundled and has exports
-                            if bundler.bundled_modules.contains(&partial_module) {
+                            // AND we haven't already populated it in this session
+                            if bundler.bundled_modules.contains(&partial_module)
+                                && !populated_modules.contains(&partial_module)
+                            {
                                 // Note: This is a limitation - we can't mutate
                                 // namespace_assignments_made
                                 // from here since bundler is immutable. This will be handled during
@@ -2041,6 +2051,7 @@ fn rewrite_import_with_renames(
                                     symbol_renames,
                                 );
                                 result_stmts.extend(new_stmts);
+                                populated_modules.insert(partial_module.clone());
                             }
                         }
                     } else {
@@ -2124,24 +2135,33 @@ fn rewrite_import_with_renames(
                     result_stmts.push(namespace_stmt);
                 }
 
-                // Always populate the namespace with symbols
-                // Note: This is a limitation - we can't mutate namespace_assignments_made
-                // from here since bundler is immutable. This will be handled during
-                // the main bundle process where bundler is mutable.
-                log::debug!(
-                    "Cannot track namespace assignments for '{module_name}' in import transformer \
-                     due to immutability"
-                );
-                // For now, we'll create the statements without tracking duplicates
-                let mut temp_assignments = FxIndexSet::default();
-                let mut ctx = create_namespace_population_context(bundler, &mut temp_assignments);
-                let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                    &mut ctx,
-                    target_name.as_str(),
-                    module_name,
-                    symbol_renames,
-                );
-                result_stmts.extend(new_stmts);
+                // Populate the namespace with symbols only if not already populated
+                if !populated_modules.contains(module_name) {
+                    // Note: This is a limitation - we can't mutate namespace_assignments_made
+                    // from here since bundler is immutable. This will be handled during
+                    // the main bundle process where bundler is mutable.
+                    log::debug!(
+                        "Cannot track namespace assignments for '{module_name}' in import \
+                         transformer due to immutability"
+                    );
+                    // For now, we'll create the statements without tracking duplicates
+                    let mut temp_assignments = FxIndexSet::default();
+                    let mut ctx =
+                        create_namespace_population_context(bundler, &mut temp_assignments);
+                    let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                        &mut ctx,
+                        target_name.as_str(),
+                        module_name,
+                        symbol_renames,
+                    );
+                    result_stmts.extend(new_stmts);
+                    populated_modules.insert(module_name.to_string());
+                } else {
+                    log::debug!(
+                        "Skipping namespace population for '{module_name}' - already populated in \
+                         this transformation session"
+                    );
+                }
             }
         }
     }
