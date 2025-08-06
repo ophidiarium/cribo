@@ -1981,13 +1981,11 @@ pub fn process_wrapper_modules(
             ast,
             semantic_ctx,
         };
-        let mut lifted_declarations = Vec::new();
         crate::code_generator::globals::process_wrapper_module_globals(
             &params,
             &mut module_globals,
-            &mut lifted_declarations,
+            &mut all_lifted_declarations,
         );
-        all_lifted_declarations.extend(lifted_declarations);
     }
 
     // Add lifted declarations if any
