@@ -3969,21 +3969,19 @@ impl<'a> Bundler<'a> {
             final_body.extend(deduped_imports);
         }
 
-        // Add hoisted imports at the beginning of final_body
-        // This is done here after all transformations to ensure we capture all needed imports
-        let mut hoisted_imports = Vec::new();
-        import_deduplicator::add_hoisted_imports(self, &mut hoisted_imports);
-
         // Generate all registered namespaces upfront to avoid duplicates
         let namespace_statements = self.generate_all_namespaces();
 
         // If we're generating any namespace statements, ensure types is imported
         if !namespace_statements.is_empty() {
             import_deduplicator::add_stdlib_import(self, "types");
-            // Regenerate hoisted imports to include types
-            hoisted_imports.clear();
-            import_deduplicator::add_hoisted_imports(self, &mut hoisted_imports);
         }
+
+        // Add hoisted imports at the beginning of final_body
+        // This is done here after all transformations and after determining
+        // all necessary imports (including types for namespaces)
+        let mut hoisted_imports = Vec::new();
+        import_deduplicator::add_hoisted_imports(self, &mut hoisted_imports);
 
         // Build final body: imports -> namespaces -> rest of code
         hoisted_imports.extend(namespace_statements);
