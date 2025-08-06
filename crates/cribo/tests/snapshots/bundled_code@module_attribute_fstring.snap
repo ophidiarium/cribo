@@ -7,13 +7,15 @@ input_file: crates/cribo/tests/fixtures/module_attribute_fstring/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
+mypackage_utils = types.SimpleNamespace()
+mypackage_utils.__name__ = 'mypackage.utils'
+mypackage_constants = types.SimpleNamespace()
+mypackage_constants.__name__ = 'mypackage.constants'
 mypackage = types.SimpleNamespace()
 mypackage.__name__ = 'mypackage'
 VERSION = "1.0.0"
 def get_version():
     return VERSION
-mypackage_utils = types.SimpleNamespace()
-mypackage_constants = types.SimpleNamespace()
 mypackage.constants = mypackage_constants
 mypackage.utils = mypackage_utils
 mypackage.get_version = get_version

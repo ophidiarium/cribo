@@ -10,6 +10,8 @@ import functools
 import re
 import types
 import typing
+utils_validation = types.SimpleNamespace()
+utils_validation.__name__ = 'utils.validation'
 schemas = types.SimpleNamespace()
 schemas.__name__ = 'schemas'
 utils = types.SimpleNamespace()
@@ -67,7 +69,6 @@ def validate_email(email: str) -> bool:
 """Utils package initialization."""
 """Validation utilities."""
 """Schemas package initialization."""
-utils_validation = types.SimpleNamespace()
 utils.validation = utils_validation
 utils_validation.validate_email = validate_email
 """Pydantic test project entry point."""

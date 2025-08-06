@@ -38,6 +38,21 @@ use crate::{
 /// Type alias for complex import generation data structure
 type ImportGeneration = Vec<(String, Vec<(String, Option<String>)>, bool)>;
 
+/// Information about a namespace that needs to be created
+#[derive(Debug, Clone)]
+pub struct NamespaceInfo {
+    /// The original module path (e.g., "pkg.compat")
+    pub original_path: String,
+    /// Whether this namespace needs an alias (e.g., compat = pkg_compat)
+    pub needs_alias: bool,
+    /// The alias name if needs_alias is true (e.g., "compat")
+    pub alias_name: Option<String>,
+    /// Attributes to set on this namespace (attr_name, value_name)
+    pub attributes: Vec<(String, String)>,
+    /// Parent module that this is an attribute of (e.g., "pkg" for "pkg.compat")
+    pub parent_module: Option<String>,
+}
+
 /// Result of module classification
 struct ClassificationResult {
     inlinable_modules: Vec<(String, ModModule, PathBuf, String)>,
@@ -112,8 +127,10 @@ pub struct Bundler<'a> {
     /// Track all namespaces that need to be created before module initialization
     /// This ensures parent namespaces exist before any submodule assignments
     pub(crate) required_namespaces: FxIndexSet<String>,
+    /// Central registry of all namespaces that need to be created
+    /// Maps sanitized name to NamespaceInfo
+    pub(crate) namespace_registry: FxIndexMap<String, NamespaceInfo>,
     /// Runtime tracking of all created namespaces to prevent duplicates
-    /// This includes both pre-identified and dynamically created namespaces
     pub(crate) created_namespaces: FxIndexSet<String>,
     /// Modules that have explicit __all__ defined
     pub(crate) modules_with_explicit_all: FxIndexSet<String>,
@@ -196,6 +213,7 @@ impl<'a> Bundler<'a> {
             module_asts: None,
             global_deferred_imports: FxIndexMap::default(),
             required_namespaces: FxIndexSet::default(),
+            namespace_registry: FxIndexMap::default(),
             created_namespaces: FxIndexSet::default(),
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
@@ -345,28 +363,43 @@ impl<'a> Bundler<'a> {
                 // Filter out self-referential assignments to inlined submodules
                 // For example: pkg.compat = compat where pkg.compat is an inlined module
                 // This is problematic when 'compat' doesn't exist as a separate namespace
+                // BUT: Don't filter if the right-hand side is a local variable (not the module itself)
                 if is_bundled_submodule
                     && value_is_same_as_attr
                     && self.inlined_modules.contains(&full_path)
                 {
-                    // This assignment is trying to assign a submodule to itself
-                    // For inlined submodules, we should always filter this out as it will be
-                    // handled by the alias creation (e.g., compat = pkg_compat)
-                    let sanitized_name =
-                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                            &full_path,
-                        );
+                    // Check if the value exists as a local variable
+                    // If it does, this is NOT self-referential - it's assigning a local value
+                    let value_is_local_var = local_variables
+                        .map(|vars| vars.contains(value.id.as_str()))
+                        .unwrap_or(false);
+                    if !value_is_local_var {
+                        // This assignment is trying to assign a submodule to itself
+                        // For inlined submodules, we should always filter this out as it will be
+                        // handled by the alias creation (e.g., compat = pkg_compat)
+                        let sanitized_name =
+                            crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                                &full_path,
+                            );
 
-                    log::debug!(
-                        "Filtering out self-referential assignment: {}.{} = {} (inlined \
-                         submodule, will use alias '{} = {}')",
-                        base.id.as_str(),
-                        attr.attr.as_str(),
-                        value.id.as_str(),
-                        value.id.as_str(),
-                        sanitized_name
-                    );
-                    return false;
+                        log::debug!(
+                            "Filtering out self-referential assignment: {}.{} = {} (inlined \
+                             submodule, will use alias '{} = {}')",
+                            base.id.as_str(),
+                            attr.attr.as_str(),
+                            value.id.as_str(),
+                            value.id.as_str(),
+                            sanitized_name
+                        );
+                        return false;
+                    } else {
+                        log::debug!(
+                            "Keeping assignment: {}.{} = {} (value is local variable, not self-referential)",
+                            base.id.as_str(),
+                            attr.attr.as_str(),
+                            value.id.as_str()
+                        );
+                    }
                 }
 
                 if is_submodule_with_init && value_is_same_as_attr {
@@ -2005,19 +2038,98 @@ impl<'a> Bundler<'a> {
             }
         }
 
+        // Register all inlined submodules that will need namespaces
+        {
+            let inlined_submodules: Vec<_> = self
+                .inlined_modules
+                .iter()
+                .filter(|name| name.contains('.'))
+                .cloned()
+                .collect();
+
+            for module_name in inlined_submodules {
+                // Skip special modules like __version__, __about__, etc.
+                // These are typically imported for their contents, not used as namespaces
+                if let Some((_, last_part)) = module_name.rsplit_once('.')
+                    && last_part.starts_with("__")
+                    && last_part.ends_with("__")
+                {
+                    log::debug!(
+                        "Skipping namespace registration for special module: {module_name}"
+                    );
+                    continue;
+                }
+
+                // Extract parent module if it exists
+                let parent = module_name.rsplit_once('.').map(|(p, _)| p.to_string());
+                self.register_namespace(&module_name, false, None);
+
+                // Set parent module relationship if applicable
+                if let Some(ref parent_module) = parent {
+                    let sanitized = sanitize_module_name_for_identifier(&module_name);
+                    if let Some(info) = self.namespace_registry.get_mut(&sanitized) {
+                        info.parent_module = Some(parent_module.clone());
+                    }
+                }
+            }
+        }
+
         // Process normalized imports from inlined modules to ensure they are hoisted
-        for (_module_name, ast, _, _) in &inlinable_modules {
-            // Scan for import statements and add normalized stdlib imports to our hoisted list
+        // Also pre-scan for namespace requirements
+        for (_module_name, ast, module_path, _) in &inlinable_modules {
+            // Scan for import statements
             for stmt in &ast.body {
-                if let Stmt::Import(import_stmt) = stmt {
-                    for alias in &import_stmt.names {
-                        let module_name = alias.name.as_str();
-                        if is_safe_stdlib_module(module_name) && alias.asname.is_none() {
-                            // This is a normalized stdlib import (no alias), ensure it's
-                            // hoisted
-                            import_deduplicator::add_stdlib_import(self, module_name);
+                match stmt {
+                    Stmt::Import(import_stmt) => {
+                        for alias in &import_stmt.names {
+                            let imported_name = alias.name.as_str();
+                            if is_safe_stdlib_module(imported_name) && alias.asname.is_none() {
+                                // This is a normalized stdlib import (no alias), ensure it's
+                                // hoisted
+                                import_deduplicator::add_stdlib_import(self, imported_name);
+                            }
                         }
                     }
+                    Stmt::ImportFrom(import_from) => {
+                        // Check if this is an import from an inlined module
+                        let resolved_module = if import_from.level > 0 {
+                            self.resolver.resolve_relative_to_absolute_module_name(
+                                import_from.level,
+                                import_from.module.as_ref().map(|m| m.as_str()),
+                                module_path,
+                            )
+                        } else {
+                            import_from.module.as_ref().map(|m| m.as_str().to_string())
+                        };
+
+                        if let Some(ref resolved) = resolved_module
+                            && self.inlined_modules.contains(resolved)
+                        {
+                            // Skip special modules like __version__, __about__, etc.
+                            if let Some((_, last_part)) = resolved.rsplit_once('.')
+                                && last_part.starts_with("__")
+                                && last_part.ends_with("__")
+                            {
+                                log::debug!(
+                                    "Skipping namespace registration for special module during \
+                                     import processing: {resolved}"
+                                );
+                                continue;
+                            }
+
+                            // This import will need a namespace object
+                            let needs_alias = import_from.names.iter().any(|alias| {
+                                alias.asname.is_some() || alias.name.as_str() != resolved
+                            });
+                            let alias_name = import_from
+                                .names
+                                .first()
+                                .and_then(|alias| alias.asname.as_ref())
+                                .map(|name| name.as_str().to_string());
+                            self.register_namespace(resolved, needs_alias, alias_name);
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -2705,26 +2817,26 @@ impl<'a> Bundler<'a> {
                 } else if self.inlined_modules.contains(module_name)
                     && !self.module_registry.contains_key(module_name)
                 {
+                    // Skip special modules like __version__, __about__, etc.
+                    if let Some((_, last_part)) = module_name.rsplit_once('.')
+                        && last_part.starts_with("__")
+                        && last_part.ends_with("__")
+                    {
+                        log::debug!(
+                            "Skipping namespace registration for special module with no symbols: \
+                             {module_name}"
+                        );
+                        continue;
+                    }
+
                     // Module has no symbols in symbol_renames but is still an inlined module
                     // We need to create an empty namespace for it
                     log::debug!(
                         "Module '{module_name}' has no symbols but needs a namespace object"
                     );
 
-                    let namespace_var = sanitize_module_name_for_identifier(module_name);
-                    let namespace_already_exists = self.created_namespaces.contains(&namespace_var);
-
-                    if !namespace_already_exists {
-                        // Create empty namespace = types.SimpleNamespace()
-                        let namespace_stmt = statements::simple_assign(
-                            &namespace_var,
-                            expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
-                        );
-                        final_body.push(namespace_stmt);
-
-                        // Track the created namespace
-                        self.created_namespaces.insert(namespace_var);
-                    }
+                    // Register the namespace - it will be created upfront
+                    self.register_namespace(module_name, false, None);
                 }
             }
         }
@@ -3868,9 +3980,19 @@ impl<'a> Bundler<'a> {
         let mut hoisted_imports = Vec::new();
         import_deduplicator::add_hoisted_imports(self, &mut hoisted_imports);
 
-        // Note: Namespace statements are now created earlier, before module inlining
-        // to ensure they exist when module code references them
+        // Generate all registered namespaces upfront to avoid duplicates
+        let namespace_statements = self.generate_all_namespaces();
 
+        // If we're generating any namespace statements, ensure types is imported
+        if !namespace_statements.is_empty() {
+            import_deduplicator::add_stdlib_import(self, "types");
+            // Regenerate hoisted imports to include types
+            hoisted_imports.clear();
+            import_deduplicator::add_hoisted_imports(self, &mut hoisted_imports);
+        }
+
+        // Build final body: imports -> namespaces -> rest of code
+        hoisted_imports.extend(namespace_statements);
         hoisted_imports.extend(final_body);
         final_body = hoisted_imports;
 
@@ -3880,9 +4002,9 @@ impl<'a> Bundler<'a> {
             final_body = self.fix_forward_references_in_statements(final_body);
         }
 
-        // Deduplicate namespace assignments that may have been created multiple times
-        // This happens when processing imports like `import mypackage` and `import mypackage.utils`
-        final_body = self.deduplicate_namespace_assignments(final_body);
+        // Deduplicate namespace creation statements that were created by different systems
+        // This is a targeted fix for the specific duplicate pattern we're seeing
+        final_body = self.deduplicate_namespace_creation_statements(final_body);
 
         // Final filter: Remove any invalid assignments where module.attr = attr and attr is a
         // submodule that doesn't exist as a local variable
@@ -3920,9 +4042,6 @@ impl<'a> Bundler<'a> {
         // This happens when all importlib.import_module() calls were transformed
         import_deduplicator::remove_unused_importlib(&mut result);
 
-        // Deduplicate namespace creation statements
-        self.deduplicate_namespace_creations(&mut result);
-
         // Log transformation statistics
         let stats = self.transformation_context.get_stats();
         log::info!("Transformation statistics:");
@@ -3932,62 +4051,130 @@ impl<'a> Bundler<'a> {
         Ok(result)
     }
 
-    /// Deduplicate namespace creation statements (var = `types.SimpleNamespace()`)
-    fn deduplicate_namespace_creations(&self, module: &mut ModModule) {
-        
+    /// Register a namespace that needs to be created
+    pub fn register_namespace(
+        &mut self,
+        module_path: &str,
+        needs_alias: bool,
+        alias_name: Option<String>,
+    ) -> String {
+        let sanitized_name = sanitize_module_name_for_identifier(module_path);
 
-        let mut seen_namespaces = FxIndexSet::default();
-        let mut new_body = Vec::new();
-
-        for stmt in module.body.drain(..) {
-            // Check if this is a namespace creation statement
-            let is_duplicate_namespace = if let Stmt::Assign(ref assign) = stmt {
-                // Check for pattern: var = types.SimpleNamespace()
-                if let [Expr::Name(name)] = assign.targets.as_slice() {
-                    if let Expr::Call(call) = &*assign.value {
-                        // Check if this is a SimpleNamespace call
-                        let is_simple_namespace = match &*call.func {
-                            Expr::Attribute(attr) => {
-                                if let Expr::Name(base) = &*attr.value {
-                                    base.id.as_str() == "types"
-                                        && attr.attr.as_str() == "SimpleNamespace"
-                                } else {
-                                    false
-                                }
-                            }
-                            _ => false,
-                        };
-
-                        if is_simple_namespace {
-                            let namespace_name = name.id.as_str();
-                            if seen_namespaces.contains(namespace_name) {
-                                log::debug!(
-                                    "Removing duplicate namespace creation for '{namespace_name}'"
-                                );
-                                true
-                            } else {
-                                seen_namespaces.insert(namespace_name.to_string());
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-
-            if !is_duplicate_namespace {
-                new_body.push(stmt);
+        // Check if already registered
+        if let Some(existing) = self.namespace_registry.get_mut(&sanitized_name) {
+            // Update alias info if needed
+            if needs_alias && !existing.needs_alias {
+                existing.needs_alias = true;
+                existing.alias_name = alias_name;
             }
+            return sanitized_name;
         }
 
-        module.body = new_body;
+        // Determine parent module
+        let parent_module = if module_path.contains('.') {
+            let parts: Vec<&str> = module_path.split('.').collect();
+            if parts.len() > 1 {
+                Some(parts[..parts.len() - 1].join("."))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Create new namespace info
+        let info = NamespaceInfo {
+            original_path: module_path.to_string(),
+            needs_alias,
+            alias_name,
+            attributes: Vec::new(),
+            parent_module,
+        };
+
+        self.namespace_registry.insert(sanitized_name.clone(), info);
+        log::debug!("Registered namespace: {module_path} -> {sanitized_name}");
+
+        sanitized_name
+    }
+
+    /// Check if a namespace is already registered
+    pub fn is_namespace_registered(&self, sanitized_name: &str) -> bool {
+        self.namespace_registry.contains_key(sanitized_name)
+    }
+
+    /// Generate all registered namespaces at once
+    fn generate_all_namespaces(&self) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+        let mut created = FxIndexSet::default();
+
+        // Sort namespaces by depth (parent modules first)
+        let mut sorted_namespaces: Vec<_> = self.namespace_registry.iter().collect();
+        sorted_namespaces.sort_by_key(|(_, info)| info.original_path.matches('.').count());
+
+        for (sanitized_name, info) in sorted_namespaces {
+            // Skip if already created
+            if created.contains(sanitized_name) {
+                continue;
+            }
+
+            // Create namespace: sanitized_name = types.SimpleNamespace()
+            stmts.push(statements::assign(
+                vec![expressions::name(sanitized_name, ExprContext::Store)],
+                expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
+            ));
+
+            // Set __name__ attribute if it's a module namespace
+            if !info.original_path.is_empty() {
+                stmts.push(statements::assign_attribute(
+                    sanitized_name,
+                    "__name__",
+                    expressions::string_literal(&info.original_path),
+                ));
+            }
+
+            // Create alias if needed (e.g., compat = pkg_compat)
+            if info.needs_alias
+                && let Some(ref alias) = info.alias_name
+            {
+                stmts.push(statements::simple_assign(
+                    alias,
+                    expressions::name(sanitized_name, ExprContext::Load),
+                ));
+            }
+
+            // Set as attribute on parent module if needed (e.g., pkg.compat = pkg_compat)
+            if let Some(ref parent) = info.parent_module {
+                let parent_sanitized = sanitize_module_name_for_identifier(parent);
+                // Only set the attribute if parent exists
+                if self.namespace_registry.contains_key(&parent_sanitized) {
+                    // Extract the attribute name from the path
+                    let attr_name = info
+                        .original_path
+                        .rsplit_once('.')
+                        .map(|(_, name)| name)
+                        .unwrap_or(&info.original_path);
+
+                    stmts.push(statements::assign_attribute(
+                        &parent_sanitized,
+                        attr_name,
+                        expressions::name(sanitized_name, ExprContext::Load),
+                    ));
+                }
+            }
+
+            // Add any registered attributes
+            for (attr_name, value_name) in &info.attributes {
+                stmts.push(statements::assign_attribute(
+                    sanitized_name,
+                    attr_name,
+                    expressions::name(value_name, ExprContext::Load),
+                ));
+            }
+
+            created.insert(sanitized_name.to_string());
+        }
+
+        stmts
     }
 
     /// Find modules that are imported directly
@@ -6407,9 +6594,93 @@ impl Bundler<'_> {
         false
     }
 
+    /// Deduplicate namespace creation statements (var = types.SimpleNamespace())
+    /// and namespace attribute assignments (var.__name__ = '...')
+    /// This removes duplicates created by different parts of the bundling process
+    fn deduplicate_namespace_creation_statements(&self, stmts: Vec<Stmt>) -> Vec<Stmt> {
+        let mut seen_namespace_creations = FxIndexSet::default();
+        let mut seen_attribute_assignments = FxIndexSet::default();
+        let mut result = Vec::new();
+
+        for stmt in stmts {
+            // Check if this is a namespace creation: var = types.SimpleNamespace()
+            let is_namespace_creation = if let Stmt::Assign(ref assign) = stmt {
+                assign.targets.len() == 1
+                    && matches!(&assign.targets[0], Expr::Name(_))
+                    && self.is_types_simplenamespace_call(&assign.value)
+            } else {
+                false
+            };
+
+            if is_namespace_creation
+                && let Stmt::Assign(ref assign) = stmt
+                && let Expr::Name(name) = &assign.targets[0]
+            {
+                let var_name = name.id.as_str();
+
+                // Skip if we've already seen this namespace creation
+                if seen_namespace_creations.contains(var_name) {
+                    log::debug!(
+                        "Skipping duplicate namespace creation: {var_name} = \
+                         types.SimpleNamespace()"
+                    );
+                    continue;
+                }
+                seen_namespace_creations.insert(var_name.to_string());
+            }
+
+            // Check if this is a duplicate attribute assignment like var.__name__ = '...'
+            // or var.attr = namespace_var
+            if let Stmt::Assign(ref assign) = stmt
+                && assign.targets.len() == 1
+                && let Expr::Attribute(attr) = &assign.targets[0]
+                && let Expr::Name(base) = attr.value.as_ref()
+            {
+                let key = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
+
+                // Check if this exact assignment has been seen before
+                if seen_attribute_assignments.contains(&key) {
+                    // For __name__ assignments and namespace assignments, skip duplicates
+                    if attr.attr.as_str() == "__name__" {
+                        log::debug!("Skipping duplicate __name__ assignment: {key}");
+                        continue;
+                    }
+                    // For namespace attribute assignments (e.g., core.utils = core_utils)
+                    if let Expr::Name(_) = assign.value.as_ref()
+                        && seen_namespace_creations.iter().any(|ns| ns.contains('_'))
+                    {
+                        // Likely a namespace assignment
+                        log::debug!("Skipping duplicate namespace attribute assignment: {key}");
+                        continue;
+                    }
+                }
+                seen_attribute_assignments.insert(key);
+            }
+
+            result.push(stmt);
+        }
+
+        result
+    }
+
+    /// Check if an expression is a types.SimpleNamespace() call
+    fn is_types_simplenamespace_call(&self, expr: &Expr) -> bool {
+        if let Expr::Call(call) = expr
+            && let Expr::Attribute(attr) = call.func.as_ref()
+            && let Expr::Name(module) = attr.value.as_ref()
+        {
+            return module.id.as_str() == "types"
+                && attr.attr.as_str() == "SimpleNamespace"
+                && call.arguments.args.is_empty();
+        }
+        false
+    }
+
     /// Deduplicate namespace assignments (e.g., mypackage.__all__ = [...])
     /// This is needed when the same namespace is populated multiple times
     /// (e.g., when both `import mypackage` and `import mypackage.utils` are processed)
+    /// NOTE: This method is kept for reference but is no longer used
+    #[allow(dead_code)]
     fn deduplicate_namespace_assignments(&self, stmts: Vec<Stmt>) -> Vec<Stmt> {
         let mut seen_assignments: indexmap::IndexSet<(String, String)> = indexmap::IndexSet::new();
         let mut result = Vec::new();

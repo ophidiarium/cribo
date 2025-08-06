@@ -727,6 +727,7 @@ fn handle_inlined_module_assignment(
     debug!("Assigning inlined module namespace: {parent}.{attr} = {namespace_var}");
 
     // Ensure namespace variable exists
+    // Ensure namespace variable exists
     if !bundler.created_namespaces.contains(&namespace_var) {
         debug!("Creating empty namespace for module '{module_name}' before assignment");
         // Create empty namespace = types.SimpleNamespace()

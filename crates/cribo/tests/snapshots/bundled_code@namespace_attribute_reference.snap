@@ -10,6 +10,9 @@ import functools
 import types
 mypkg = types.SimpleNamespace()
 mypkg.__name__ = 'mypkg'
+mypkg_exceptions = types.SimpleNamespace()
+mypkg_exceptions.__name__ = 'mypkg.exceptions'
+mypkg.exceptions = mypkg_exceptions
 mypkg.compat = types.SimpleNamespace()
 class MyError(Exception):
     """Base exception class"""
@@ -44,10 +47,8 @@ class MyJSONError(MyError, mypkg.compat.JSONDecodeError):
         MyError.__init__(self, str(args[0]) if args else "")
 MyError.__module__ = 'mypkg.exceptions'
 MyJSONError.__module__ = 'mypkg.exceptions'
-mypkg_exceptions = types.SimpleNamespace()
-exceptions = types.SimpleNamespace()
-exceptions.MyError = MyError
-exceptions.MyJSONError = MyJSONError
+mypkg.compat = __cribo_init___cribo_19d82f_mypkg_compat()
+exceptions = mypkg_exceptions
 mypkg_exceptions.MyError = MyError
 mypkg_exceptions.MyJSONError = MyJSONError
 try:

@@ -9,6 +9,12 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_happy_path/main.py
 import enum
 import types
 import typing
+services_database = types.SimpleNamespace()
+services_database.__name__ = 'services.database'
+models_user = types.SimpleNamespace()
+models_user.__name__ = 'models.user'
+utils_helpers = types.SimpleNamespace()
+utils_helpers.__name__ = 'utils.helpers'
 models = types.SimpleNamespace()
 models.__name__ = 'models'
 services = types.SimpleNamespace()
@@ -91,9 +97,6 @@ UserRole.__module__ = 'models.user'
 User.__module__ = 'models.user'
 """\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 """\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
-services_database = types.SimpleNamespace()
-models_user = types.SimpleNamespace()
-utils_helpers = types.SimpleNamespace()
 models.user = models_user
 services.database = services_database
 utils.helpers = utils_helpers

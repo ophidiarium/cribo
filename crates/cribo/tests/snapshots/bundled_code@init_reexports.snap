@@ -9,6 +9,18 @@ input_file: crates/cribo/tests/fixtures/init_reexports/main.py
 import functools
 import os
 import types
+mypackage_utils = types.SimpleNamespace()
+mypackage_utils.__name__ = 'mypackage.utils'
+mypackage_formatter = types.SimpleNamespace()
+mypackage_formatter.__name__ = 'mypackage.formatter'
+mypackage_data_processor = types.SimpleNamespace()
+mypackage_data_processor.__name__ = 'mypackage.data_processor'
+mypackage_utils_constants = types.SimpleNamespace()
+mypackage_utils_constants.__name__ = 'mypackage.utils.constants'
+mypackage_utils.constants = mypackage_utils_constants
+mypackage_utils_helper = types.SimpleNamespace()
+mypackage_utils_helper.__name__ = 'mypackage.utils.helper'
+mypackage_utils.helper = mypackage_utils_helper
 mypackage = types.SimpleNamespace()
 mypackage.__name__ = 'mypackage'
 mypackage.utils = types.SimpleNamespace()
@@ -29,8 +41,6 @@ def process_data(data):
 """Helper utilities."""
 """Data formatting module."""
 """Data processing module."""
-mypackage_utils_constants = types.SimpleNamespace()
-mypackage_utils_helper = types.SimpleNamespace()
 @functools.cache
 def __cribo_init___cribo_de6c46_mypackage_config():
     module = types.SimpleNamespace()
@@ -60,12 +70,15 @@ def __cribo_init___cribo_a81151_mypackage():
     module.__version__ = __version__
     DEBUG_MODE = config.DEBUG
     module.DEBUG_MODE = DEBUG_MODE
-    utils = types.SimpleNamespace()
-    utils.helper_function = helper_function
-    formatter = types.SimpleNamespace()
-    formatter.format_data = format_data
-    data_processor = types.SimpleNamespace()
-    data_processor.process_data = process_data
+    mypackage_utils = types.SimpleNamespace()
+    mypackage_utils.helper_function = helper_function
+    module.utils = mypackage_utils
+    mypackage_formatter = types.SimpleNamespace()
+    mypackage_formatter.format_data = format_data
+    module.formatter = mypackage_formatter
+    mypackage_data_processor = types.SimpleNamespace()
+    mypackage_data_processor.process_data = process_data
+    module.data_processor = mypackage_data_processor
     module.process_data = process_data
     module.format_data = format_data
     module.helper_function = helper_function
@@ -75,9 +88,7 @@ __cribo_init_result = __cribo_init___cribo_a81151_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
-mypackage_data_processor = types.SimpleNamespace()
 mypackage.data_processor = mypackage_data_processor
-mypackage_formatter = types.SimpleNamespace()
 mypackage.formatter = mypackage_formatter
 mypackage.utils.constants = mypackage_utils_constants
 mypackage.utils.helper = mypackage_utils_helper

@@ -7,13 +7,14 @@ input_file: crates/cribo/tests/fixtures/function_level_module_import/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
+utils_calculator = types.SimpleNamespace()
+utils_calculator.__name__ = 'utils.calculator'
 utils = types.SimpleNamespace()
 utils.__name__ = 'utils'
 description = "A simple calculator module"
 def add(a, b):
     return a + b
 """Calculator module with simple operations"""
-utils_calculator = types.SimpleNamespace()
 utils.calculator = utils_calculator
 utils_calculator.description = description
 utils_calculator.add = add

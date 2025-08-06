@@ -10,6 +10,8 @@ from __future__ import annotations
 import functools
 import types
 import typing
+mypackage_submodule = types.SimpleNamespace()
+mypackage_submodule.__name__ = 'mypackage.submodule'
 mypackage = types.SimpleNamespace()
 mypackage.__name__ = 'mypackage'
 mypackage.submodule = types.SimpleNamespace()

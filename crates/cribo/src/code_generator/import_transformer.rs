@@ -783,8 +783,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 let namespace_var = crate::code_generator::module_registry::sanitize_module_name_for_identifier(&full_module_path);
 
                                 // Only create the namespace if it hasn't been created yet
-                                // The bundler may have already created it for inlined modules
-                                if !self.bundler.created_namespaces.contains(&namespace_var) {
+                                // The bundler should have already registered it during pre-scanning
+                                if !self.bundler.is_namespace_registered(&namespace_var) {
                                     // Create: namespace_var = types.SimpleNamespace()
                                     let types_simple_namespace_call = expressions::call(
                                         expressions::simple_namespace_ctor(),

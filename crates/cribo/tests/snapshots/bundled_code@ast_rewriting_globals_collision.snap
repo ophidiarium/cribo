@@ -8,6 +8,13 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_globals_collision/main.py
 
 import functools
 import types
+core_utils = types.SimpleNamespace()
+core_utils.__name__ = 'core.utils'
+core_database = types.SimpleNamespace()
+core_database.__name__ = 'core.database'
+core_utils_helpers = types.SimpleNamespace()
+core_utils_helpers.__name__ = 'core.utils.helpers'
+core_utils.helpers = core_utils_helpers
 core = types.SimpleNamespace()
 core.__name__ = 'core'
 core.database = types.SimpleNamespace()
@@ -56,7 +63,6 @@ Logger_6.__module__ = 'core.utils.helpers'
 Logger_6.__name__ = 'Logger'
 Logger_6.__qualname__ = 'Logger'
 """Core utility helpers module - NO external dependencies to avoid circular imports"""
-core_utils_helpers = types.SimpleNamespace()
 _cribo_models_base_Connection = None
 @functools.cache
 def __cribo_init___cribo_0a162a_models_base():
