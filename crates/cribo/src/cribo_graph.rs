@@ -356,10 +356,11 @@ impl CriboGraph {
                 // Error: same import name but different files
                 // This shouldn't happen with proper PYTHONPATH management
                 log::error!(
-                    "Import name '{name}' refers to different files: {existing_canonical:?} and \
-                     {canonical_path:?}. This may indicate a PYTHONPATH configuration issue or \
-                     naming conflict. Consider using unique module names or adjusting your Python \
-                     path configuration."
+                    "Import name '{name}' refers to different files: {} and {}. This may indicate \
+                     a PYTHONPATH configuration issue or naming conflict. Consider using unique \
+                     module names or adjusting your Python path configuration.",
+                    existing_canonical.display(),
+                    canonical_path.display()
                 );
             }
         }
@@ -373,8 +374,9 @@ impl CriboGraph {
         // Check if this file already has a primary module
         if let Some((primary_name, primary_id)) = self.file_primary_module.get(&canonical_path) {
             log::info!(
-                "File {canonical_path:?} already imported as '{primary_name}', adding additional \
-                 import name '{name}'"
+                "File {} already imported as '{primary_name}', adding additional import name \
+                 '{name}'",
+                canonical_path.display()
             );
 
             // Create a new ModuleId that shares the same dependency graph
@@ -417,7 +419,10 @@ impl CriboGraph {
         let node_idx = self.graph.add_node(id);
         self.node_indices.insert(id, node_idx);
 
-        log::debug!("Registered module '{name}' as primary for file {canonical_path:?}");
+        log::debug!(
+            "Registered module '{name}' as primary for file {}",
+            canonical_path.display()
+        );
 
         id
     }

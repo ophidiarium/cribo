@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
     );
     info!("Starting Cribo Python bundler");
 
-    debug!("Entry point: {:?}", cli.entry);
+    debug!("Entry point: {}", cli.entry.display());
     if cli.stdout {
         debug!("Output mode: stdout");
     } else {
@@ -132,7 +132,7 @@ fn main() -> anyhow::Result<()> {
             .as_ref()
             .expect("Output path should be present when not using stdout");
         bundler.bundle(&cli.entry, output_path, cli.emit_requirements)?;
-        info!("Bundle created successfully at {output_path:?}");
+        info!("Bundle created successfully at {}", output_path.display());
     }
 
     Ok(())
