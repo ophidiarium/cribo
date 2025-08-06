@@ -2783,8 +2783,19 @@ impl<'a> Bundler<'a> {
                 log::info!("Using module cache - initializing all modules immediately");
 
                 // Call all init functions in sorted order
+                // Track which modules have been initialized in this scope
+                let mut initialized_in_scope = FxIndexSet::default();
+
                 for module_name in &sorted_wrapped {
                     if let Some(synthetic_name) = self.module_registry.get(module_name) {
+                        // Skip if already initialized in this scope
+                        if initialized_in_scope.contains(module_name) {
+                            log::debug!(
+                                "Skipping duplicate initialization of module {module_name}"
+                            );
+                            continue;
+                        }
+
                         let init_func_name = &self.init_functions[synthetic_name];
 
                         // Generate init call and assignment
@@ -2798,6 +2809,9 @@ impl<'a> Bundler<'a> {
                         let init_stmts =
                             self.generate_module_assignment_from_init(module_name, init_call);
                         final_body.extend(init_stmts);
+
+                        // Mark as initialized in this scope
+                        initialized_in_scope.insert(module_name.clone());
 
                         // Extract hard dependencies from this module immediately after
                         // initialization This is critical for modules that
@@ -3768,6 +3782,9 @@ impl<'a> Bundler<'a> {
             }
 
             // Add init calls first
+            // Track which have been initialized to avoid duplicates in this scope
+            let mut initialized_in_deferred = FxIndexSet::default();
+
             for synthetic_name in needed_init_calls {
                 // Note: This is in a context where we can't mutate self, so we'll rely on
                 // the namespaces being pre-created by identify_required_namespaces
@@ -3780,6 +3797,15 @@ impl<'a> Bundler<'a> {
                         || synthetic_name.clone(),
                         |(orig_name, _)| orig_name.to_string(),
                     );
+
+                // Skip if already initialized in this scope
+                if initialized_in_deferred.contains(&module_name) {
+                    log::debug!(
+                        "Skipping duplicate initialization of module {module_name} in deferred \
+                         imports"
+                    );
+                    continue;
+                }
 
                 let init_stmts = crate::code_generator::module_registry::generate_module_init_call(
                     &synthetic_name,
@@ -3797,6 +3823,9 @@ impl<'a> Bundler<'a> {
                     },
                 );
                 final_body.extend(init_stmts);
+
+                // Mark as initialized in this scope
+                initialized_in_deferred.insert(module_name);
             }
 
             // Then deduplicate and add the actual imports (without init calls)
