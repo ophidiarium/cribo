@@ -2050,10 +2050,7 @@ impl<'a> Bundler<'a> {
             for module_name in inlined_submodules {
                 // Skip special modules like __version__, __about__, etc.
                 // These are typically imported for their contents, not used as namespaces
-                if let Some((_, last_part)) = module_name.rsplit_once('.')
-                    && last_part.starts_with("__")
-                    && last_part.ends_with("__")
-                {
+                if Self::is_dunder_module(&module_name) {
                     log::debug!(
                         "Skipping namespace registration for special module: {module_name}"
                     );
