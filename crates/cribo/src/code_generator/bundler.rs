@@ -6669,63 +6669,6 @@ impl Bundler<'_> {
         false
     }
 
-    /// Deduplicate namespace assignments (e.g., mypackage.__all__ = [...])
-    /// This is needed when the same namespace is populated multiple times
-    /// (e.g., when both `import mypackage` and `import mypackage.utils` are processed)
-    /// NOTE: This method is kept for reference but is no longer used
-    #[allow(dead_code)]
-    fn deduplicate_namespace_assignments(&self, stmts: Vec<Stmt>) -> Vec<Stmt> {
-        let mut seen_assignments: indexmap::IndexSet<(String, String)> = indexmap::IndexSet::new();
-        let mut result = Vec::new();
-
-        for stmt in stmts {
-            let should_keep = match &stmt {
-                Stmt::Assign(assign) => {
-                    if let [Expr::Attribute(attr)] = assign.targets.as_slice() {
-                        if let Expr::Name(base) = attr.value.as_ref() {
-                            // Deduplicate namespace init assignments
-                            if let Expr::Call(call) = assign.value.as_ref() {
-                                if let Expr::Name(func_name) = call.func.as_ref() {
-                                    if func_name.id.starts_with("__cribo_init_") {
-                                        // Only keep if we haven't seen this assignment before
-                                        seen_assignments
-                                            .insert((base.id.to_string(), attr.attr.to_string()))
-                                    } else {
-                                        true
-                                    }
-                                } else {
-                                    true
-                                }
-                            } else if attr.attr.as_str().starts_with("__")
-                                && attr.attr.as_str().ends_with("__")
-                            {
-                                // Only keep if we haven't seen this assignment before
-                                seen_assignments
-                                    .insert((base.id.to_string(), attr.attr.to_string()))
-                            } else {
-                                // Don't deduplicate regular attributes
-                                true
-                            }
-                        } else {
-                            true
-                        }
-                    } else {
-                        true
-                    }
-                }
-                _ => true,
-            };
-
-            if should_keep {
-                result.push(stmt);
-            } else {
-                log::debug!("Deduplicating duplicate namespace assignment");
-            }
-        }
-
-        result
-    }
-
     /// Deduplicate function definitions that may have been created multiple times
     fn deduplicate_function_definitions(&self, stmts: Vec<Stmt>) -> Vec<Stmt> {
         let mut seen_functions: indexmap::IndexSet<String> = indexmap::IndexSet::new();
