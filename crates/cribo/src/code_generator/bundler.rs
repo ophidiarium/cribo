@@ -1234,13 +1234,8 @@ impl<'a> Bundler<'a> {
         }
     }
 
-    /// Bundle multiple modules using the hybrid approach
-    pub fn bundle_modules(&mut self, params: &BundleParams<'_>) -> Result<ModModule> {
-        let mut final_body = Vec::new();
-
-        // Extract the Python version from params
-        let python_version = params.python_version;
-
+    /// Initialize the bundler with parameters and basic settings
+    fn initialize_bundler(&mut self, params: &BundleParams<'_>) {
         // Store tree shaking decisions if provided
         if let Some(shaker) = params.tree_shaker {
             // Extract all kept symbols from the tree shaker
@@ -1283,13 +1278,21 @@ impl<'a> Bundler<'a> {
         // Store entry module information
         self.entry_module_name = params.entry_module_name.to_string();
 
-        // Check if entry is __init__.py or __main__.py
+        // Check if entry is __init__.py or __main__.py from params.modules
         self.entry_is_package_init_or_main = if let Some((_, _, path, _)) = params
             .modules
             .iter()
             .find(|(name, _, _, _)| name == params.entry_module_name)
         {
             let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+            file_name == "__init__.py" || file_name == "__main__.py"
+        } else if let Some((_, path, _)) = params
+            .sorted_modules
+            .iter()
+            .find(|(name, _, _)| name == params.entry_module_name)
+        {
+            // Fallback to sorted_modules if not found in modules
+            let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
             file_name == "__init__.py" || file_name == "__main__.py"
         } else {
             false
@@ -1306,50 +1309,17 @@ impl<'a> Bundler<'a> {
             self.collect_future_imports_from_ast(ast);
         }
 
-        // Check if entry module has direct imports or dotted imports that might create namespace
-        // objects - but only for first-party modules that we're actually bundling
-        let needs_types_for_entry_imports = {
-            // Find the entry module AST from the pre-parsed modules
-            if let Some((_, ast, _, _)) = params
-                .modules
-                .iter()
-                .find(|(name, _, _, _)| name == params.entry_module_name)
-            {
-                ast.body.iter().any(|stmt| {
-                    if let Stmt::Import(import_stmt) = stmt {
-                        import_stmt.names.iter().any(|alias| {
-                            let module_name = alias.name.as_str();
-                            // Check for dotted imports - but only first-party ones
-                            if module_name.contains('.') {
-                                // Check if this dotted import refers to a first-party module
-                                // by checking if any bundled module matches this dotted path
-                                let is_first_party_dotted =
-                                    params.modules.iter().any(|(name, _, _, _)| {
-                                        name == module_name
-                                            || module_name.starts_with(&format!("{name}."))
-                                    });
-                                if is_first_party_dotted {
-                                    log::debug!(
-                                        "Found first-party dotted import '{module_name}' that \
-                                         requires namespace"
-                                    );
-                                    return true;
-                                }
-                            }
-                            // NOTE: We can't check for direct imports of inlined modules here
-                            // because self.inlined_modules isn't populated yet. That check
-                            // happens later when we actually determine which modules to inline.
-                            false
-                        })
-                    } else {
-                        false
-                    }
-                })
-            } else {
-                false
-            }
-        };
+        // Store entry path for relative path calculation
+        if let Some((_, entry_path, _)) = params.sorted_modules.last() {
+            self.entry_path = Some(entry_path.to_string_lossy().to_string());
+        }
+    }
 
+    /// Prepare modules by trimming imports, indexing ASTs, and detecting circular dependencies
+    fn prepare_modules(
+        &mut self,
+        params: &BundleParams<'_>,
+    ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
         // Trim unused imports from all modules
         // Note: stdlib import normalization now happens in the orchestrator
         // before dependency graph building, so imports are already normalized
@@ -1400,11 +1370,6 @@ impl<'a> Bundler<'a> {
         // Store module ASTs for re-export resolution
         self.module_asts = Some(modules.clone());
 
-        // Store entry path for relative path calculation
-        if let Some((_, entry_path, _)) = params.sorted_modules.last() {
-            self.entry_path = Some(entry_path.to_string_lossy().to_string());
-        }
-
         // Track bundled modules
         for (module_name, _, _, _) in &modules {
             self.bundled_modules.insert(module_name.clone());
@@ -1437,7 +1402,6 @@ impl<'a> Bundler<'a> {
         self.find_namespace_imported_modules(&all_modules_for_namespace_check);
 
         // Identify all modules that are part of circular dependencies
-        let mut has_circular_dependencies = false;
         if let Some(analysis) = params.circular_dep_analysis {
             log::debug!("CircularDependencyAnalysis received:");
             log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
@@ -1452,11 +1416,73 @@ impl<'a> Bundler<'a> {
                     self.circular_modules.insert(module.clone());
                 }
             }
-            has_circular_dependencies = !self.circular_modules.is_empty();
             log::debug!("Circular modules: {:?}", self.circular_modules);
         } else {
             log::debug!("No circular dependency analysis provided");
         }
+
+        Ok(modules)
+    }
+
+    /// Bundle multiple modules using the hybrid approach
+    pub fn bundle_modules(&mut self, params: &BundleParams<'_>) -> Result<ModModule> {
+        let mut final_body = Vec::new();
+
+        // Extract the Python version from params
+        let python_version = params.python_version;
+
+        // Initialize bundler settings and collect preliminary data
+        self.initialize_bundler(params);
+
+        // Prepare modules: trim imports, index ASTs, detect circular dependencies
+        let modules = self.prepare_modules(params)?;
+
+        // Check if entry module has direct imports or dotted imports that might create namespace
+        // objects - but only for first-party modules that we're actually bundling
+        let needs_types_for_entry_imports = {
+            // Find the entry module AST from the pre-parsed modules
+            if let Some((_, ast, _, _)) = params
+                .modules
+                .iter()
+                .find(|(name, _, _, _)| name == params.entry_module_name)
+            {
+                ast.body.iter().any(|stmt| {
+                    if let Stmt::Import(import_stmt) = stmt {
+                        import_stmt.names.iter().any(|alias| {
+                            let module_name = alias.name.as_str();
+                            // Check for dotted imports - but only first-party ones
+                            if module_name.contains('.') {
+                                // Check if this dotted import refers to a first-party module
+                                // by checking if any bundled module matches this dotted path
+                                let is_first_party_dotted =
+                                    params.modules.iter().any(|(name, _, _, _)| {
+                                        name == module_name
+                                            || module_name.starts_with(&format!("{name}."))
+                                    });
+                                if is_first_party_dotted {
+                                    log::debug!(
+                                        "Found first-party dotted import '{module_name}' that \
+                                         requires namespace"
+                                    );
+                                    return true;
+                                }
+                            }
+                            // NOTE: We can't check for direct imports of inlined modules here
+                            // because self.inlined_modules isn't populated yet. That check
+                            // happens later when we actually determine which modules to inline.
+                            false
+                        })
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                false
+            }
+        };
+
+        // Determine if we have circular dependencies
+        let has_circular_dependencies = !self.circular_modules.is_empty();
 
         // Separate modules into inlinable and wrapper modules
         // Note: modules are already normalized before unused import trimming
