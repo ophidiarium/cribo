@@ -437,20 +437,23 @@ pub(super) fn generate_predeclarations(
             for (dep_module, dep_symbol) in module_level_deps {
                 if bundler.circular_modules.contains(dep_module) {
                     // Get the order indices
-                    let symbol_order =
-                        symbol_definition_order.get(&(module.clone(), symbol.clone()));
-                    let dep_order =
-                        symbol_definition_order.get(&(dep_module.clone(), dep_symbol.clone()));
+                    // Note: We clone here for the lookup, but this is only done for circular
+                    // modules which are typically a small subset of all modules
+                    let symbol_key = (module.clone(), symbol.clone());
+                    let dep_key = (dep_module.clone(), dep_symbol.clone());
 
-                    if let (Some(&sym_idx), Some(&dep_idx)) = (symbol_order, dep_order) {
+                    if let (Some(&sym_idx), Some(&dep_idx)) = (
+                        symbol_definition_order.get(&symbol_key),
+                        symbol_definition_order.get(&dep_key),
+                    ) {
                         // Check if this creates a forward reference
                         if dep_idx > sym_idx {
                             log::debug!(
                                 "Found forward reference: {module}.{symbol} (order {sym_idx}) \
                                  uses {dep_module}.{dep_symbol} (order {dep_idx}) at module level"
                             );
-                            symbols_needing_predeclaration
-                                .insert((dep_module.clone(), dep_symbol.clone()));
+                            // Only clone when we actually need to insert
+                            symbols_needing_predeclaration.insert(dep_key);
                         }
                     }
                 }
