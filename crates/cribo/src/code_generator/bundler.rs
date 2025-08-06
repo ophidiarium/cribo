@@ -2105,13 +2105,10 @@ impl<'a> Bundler<'a> {
                         if let Some(ref resolved) = resolved_module
                             && self.inlined_modules.contains(resolved)
                         {
-                            // Skip special modules like __version__, __about__, etc.
-                            if let Some((_, last_part)) = resolved.rsplit_once('.')
-                                && last_part.starts_with("__")
-                                && last_part.ends_with("__")
-                            {
+                            // Skip dunder modules like __version__, __about__, etc.
+                            if Self::is_dunder_module(resolved) {
                                 log::debug!(
-                                    "Skipping namespace registration for special module during \
+                                    "Skipping namespace registration for dunder module during \
                                      import processing: {resolved}"
                                 );
                                 continue;
@@ -2817,13 +2814,10 @@ impl<'a> Bundler<'a> {
                 } else if self.inlined_modules.contains(module_name)
                     && !self.module_registry.contains_key(module_name)
                 {
-                    // Skip special modules like __version__, __about__, etc.
-                    if let Some((_, last_part)) = module_name.rsplit_once('.')
-                        && last_part.starts_with("__")
-                        && last_part.ends_with("__")
-                    {
+                    // Skip dunder modules like __version__, __about__, etc.
+                    if Self::is_dunder_module(module_name) {
                         log::debug!(
-                            "Skipping namespace registration for special module with no symbols: \
+                            "Skipping namespace registration for dunder module with no symbols: \
                              {module_name}"
                         );
                         continue;
@@ -6052,6 +6046,16 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
 
 // Helper methods for import rewriting
 impl Bundler<'_> {
+    /// Check if a module name represents a dunder module like __version__, __about__, etc.
+    /// These are Python's "magic" modules with double underscores.
+    fn is_dunder_module(module_name: &str) -> bool {
+        if let Some((_, last_part)) = module_name.rsplit_once('.') {
+            last_part.starts_with("__") && last_part.ends_with("__")
+        } else {
+            false
+        }
+    }
+
     /// Create a module reference assignment
     pub(super) fn create_module_reference_assignment(
         &self,
