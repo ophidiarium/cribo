@@ -38,6 +38,13 @@ use crate::{
 /// Type alias for complex import generation data structure
 type ImportGeneration = Vec<(String, Vec<(String, Option<String>)>, bool)>;
 
+/// Result of module classification
+struct ClassificationResult {
+    inlinable_modules: Vec<(String, ModModule, PathBuf, String)>,
+    wrapper_modules: Vec<(String, ModModule, PathBuf, String)>,
+    module_exports_map: FxIndexMap<String, Option<Vec<String>>>,
+}
+
 /// Parameters for transforming functions with lifted globals
 struct TransformFunctionParams<'a> {
     lifted_names: &'a FxIndexMap<String, String>,
@@ -1315,6 +1322,128 @@ impl<'a> Bundler<'a> {
         }
     }
 
+    /// Classify modules into inlinable and wrapper modules
+    fn classify_modules(
+        &mut self,
+        modules: &[(String, ModModule, PathBuf, String)],
+        entry_module_name: &str,
+    ) -> ClassificationResult {
+        let mut inlinable_modules = Vec::new();
+        let mut wrapper_modules = Vec::new();
+        let mut module_exports_map = FxIndexMap::default();
+
+        for (module_name, ast, module_path, content_hash) in modules {
+            log::debug!("Processing module: '{module_name}'");
+            if module_name == entry_module_name {
+                continue;
+            }
+
+            // Extract __all__ exports from the module using ExportCollector
+            let export_info = ExportCollector::analyze(ast);
+            let has_explicit_all = export_info.exported_names.is_some();
+            if has_explicit_all {
+                self.modules_with_explicit_all.insert(module_name.clone());
+            }
+
+            // Convert export info to the format expected by the bundler
+            let module_exports = if let Some(exported_names) = export_info.exported_names {
+                Some(exported_names)
+            } else {
+                // If no __all__, collect all top-level symbols using SymbolCollector
+                let collected = crate::visitors::symbol_collector::SymbolCollector::analyze(ast);
+                let mut symbols: Vec<_> = collected
+                    .global_symbols
+                    .values()
+                    .filter(|s| {
+                        // Include all public symbols (not starting with underscore)
+                        // except __all__ itself
+                        // Dunder names (e.g., __version__, __author__, __doc__) are conventionally
+                        // public
+                        s.name != "__all__"
+                            && (!s.name.starts_with('_')
+                                || (s.name.starts_with("__") && s.name.ends_with("__")))
+                    })
+                    .map(|s| s.name.clone())
+                    .collect();
+
+                if symbols.is_empty() {
+                    None
+                } else {
+                    // Sort symbols for deterministic output
+                    symbols.sort();
+                    Some(symbols)
+                }
+            };
+
+            module_exports_map.insert(module_name.clone(), module_exports.clone());
+
+            // Check if module is imported as a namespace
+            let is_namespace_imported = self.namespace_imported_modules.contains_key(module_name);
+
+            if is_namespace_imported {
+                log::debug!(
+                    "Module '{}' is imported as namespace by: {:?}",
+                    module_name,
+                    self.namespace_imported_modules.get(module_name)
+                );
+            }
+
+            // With full static bundling, we only need to wrap modules with side effects
+            // All imports are rewritten at bundle time, so namespace imports, direct imports,
+            // and circular dependencies can all be handled through static transformation
+            let has_side_effects = module_has_side_effects(ast);
+
+            // Check if this module is in a circular dependency and accesses imported module
+            // attributes
+            let needs_wrapping_for_circular = self.circular_modules.contains(module_name)
+                && self.module_accesses_imported_attributes(ast, module_name);
+
+            // Check if this module has an invalid identifier (can't be imported normally)
+            // These modules are likely imported via importlib and need to be wrapped
+            // Note: Module names with dots are valid (e.g., "core.utils.helpers"), so we only
+            // check if the module name itself (without dots) is invalid
+            let module_base_name = module_name.split('.').next_back().unwrap_or(module_name);
+            let has_invalid_identifier = !Self::is_valid_python_identifier(module_base_name);
+
+            if has_side_effects || has_invalid_identifier || needs_wrapping_for_circular {
+                if has_invalid_identifier {
+                    log::debug!(
+                        "Module '{module_name}' has invalid Python identifier - using wrapper \
+                         approach"
+                    );
+                } else if needs_wrapping_for_circular {
+                    log::debug!(
+                        "Module '{module_name}' is in circular dependency and accesses imported \
+                         attributes - using wrapper approach"
+                    );
+                } else {
+                    log::debug!("Module '{module_name}' has side effects - using wrapper approach");
+                }
+
+                wrapper_modules.push((
+                    module_name.clone(),
+                    ast.clone(),
+                    module_path.clone(),
+                    content_hash.clone(),
+                ));
+            } else {
+                log::debug!("Module '{module_name}' has no side effects - can be inlined");
+                inlinable_modules.push((
+                    module_name.clone(),
+                    ast.clone(),
+                    module_path.clone(),
+                    content_hash.clone(),
+                ));
+            }
+        }
+
+        ClassificationResult {
+            inlinable_modules,
+            wrapper_modules,
+            module_exports_map,
+        }
+    }
+
     /// Prepare modules by trimming imports, indexing ASTs, and detecting circular dependencies
     fn prepare_modules(
         &mut self,
@@ -1484,116 +1613,11 @@ impl<'a> Bundler<'a> {
         // Determine if we have circular dependencies
         let has_circular_dependencies = !self.circular_modules.is_empty();
 
-        // Separate modules into inlinable and wrapper modules
-        // Note: modules are already normalized before unused import trimming
-        let mut inlinable_modules = Vec::new();
-        let mut wrapper_modules = Vec::new();
-        let mut module_exports_map = FxIndexMap::default();
-
-        for (module_name, ast, module_path, content_hash) in &modules {
-            log::debug!("Processing module: '{module_name}'");
-            if module_name == params.entry_module_name {
-                continue;
-            }
-
-            // Extract __all__ exports from the module using ExportCollector
-            let export_info = ExportCollector::analyze(ast);
-            let has_explicit_all = export_info.exported_names.is_some();
-            if has_explicit_all {
-                self.modules_with_explicit_all.insert(module_name.clone());
-            }
-
-            // Convert export info to the format expected by the bundler
-            let module_exports = if let Some(exported_names) = export_info.exported_names {
-                Some(exported_names)
-            } else {
-                // If no __all__, collect all top-level symbols using SymbolCollector
-                let collected = crate::visitors::symbol_collector::SymbolCollector::analyze(ast);
-                let mut symbols: Vec<_> = collected
-                    .global_symbols
-                    .values()
-                    .filter(|s| {
-                        // Include all public symbols (not starting with underscore)
-                        // except __all__ itself
-                        // Dunder names (e.g., __version__, __author__, __doc__) are conventionally
-                        // public
-                        s.name != "__all__"
-                            && (!s.name.starts_with('_')
-                                || (s.name.starts_with("__") && s.name.ends_with("__")))
-                    })
-                    .map(|s| s.name.clone())
-                    .collect();
-
-                if symbols.is_empty() {
-                    None
-                } else {
-                    // Sort symbols for deterministic output
-                    symbols.sort();
-                    Some(symbols)
-                }
-            };
-
-            module_exports_map.insert(module_name.clone(), module_exports.clone());
-
-            // Check if module is imported as a namespace
-            let is_namespace_imported = self.namespace_imported_modules.contains_key(module_name);
-
-            if is_namespace_imported {
-                log::debug!(
-                    "Module '{}' is imported as namespace by: {:?}",
-                    module_name,
-                    self.namespace_imported_modules.get(module_name)
-                );
-            }
-
-            // With full static bundling, we only need to wrap modules with side effects
-            // All imports are rewritten at bundle time, so namespace imports, direct imports,
-            // and circular dependencies can all be handled through static transformation
-            let has_side_effects = module_has_side_effects(ast);
-
-            // Check if this module is in a circular dependency and accesses imported module
-            // attributes
-            let needs_wrapping_for_circular = self.circular_modules.contains(module_name)
-                && self.module_accesses_imported_attributes(ast, module_name);
-
-            // Check if this module has an invalid identifier (can't be imported normally)
-            // These modules are likely imported via importlib and need to be wrapped
-            // Note: Module names with dots are valid (e.g., "core.utils.helpers"), so we only
-            // check if the module name itself (without dots) is invalid
-            let module_base_name = module_name.split('.').next_back().unwrap_or(module_name);
-            let has_invalid_identifier = !Self::is_valid_python_identifier(module_base_name);
-
-            if has_side_effects || has_invalid_identifier || needs_wrapping_for_circular {
-                if has_invalid_identifier {
-                    log::debug!(
-                        "Module '{module_name}' has invalid Python identifier - using wrapper \
-                         approach"
-                    );
-                } else if needs_wrapping_for_circular {
-                    log::debug!(
-                        "Module '{module_name}' is in circular dependency and accesses imported \
-                         attributes - using wrapper approach"
-                    );
-                } else {
-                    log::debug!("Module '{module_name}' has side effects - using wrapper approach");
-                }
-
-                wrapper_modules.push((
-                    module_name.clone(),
-                    ast.clone(),
-                    module_path.clone(),
-                    content_hash.clone(),
-                ));
-            } else {
-                log::debug!("Module '{module_name}' has no side effects - can be inlined");
-                inlinable_modules.push((
-                    module_name.clone(),
-                    ast.clone(),
-                    module_path.clone(),
-                    content_hash.clone(),
-                ));
-            }
-        }
+        // Classify modules into inlinable and wrapper modules
+        let classification = self.classify_modules(&modules, params.entry_module_name);
+        let inlinable_modules = classification.inlinable_modules;
+        let wrapper_modules = classification.wrapper_modules;
+        let module_exports_map = classification.module_exports_map;
 
         // Track which modules will be inlined (before wrapper module generation)
         for (module_name, _, _, _) in &inlinable_modules {
