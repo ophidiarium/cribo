@@ -777,16 +777,33 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 );
 
                                 // Create the namespace and populate it as deferred imports
-                                // Create: local_name = types.SimpleNamespace()
-                                let types_simple_namespace_call = expressions::call(
-                                    expressions::simple_namespace_ctor(),
-                                    vec![],
-                                    vec![],
-                                );
-                                self.deferred_imports.push(statements::simple_assign(
-                                    local_name,
-                                    types_simple_namespace_call,
-                                ));
+                                // For inlined modules, use the sanitized module name instead of
+                                // local_name e.g., pkg_compat
+                                // instead of compat
+                                let namespace_var = crate::code_generator::module_registry::sanitize_module_name_for_identifier(&full_module_path);
+
+                                // Only create the namespace if it hasn't been created yet
+                                // The bundler may have already created it for inlined modules
+                                if !self.bundler.created_namespaces.contains(&namespace_var) {
+                                    // Create: namespace_var = types.SimpleNamespace()
+                                    let types_simple_namespace_call = expressions::call(
+                                        expressions::simple_namespace_ctor(),
+                                        vec![],
+                                        vec![],
+                                    );
+                                    self.deferred_imports.push(statements::simple_assign(
+                                        &namespace_var,
+                                        types_simple_namespace_call,
+                                    ));
+                                }
+
+                                // If local_name is different from namespace_var, create an alias
+                                if local_name != namespace_var {
+                                    self.deferred_imports.push(statements::simple_assign(
+                                        local_name,
+                                        expressions::name(&namespace_var, ExprContext::Load),
+                                    ));
+                                }
                                 self.created_namespace_objects = true;
 
                                 // If this is a submodule being imported (from . import compat),
@@ -935,29 +952,46 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         let export_strings: Vec<&str> =
                                             filtered_exports.iter().map(String::as_str).collect();
                                         self.deferred_imports.push(statements::set_list_attribute(
-                                            local_name,
+                                            &namespace_var,
                                             "__all__",
                                             &export_strings,
                                         ));
                                     }
 
-                                    for symbol in filtered_exports {
-                                        // local_name.symbol = symbol
-                                        let target = expressions::attribute(
-                                            expressions::name(local_name, ExprContext::Load),
-                                            &symbol,
-                                            ExprContext::Store,
-                                        );
-                                        let symbol_name = self
-                                            .symbol_renames
-                                            .get(&full_module_path)
-                                            .and_then(|renames| renames.get(&symbol))
-                                            .cloned()
-                                            .unwrap_or_else(|| symbol.clone());
-                                        let value =
-                                            expressions::name(&symbol_name, ExprContext::Load);
-                                        self.deferred_imports
-                                            .push(statements::assign(vec![target], value));
+                                    // Only populate the namespace if it wasn't already populated
+                                    // Check if this namespace was already populated by the bundler
+                                    // symbols_populated_after_deferred contains (namespace, symbol)
+                                    // tuples
+                                    let namespace_already_populated = self
+                                        .bundler
+                                        .symbols_populated_after_deferred
+                                        .iter()
+                                        .any(|(ns, _)| ns == &namespace_var);
+
+                                    if !namespace_already_populated {
+                                        for symbol in filtered_exports {
+                                            // Use the sanitized namespace variable for inlined
+                                            // modules
+                                            // namespace_var.symbol = symbol
+                                            let target = expressions::attribute(
+                                                expressions::name(
+                                                    &namespace_var,
+                                                    ExprContext::Load,
+                                                ),
+                                                &symbol,
+                                                ExprContext::Store,
+                                            );
+                                            let symbol_name = self
+                                                .symbol_renames
+                                                .get(&full_module_path)
+                                                .and_then(|renames| renames.get(&symbol))
+                                                .cloned()
+                                                .unwrap_or_else(|| symbol.clone());
+                                            let value =
+                                                expressions::name(&symbol_name, ExprContext::Load);
+                                            self.deferred_imports
+                                                .push(statements::assign(vec![target], value));
+                                        }
                                     }
                                 }
                             } else {

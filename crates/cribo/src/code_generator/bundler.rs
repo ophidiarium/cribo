@@ -342,15 +342,32 @@ impl<'a> Bundler<'a> {
                 let is_submodule_with_init = self.module_registry.contains_key(&full_path);
                 let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
 
-                log::debug!(
-                    "Checking assignment: {}.{} = {} | bundled={} | has_init={} | same_name={}",
-                    base.id.as_str(),
-                    attr.attr.as_str(),
-                    value.id.as_str(),
-                    is_bundled_submodule,
-                    is_submodule_with_init,
-                    value_is_same_as_attr
-                );
+                // Filter out self-referential assignments to inlined submodules
+                // For example: pkg.compat = compat where pkg.compat is an inlined module
+                // This is problematic when 'compat' doesn't exist as a separate namespace
+                if is_bundled_submodule
+                    && value_is_same_as_attr
+                    && self.inlined_modules.contains(&full_path)
+                {
+                    // This assignment is trying to assign a submodule to itself
+                    // For inlined submodules, we should always filter this out as it will be
+                    // handled by the alias creation (e.g., compat = pkg_compat)
+                    let sanitized_name =
+                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                            &full_path,
+                        );
+
+                    log::debug!(
+                        "Filtering out self-referential assignment: {}.{} = {} (inlined \
+                         submodule, will use alias '{} = {}')",
+                        base.id.as_str(),
+                        attr.attr.as_str(),
+                        value.id.as_str(),
+                        value.id.as_str(),
+                        sanitized_name
+                    );
+                    return false;
+                }
 
                 if is_submodule_with_init && value_is_same_as_attr {
                     // Always filter out assignments to submodules with init functions
@@ -2333,9 +2350,9 @@ impl<'a> Bundler<'a> {
                             let assignment_key = (namespace_var.clone(), original_name.clone());
                             if self.namespace_assignments_made.contains(&assignment_key) {
                                 log::debug!(
-                                    "Skipping duplicate namespace assignment: \
-                                     {namespace_var}.{original_name} = {renamed_name} (already \
-                                     assigned)"
+                                    "[populate_empty_namespace/renamed] Skipping duplicate \
+                                     namespace assignment: {namespace_var}.{original_name} = \
+                                     {renamed_name} (already assigned)"
                                 );
                                 continue;
                             }
@@ -2491,7 +2508,8 @@ impl<'a> Bundler<'a> {
                                     let assignment_key = (namespace_var.clone(), export.clone());
                                     if self.namespace_assignments_made.contains(&assignment_key) {
                                         log::debug!(
-                                            "Skipping duplicate namespace assignment: \
+                                            "[populate_empty_namespace/exports] Skipping \
+                                             duplicate namespace assignment: \
                                              {namespace_var}.{export} = {export} (already \
                                              assigned)"
                                         );
@@ -3256,9 +3274,9 @@ impl<'a> Bundler<'a> {
                         let assignment_key = (namespace_var.clone(), original_name.clone());
                         if self.namespace_assignments_made.contains(&assignment_key) {
                             log::debug!(
-                                "Skipping duplicate namespace assignment: \
-                                 {namespace_var}.{original_name} = {renamed_name} (already \
-                                 assigned)"
+                                "[populate_namespace_with_symbols/renamed] Skipping duplicate \
+                                 namespace assignment: {namespace_var}.{original_name} = \
+                                 {renamed_name} (already assigned)"
                             );
                             continue;
                         }
@@ -3281,9 +3299,9 @@ impl<'a> Bundler<'a> {
 
                         if assignment_exists {
                             log::debug!(
-                                "Skipping duplicate namespace assignment: \
-                                 {namespace_var}.{original_name} = {renamed_name} (already exists \
-                                 in final_body)"
+                                "[populate_namespace_with_symbols/exists-in-body] Skipping \
+                                 duplicate namespace assignment: {namespace_var}.{original_name} \
+                                 = {renamed_name} (already exists in final_body)"
                             );
                             continue;
                         }
