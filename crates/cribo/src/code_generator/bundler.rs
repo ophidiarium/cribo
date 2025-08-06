@@ -1571,49 +1571,8 @@ impl<'a> Bundler<'a> {
         // Prepare modules: trim imports, index ASTs, detect circular dependencies
         let modules = self.prepare_modules(params)?;
 
-        // Check if entry module has direct imports or dotted imports that might create namespace
-        // objects - but only for first-party modules that we're actually bundling
-        let needs_types_for_entry_imports = {
-            // Find the entry module AST from the pre-parsed modules
-            if let Some((_, ast, _, _)) = params
-                .modules
-                .iter()
-                .find(|(name, _, _, _)| name == params.entry_module_name)
-            {
-                ast.body.iter().any(|stmt| {
-                    if let Stmt::Import(import_stmt) = stmt {
-                        import_stmt.names.iter().any(|alias| {
-                            let module_name = alias.name.as_str();
-                            // Check for dotted imports - but only first-party ones
-                            if module_name.contains('.') {
-                                // Check if this dotted import refers to a first-party module
-                                // by checking if any bundled module matches this dotted path
-                                let is_first_party_dotted =
-                                    params.modules.iter().any(|(name, _, _, _)| {
-                                        name == module_name
-                                            || module_name.starts_with(&format!("{name}."))
-                                    });
-                                if is_first_party_dotted {
-                                    log::debug!(
-                                        "Found first-party dotted import '{module_name}' that \
-                                         requires namespace"
-                                    );
-                                    return true;
-                                }
-                            }
-                            // NOTE: We can't check for direct imports of inlined modules here
-                            // because self.inlined_modules isn't populated yet. That check
-                            // happens later when we actually determine which modules to inline.
-                            false
-                        })
-                    } else {
-                        false
-                    }
-                })
-            } else {
-                false
-            }
-        };
+        // Check if entry module requires namespace types for its imports
+        let needs_types_for_entry_imports = self.check_entry_needs_namespace_types(params);
 
         // Determine if we have circular dependencies
         let has_circular_dependencies = !self.circular_modules.is_empty();
@@ -3946,6 +3905,49 @@ impl<'a> Bundler<'a> {
             self.namespace_imported_modules.len(),
             self.namespace_imported_modules
         );
+    }
+
+    /// Check if the entry module requires namespace types for its imports
+    fn check_entry_needs_namespace_types(&self, params: &BundleParams<'_>) -> bool {
+        // Find the entry module AST from the pre-parsed modules
+        if let Some((_, ast, _, _)) = params
+            .modules
+            .iter()
+            .find(|(name, _, _, _)| name == params.entry_module_name)
+        {
+            ast.body.iter().any(|stmt| {
+                if let Stmt::Import(import_stmt) = stmt {
+                    import_stmt.names.iter().any(|alias| {
+                        let module_name = alias.name.as_str();
+                        // Check for dotted imports - but only first-party ones
+                        if module_name.contains('.') {
+                            // Check if this dotted import refers to a first-party module
+                            // by checking if any bundled module matches this dotted path
+                            let is_first_party_dotted =
+                                params.modules.iter().any(|(name, _, _, _)| {
+                                    name == module_name
+                                        || module_name.starts_with(&format!("{name}."))
+                                });
+                            if is_first_party_dotted {
+                                log::debug!(
+                                    "Found first-party dotted import '{module_name}' that \
+                                     requires namespace"
+                                );
+                                return true;
+                            }
+                        }
+                        // NOTE: We can't check for direct imports of inlined modules here
+                        // because self.inlined_modules isn't populated yet. That check
+                        // happens later when we actually determine which modules to inline.
+                        false
+                    })
+                } else {
+                    false
+                }
+            })
+        } else {
+            false
+        }
     }
 
     /// Check if a symbol should be exported from a module
