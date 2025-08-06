@@ -215,7 +215,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Create a new node and record it as a transformation
-    fn create_transformed_node(&mut self, reason: String) -> AtomicNodeIndex {
+    pub(super) fn create_transformed_node(&mut self, reason: String) -> AtomicNodeIndex {
         self.transformation_context.create_new_node(reason)
     }
 
@@ -1322,6 +1322,22 @@ impl<'a> Bundler<'a> {
         }
     }
 
+    /// Collect symbol renames from semantic analysis
+    fn collect_symbol_renames(
+        &mut self,
+        modules: &[(String, ModModule, PathBuf, String)],
+        semantic_ctx: &SemanticContext,
+    ) -> FxIndexMap<String, FxIndexMap<String, String>> {
+        let mut symbol_renames = FxIndexMap::default();
+
+        // Convert ModuleId-based renames to module name-based renames
+        for (module_name, _, _, _) in modules {
+            self.collect_module_renames(module_name, semantic_ctx, &mut symbol_renames);
+        }
+
+        symbol_renames
+    }
+
     /// Classify modules into inlinable and wrapper modules
     fn classify_modules(
         &mut self,
@@ -1790,21 +1806,15 @@ impl<'a> Bundler<'a> {
         // Check if we need types import (for namespace imports)
         let _need_types_import = !self.namespace_imported_modules.is_empty();
 
-        // Get symbol renames from semantic analysis
-        let symbol_registry = params.semantic_bundler.symbol_registry();
-        let mut symbol_renames = FxIndexMap::default();
-
         // Create semantic context
         let semantic_ctx = SemanticContext {
             graph: params.graph,
-            symbol_registry,
+            symbol_registry: params.semantic_bundler.symbol_registry(),
             semantic_bundler: params.semantic_bundler,
         };
 
-        // Convert ModuleId-based renames to module name-based renames
-        for (module_name, _, _, _) in &modules {
-            self.collect_module_renames(module_name, &semantic_ctx, &mut symbol_renames);
-        }
+        // Get symbol renames from semantic analysis
+        let mut symbol_renames = self.collect_symbol_renames(&modules, &semantic_ctx);
 
         // Collect global symbols from the entry module first (for compatibility)
         let mut global_symbols =
@@ -1855,104 +1865,14 @@ impl<'a> Bundler<'a> {
             }
         }
 
-        // Generate pre-declarations only for symbols that actually need them
-        let mut circular_predeclarations = Vec::new();
-        if !self.circular_modules.is_empty() {
-            log::debug!("Analyzing circular modules for necessary pre-declarations");
-
-            // Collect all symbols that need pre-declaration based on actual forward references
-            let mut symbols_needing_predeclaration = FxIndexSet::default();
-
-            // First pass: Build a map of where each symbol will be defined in the final output
-            let mut symbol_definition_order = FxIndexMap::default();
-            let mut order_index = 0;
-
-            for (module_name, _, _, _) in &inlinable_modules {
-                if let Some(module_renames) = symbol_renames.get(module_name) {
-                    for (original_name, _) in module_renames {
-                        symbol_definition_order
-                            .insert((module_name.clone(), original_name.clone()), order_index);
-                        order_index += 1;
-                    }
-                }
-            }
-
-            // Second pass: Find actual forward references using module-level dependencies
-            for ((module, symbol), module_level_deps) in
-                &self.symbol_dep_graph.module_level_dependencies
-            {
-                if self.circular_modules.contains(module) && !module_level_deps.is_empty() {
-                    // Check each module-level dependency
-                    for (dep_module, dep_symbol) in module_level_deps {
-                        if self.circular_modules.contains(dep_module) {
-                            // Get the order indices
-                            let symbol_order =
-                                symbol_definition_order.get(&(module.clone(), symbol.clone()));
-                            let dep_order = symbol_definition_order
-                                .get(&(dep_module.clone(), dep_symbol.clone()));
-
-                            if let (Some(&sym_idx), Some(&dep_idx)) = (symbol_order, dep_order) {
-                                // Check if this creates a forward reference
-                                if dep_idx > sym_idx {
-                                    log::debug!(
-                                        "Found forward reference: {module}.{symbol} (order \
-                                         {sym_idx}) uses {dep_module}.{dep_symbol} (order \
-                                         {dep_idx}) at module level"
-                                    );
-                                    symbols_needing_predeclaration
-                                        .insert((dep_module.clone(), dep_symbol.clone()));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Now generate pre-declarations only for symbols that actually need them
-            log::debug!("Symbols needing pre-declaration: {symbols_needing_predeclaration:?}");
-            for (module_name, symbol_name) in symbols_needing_predeclaration {
-                if let Some(module_renames) = symbol_renames.get(&module_name)
-                    && let Some(renamed_name) = module_renames.get(&symbol_name)
-                {
-                    // Skip pre-declarations for built-in types
-                    // Built-in types are always available and pre-declaring them as None causes
-                    // issues
-                    if ruff_python_stdlib::builtins::is_python_builtin(
-                        renamed_name,
-                        python_version,
-                        false,
-                    ) {
-                        log::debug!(
-                            "Skipping pre-declaration for built-in type: {renamed_name} (from \
-                             {module_name}.{symbol_name})"
-                        );
-                        continue;
-                    }
-
-                    log::debug!(
-                        "Pre-declaring {renamed_name} (from {module_name}.{symbol_name}) due to \
-                         forward reference"
-                    );
-                    let mut stmt =
-                        statements::simple_assign(renamed_name, expressions::none_literal());
-
-                    // Set custom node index for tracking
-                    if let Stmt::Assign(assign) = &mut stmt {
-                        assign.node_index = self.create_transformed_node(format!(
-                            "Pre-declaration for circular dependency: {renamed_name}"
-                        ));
-                    }
-
-                    circular_predeclarations.push(stmt);
-
-                    // Track the pre-declaration
-                    self.circular_predeclarations
-                        .entry(module_name.clone())
-                        .or_default()
-                        .insert(symbol_name.clone(), renamed_name.clone());
-                }
-            }
-        }
+        // Generate pre-declarations for circular dependencies
+        let circular_predeclarations =
+            crate::code_generator::circular_deps::generate_predeclarations(
+                self,
+                &inlinable_modules,
+                &symbol_renames,
+                python_version,
+            );
 
         // Add pre-declarations at the very beginning
         final_body.extend(circular_predeclarations);
