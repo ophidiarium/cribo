@@ -1994,7 +1994,7 @@ pub fn process_wrapper_modules(
             "Adding {} lifted global declarations for wrapper modules",
             all_lifted_declarations.len()
         );
-        result.extend(all_lifted_declarations.clone());
+        result.extend(all_lifted_declarations.iter().cloned());
         bundler
             .lifted_global_declarations
             .extend(all_lifted_declarations);
