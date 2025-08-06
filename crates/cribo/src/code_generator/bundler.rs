@@ -1532,24 +1532,8 @@ impl<'a> Bundler<'a> {
         log::debug!("Directly imported modules: {directly_imported_modules:?}");
 
         // Find modules that are imported as namespaces (e.g., from models import base)
-        // We need to include the entry module in this analysis since it might contain namespace
-        // imports
-        let mut all_modules_for_namespace_check = modules.clone();
-
-        // Find the entry module from the topologically sorted modules
-        for (module_name, ast, module_path, content_hash) in &modules {
-            if module_name == params.entry_module_name {
-                all_modules_for_namespace_check.push((
-                    module_name.clone(),
-                    ast.clone(),
-                    module_path.clone(),
-                    content_hash.clone(),
-                ));
-                break;
-            }
-        }
-
-        self.find_namespace_imported_modules(&all_modules_for_namespace_check);
+        // The modules vector already contains all modules including the entry module
+        self.find_namespace_imported_modules(&modules);
 
         // Identify all modules that are part of circular dependencies
         if let Some(analysis) = params.circular_dep_analysis {
