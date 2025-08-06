@@ -77,13 +77,13 @@ impl ModuleRegistry {
         if let Some(existing) = self.modules.get(&id) {
             assert!(
                 !(existing.canonical_name != name || existing.resolved_path != path),
-                "Attempting to register module {:?} with conflicting data. Existing: {} at {:?}, \
-                 New: {} at {:?}",
+                "Attempting to register module {:?} with conflicting data. Existing: {} at {}, \
+                 New: {} at {}",
                 id,
                 existing.canonical_name,
-                existing.resolved_path,
+                existing.resolved_path.display(),
                 name,
-                path
+                path.display()
             );
             return; // Module already registered with same data
         }
@@ -260,15 +260,18 @@ impl BundleOrchestrator {
             });
         }
 
-        debug!("Processing module: {module_name} from {module_path:?}");
+        debug!(
+            "Processing module: {module_name} from {}",
+            module_path.display()
+        );
 
         // Step 1: Read and parse (ONLY place where parse_module is called)
         let source = fs::read_to_string(module_path)
-            .with_context(|| format!("Failed to read file: {module_path:?}"))?;
+            .with_context(|| format!("Failed to read file: {}", module_path.display()))?;
         let source = normalize_line_endings(&source);
 
         let parsed = ruff_python_parser::parse_module(&source)
-            .with_context(|| format!("Failed to parse Python file: {module_path:?}"))?;
+            .with_context(|| format!("Failed to parse Python file: {}", module_path.display()))?;
         let mut ast = parsed.into_syntax();
 
         // Step 2: Add to graph and perform semantic analysis (if graph provided)
@@ -334,11 +337,14 @@ impl BundleOrchestrator {
         let mut error_msg = String::from("Unresolvable circular dependencies detected:\n\n");
 
         for (i, cycle) in cycles.iter().enumerate() {
-            error_msg.push_str(&format!("Cycle {}: {}\n", i + 1, cycle.modules.join(" → ")));
-            error_msg.push_str(&format!("  Type: {:?}\n", cycle.cycle_type));
+            use std::fmt::Write;
+            writeln!(error_msg, "Cycle {}: {}", i + 1, cycle.modules.join(" → "))
+                .expect("Failed to write error message");
+            writeln!(error_msg, "  Type: {:?}", cycle.cycle_type)
+                .expect("Failed to write error message");
 
             if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
-                error_msg.push_str(&format!("  Reason: {reason}\n"));
+                writeln!(error_msg, "  Reason: {reason}").expect("Failed to write error message");
             }
             error_msg.push('\n');
         }
@@ -398,7 +404,7 @@ impl BundleOrchestrator {
         // Use a reference to the resolved entry_path for the rest of the function
         let entry_path = &entry_path;
 
-        debug!("Entry: {entry_path:?}");
+        debug!("Entry: {}", entry_path.display());
         debug!(
             "Using target Python version: {} (Python 3.{})",
             self.config.target_version,
@@ -432,7 +438,7 @@ impl BundleOrchestrator {
                 }
             };
             if !self.config.src.contains(&src_dir) {
-                debug!("Adding entry directory to src paths: {src_dir:?}");
+                debug!("Adding entry directory to src paths: {}", src_dir.display());
                 self.config.src.insert(0, src_dir);
             }
         }
@@ -636,7 +642,7 @@ impl BundleOrchestrator {
         }
         debug!("=== TOPOLOGICAL SORT ORDER ===");
         for (i, (name, path, _)) in sorted_modules.iter().enumerate() {
-            debug!("Module {i}: {name} ({path:?})");
+            debug!("Module {i}: {name} ({})", path.display());
         }
         debug!("=== END DEBUG ===");
         Ok(sorted_modules)
@@ -698,7 +704,7 @@ impl BundleOrchestrator {
         emit_requirements: bool,
     ) -> Result<()> {
         info!("Starting bundle process");
-        debug!("Output: {output_path:?}");
+        debug!("Output: {}", output_path.display());
 
         // Initialize empty graph - resolver will be created in bundle_core
         let mut graph = CriboGraph::new();
@@ -733,9 +739,9 @@ impl BundleOrchestrator {
 
         // Write output file
         fs::write(output_path, bundled_code)
-            .with_context(|| format!("Failed to write output file: {output_path:?}"))?;
+            .with_context(|| format!("Failed to write output file: {}", output_path.display()))?;
 
-        info!("Bundle written to: {output_path:?}");
+        info!("Bundle written to: {}", output_path.display());
 
         Ok(())
     }
@@ -890,7 +896,10 @@ impl BundleOrchestrator {
         // PHASE 1: Discover and collect all modules
         info!("Phase 1: Discovering all modules...");
         while let Some((module_name, module_path)) = modules_to_process.pop() {
-            debug!("Discovering module: {module_name} ({module_path:?})");
+            debug!(
+                "Discovering module: {module_name} ({})",
+                module_path.display()
+            );
             if processed_modules.contains(&module_name) {
                 debug!("Module {module_name} already discovered, skipping");
                 continue;
@@ -1339,8 +1348,8 @@ impl BundleOrchestrator {
                 .resolve_importlib_static_with_context(import, package_context.as_deref())
             {
                 debug!(
-                    "Resolved ImportlibStatic '{import}' to module '{resolved_name}' at path: \
-                     {import_path:?}"
+                    "Resolved ImportlibStatic '{import}' to module '{resolved_name}' at path: {}",
+                    import_path.display()
                 );
                 // Use the resolved name instead of the original import
                 self.add_to_discovery_queue_if_new(&resolved_name, import_path, params);
@@ -1349,7 +1358,10 @@ impl BundleOrchestrator {
                 match params.resolver.classify_import(import) {
                     ImportType::FirstParty => {
                         if let Ok(Some(import_path)) = params.resolver.resolve_module_path(import) {
-                            debug!("Resolved ImportlibStatic '{import}' to path: {import_path:?}");
+                            debug!(
+                                "Resolved ImportlibStatic '{import}' to path: {}",
+                                import_path.display()
+                            );
                             self.add_to_discovery_queue_if_new(import, import_path, params);
                         } else if !is_in_error_handler {
                             return Err(anyhow!(
@@ -1372,7 +1384,7 @@ impl BundleOrchestrator {
                 ImportType::FirstParty => {
                     debug!("'{import}' classified as FirstParty");
                     if let Ok(Some(import_path)) = params.resolver.resolve_module_path(import) {
-                        debug!("Resolved '{import}' to path: {import_path:?}");
+                        debug!("Resolved '{import}' to path: {}", import_path.display());
                         self.add_to_discovery_queue_if_new(import, import_path, params);
 
                         // Also add parent packages for submodules to ensure __init__.py files are
@@ -1489,10 +1501,13 @@ impl BundleOrchestrator {
             let requirements_path = Path::new("requirements.txt");
 
             fs::write(requirements_path, requirements_content).with_context(|| {
-                format!("Failed to write requirements file: {requirements_path:?}")
+                format!(
+                    "Failed to write requirements file: {}",
+                    requirements_path.display()
+                )
             })?;
 
-            info!("Requirements written to: {requirements_path:?}");
+            info!("Requirements written to: {}", requirements_path.display());
         }
         Ok(())
     }
@@ -1514,10 +1529,13 @@ impl BundleOrchestrator {
                 .join("requirements.txt");
 
             fs::write(&requirements_path, requirements_content).with_context(|| {
-                format!("Failed to write requirements file: {requirements_path:?}")
+                format!(
+                    "Failed to write requirements file: {}",
+                    requirements_path.display()
+                )
             })?;
 
-            info!("Requirements written to: {requirements_path:?}");
+            info!("Requirements written to: {}", requirements_path.display());
         }
         Ok(())
     }

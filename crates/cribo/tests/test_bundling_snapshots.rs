@@ -633,8 +633,10 @@ fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
             format!("Fixture '{fixture_name}' has duplicate lines in bundled output:\n\n");
 
         for (line, occurrences) in duplicates {
-            error_msg.push_str(&format!(
-                "Line '{}' appears {} times at lines: {}\n",
+            use std::fmt::Write;
+            writeln!(
+                error_msg,
+                "Line '{}' appears {} times at lines: {}",
                 line,
                 occurrences.len(),
                 occurrences
@@ -642,7 +644,8 @@ fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
                     .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
-            ));
+            )
+            .expect("Failed to write error message");
         }
 
         panic!("{}", error_msg);
