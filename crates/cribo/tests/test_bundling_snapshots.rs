@@ -440,7 +440,7 @@ fn test_bundling_fixtures() {
             .trim()
             .replace("\r\n", "\n")
             .to_string();
-        let bundled_exit_code = python_output.status.code().unwrap_or(-1);
+        let python_exit_code = python_output.status.code().unwrap_or(-1);
 
         // For normal tests (not pyfail_ or xfail_), stdout should match exactly
         if !expects_python_failure && !expects_bundling_failure {
@@ -454,7 +454,7 @@ fn test_bundling_fixtures() {
         // Exit codes should also match for normal tests (not pyfail_ or xfail_)
         if !expects_python_failure && !expects_bundling_failure {
             assert_eq!(
-                original_exit_code, bundled_exit_code,
+                original_exit_code, python_exit_code,
                 "\nExit code differs for fixture '{}'",
                 fixture_name
             );
