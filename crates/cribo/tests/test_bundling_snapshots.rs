@@ -571,6 +571,8 @@ fn test_bundling_fixtures() {
 /// Check for duplicate lines in the bundled code
 /// Trims lines from the right but preserves left indentation
 fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
+    use std::fmt::Write;
+
     use indexmap::IndexMap;
 
     let mut line_counts: IndexMap<String, Vec<usize>> = IndexMap::new();
@@ -633,8 +635,7 @@ fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
             format!("Fixture '{fixture_name}' has duplicate lines in bundled output:\n\n");
 
         for (line, occurrences) in duplicates {
-            use std::fmt::Write;
-            writeln!(
+            let _ = writeln!(
                 error_msg,
                 "Line '{}' appears {} times at lines: {}",
                 line,
@@ -644,8 +645,7 @@ fn check_for_duplicate_lines(bundled_code: &str, fixture_name: &str) {
                     .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
-            )
-            .expect("Failed to write error message");
+            );
         }
 
         panic!("{}", error_msg);
