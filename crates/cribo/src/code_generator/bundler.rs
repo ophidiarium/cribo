@@ -38,6 +38,13 @@ use crate::{
 /// Type alias for complex import generation data structure
 type ImportGeneration = Vec<(String, Vec<(String, Option<String>)>, bool)>;
 
+/// Result of module classification
+struct ClassificationResult {
+    inlinable_modules: Vec<(String, ModModule, PathBuf, String)>,
+    wrapper_modules: Vec<(String, ModModule, PathBuf, String)>,
+    module_exports_map: FxIndexMap<String, Option<Vec<String>>>,
+}
+
 /// Parameters for transforming functions with lifted globals
 struct TransformFunctionParams<'a> {
     lifted_names: &'a FxIndexMap<String, String>,
@@ -208,7 +215,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Create a new node and record it as a transformation
-    fn create_transformed_node(&mut self, reason: String) -> AtomicNodeIndex {
+    pub(super) fn create_transformed_node(&mut self, reason: String) -> AtomicNodeIndex {
         self.transformation_context.create_new_node(reason)
     }
 
@@ -1234,13 +1241,15 @@ impl<'a> Bundler<'a> {
         }
     }
 
-    /// Bundle multiple modules using the hybrid approach
-    pub fn bundle_modules(&mut self, params: &BundleParams<'_>) -> Result<ModModule> {
-        let mut final_body = Vec::new();
+    /// Check if a file is __init__.py or __main__.py
+    fn is_package_init_or_main(path: &std::path::Path) -> bool {
+        path.file_name()
+            .and_then(|f| f.to_str())
+            .is_some_and(|name| name == "__init__.py" || name == "__main__.py")
+    }
 
-        // Extract the Python version from params
-        let python_version = params.python_version;
-
+    /// Initialize the bundler with parameters and basic settings
+    fn initialize_bundler(&mut self, params: &BundleParams<'_>) {
         // Store tree shaking decisions if provided
         if let Some(shaker) = params.tree_shaker {
             // Extract all kept symbols from the tree shaker
@@ -1283,14 +1292,20 @@ impl<'a> Bundler<'a> {
         // Store entry module information
         self.entry_module_name = params.entry_module_name.to_string();
 
-        // Check if entry is __init__.py or __main__.py
+        // Check if entry is __init__.py or __main__.py from params.modules
         self.entry_is_package_init_or_main = if let Some((_, _, path, _)) = params
             .modules
             .iter()
             .find(|(name, _, _, _)| name == params.entry_module_name)
         {
-            let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
-            file_name == "__init__.py" || file_name == "__main__.py"
+            Self::is_package_init_or_main(path)
+        } else if let Some((_, path, _)) = params
+            .sorted_modules
+            .iter()
+            .find(|(name, _, _)| name == params.entry_module_name)
+        {
+            // Fallback to sorted_modules if not found in modules
+            Self::is_package_init_or_main(path)
         } else {
             false
         };
@@ -1306,167 +1321,41 @@ impl<'a> Bundler<'a> {
             self.collect_future_imports_from_ast(ast);
         }
 
-        // Check if entry module has direct imports or dotted imports that might create namespace
-        // objects - but only for first-party modules that we're actually bundling
-        let needs_types_for_entry_imports = {
-            // Find the entry module AST from the pre-parsed modules
-            if let Some((_, ast, _, _)) = params
-                .modules
-                .iter()
-                .find(|(name, _, _, _)| name == params.entry_module_name)
-            {
-                ast.body.iter().any(|stmt| {
-                    if let Stmt::Import(import_stmt) = stmt {
-                        import_stmt.names.iter().any(|alias| {
-                            let module_name = alias.name.as_str();
-                            // Check for dotted imports - but only first-party ones
-                            if module_name.contains('.') {
-                                // Check if this dotted import refers to a first-party module
-                                // by checking if any bundled module matches this dotted path
-                                let is_first_party_dotted =
-                                    params.modules.iter().any(|(name, _, _, _)| {
-                                        name == module_name
-                                            || module_name.starts_with(&format!("{name}."))
-                                    });
-                                if is_first_party_dotted {
-                                    log::debug!(
-                                        "Found first-party dotted import '{module_name}' that \
-                                         requires namespace"
-                                    );
-                                    return true;
-                                }
-                            }
-                            // NOTE: We can't check for direct imports of inlined modules here
-                            // because self.inlined_modules isn't populated yet. That check
-                            // happens later when we actually determine which modules to inline.
-                            false
-                        })
-                    } else {
-                        false
-                    }
-                })
-            } else {
-                false
-            }
-        };
-
-        // Trim unused imports from all modules
-        // Note: stdlib import normalization now happens in the orchestrator
-        // before dependency graph building, so imports are already normalized
-        let mut modules = import_deduplicator::trim_unused_imports_from_modules(
-            params.modules,
-            params.graph,
-            params.tree_shaker,
-        )?;
-
-        // Index all module ASTs to assign node indices and initialize transformation context
-        log::debug!("Indexing {} modules", modules.len());
-        let mut module_indices = Vec::new();
-        let mut total_nodes = 0u32;
-        let mut module_id = 0u32;
-
-        // Create a mapping from module name to module ID for debugging
-        let mut module_id_map = FxIndexMap::default();
-
-        for (module_name, ast, path, _content_hash) in &mut modules {
-            let indexed = crate::ast_indexer::index_module_with_id(ast, module_id);
-            let node_count = indexed.node_count;
-            log::debug!(
-                "Module {} (ID: {}) indexed with {} nodes (indices {}-{})",
-                module_name,
-                module_id,
-                node_count,
-                module_id * crate::ast_indexer::MODULE_INDEX_RANGE,
-                module_id * crate::ast_indexer::MODULE_INDEX_RANGE + node_count - 1
-            );
-            module_id_map.insert(module_name.clone(), module_id);
-            module_indices.push((module_name.clone(), path.clone(), indexed));
-            total_nodes += node_count;
-            module_id += 1;
-        }
-
-        // Initialize transformation context
-        // Start new node indices after all module ranges
-        self.transformation_context = TransformationContext::new();
-        let starting_index = module_id * crate::ast_indexer::MODULE_INDEX_RANGE;
-        for _ in 0..starting_index {
-            self.transformation_context.next_node_index();
-        }
-        log::debug!(
-            "Transformation context initialized. Module count: {module_id}, Total nodes: \
-             {total_nodes}, New nodes start at: {starting_index}"
-        );
-
-        // Store module ASTs for re-export resolution
-        self.module_asts = Some(modules.clone());
-
         // Store entry path for relative path calculation
         if let Some((_, entry_path, _)) = params.sorted_modules.last() {
             self.entry_path = Some(entry_path.to_string_lossy().to_string());
         }
+    }
 
-        // Track bundled modules
-        for (module_name, _, _, _) in &modules {
-            self.bundled_modules.insert(module_name.clone());
-            log::debug!("Tracking bundled module: '{module_name}'");
+    /// Collect symbol renames from semantic analysis
+    fn collect_symbol_renames(
+        &mut self,
+        modules: &[(String, ModModule, PathBuf, String)],
+        semantic_ctx: &SemanticContext,
+    ) -> FxIndexMap<String, FxIndexMap<String, String>> {
+        let mut symbol_renames = FxIndexMap::default();
+
+        // Convert ModuleId-based renames to module name-based renames
+        for (module_name, _, _, _) in modules {
+            self.collect_module_renames(module_name, semantic_ctx, &mut symbol_renames);
         }
 
-        // Check which modules are imported directly (e.g., import module_name)
-        let directly_imported_modules =
-            self.find_directly_imported_modules(&modules, params.entry_module_name);
-        log::debug!("Directly imported modules: {directly_imported_modules:?}");
+        symbol_renames
+    }
 
-        // Find modules that are imported as namespaces (e.g., from models import base)
-        // We need to include the entry module in this analysis since it might contain namespace
-        // imports
-        let mut all_modules_for_namespace_check = modules.clone();
-
-        // Find the entry module from the topologically sorted modules
-        for (module_name, ast, module_path, content_hash) in &modules {
-            if module_name == params.entry_module_name {
-                all_modules_for_namespace_check.push((
-                    module_name.clone(),
-                    ast.clone(),
-                    module_path.clone(),
-                    content_hash.clone(),
-                ));
-                break;
-            }
-        }
-
-        self.find_namespace_imported_modules(&all_modules_for_namespace_check);
-
-        // Identify all modules that are part of circular dependencies
-        let mut has_circular_dependencies = false;
-        if let Some(analysis) = params.circular_dep_analysis {
-            log::debug!("CircularDependencyAnalysis received:");
-            log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
-            log::debug!("  Unresolvable cycles: {:?}", analysis.unresolvable_cycles);
-            for group in &analysis.resolvable_cycles {
-                for module in &group.modules {
-                    self.circular_modules.insert(module.clone());
-                }
-            }
-            for group in &analysis.unresolvable_cycles {
-                for module in &group.modules {
-                    self.circular_modules.insert(module.clone());
-                }
-            }
-            has_circular_dependencies = !self.circular_modules.is_empty();
-            log::debug!("Circular modules: {:?}", self.circular_modules);
-        } else {
-            log::debug!("No circular dependency analysis provided");
-        }
-
-        // Separate modules into inlinable and wrapper modules
-        // Note: modules are already normalized before unused import trimming
+    /// Classify modules into inlinable and wrapper modules
+    fn classify_modules(
+        &mut self,
+        modules: &[(String, ModModule, PathBuf, String)],
+        entry_module_name: &str,
+    ) -> ClassificationResult {
         let mut inlinable_modules = Vec::new();
         let mut wrapper_modules = Vec::new();
         let mut module_exports_map = FxIndexMap::default();
 
-        for (module_name, ast, module_path, content_hash) in &modules {
+        for (module_name, ast, module_path, content_hash) in modules {
             log::debug!("Processing module: '{module_name}'");
-            if module_name == params.entry_module_name {
+            if module_name == entry_module_name {
                 continue;
             }
 
@@ -1568,6 +1457,131 @@ impl<'a> Bundler<'a> {
                 ));
             }
         }
+
+        ClassificationResult {
+            inlinable_modules,
+            wrapper_modules,
+            module_exports_map,
+        }
+    }
+
+    /// Prepare modules by trimming imports, indexing ASTs, and detecting circular dependencies
+    fn prepare_modules(
+        &mut self,
+        params: &BundleParams<'_>,
+    ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
+        // Trim unused imports from all modules
+        // Note: stdlib import normalization now happens in the orchestrator
+        // before dependency graph building, so imports are already normalized
+        let mut modules = import_deduplicator::trim_unused_imports_from_modules(
+            params.modules,
+            params.graph,
+            params.tree_shaker,
+        )?;
+
+        // Index all module ASTs to assign node indices and initialize transformation context
+        log::debug!("Indexing {} modules", modules.len());
+        let mut module_indices = Vec::new();
+        let mut total_nodes = 0u32;
+        let mut module_id = 0u32;
+
+        // Create a mapping from module name to module ID for debugging
+        let mut module_id_map = FxIndexMap::default();
+
+        for (module_name, ast, path, _content_hash) in &mut modules {
+            let indexed = crate::ast_indexer::index_module_with_id(ast, module_id);
+            let node_count = indexed.node_count;
+            log::debug!(
+                "Module {} (ID: {}) indexed with {} nodes (indices {}-{})",
+                module_name,
+                module_id,
+                node_count,
+                module_id * crate::ast_indexer::MODULE_INDEX_RANGE,
+                module_id * crate::ast_indexer::MODULE_INDEX_RANGE + node_count - 1
+            );
+            module_id_map.insert(module_name.clone(), module_id);
+            module_indices.push((module_name.clone(), path.clone(), indexed));
+            total_nodes += node_count;
+            module_id += 1;
+        }
+
+        // Initialize transformation context
+        // Start new node indices after all module ranges
+        self.transformation_context = TransformationContext::new();
+        let starting_index = module_id * crate::ast_indexer::MODULE_INDEX_RANGE;
+        for _ in 0..starting_index {
+            self.transformation_context.next_node_index();
+        }
+        log::debug!(
+            "Transformation context initialized. Module count: {module_id}, Total nodes: \
+             {total_nodes}, New nodes start at: {starting_index}"
+        );
+
+        // Store module ASTs for re-export resolution
+        self.module_asts = Some(modules.clone());
+
+        // Track bundled modules
+        for (module_name, _, _, _) in &modules {
+            self.bundled_modules.insert(module_name.clone());
+            log::debug!("Tracking bundled module: '{module_name}'");
+        }
+
+        // Check which modules are imported directly (e.g., import module_name)
+        let directly_imported_modules =
+            self.find_directly_imported_modules(&modules, params.entry_module_name);
+        log::debug!("Directly imported modules: {directly_imported_modules:?}");
+
+        // Find modules that are imported as namespaces (e.g., from models import base)
+        // The modules vector already contains all modules including the entry module
+        self.find_namespace_imported_modules(&modules);
+
+        // Identify all modules that are part of circular dependencies
+        if let Some(analysis) = params.circular_dep_analysis {
+            log::debug!("CircularDependencyAnalysis received:");
+            log::debug!("  Resolvable cycles: {:?}", analysis.resolvable_cycles);
+            log::debug!("  Unresolvable cycles: {:?}", analysis.unresolvable_cycles);
+            for group in &analysis.resolvable_cycles {
+                for module in &group.modules {
+                    self.circular_modules.insert(module.clone());
+                }
+            }
+            for group in &analysis.unresolvable_cycles {
+                for module in &group.modules {
+                    self.circular_modules.insert(module.clone());
+                }
+            }
+            log::debug!("Circular modules: {:?}", self.circular_modules);
+        } else {
+            log::debug!("No circular dependency analysis provided");
+        }
+
+        Ok(modules)
+    }
+
+    /// Bundle multiple modules using the hybrid approach
+    pub fn bundle_modules(&mut self, params: &BundleParams<'_>) -> Result<ModModule> {
+        let mut final_body = Vec::new();
+
+        // Extract the Python version from params
+        let python_version = params.python_version;
+
+        // Initialize bundler settings and collect preliminary data
+        self.initialize_bundler(params);
+
+        // Prepare modules: trim imports, index ASTs, detect circular dependencies
+        let modules = self.prepare_modules(params)?;
+
+        // Check if entry module requires namespace types for its imports
+        let needs_types_for_entry_imports = self.check_entry_needs_namespace_types(params);
+
+        // Determine if we have circular dependencies
+        let has_circular_dependencies = !self.circular_modules.is_empty();
+
+        // Classify modules into inlinable and wrapper modules
+        let classification = self.classify_modules(&modules, params.entry_module_name);
+        let inlinable_modules = classification.inlinable_modules;
+        let wrapper_modules = classification.wrapper_modules;
+        let module_exports_map = classification.module_exports_map;
 
         // Track which modules will be inlined (before wrapper module generation)
         for (module_name, _, _, _) in &inlinable_modules {
@@ -1740,21 +1754,15 @@ impl<'a> Bundler<'a> {
         // Check if we need types import (for namespace imports)
         let _need_types_import = !self.namespace_imported_modules.is_empty();
 
-        // Get symbol renames from semantic analysis
-        let symbol_registry = params.semantic_bundler.symbol_registry();
-        let mut symbol_renames = FxIndexMap::default();
-
         // Create semantic context
         let semantic_ctx = SemanticContext {
             graph: params.graph,
-            symbol_registry,
+            symbol_registry: params.semantic_bundler.symbol_registry(),
             semantic_bundler: params.semantic_bundler,
         };
 
-        // Convert ModuleId-based renames to module name-based renames
-        for (module_name, _, _, _) in &modules {
-            self.collect_module_renames(module_name, &semantic_ctx, &mut symbol_renames);
-        }
+        // Get symbol renames from semantic analysis
+        let mut symbol_renames = self.collect_symbol_renames(&modules, &semantic_ctx);
 
         // Collect global symbols from the entry module first (for compatibility)
         let mut global_symbols =
@@ -1805,104 +1813,14 @@ impl<'a> Bundler<'a> {
             }
         }
 
-        // Generate pre-declarations only for symbols that actually need them
-        let mut circular_predeclarations = Vec::new();
-        if !self.circular_modules.is_empty() {
-            log::debug!("Analyzing circular modules for necessary pre-declarations");
-
-            // Collect all symbols that need pre-declaration based on actual forward references
-            let mut symbols_needing_predeclaration = FxIndexSet::default();
-
-            // First pass: Build a map of where each symbol will be defined in the final output
-            let mut symbol_definition_order = FxIndexMap::default();
-            let mut order_index = 0;
-
-            for (module_name, _, _, _) in &inlinable_modules {
-                if let Some(module_renames) = symbol_renames.get(module_name) {
-                    for (original_name, _) in module_renames {
-                        symbol_definition_order
-                            .insert((module_name.clone(), original_name.clone()), order_index);
-                        order_index += 1;
-                    }
-                }
-            }
-
-            // Second pass: Find actual forward references using module-level dependencies
-            for ((module, symbol), module_level_deps) in
-                &self.symbol_dep_graph.module_level_dependencies
-            {
-                if self.circular_modules.contains(module) && !module_level_deps.is_empty() {
-                    // Check each module-level dependency
-                    for (dep_module, dep_symbol) in module_level_deps {
-                        if self.circular_modules.contains(dep_module) {
-                            // Get the order indices
-                            let symbol_order =
-                                symbol_definition_order.get(&(module.clone(), symbol.clone()));
-                            let dep_order = symbol_definition_order
-                                .get(&(dep_module.clone(), dep_symbol.clone()));
-
-                            if let (Some(&sym_idx), Some(&dep_idx)) = (symbol_order, dep_order) {
-                                // Check if this creates a forward reference
-                                if dep_idx > sym_idx {
-                                    log::debug!(
-                                        "Found forward reference: {module}.{symbol} (order \
-                                         {sym_idx}) uses {dep_module}.{dep_symbol} (order \
-                                         {dep_idx}) at module level"
-                                    );
-                                    symbols_needing_predeclaration
-                                        .insert((dep_module.clone(), dep_symbol.clone()));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Now generate pre-declarations only for symbols that actually need them
-            log::debug!("Symbols needing pre-declaration: {symbols_needing_predeclaration:?}");
-            for (module_name, symbol_name) in symbols_needing_predeclaration {
-                if let Some(module_renames) = symbol_renames.get(&module_name)
-                    && let Some(renamed_name) = module_renames.get(&symbol_name)
-                {
-                    // Skip pre-declarations for built-in types
-                    // Built-in types are always available and pre-declaring them as None causes
-                    // issues
-                    if ruff_python_stdlib::builtins::is_python_builtin(
-                        renamed_name,
-                        python_version,
-                        false,
-                    ) {
-                        log::debug!(
-                            "Skipping pre-declaration for built-in type: {renamed_name} (from \
-                             {module_name}.{symbol_name})"
-                        );
-                        continue;
-                    }
-
-                    log::debug!(
-                        "Pre-declaring {renamed_name} (from {module_name}.{symbol_name}) due to \
-                         forward reference"
-                    );
-                    let mut stmt =
-                        statements::simple_assign(renamed_name, expressions::none_literal());
-
-                    // Set custom node index for tracking
-                    if let Stmt::Assign(assign) = &mut stmt {
-                        assign.node_index = self.create_transformed_node(format!(
-                            "Pre-declaration for circular dependency: {renamed_name}"
-                        ));
-                    }
-
-                    circular_predeclarations.push(stmt);
-
-                    // Track the pre-declaration
-                    self.circular_predeclarations
-                        .entry(module_name.clone())
-                        .or_default()
-                        .insert(symbol_name.clone(), renamed_name.clone());
-                }
-            }
-        }
+        // Generate pre-declarations for circular dependencies
+        let circular_predeclarations =
+            crate::code_generator::circular_deps::generate_predeclarations(
+                self,
+                &inlinable_modules,
+                &symbol_renames,
+                python_version,
+            );
 
         // Add pre-declarations at the very beginning
         final_body.extend(circular_predeclarations);
@@ -3987,6 +3905,49 @@ impl<'a> Bundler<'a> {
             self.namespace_imported_modules.len(),
             self.namespace_imported_modules
         );
+    }
+
+    /// Check if the entry module requires namespace types for its imports
+    fn check_entry_needs_namespace_types(&self, params: &BundleParams<'_>) -> bool {
+        // Find the entry module AST from the pre-parsed modules
+        if let Some((_, ast, _, _)) = params
+            .modules
+            .iter()
+            .find(|(name, _, _, _)| name == params.entry_module_name)
+        {
+            ast.body.iter().any(|stmt| {
+                if let Stmt::Import(import_stmt) = stmt {
+                    import_stmt.names.iter().any(|alias| {
+                        let module_name = alias.name.as_str();
+                        // Check for dotted imports - but only first-party ones
+                        if module_name.contains('.') {
+                            // Check if this dotted import refers to a first-party module
+                            // by checking if any bundled module matches this dotted path
+                            let is_first_party_dotted =
+                                params.modules.iter().any(|(name, _, _, _)| {
+                                    name == module_name
+                                        || module_name.starts_with(&format!("{name}."))
+                                });
+                            if is_first_party_dotted {
+                                log::debug!(
+                                    "Found first-party dotted import '{module_name}' that \
+                                     requires namespace"
+                                );
+                                return true;
+                            }
+                        }
+                        // NOTE: We can't check for direct imports of inlined modules here
+                        // because self.inlined_modules isn't populated yet. That check
+                        // happens later when we actually determine which modules to inline.
+                        false
+                    })
+                } else {
+                    false
+                }
+            })
+        } else {
+            false
+        }
     }
 
     /// Check if a symbol should be exported from a module

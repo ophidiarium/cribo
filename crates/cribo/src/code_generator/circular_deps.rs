@@ -1,9 +1,12 @@
 #![allow(clippy::excessive_nesting)]
 
 use anyhow::Result;
-use ruff_python_ast::ModModule;
+use ruff_python_ast::{ModModule, Stmt};
 
-use crate::types::{FxIndexMap, FxIndexSet};
+use crate::{
+    ast_builder::{expressions, statements},
+    types::{FxIndexMap, FxIndexSet},
+};
 
 /// Handles symbol-level circular dependency analysis and resolution
 #[derive(Debug, Default)]
@@ -392,6 +395,117 @@ impl SymbolDependencyGraph {
             .iter()
             .any(|module| self.symbol_definitions.iter().any(|(m, _)| m == module))
     }
+}
+
+/// Generate pre-declarations for circular dependencies
+pub(super) fn generate_predeclarations(
+    bundler: &mut super::Bundler,
+    inlinable_modules: &[(String, ModModule, std::path::PathBuf, String)],
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    python_version: u8,
+) -> Vec<Stmt> {
+    let mut predeclarations = Vec::new();
+
+    if bundler.circular_modules.is_empty() {
+        return predeclarations;
+    }
+
+    log::debug!("Analyzing circular modules for necessary pre-declarations");
+
+    // Collect all symbols that need pre-declaration based on actual forward references
+    let mut symbols_needing_predeclaration = FxIndexSet::default();
+
+    // First pass: Build a map of where each symbol will be defined in the final output
+    let mut symbol_definition_order = FxIndexMap::default();
+    let mut order_index = 0;
+
+    for (module_name, _, _, _) in inlinable_modules {
+        if let Some(module_renames) = symbol_renames.get(module_name) {
+            for (original_name, _) in module_renames {
+                symbol_definition_order
+                    .insert((module_name.clone(), original_name.clone()), order_index);
+                order_index += 1;
+            }
+        }
+    }
+
+    // Second pass: Find actual forward references using module-level dependencies
+    for ((module, symbol), module_level_deps) in &bundler.symbol_dep_graph.module_level_dependencies
+    {
+        if bundler.circular_modules.contains(module) && !module_level_deps.is_empty() {
+            // Create symbol_key once outside the inner loop since it doesn't change
+            let symbol_key = (module.clone(), symbol.clone());
+
+            // Check each module-level dependency
+            for (dep_module, dep_symbol) in module_level_deps {
+                if bundler.circular_modules.contains(dep_module) {
+                    // Get the order indices
+                    // Note: We clone here for the lookup, but this is only done for circular
+                    // modules which are typically a small subset of all modules
+                    let dep_key = (dep_module.clone(), dep_symbol.clone());
+
+                    if let (Some(&sym_idx), Some(&dep_idx)) = (
+                        symbol_definition_order.get(&symbol_key),
+                        symbol_definition_order.get(&dep_key),
+                    ) {
+                        // Check if this creates a forward reference
+                        if dep_idx > sym_idx {
+                            log::debug!(
+                                "Found forward reference: {module}.{symbol} (order {sym_idx}) \
+                                 uses {dep_module}.{dep_symbol} (order {dep_idx}) at module level"
+                            );
+                            // Only clone when we actually need to insert
+                            symbols_needing_predeclaration.insert(dep_key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Now generate pre-declarations only for symbols that actually need them
+    log::debug!("Symbols needing pre-declaration: {symbols_needing_predeclaration:?}");
+    for (module_name, symbol_name) in symbols_needing_predeclaration {
+        if let Some(module_renames) = symbol_renames.get(&module_name)
+            && let Some(renamed_name) = module_renames.get(&symbol_name)
+        {
+            // Skip pre-declarations for built-in types
+            // Built-in types are always available and pre-declaring them as None causes
+            // issues
+            if ruff_python_stdlib::builtins::is_python_builtin(renamed_name, python_version, false)
+            {
+                log::debug!(
+                    "Skipping pre-declaration for built-in type: {renamed_name} (from \
+                     {module_name}.{symbol_name})"
+                );
+                continue;
+            }
+
+            log::debug!(
+                "Pre-declaring {renamed_name} (from {module_name}.{symbol_name}) due to forward \
+                 reference"
+            );
+            let mut stmt = statements::simple_assign(renamed_name, expressions::none_literal());
+
+            // Set custom node index for tracking
+            if let Stmt::Assign(assign) = &mut stmt {
+                assign.node_index = bundler.create_transformed_node(format!(
+                    "Pre-declaration for circular dependency: {renamed_name}"
+                ));
+            }
+
+            predeclarations.push(stmt);
+
+            // Track the pre-declaration
+            bundler
+                .circular_predeclarations
+                .entry(module_name.clone())
+                .or_default()
+                .insert(symbol_name.clone(), renamed_name.clone());
+        }
+    }
+
+    predeclarations
 }
 
 #[cfg(test)]
