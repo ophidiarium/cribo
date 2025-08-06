@@ -531,7 +531,6 @@ fn test_bundling_fixtures() {
         if !expects_bundling_failure
             && !expects_python_failure
             && fixture_name != "cross_package_mixed_import"
-            && fixture_name != "early_module_reference"
         {
             check_for_duplicate_lines(&bundled_code, fixture_name);
         }

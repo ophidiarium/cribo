@@ -3920,6 +3920,9 @@ impl<'a> Bundler<'a> {
         // This happens when all importlib.import_module() calls were transformed
         import_deduplicator::remove_unused_importlib(&mut result);
 
+        // Deduplicate namespace creation statements
+        self.deduplicate_namespace_creations(&mut result);
+
         // Log transformation statistics
         let stats = self.transformation_context.get_stats();
         log::info!("Transformation statistics:");
@@ -3927,6 +3930,64 @@ impl<'a> Bundler<'a> {
         log::info!("  New nodes created: {}", stats.new_nodes);
 
         Ok(result)
+    }
+
+    /// Deduplicate namespace creation statements (var = `types.SimpleNamespace()`)
+    fn deduplicate_namespace_creations(&self, module: &mut ModModule) {
+        
+
+        let mut seen_namespaces = FxIndexSet::default();
+        let mut new_body = Vec::new();
+
+        for stmt in module.body.drain(..) {
+            // Check if this is a namespace creation statement
+            let is_duplicate_namespace = if let Stmt::Assign(ref assign) = stmt {
+                // Check for pattern: var = types.SimpleNamespace()
+                if let [Expr::Name(name)] = assign.targets.as_slice() {
+                    if let Expr::Call(call) = &*assign.value {
+                        // Check if this is a SimpleNamespace call
+                        let is_simple_namespace = match &*call.func {
+                            Expr::Attribute(attr) => {
+                                if let Expr::Name(base) = &*attr.value {
+                                    base.id.as_str() == "types"
+                                        && attr.attr.as_str() == "SimpleNamespace"
+                                } else {
+                                    false
+                                }
+                            }
+                            _ => false,
+                        };
+
+                        if is_simple_namespace {
+                            let namespace_name = name.id.as_str();
+                            if seen_namespaces.contains(namespace_name) {
+                                log::debug!(
+                                    "Removing duplicate namespace creation for '{namespace_name}'"
+                                );
+                                true
+                            } else {
+                                seen_namespaces.insert(namespace_name.to_string());
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if !is_duplicate_namespace {
+                new_body.push(stmt);
+            }
+        }
+
+        module.body = new_body;
     }
 
     /// Find modules that are imported directly
