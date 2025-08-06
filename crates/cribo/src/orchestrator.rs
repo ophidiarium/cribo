@@ -334,17 +334,15 @@ impl BundleOrchestrator {
 
     /// Format error message for unresolvable cycles
     fn format_unresolvable_cycles_error(cycles: &[CircularDependencyGroup]) -> String {
+        use std::fmt::Write;
         let mut error_msg = String::from("Unresolvable circular dependencies detected:\n\n");
 
         for (i, cycle) in cycles.iter().enumerate() {
-            use std::fmt::Write;
-            writeln!(error_msg, "Cycle {}: {}", i + 1, cycle.modules.join(" → "))
-                .expect("Failed to write error message");
-            writeln!(error_msg, "  Type: {:?}", cycle.cycle_type)
-                .expect("Failed to write error message");
+            let _ = writeln!(error_msg, "Cycle {}: {}", i + 1, cycle.modules.join(" → "));
+            let _ = writeln!(error_msg, "  Type: {:?}", cycle.cycle_type);
 
             if let ResolutionStrategy::Unresolvable { reason } = &cycle.suggested_resolution {
-                writeln!(error_msg, "  Reason: {reason}").expect("Failed to write error message");
+                let _ = writeln!(error_msg, "  Reason: {reason}");
             }
             error_msg.push('\n');
         }
