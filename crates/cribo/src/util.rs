@@ -15,7 +15,10 @@ pub fn module_name_from_relative(relative_path: &Path) -> Option<String> {
 
     let last_part = parts.last_mut()?;
     // Remove .py extension
-    if last_part.ends_with(".py") {
+    if Path::new(last_part)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("py"))
+    {
         *last_part = last_part[..last_part.len() - 3].to_owned();
     }
 
