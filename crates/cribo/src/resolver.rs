@@ -268,12 +268,16 @@ impl ModuleResolver {
         };
         let name = name_string.as_deref();
 
-        let absolute_module_name = self
-            .resolve_relative_to_absolute_module_name(
-                descriptor.leading_dots as u32,
-                name,
-                current_module_path,
+        let level = u32::try_from(descriptor.leading_dots).map_err(|_| {
+            anyhow!(
+                "Relative import level {} is too large (max: {})",
+                descriptor.leading_dots,
+                u32::MAX
             )
+        })?;
+
+        let absolute_module_name = self
+            .resolve_relative_to_absolute_module_name(level, name, current_module_path)
             .ok_or_else(|| anyhow!("Failed to resolve relative import"))?;
 
         // Now resolve the absolute module name to a path
