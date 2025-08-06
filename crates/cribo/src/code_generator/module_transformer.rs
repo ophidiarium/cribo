@@ -1773,8 +1773,8 @@ fn create_namespace_for_inlined_submodule(
     );
 
     log::debug!(
-        "create_namespace_for_inlined_submodule: full_module_name='{full_module_name}', attr_name='{attr_name}', \
-         namespace_var='{namespace_var}'"
+        "create_namespace_for_inlined_submodule: full_module_name='{full_module_name}', \
+         attr_name='{attr_name}', namespace_var='{namespace_var}'"
     );
 
     // Create a types.SimpleNamespace() for the inlined module
