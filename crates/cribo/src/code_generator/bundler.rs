@@ -4063,16 +4063,7 @@ impl<'a> Bundler<'a> {
         }
 
         // Determine parent module
-        let parent_module = if module_path.contains('.') {
-            let parts: Vec<&str> = module_path.split('.').collect();
-            if parts.len() > 1 {
-                Some(parts[..parts.len() - 1].join("."))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let parent_module = module_path.rsplit_once('.').map(|(p, _)| p.to_string());
 
         // Create new namespace info
         let info = NamespaceInfo {
