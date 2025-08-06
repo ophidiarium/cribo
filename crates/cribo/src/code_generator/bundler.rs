@@ -6630,17 +6630,32 @@ impl Bundler<'_> {
 
                 // Check if this exact assignment has been seen before
                 if seen_attribute_assignments.contains(&key) {
-                    // For __name__ assignments and namespace assignments, skip duplicates
+                    // Skip duplicates only for bundler-generated patterns:
+                    // 1. __name__ assignments (always bundler-generated)
+                    // 2. types.SimpleNamespace() calls
+                    // 3. Assignments of known namespace variables
+
+                    // Always skip __name__ duplicates (these are bundler-generated)
                     if attr.attr.as_str() == "__name__" {
                         log::debug!("Skipping duplicate __name__ assignment: {key}");
                         continue;
                     }
-                    // For namespace attribute assignments (e.g., core.utils = core_utils)
-                    if let Expr::Name(_) = assign.value.as_ref()
-                        && seen_namespace_creations.iter().any(|ns| ns.contains('_'))
-                    {
-                        // Likely a namespace assignment
-                        log::debug!("Skipping duplicate namespace attribute assignment: {key}");
+
+                    // Check the value being assigned
+                    if let Expr::Name(name) = assign.value.as_ref() {
+                        // Skip if assigning a known namespace or synthetic module
+                        if seen_namespace_creations.contains(name.id.as_str())
+                            || self
+                                .module_registry
+                                .values()
+                                .any(|synthetic_name| synthetic_name == name.id.as_str())
+                        {
+                            log::debug!("Skipping duplicate namespace variable assignment: {key}");
+                            continue;
+                        }
+                    } else if self.is_types_simplenamespace_call(assign.value.as_ref()) {
+                        // Direct namespace creation as attribute (bundler-generated)
+                        log::debug!("Skipping duplicate namespace creation assignment: {key}");
                         continue;
                     }
                 }
