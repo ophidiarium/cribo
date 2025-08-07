@@ -1802,14 +1802,11 @@ impl<'a> Bundler<'a> {
             if module_name.contains('.') {
                 // This is a submodule, ensure parent namespaces exist
                 // The parent namespaces are needed for assignment like parent.child = init()
-                if let Some(last_dot_pos) = module_name.rfind('.') {
-                    let parent = &module_name[..last_dot_pos];
-
+                if let Some((parent, _)) = module_name.rsplit_once('.') {
                     // Register parent namespace through centralized system
-                    let context = if let Some(parent_dot_pos) = parent.rfind('.') {
-                        let grandparent = parent[..parent_dot_pos].to_string();
+                    let context = if let Some((grandparent, _)) = parent.rsplit_once('.') {
                         NamespaceContext::Attribute {
-                            parent: grandparent,
+                            parent: grandparent.to_string(),
                         }
                     } else {
                         NamespaceContext::TopLevel
