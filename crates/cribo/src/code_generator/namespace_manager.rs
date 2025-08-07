@@ -547,12 +547,7 @@ pub fn require_namespace(bundler: &mut Bundler, path: &str, context: NamespaceCo
         })
         .or_insert_with(|| {
             // Determine parent module (but no aliases here - they're context dependent)
-            let parent_module = if path.contains('.') {
-                let parts: Vec<&str> = path.split('.').collect();
-                Some(parts[..parts.len() - 1].join("."))
-            } else {
-                None
-            };
+            let parent_module = path.rsplit_once('.').map(|(p, _)| p.to_string());
 
             NamespaceInfo {
                 original_path: path.to_string(),
