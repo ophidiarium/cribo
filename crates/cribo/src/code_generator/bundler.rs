@@ -5997,10 +5997,7 @@ impl Bundler<'_> {
             .unwrap_or(false);
 
         if !value_is_local_var {
-            let sanitized_name =
-                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                    full_path,
-                );
+            let sanitized_name = sanitize_module_name_for_identifier(full_path);
             log::debug!(
                 "Filtering out self-referential assignment: {base_id}.{attr_name} = {value_id} \
                  (inlined submodule, will use alias '{value_id} = {sanitized_name}')"

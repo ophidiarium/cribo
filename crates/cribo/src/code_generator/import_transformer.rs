@@ -786,7 +786,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // For inlined modules, use the sanitized module name instead of
                                 // local_name e.g., pkg_compat
                                 // instead of compat
-                                let namespace_var = crate::code_generator::module_registry::sanitize_module_name_for_identifier(&full_module_path);
+                                let namespace_var =
+                                    sanitize_module_name_for_identifier(&full_module_path);
 
                                 // Only create the namespace if it hasn't been created yet
                                 // The bundler should have already registered it during pre-scanning

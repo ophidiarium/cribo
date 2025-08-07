@@ -29,7 +29,7 @@ use crate::{
         globals::{GlobalsLifter, transform_globals_in_stmt},
         import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry,
+        module_registry::{self, sanitize_module_name_for_identifier},
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -1768,9 +1768,7 @@ fn create_namespace_for_inlined_submodule(
     let mut stmts = Vec::new();
 
     // Use the sanitized module name for inlined modules to match the global namespace object
-    let namespace_var = crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-        full_module_name,
-    );
+    let namespace_var = sanitize_module_name_for_identifier(full_module_name);
 
     log::debug!(
         "create_namespace_for_inlined_submodule: full_module_name='{full_module_name}', \
