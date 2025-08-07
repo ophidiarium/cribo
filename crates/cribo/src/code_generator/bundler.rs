@@ -115,8 +115,6 @@ pub struct Bundler<'a> {
     pub(crate) namespace_registry: FxIndexMap<String, NamespaceInfo>,
     /// Reverse lookup: Maps ORIGINAL path to SANITIZED name
     pub(crate) path_to_sanitized_name: FxIndexMap<String, String>,
-    /// Runtime tracking of all created namespaces to prevent duplicates
-    pub(crate) created_namespaces: FxIndexSet<String>,
     /// Modules that have explicit __all__ defined
     pub(crate) modules_with_explicit_all: FxIndexSet<String>,
     /// Transformation context for tracking node mappings
@@ -200,7 +198,6 @@ impl<'a> Bundler<'a> {
             global_deferred_imports: FxIndexMap::default(),
             namespace_registry: FxIndexMap::default(),
             path_to_sanitized_name: FxIndexMap::default(),
-            created_namespaces: FxIndexSet::default(),
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
@@ -2450,7 +2447,11 @@ impl<'a> Bundler<'a> {
             if needs_namespace {
                 // Check if this namespace was already created
                 let namespace_var = sanitize_module_name_for_identifier(module_name);
-                let namespace_already_exists = self.created_namespaces.contains(&namespace_var);
+                let namespace_already_exists = self
+                    .namespace_registry
+                    .get(&namespace_var)
+                    .map(|info| info.is_created)
+                    .unwrap_or(false);
 
                 log::debug!(
                     "Namespace for inlined module '{module_name}' already exists: \
@@ -2767,14 +2768,83 @@ impl<'a> Bundler<'a> {
                         let has_forward_references = self
                             .check_module_has_forward_references(module_name, module_rename_map);
 
-                        // Create a SimpleNamespace for this module only if it doesn't exist
-                        let namespace_stmts =
-                            namespace_manager::create_namespace_for_inlined_module_static(
+                        // Create a SimpleNamespace for this module
+                        // First check if we have forward references
+                        if has_forward_references {
+                            // Create empty namespace immediately due to forward references
+                            let namespace_stmts = namespace_manager::require_namespace(
                                 self,
                                 module_name,
-                                module_rename_map,
+                                namespace_manager::NamespaceContext::InlinedModule,
+                                namespace_manager::NamespaceParams::immediate(),
                             );
-                        final_body.extend(namespace_stmts);
+                            final_body.extend(namespace_stmts);
+                        } else {
+                            // Create populated namespace with all symbols
+                            let mut attributes = Vec::new();
+                            let mut seen_attrs = FxIndexSet::default();
+
+                            // Add all renamed symbols as attributes
+                            for (original_name, renamed_name) in module_rename_map {
+                                if seen_attrs.contains(original_name) {
+                                    continue;
+                                }
+
+                                // Check if this symbol survived tree-shaking
+                                if !self.is_symbol_kept_by_tree_shaking(module_name, original_name)
+                                {
+                                    log::debug!(
+                                        "Skipping tree-shaken symbol '{original_name}' from \
+                                         namespace for module '{module_name}'"
+                                    );
+                                    continue;
+                                }
+
+                                seen_attrs.insert(original_name.clone());
+                                attributes.push((
+                                    original_name.clone(),
+                                    expressions::name(renamed_name, ExprContext::Load),
+                                ));
+                            }
+
+                            // Also check if module has module-level variables that weren't renamed
+                            if let Some(exports) = self.module_exports.get(module_name)
+                                && let Some(export_list) = exports
+                            {
+                                for export in export_list {
+                                    if !module_rename_map.contains_key(export)
+                                        && !seen_attrs.contains(export)
+                                    {
+                                        // Check if this symbol survived tree-shaking
+                                        if !self.is_symbol_kept_by_tree_shaking(module_name, export)
+                                        {
+                                            log::debug!(
+                                                "Skipping tree-shaken export '{export}' from \
+                                                 namespace for module '{module_name}'"
+                                            );
+                                            continue;
+                                        }
+
+                                        seen_attrs.insert(export.clone());
+                                        attributes.push((
+                                            export.clone(),
+                                            expressions::name(export, ExprContext::Load),
+                                        ));
+                                    }
+                                }
+                            }
+
+                            // Create namespace with populated attributes
+                            let namespace_stmts = namespace_manager::require_namespace(
+                                self,
+                                module_name,
+                                namespace_manager::NamespaceContext::InlinedModule,
+                                namespace_manager::NamespaceParams::immediate_with_attributes(
+                                    attributes,
+                                ),
+                            );
+                            final_body.extend(namespace_stmts);
+                        }
 
                         // Parent-child namespace assignments will be handled later by
                         // generate_submodule_attributes_with_exclusions, which runs after
@@ -2793,9 +2863,11 @@ impl<'a> Bundler<'a> {
                         }
                     }
 
-                    // Track the created namespace to prevent duplicate creation later
+                    // Mark the namespace as created in the registry
                     let namespace_var = sanitize_module_name_for_identifier(module_name);
-                    self.created_namespaces.insert(namespace_var);
+                    if let Some(info) = self.namespace_registry.get_mut(&namespace_var) {
+                        info.is_created = true;
+                    }
                 } else if self.inlined_modules.contains(module_name)
                     && !self.module_registry.contains_key(module_name)
                 {
@@ -3257,7 +3329,12 @@ impl<'a> Bundler<'a> {
 
             // Check if this module has a namespace that needs population
             let namespace_var = sanitize_module_name_for_identifier(module_name);
-            if self.created_namespaces.contains(&namespace_var) {
+            if self
+                .namespace_registry
+                .get(&namespace_var)
+                .map(|info| info.is_created)
+                .unwrap_or(false)
+            {
                 log::debug!("Populating empty namespace '{namespace_var}' with symbols");
 
                 // Don't mark the module as fully populated yet, we'll track individual symbols
@@ -3818,7 +3895,7 @@ impl<'a> Bundler<'a> {
 
             for synthetic_name in needed_init_calls {
                 // Note: This is in a context where we can't mutate self, so we'll rely on
-                // the namespaces being pre-created by identify_required_namespaces
+                // the namespaces being pre-created by the central namespace registry
                 // Get the original module name for this synthetic name
                 let module_name = self
                     .module_registry
@@ -3918,10 +3995,6 @@ impl<'a> Bundler<'a> {
         if self.has_cross_module_inheritance_forward_refs(&final_body) {
             final_body = self.fix_forward_references_in_statements(final_body);
         }
-
-        // Deduplicate namespace creation statements that were created by different systems
-        // This is a targeted fix for the specific duplicate pattern we're seeing
-        final_body = self.deduplicate_namespace_creation_statements(final_body);
 
         // Final filter: Remove any invalid assignments where module.attr = attr and attr is a
         // submodule that doesn't exist as a local variable
@@ -6106,7 +6179,11 @@ impl Bundler<'_> {
                     self.namespace_registry.contains_key(&sanitized);
 
                 // Check if we haven't already created this namespace globally or locally
-                let already_created = self.created_namespaces.contains(&parent_path)
+                let already_created = self
+                    .namespace_registry
+                    .get(&sanitized)
+                    .map(|info| info.is_created)
+                    .unwrap_or(false)
                     || self.is_namespace_already_created(&parent_path, result_stmts)
                     || registered_in_namespace_system;
 
@@ -6131,7 +6208,11 @@ impl Bundler<'_> {
                         expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
                     ));
                 } else if registered_in_namespace_system
-                    && !self.created_namespaces.contains(&parent_path)
+                    && !self
+                        .namespace_registry
+                        .get(&sanitized)
+                        .map(|info| info.is_created)
+                        .unwrap_or(false)
                 {
                     // The namespace is registered but hasn't been created yet
                     // This shouldn't happen if generate_required_namespaces() was called before
@@ -6198,7 +6279,13 @@ impl Bundler<'_> {
             }
 
             // Skip if this namespace was already created globally
-            if self.created_namespaces.contains(&partial_module) {
+            let sanitized = sanitize_module_name_for_identifier(&partial_module);
+            if self
+                .namespace_registry
+                .get(&sanitized)
+                .map(|info| info.is_created)
+                .unwrap_or(false)
+            {
                 log::debug!(
                     "Skipping namespace creation for '{partial_module}' - already created globally"
                 );
@@ -6576,103 +6663,6 @@ impl Bundler<'_> {
                     }
                 }
             }
-        }
-        false
-    }
-
-    /// Deduplicate namespace creation statements (var = types.SimpleNamespace())
-    /// and namespace attribute assignments (var.__name__ = '...')
-    /// This removes duplicates created by different parts of the bundling process
-    fn deduplicate_namespace_creation_statements(&self, stmts: Vec<Stmt>) -> Vec<Stmt> {
-        let mut seen_namespace_creations = FxIndexSet::default();
-        let mut seen_attribute_assignments = FxIndexSet::default();
-        let mut result = Vec::new();
-
-        for stmt in stmts {
-            // Check if this is a namespace creation: var = types.SimpleNamespace()
-            let is_namespace_creation = if let Stmt::Assign(ref assign) = stmt {
-                assign.targets.len() == 1
-                    && matches!(&assign.targets[0], Expr::Name(_))
-                    && self.is_types_simplenamespace_call(&assign.value)
-            } else {
-                false
-            };
-
-            if is_namespace_creation
-                && let Stmt::Assign(ref assign) = stmt
-                && let Expr::Name(name) = &assign.targets[0]
-            {
-                let var_name = name.id.as_str();
-
-                // Skip if we've already seen this namespace creation
-                if seen_namespace_creations.contains(var_name) {
-                    log::debug!(
-                        "Skipping duplicate namespace creation: {var_name} = \
-                         types.SimpleNamespace()"
-                    );
-                    continue;
-                }
-                seen_namespace_creations.insert(var_name.to_string());
-            }
-
-            // Check if this is a duplicate attribute assignment like var.__name__ = '...'
-            // or var.attr = namespace_var
-            if let Stmt::Assign(ref assign) = stmt
-                && assign.targets.len() == 1
-                && let Expr::Attribute(attr) = &assign.targets[0]
-                && let Expr::Name(base) = attr.value.as_ref()
-            {
-                let key = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
-
-                // Check if this exact assignment has been seen before
-                if seen_attribute_assignments.contains(&key) {
-                    // Skip duplicates only for bundler-generated patterns:
-                    // 1. __name__ assignments (always bundler-generated)
-                    // 2. types.SimpleNamespace() calls
-                    // 3. Assignments of known namespace variables
-
-                    // Always skip __name__ duplicates (these are bundler-generated)
-                    if attr.attr.as_str() == "__name__" {
-                        log::debug!("Skipping duplicate __name__ assignment: {key}");
-                        continue;
-                    }
-
-                    // Check the value being assigned
-                    if let Expr::Name(name) = assign.value.as_ref() {
-                        // Skip if assigning a known namespace or synthetic module
-                        if seen_namespace_creations.contains(name.id.as_str())
-                            || self
-                                .module_registry
-                                .values()
-                                .any(|synthetic_name| synthetic_name == name.id.as_str())
-                        {
-                            log::debug!("Skipping duplicate namespace variable assignment: {key}");
-                            continue;
-                        }
-                    } else if self.is_types_simplenamespace_call(assign.value.as_ref()) {
-                        // Direct namespace creation as attribute (bundler-generated)
-                        log::debug!("Skipping duplicate namespace creation assignment: {key}");
-                        continue;
-                    }
-                }
-                seen_attribute_assignments.insert(key);
-            }
-
-            result.push(stmt);
-        }
-
-        result
-    }
-
-    /// Check if an expression is a types.SimpleNamespace() call
-    fn is_types_simplenamespace_call(&self, expr: &Expr) -> bool {
-        if let Expr::Call(call) = expr
-            && let Expr::Attribute(attr) = call.func.as_ref()
-            && let Expr::Name(module) = attr.value.as_ref()
-        {
-            return module.id.as_str() == "types"
-                && attr.attr.as_str() == "SimpleNamespace"
-                && call.arguments.args.is_empty();
         }
         false
     }
