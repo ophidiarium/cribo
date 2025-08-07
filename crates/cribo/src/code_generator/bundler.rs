@@ -6071,11 +6071,10 @@ impl Bundler<'_> {
     /// Check if a module name represents a dunder module like __version__, __about__, etc.
     /// These are Python's "magic" modules with double underscores.
     fn is_dunder_module(module_name: &str) -> bool {
-        if let Some((_, last_part)) = module_name.rsplit_once('.') {
-            last_part.starts_with("__") && last_part.ends_with("__")
-        } else {
-            false
-        }
+        // Get the last part of the module name (after the last dot, or the whole name if no dots)
+        let last_part = module_name.rsplit_once('.').map_or(module_name, |(_, p)| p);
+        // Check if it's a valid dunder name (starts and ends with __, and has content in between)
+        last_part.starts_with("__") && last_part.ends_with("__") && last_part.len() > 4
     }
 
     /// Create a module reference assignment
