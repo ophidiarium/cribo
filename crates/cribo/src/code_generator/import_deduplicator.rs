@@ -389,6 +389,20 @@ pub(super) fn deduplicate_deferred_imports_with_existing(
                         let key = target_path.clone();
                         log::debug!("Found existing module init assignment: {key} = {func_name}");
                         seen_assignments.insert(key);
+                    } else {
+                        // For other attribute assignments like pkg_compat.bytes = bytes
+                        // Only track simple name assignments to avoid catching namespace creations
+                        if let Expr::Name(value_name) = &assign.value.as_ref() {
+                            let value_key = format!("{} = {}", target_path, value_name.id.as_str());
+                            seen_assignments.insert(value_key);
+                        }
+                    }
+                } else {
+                    // For non-call attribute assignments
+                    // Only track simple name assignments
+                    if let Expr::Name(value_name) = &assign.value.as_ref() {
+                        let value_key = format!("{} = {}", target_path, value_name.id.as_str());
+                        seen_assignments.insert(value_key);
                     }
                 }
             }
@@ -476,6 +490,24 @@ pub(super) fn deduplicate_deferred_imports_with_existing(
                             continue;
                         }
                     }
+
+                    // Also handle general attribute assignments like pkg_compat.bytes = bytes
+                    // But NOT namespace creations (types.SimpleNamespace())
+                    // Only deduplicate simple name assignments to attributes
+                    if let Expr::Name(value_name) = &assign.value.as_ref() {
+                        let key = format!("{} = {}", target_path, value_name.id.as_str());
+
+                        if seen_assignments.contains(&key) {
+                            log::debug!("Skipping duplicate attribute assignment: {key}");
+                            continue;
+                        }
+
+                        seen_assignments.insert(key.clone());
+                        log::debug!("Adding attribute assignment: {key}");
+                    }
+                    // For other types (like namespace creations), don't deduplicate
+                    result.push(stmt);
+                    continue;
                 }
 
                 // Check for simple assignments like: Logger = Logger_4

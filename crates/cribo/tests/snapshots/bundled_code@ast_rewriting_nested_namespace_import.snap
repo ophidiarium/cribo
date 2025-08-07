@@ -18,7 +18,6 @@ def get_greeting(name):
 greetings.greeting = greetings_greeting
 greetings_greeting.get_greeting = get_greeting
 """Test nested namespace imports"""
-greetings.greeting = types.SimpleNamespace()
 greetings.greeting.get_greeting = get_greeting
 message = greetings.greeting.get_greeting("Python")
 print(message)

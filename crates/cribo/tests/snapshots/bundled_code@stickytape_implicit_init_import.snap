@@ -14,5 +14,4 @@ greetings.__name__ = 'greetings'
 message = "Hello"
 greetings.irrelevant = greetings_irrelevant
 greetings.message = message
-greetings.irrelevant = types.SimpleNamespace()
 print(greetings.message)

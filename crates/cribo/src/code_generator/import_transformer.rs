@@ -972,7 +972,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         .bundler
                                         .symbols_populated_after_deferred
                                         .iter()
-                                        .any(|(ns, _)| ns == &namespace_var);
+                                        .any(|(ns, _)| ns == &namespace_var)
+                                        || self.populated_modules.contains(&full_module_path);
 
                                     if !namespace_already_populated {
                                         for symbol in filtered_exports {
@@ -998,6 +999,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             self.deferred_imports
                                                 .push(statements::assign(vec![target], value));
                                         }
+                                        // Mark this module as populated to prevent duplicate
+                                        // assignments
+                                        self.populated_modules.insert(full_module_path.clone());
                                     }
                                 }
                             } else {
