@@ -8,17 +8,10 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_globals_collision/main.py
 
 import functools
 import types
-core = types.SimpleNamespace(__name__='core')
 models = types.SimpleNamespace(__name__='models')
 services = types.SimpleNamespace(__name__='services')
-core_database = types.SimpleNamespace(__name__='core.database')
-core.database = core_database
-core_utils = types.SimpleNamespace(__name__='core.utils')
-core.utils = core_utils
 services_auth = types.SimpleNamespace(__name__='services.auth')
 services.auth = services_auth
-core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
-core_utils.helpers = core_utils_helpers
 process_count = 0
 validate_cache = {}
 Logger_6 = str
@@ -56,6 +49,10 @@ Logger_6.__module__ = 'core.utils.helpers'
 Logger_6.__name__ = 'Logger'
 Logger_6.__qualname__ = 'Logger'
 """Core utility helpers module - NO external dependencies to avoid circular imports"""
+core_utils = types.SimpleNamespace(__name__='core.utils')
+core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
+core_database = types.SimpleNamespace(__name__='core.database')
+core = types.SimpleNamespace(__name__='core')
 _cribo_models_base_Connection = None
 @functools.cache
 def __cribo_init___cribo_0a162a_models_base():
@@ -330,6 +327,9 @@ def __cribo_init___cribo_df9c8d_core_database_connection():
         return conn
     module.create_connection = create_connection
     return module
+core.database = core_database
+core.utils = core_utils
+core_utils.helpers = core_utils_helpers
 services.auth.manager = __cribo_init___cribo_0ecebd_services_auth_manager()
 models.base = __cribo_init___cribo_0a162a_models_base()
 core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()

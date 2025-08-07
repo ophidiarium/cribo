@@ -1155,6 +1155,89 @@ impl<'a> Bundler<'a> {
         }
     }
 
+    /// Generate parent-child namespace assignments for namespaces that were created immediately.
+    /// This must happen before wrapper module initialization to ensure dotted assignments work.
+    /// Returns a set of module paths for which assignments were created.
+    fn generate_early_namespace_assignments(
+        &self,
+        final_body: &mut Vec<Stmt>,
+    ) -> FxIndexSet<String> {
+        use crate::{
+            ast_builder::{expressions, statements},
+            code_generator::module_registry::sanitize_module_name_for_identifier,
+        };
+
+        let mut created_assignments = FxIndexSet::default();
+
+        // Collect all namespaces that need parent-child assignments
+        let mut assignments = Vec::new();
+
+        for (sanitized_name, info) in &self.namespace_registry {
+            // Skip if not created yet
+            if !info.is_created {
+                continue;
+            }
+
+            // Skip if no parent
+            let Some(ref parent_path) = info.parent_module else {
+                continue;
+            };
+
+            // Get the parent's sanitized name
+            let parent_sanitized = sanitize_module_name_for_identifier(parent_path);
+
+            // Check if parent exists
+            if !self.namespace_registry.contains_key(&parent_sanitized) {
+                continue;
+            }
+
+            // Extract the attribute name (last part of the path)
+            let attr_name = info
+                .original_path
+                .rsplit_once('.')
+                .map(|(_, name)| name)
+                .unwrap_or(&info.original_path);
+
+            // Store the assignment info for sorting
+            let depth = info.original_path.matches('.').count();
+            assignments.push((
+                depth,
+                parent_sanitized,
+                attr_name.to_string(),
+                sanitized_name.clone(),
+                info.original_path.clone(),
+            ));
+        }
+
+        // Sort by depth to ensure parents are assigned before children
+        assignments
+            .sort_by_key(|(depth, parent, attr, _, _)| (*depth, parent.clone(), attr.clone()));
+
+        // Generate the assignments
+        for (_depth, ref parent_sanitized, ref attr_name, ref child_sanitized, ref original_path) in
+            assignments
+        {
+            debug!(
+                "Creating early namespace assignment: {parent_sanitized}.{attr_name} = \
+                 {child_sanitized}"
+            );
+
+            final_body.push(statements::assign(
+                vec![expressions::attribute(
+                    expressions::name(parent_sanitized, ExprContext::Load),
+                    attr_name,
+                    ExprContext::Store,
+                )],
+                expressions::name(child_sanitized, ExprContext::Load),
+            ));
+
+            // Track that we created this assignment
+            created_assignments.insert(original_path.clone());
+        }
+
+        created_assignments
+    }
+
     /// Check if module has forward references that would cause `NameError`
     pub(crate) fn check_module_has_forward_references(
         &self,
@@ -2897,6 +2980,18 @@ impl<'a> Bundler<'a> {
             final_body.extend(wrapper_stmts);
         }
 
+        // Before initializing wrapper modules, we need to ensure parent-child namespace assignments
+        // exist This is critical for dotted module assignments like
+        // core.database.connection = ...
+        let early_namespace_assignments = if has_wrapper_modules {
+            debug!("Creating parent-child namespace assignments before module initialization");
+
+            // Generate parent-child assignments for namespaces that were created immediately
+            self.generate_early_namespace_assignments(&mut final_body)
+        } else {
+            FxIndexSet::default()
+        };
+
         // Initialize wrapper modules in dependency order AFTER inlined modules are defined
         if has_wrapper_modules {
             debug!("Creating parent namespaces before module initialization");
@@ -3226,6 +3321,7 @@ impl<'a> Bundler<'a> {
             params.sorted_modules,
             &mut final_body,
             &entry_imported_modules,
+            &early_namespace_assignments,
         );
         debug!(
             "After generate_submodule_attributes, body length: {}",

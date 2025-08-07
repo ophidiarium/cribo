@@ -113,6 +113,7 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
     sorted_modules: &[(String, PathBuf, Vec<String>)],
     final_body: &mut Vec<Stmt>,
     exclusions: &FxIndexSet<String>,
+    early_namespace_assignments: &FxIndexSet<String>,
 ) {
     debug!(
         "generate_submodule_attributes: Starting with {} modules",
@@ -362,6 +363,7 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                         &attr,
                         &module_name,
                         final_body,
+                        early_namespace_assignments,
                     );
                 } else {
                     debug!("Module '{module_name}' is not in inlined_modules, checking assignment");
@@ -395,7 +397,22 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
             let namespace_exists = bundler.namespace_registry.contains_key(&sanitized_mod);
 
             if namespace_exists {
-                // Namespace already created, but we still need the parent-child assignment
+                // Namespace already created - check if parent-child assignment is needed
+                // Skip if this assignment was already created in
+                // generate_early_namespace_assignments
+                debug!(
+                    "Checking if '{module_name}' is in early_namespace_assignments: {}",
+                    early_namespace_assignments.contains(&module_name)
+                );
+                if early_namespace_assignments.contains(&module_name) {
+                    debug!(
+                        "Namespace '{module_name}' already has parent assignment from early \
+                         generation, skipping"
+                    );
+                    created_namespaces.insert(module_name);
+                    continue;
+                }
+
                 debug!(
                     "Namespace '{module_name}' already created, creating parent-child assignment"
                 );
@@ -874,8 +891,8 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
                     .unwrap_or(&info.original_path);
 
                 debug!(
-                    "Creating parent-child assignment: {}.{} = {}",
-                    parent_sanitized, attr_name, sanitized_name
+                    "Creating parent-child assignment: {parent_sanitized}.{attr_name} = \
+                     {sanitized_name}"
                 );
                 statements.push(statements::assign_attribute(
                     &parent_sanitized,
@@ -999,10 +1016,19 @@ fn handle_inlined_module_assignment(
     attr: &str,
     module_name: &str,
     final_body: &mut Vec<Stmt>,
+    early_namespace_assignments: &FxIndexSet<String>,
 ) {
     // Check if namespace was already created directly
     let sanitized = sanitize_module_name_for_identifier(module_name);
     if bundler.namespace_registry.contains_key(&sanitized) {
+        // Check if this assignment was already created in early namespace assignments
+        if early_namespace_assignments.contains(module_name) {
+            debug!(
+                "Namespace '{module_name}' already has parent assignment from early generation, \
+                 skipping"
+            );
+            return;
+        }
         debug!("Namespace '{module_name}' already exists, creating parent-child assignment");
         // The namespace exists, but we still need to create the parent.attr = sanitized assignment
         final_body.push(ast_builder::statements::assign(
