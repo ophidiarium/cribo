@@ -2408,10 +2408,25 @@ fn rewrite_import_from(
                 &bundler.bundled_modules,
             );
 
-        // Log if any namespace requirements were detected that aren't pre-registered
-        // This helps debug if the pre-detection phase missed something
-        for ns_req in &namespace_requirements {
-            if !bundler.namespace_registry.contains_key(&ns_req.var_name) {
+        // Check for unregistered namespaces - this indicates a bug in pre-detection
+        let unregistered_namespaces: Vec<_> = namespace_requirements
+            .iter()
+            .filter(|ns_req| !bundler.namespace_registry.contains_key(&ns_req.var_name))
+            .collect();
+
+        if !unregistered_namespaces.is_empty() {
+            #[cfg(debug_assertions)]
+            panic!(
+                "Unregistered namespaces detected: {:?}. This indicates a bug in \
+                 detect_namespace_requirements_from_imports",
+                unregistered_namespaces
+                    .iter()
+                    .map(|ns| format!("{} (var: {})", ns.path, ns.var_name))
+                    .collect::<Vec<_>>()
+            );
+
+            #[cfg(not(debug_assertions))]
+            for ns_req in &unregistered_namespaces {
                 log::warn!(
                     "Namespace '{}' (var: {}) was not pre-registered by \
                      detect_namespace_requirements_from_imports",
