@@ -7,8 +7,11 @@ input_file: crates/cribo/tests/fixtures/early_module_reference/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-mypkg = types.SimpleNamespace()
-mypkg.__name__ = 'mypkg'
+mypkg = types.SimpleNamespace(__name__='mypkg')
+mypkg_api = types.SimpleNamespace(__name__='mypkg.api')
+mypkg.api = mypkg_api
+mypkg_sessions = types.SimpleNamespace(__name__='mypkg.sessions')
+mypkg.sessions = mypkg_sessions
 class Session:
     """A simple session class."""
 
@@ -38,10 +41,6 @@ def request(method, url, **kwargs):
 Session.__module__ = 'mypkg.sessions'
 """Sessions module with Session class."""
 """API module that references sessions module early.\n\nThis reproduces the issue where a module-level variable references\nanother module before it's fully initialized.\n"""
-mypkg_sessions = types.SimpleNamespace(__name__='mypkg.sessions')
-mypkg_api = types.SimpleNamespace(__name__='mypkg.api')
-mypkg.api = mypkg_api
-mypkg.sessions = mypkg_sessions
 sessions = mypkg_sessions
 session_ref = sessions
 mypkg_sessions.Session = Session

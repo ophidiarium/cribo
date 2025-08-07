@@ -9,14 +9,17 @@ input_file: crates/cribo/tests/fixtures/init_reexports/main.py
 import functools
 import os
 import types
-mypackage = types.SimpleNamespace()
-mypackage.__name__ = 'mypackage'
-mypackage_config = types.SimpleNamespace()
-mypackage_config.__name__ = 'mypackage.config'
-mypackage.config = mypackage_config
-mypackage_utils = types.SimpleNamespace()
-mypackage_utils.__name__ = 'mypackage.utils'
+mypackage = types.SimpleNamespace(__name__='mypackage')
+mypackage_data_processor = types.SimpleNamespace(__name__='mypackage.data_processor')
+mypackage.data_processor = mypackage_data_processor
+mypackage_formatter = types.SimpleNamespace(__name__='mypackage.formatter')
+mypackage.formatter = mypackage_formatter
+mypackage_utils = types.SimpleNamespace(__name__='mypackage.utils')
 mypackage.utils = mypackage_utils
+mypackage_utils_constants = types.SimpleNamespace(__name__='mypackage.utils.constants')
+mypackage_utils.constants = mypackage_utils_constants
+mypackage_utils_helper = types.SimpleNamespace(__name__='mypackage.utils.helper')
+mypackage_utils.helper = mypackage_utils_helper
 def helper_function(data):
     """Helper function for processing data."""
     return f"Helped: {data}"
@@ -33,8 +36,6 @@ def process_data(data):
 """Helper utilities."""
 """Data formatting module."""
 """Data processing module."""
-mypackage_utils_constants = types.SimpleNamespace(__name__='mypackage.utils.constants')
-mypackage_utils_helper = types.SimpleNamespace(__name__='mypackage.utils.helper')
 @functools.cache
 def __cribo_init___cribo_de6c46_mypackage_config():
     module = types.SimpleNamespace()
@@ -82,16 +83,8 @@ __cribo_init_result = __cribo_init___cribo_a81151_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
-mypackage_data_processor = types.SimpleNamespace(__name__='mypackage.data_processor')
-mypackage.data_processor = mypackage_data_processor
-mypackage_formatter = types.SimpleNamespace(__name__='mypackage.formatter')
-mypackage.formatter = mypackage_formatter
-mypackage.utils.constants = mypackage_utils_constants
-mypackage.utils.helper = mypackage_utils_helper
 mypackage_utils.helper_function = helper_function
 mypackage_utils_helper.helper_function = helper_function
-mypackage_formatter.format_data = format_data
-mypackage_data_processor.process_data = process_data
 '''\nTest script demonstrating __init__.py re-export preservation.\n\nThis fixture tests that imports in __init__.py files are preserved even if they\nappear "unused" within that file, as they are typically re-exports for the package interface.\n'''
 __cribo_init_result = __cribo_init___cribo_a81151_mypackage()
 for attr in dir(__cribo_init_result):

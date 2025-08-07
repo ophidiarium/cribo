@@ -9,7 +9,7 @@ input_file: crates/cribo/tests/fixtures/importlib_static/main.py
 import functools
 import types
 @functools.cache
-def __cribo_init___cribo_5687a6_2024_config():
+def __cribo_init___cribo_5687a6__2024_config():
     module = types.SimpleNamespace()
     module.__name__ = '2024-config'
     """Module starting with a number - can't be imported with regular import."""
@@ -33,7 +33,7 @@ def __cribo_init___cribo_5687a6_2024_config():
     module.CONFIG_PREFIX = CONFIG_PREFIX
     return module
 @functools.cache
-def __cribo_init___cribo_ec6681_for():
+def __cribo_init___cribo_ec6681_for_():
     module = types.SimpleNamespace()
     module.__name__ = 'for'
     """Module named 'for' - a Python keyword for loops."""
@@ -60,7 +60,7 @@ def __cribo_init___cribo_ec6681_for():
     module.MAX_ITERATIONS = MAX_ITERATIONS
     return module
 @functools.cache
-def __cribo_init___cribo_944eb6_def():
+def __cribo_init___cribo_944eb6_def_():
     module = types.SimpleNamespace()
     module.__name__ = 'def'
     """Module named 'def' - another Python keyword."""
@@ -85,7 +85,7 @@ def __cribo_init___cribo_944eb6_def():
     module.DEFINITION_TEMPLATE = DEFINITION_TEMPLATE
     return module
 @functools.cache
-def __cribo_init___cribo_004e55_class():
+def __cribo_init___cribo_004e55_class_():
     module = types.SimpleNamespace()
     module.__name__ = 'class'
     """Module named 'class' - a Python keyword that can't be used in import statements."""
@@ -156,10 +156,10 @@ def __cribo_init___cribo_d8297b_data_processor():
 """Main module demonstrating importlib usage with static string literals."""
 data_processor = __cribo_init___cribo_d8297b_data_processor()
 api_client = __cribo_init___cribo_64c186_api_client()
-class_module = __cribo_init___cribo_004e55_class()
-def_module = __cribo_init___cribo_944eb6_def()
-for_module = __cribo_init___cribo_ec6681_for()
-config_2024 = __cribo_init___cribo_5687a6_2024_config()
+class_module = __cribo_init___cribo_004e55_class_()
+def_module = __cribo_init___cribo_944eb6_def_()
+for_module = __cribo_init___cribo_ec6681_for_()
+config_2024 = __cribo_init___cribo_5687a6__2024_config()
 def main():
     processor = data_processor.DataProcessor()
     print(f"Processor: {processor.name}")

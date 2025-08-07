@@ -8,27 +8,17 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_globals_collision/main.py
 
 import functools
 import types
-models = types.SimpleNamespace()
-models.__name__ = 'models'
-services = types.SimpleNamespace()
-services.__name__ = 'services'
-services_auth = types.SimpleNamespace()
-services_auth.__name__ = 'services.auth'
-services.auth = services_auth
-models_base = types.SimpleNamespace()
-models_base.__name__ = 'models.base'
-models.base = models_base
-models_user = types.SimpleNamespace()
-models_user.__name__ = 'models.user'
-models.user = models_user
-core = types.SimpleNamespace()
-core.__name__ = 'core'
-core_database = types.SimpleNamespace()
-core_database.__name__ = 'core.database'
+core = types.SimpleNamespace(__name__='core')
+models = types.SimpleNamespace(__name__='models')
+services = types.SimpleNamespace(__name__='services')
+core_database = types.SimpleNamespace(__name__='core.database')
 core.database = core_database
-core_utils = types.SimpleNamespace()
-core_utils.__name__ = 'core.utils'
+core_utils = types.SimpleNamespace(__name__='core.utils')
 core.utils = core_utils
+services_auth = types.SimpleNamespace(__name__='services.auth')
+services.auth = services_auth
+core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
+core_utils.helpers = core_utils_helpers
 process_count = 0
 validate_cache = {}
 Logger_6 = str
@@ -66,7 +56,6 @@ Logger_6.__module__ = 'core.utils.helpers'
 Logger_6.__name__ = 'Logger'
 Logger_6.__qualname__ = 'Logger'
 """Core utility helpers module - NO external dependencies to avoid circular imports"""
-core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
 _cribo_models_base_Connection = None
 @functools.cache
 def __cribo_init___cribo_0a162a_models_base():
@@ -357,7 +346,6 @@ __cribo_init_result = __cribo_init___cribo_b2dda7_services()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(services, attr, getattr(__cribo_init_result, attr))
-core.utils.helpers = core_utils_helpers
 core_utils_helpers.process_count = process_count
 core_utils_helpers.validate_cache = validate_cache
 core_utils_helpers.Logger = Logger_6

@@ -7,14 +7,13 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_nested_namespace_import/ma
 # https://github.com/ophidiarium/cribo
 
 import types
-greetings = types.SimpleNamespace()
-greetings.__name__ = 'greetings'
+greetings = types.SimpleNamespace(__name__='greetings')
+greetings_greeting = types.SimpleNamespace(__name__='greetings.greeting')
+greetings.greeting = greetings_greeting
 def get_greeting(name):
     return f"Hello, {name}!"
 """Greetings package"""
 """Greeting module"""
-greetings_greeting = types.SimpleNamespace(__name__='greetings.greeting')
-greetings.greeting = greetings_greeting
 greetings_greeting.get_greeting = get_greeting
 """Test nested namespace imports"""
 greetings.greeting.get_greeting = get_greeting

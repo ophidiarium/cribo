@@ -7,6 +7,7 @@
 
 use log::debug;
 use ruff_python_ast::{Expr, ExprContext, ModModule, Stmt, StmtImport, StmtImportFrom};
+use ruff_python_stdlib::keyword::is_keyword;
 
 use crate::{
     ast_builder,
@@ -130,9 +131,22 @@ pub fn get_synthetic_module_name(module_name: &str, content_hash: &str) -> Strin
 /// Sanitize a module name for use in a Python identifier
 /// This is a simple character replacement - collision handling should be done by the caller
 pub fn sanitize_module_name_for_identifier(name: &str) -> String {
-    name.chars()
+    let mut result = name
+        .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
-        .collect::<String>()
+        .collect::<String>();
+
+    // If the name starts with a digit, prefix with underscore to make it a valid identifier
+    if result.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        result = format!("_{result}");
+    }
+
+    // Check if the result is a Python keyword and append underscore if so
+    if is_keyword(&result) {
+        result.push('_');
+    }
+
+    result
 }
 
 /// Generate a unique symbol name to avoid conflicts

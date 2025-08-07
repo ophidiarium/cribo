@@ -9,10 +9,9 @@ input_file: crates/cribo/tests/fixtures/private_module_vars/main.py
 import functools
 import re
 import types
-pkg__internal = types.SimpleNamespace()
-pkg__internal.__name__ = 'pkg._internal'
-pkg = types.SimpleNamespace()
-pkg.__name__ = 'pkg'
+pkg = types.SimpleNamespace(__name__='pkg')
+pkg_consumer = types.SimpleNamespace(__name__='pkg.consumer')
+pkg.consumer = pkg_consumer
 @functools.cache
 def __cribo_init___cribo_73cafd_pkg__internal():
     module = types.SimpleNamespace()
@@ -45,8 +44,6 @@ def get_validators():
     assert pkg._internal._HEADER_VALIDATORS_STR is not None
     return pkg._internal.HEADER_VALIDATORS
 """Consumer module that imports private variables from _internal module."""
-pkg_consumer = types.SimpleNamespace(__name__='pkg.consumer')
-pkg.consumer = pkg_consumer
 pkg_consumer.get_validators = get_validators
 """Test case for bundling modules that have private module variables accessed by other modules."""
 validators = get_validators()

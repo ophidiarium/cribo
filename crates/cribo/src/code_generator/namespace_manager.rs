@@ -18,6 +18,27 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
+/// Information about a registered namespace
+#[derive(Debug, Clone)]
+pub struct NamespaceInfo {
+    /// The original module path (e.g., "pkg.compat")
+    pub original_path: String,
+    /// Whether this namespace needs an alias (e.g., compat = pkg_compat)
+    pub needs_alias: bool,
+    /// The alias name if needs_alias is true (e.g., "compat")
+    pub alias_name: Option<String>,
+    /// Attributes to set on this namespace (attr_name, value_name)
+    pub attributes: Vec<(String, String)>,
+    /// Parent module that this is an attribute of (e.g., "pkg" for "pkg.compat")
+    pub parent_module: Option<String>,
+    /// Tracks if the `var = types.SimpleNamespace()` statement has been generated
+    pub is_created: bool,
+    /// The context in which this namespace was required, with priority
+    pub context: NamespaceContext,
+    /// Symbols that need to be assigned to this namespace after its creation
+    pub deferred_symbols: Vec<(String, Expr)>,
+}
+
 /// Context in which a namespace is required
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NamespaceContext {
@@ -160,9 +181,11 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
     // Step 2: Create top-level namespace modules and wrapper module references
     let mut created_namespaces = FxIndexSet::default();
 
-    // Add all namespaces that were already created via the namespace tracking index
-    for namespace in &bundler.required_namespaces {
-        created_namespaces.insert(namespace.clone());
+    // Add all namespaces that were already created via the centralized registry
+    for (_sanitized, info) in &bundler.namespace_registry {
+        if info.is_created {
+            created_namespaces.insert(info.original_path.clone());
+        }
     }
 
     // First, create references to top-level wrapper modules
@@ -195,7 +218,8 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
 
     for namespace in sorted_namespaces {
         // Skip if this namespace was already created via the namespace tracking index
-        if bundler.required_namespaces.contains(&namespace) {
+        let sanitized = sanitize_module_name_for_identifier(&namespace);
+        if bundler.namespace_registry.contains_key(&sanitized) {
             debug!(
                 "Skipping top-level namespace '{namespace}' - already created via namespace index"
             );
@@ -333,7 +357,8 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
             }
         } else {
             // This is an intermediate namespace - skip if already created via namespace index
-            if bundler.required_namespaces.contains(&module_name) {
+            let sanitized_mod = sanitize_module_name_for_identifier(&module_name);
+            if bundler.namespace_registry.contains_key(&sanitized_mod) {
                 debug!(
                     "Skipping intermediate namespace '{module_name}' - already created via \
                      namespace index"
@@ -579,8 +604,6 @@ pub fn require_namespace(
     };
 
     // 3-5. Update or create the NamespaceInfo in the registry
-    use crate::code_generator::bundler::NamespaceInfo;
-
     bundler
         .namespace_registry
         .entry(sanitized_name.clone())
@@ -700,97 +723,126 @@ pub fn require_namespace(
 /// This function guarantees correct, dependency-aware ordering.
 pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
     let mut statements = Vec::new();
+    let mut created = FxIndexSet::default();
 
     // 1-3. Get all namespaces and sort by depth (parent namespaces first)
-    let mut namespace_entries: Vec<(String, String)> = bundler
+    let mut namespace_entries: Vec<(String, NamespaceInfo)> = bundler
         .namespace_registry
         .iter()
-        .map(|(sanitized, info)| (sanitized.clone(), info.original_path.clone()))
+        .map(|(sanitized, info)| (sanitized.clone(), info.clone()))
         .collect();
 
     // Sort by depth (number of dots) to ensure parent namespaces are created first
-    namespace_entries.sort_by(|(_, path_a), (_, path_b)| {
-        path_a
+    namespace_entries.sort_by(|(_, info_a), (_, info_b)| {
+        info_a
+            .original_path
             .matches('.')
             .count()
-            .cmp(&path_b.matches('.').count())
-            .then_with(|| path_a.cmp(path_b))
+            .cmp(&info_b.original_path.matches('.').count())
+            .then_with(|| info_a.original_path.cmp(&info_b.original_path))
     });
 
     // 4-5. Generate creation and population statements for each namespace
-    for (sanitized_name, original_path) in namespace_entries {
-        let info = bundler
-            .namespace_registry
-            .get_mut(&sanitized_name)
-            .expect("Namespace should exist in registry after sorting");
+    for (sanitized_name, info) in namespace_entries {
+        // Skip if already created
+        if created.contains(&sanitized_name) {
+            continue;
+        }
 
-        if !info.is_created {
-            // a. Generate the namespace creation statement
-            let creation_stmt = statements::assign(
-                vec![expressions::name(&sanitized_name, ExprContext::Store)],
-                expressions::call(
-                    expressions::attribute(
-                        expressions::name("types", ExprContext::Load),
-                        "SimpleNamespace",
-                        ExprContext::Load,
-                    ),
-                    vec![],
-                    vec![],
-                ),
+        // Skip if this is an inlined module that already has a populated namespace
+        // Note: Not all inlined modules get populated namespaces - only check if already created
+        if bundler.inlined_modules.contains(&info.original_path) && info.is_created {
+            log::debug!(
+                "Skipping namespace generation for '{}' - already created as populated namespace",
+                info.original_path
             );
-            statements.push(creation_stmt);
+            continue;
+        }
 
-            // b. Mark as created
-            info.is_created = true;
-            bundler.created_namespaces.insert(sanitized_name.clone());
+        // Skip if already marked as created
+        if info.is_created {
+            continue;
+        }
 
-            // c. Generate __name__ attribute assignment
-            let name_attr_stmt = statements::assign(
+        // a. Generate the namespace creation statement with __name__ as keyword
+        let keywords = vec![Keyword {
+            node_index: AtomicNodeIndex::dummy(),
+            arg: Some(Identifier::new("__name__", TextRange::default())),
+            value: expressions::string_literal(&info.original_path),
+            range: TextRange::default(),
+        }];
+
+        let creation_stmt = statements::assign(
+            vec![expressions::name(&sanitized_name, ExprContext::Store)],
+            expressions::call(
+                expressions::attribute(
+                    expressions::name("types", ExprContext::Load),
+                    "SimpleNamespace",
+                    ExprContext::Load,
+                ),
+                vec![],
+                keywords,
+            ),
+        );
+        statements.push(creation_stmt);
+
+        // b. Mark as created
+        if let Some(reg_info) = bundler.namespace_registry.get_mut(&sanitized_name) {
+            reg_info.is_created = true;
+        }
+        bundler.created_namespaces.insert(sanitized_name.clone());
+        created.insert(sanitized_name.clone());
+
+        // c. Generate alias if needed (e.g., compat = pkg_compat)
+        if info.needs_alias
+            && let Some(ref alias) = info.alias_name
+        {
+            statements.push(statements::simple_assign(
+                alias,
+                expressions::name(&sanitized_name, ExprContext::Load),
+            ));
+        }
+
+        // d. Set as attribute on parent module if needed (e.g., pkg.compat = pkg_compat)
+        if let Some(ref parent) = info.parent_module {
+            let parent_sanitized = sanitize_module_name_for_identifier(parent);
+            // Set the attribute if parent namespace exists
+            if bundler.namespace_registry.contains_key(&parent_sanitized) {
+                // Extract the attribute name from the path
+                let attr_name = info
+                    .original_path
+                    .rsplit_once('.')
+                    .map(|(_, name)| name)
+                    .unwrap_or(&info.original_path);
+
+                statements.push(statements::assign_attribute(
+                    &parent_sanitized,
+                    attr_name,
+                    expressions::name(&sanitized_name, ExprContext::Load),
+                ));
+            }
+        }
+
+        // e. Add any registered attributes (attr_name, value_name)
+        for (attr_name, value_name) in &info.attributes {
+            statements.push(statements::assign_attribute(
+                &sanitized_name,
+                attr_name,
+                expressions::name(value_name, ExprContext::Load),
+            ));
+        }
+
+        // f. Generate any deferred symbol population statements
+        for (symbol_name, symbol_expr) in &info.deferred_symbols {
+            let symbol_stmt = statements::assign(
                 vec![expressions::attribute(
                     expressions::name(&sanitized_name, ExprContext::Load),
-                    "__name__",
+                    symbol_name,
                     ExprContext::Store,
                 )],
-                expressions::string_literal(&original_path),
+                symbol_expr.clone(),
             );
-            statements.push(name_attr_stmt);
-
-            // d. Generate any deferred symbol population statements
-            for (symbol_name, symbol_expr) in &info.deferred_symbols {
-                let symbol_stmt = statements::assign(
-                    vec![expressions::attribute(
-                        expressions::name(&sanitized_name, ExprContext::Load),
-                        symbol_name,
-                        ExprContext::Store,
-                    )],
-                    symbol_expr.clone(),
-                );
-                statements.push(symbol_stmt);
-            }
-
-            // e. Generate alias statement if needed
-            // SKIPPING: Aliases are generated elsewhere to avoid duplicates
-            // The alias generation happens in generate_submodule_attributes_with_exclusions
-
-            // f. Generate parent attribute assignment if this is a submodule
-            if let Some(ref parent_path) = info.parent_module
-                && let Some(parent_sanitized) = bundler.path_to_sanitized_name.get(parent_path)
-            {
-                let last_part = original_path
-                    .split('.')
-                    .next_back()
-                    .unwrap_or(&original_path);
-
-                let attr_stmt = statements::assign(
-                    vec![expressions::attribute(
-                        expressions::name(parent_sanitized, ExprContext::Load),
-                        last_part,
-                        ExprContext::Store,
-                    )],
-                    expressions::name(&sanitized_name, ExprContext::Load),
-                );
-                statements.push(attr_stmt);
-            }
+            statements.push(symbol_stmt);
         }
     }
 
@@ -839,7 +891,8 @@ pub(super) fn create_namespace_for_inlined_module_static(
 ) -> Vec<Stmt> {
     // If this namespace was already created directly (e.g., core.utils), skip creating underscore
     // variable
-    if bundler.required_namespaces.contains(module_name) {
+    let sanitized = sanitize_module_name_for_identifier(module_name);
+    if bundler.namespace_registry.contains_key(&sanitized) {
         log::debug!("Module '{module_name}' namespace already created directly, skipping");
         return Vec::new();
     }
@@ -980,7 +1033,8 @@ fn handle_inlined_module_assignment(
     }
 
     // Check if namespace was already created directly
-    if bundler.required_namespaces.contains(module_name) {
+    let sanitized = sanitize_module_name_for_identifier(module_name);
+    if bundler.namespace_registry.contains_key(&sanitized) {
         debug!(
             "Skipping underscore namespace creation for '{module_name}' - already created directly"
         );

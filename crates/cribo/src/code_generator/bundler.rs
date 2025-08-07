@@ -12,10 +12,7 @@ use ruff_python_ast::{
 use ruff_text_size::TextRange;
 
 use crate::{
-    analyzers::{
-        ImportAnalyzer, SymbolAnalyzer, dependency_analyzer::DependencyAnalyzer,
-        namespace_analyzer::NamespaceAnalyzer,
-    },
+    analyzers::{ImportAnalyzer, SymbolAnalyzer, dependency_analyzer::DependencyAnalyzer},
     ast_builder::{expressions, other, statements},
     code_generator::{
         circular_deps::SymbolDependencyGraph,
@@ -27,38 +24,17 @@ use crate::{
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{INIT_RESULT_VAR, sanitize_module_name_for_identifier},
         module_transformer, namespace_manager,
-        namespace_manager::NamespaceContext,
+        namespace_manager::{NamespaceContext, NamespaceInfo},
     },
     resolver::ModuleResolver,
     side_effects::{is_safe_stdlib_module, module_has_side_effects},
     transformation_context::TransformationContext,
-    types::{FxIndexMap, FxIndexSet},
+    types::{FxHashSet, FxIndexMap, FxIndexSet},
     visitors::ExportCollector,
 };
 
 /// Type alias for complex import generation data structure
 type ImportGeneration = Vec<(String, Vec<(String, Option<String>)>, bool)>;
-
-/// Information about a namespace that needs to be created
-#[derive(Debug, Clone)]
-pub struct NamespaceInfo {
-    /// The original module path (e.g., "pkg.compat")
-    pub original_path: String,
-    /// Whether this namespace needs an alias (e.g., compat = pkg_compat)
-    pub needs_alias: bool,
-    /// The alias name if needs_alias is true (e.g., "compat")
-    pub alias_name: Option<String>,
-    /// Attributes to set on this namespace (attr_name, value_name)
-    pub attributes: Vec<(String, String)>,
-    /// Parent module that this is an attribute of (e.g., "pkg" for "pkg.compat")
-    pub parent_module: Option<String>,
-    /// Tracks if the `var = types.SimpleNamespace()` statement has been generated
-    pub is_created: bool,
-    /// The context in which this namespace was required, with priority
-    pub context: NamespaceContext,
-    /// Symbols that need to be assigned to this namespace after its creation
-    pub deferred_symbols: Vec<(String, Expr)>,
-}
 
 /// Result of module classification
 struct ClassificationResult {
@@ -109,6 +85,8 @@ pub struct Bundler<'a> {
     pub(crate) entry_is_package_init_or_main: bool,
     /// Module export information (for __all__ handling)
     pub(crate) module_exports: FxIndexMap<String, Option<Vec<String>>>,
+    /// Semantic export information (includes re-exports from child modules)
+    pub(crate) semantic_exports: FxIndexMap<String, FxHashSet<String>>,
     /// Lifted global declarations to add at module top level
     pub(crate) lifted_global_declarations: Vec<Stmt>,
     /// Modules that are imported as namespaces (e.g., from package import module)
@@ -132,8 +110,6 @@ pub struct Bundler<'a> {
     /// Maps (`module_name`, `symbol_name`) to the source module that deferred it
     pub(crate) global_deferred_imports: FxIndexMap<(String, String), String>,
     /// Track all namespaces that need to be created before module initialization
-    /// This ensures parent namespaces exist before any submodule assignments
-    pub(crate) required_namespaces: FxIndexSet<String>,
     /// Central registry of all namespaces that need to be created
     /// Maps sanitized name to NamespaceInfo
     pub(crate) namespace_registry: FxIndexMap<String, NamespaceInfo>,
@@ -211,6 +187,7 @@ impl<'a> Bundler<'a> {
             entry_module_name: String::new(),
             entry_is_package_init_or_main: false,
             module_exports: FxIndexMap::default(),
+            semantic_exports: FxIndexMap::default(),
             lifted_global_declarations: Vec::new(),
             namespace_imported_modules: FxIndexMap::default(),
             module_info_registry,
@@ -221,7 +198,6 @@ impl<'a> Bundler<'a> {
             symbol_dep_graph: SymbolDependencyGraph::default(),
             module_asts: None,
             global_deferred_imports: FxIndexMap::default(),
-            required_namespaces: FxIndexSet::default(),
             namespace_registry: FxIndexMap::default(),
             path_to_sanitized_name: FxIndexMap::default(),
             created_namespaces: FxIndexSet::default(),
@@ -882,7 +858,7 @@ impl<'a> Bundler<'a> {
 
     /// Collect module renames from semantic analysis
     fn collect_module_renames(
-        &self,
+        &mut self,
         module_name: &str,
         semantic_ctx: &SemanticContext,
         symbol_renames: &mut FxIndexMap<String, FxIndexMap<String, String>>,
@@ -909,6 +885,12 @@ impl<'a> Bundler<'a> {
                 module_name,
                 module_info.exported_symbols.len(),
                 module_info.exported_symbols.iter().collect::<Vec<_>>()
+            );
+
+            // Store semantic exports for later use
+            self.semantic_exports.insert(
+                module_name.to_string(),
+                module_info.exported_symbols.clone(),
             );
 
             // Process all exported symbols from the module
@@ -1630,40 +1612,16 @@ impl<'a> Bundler<'a> {
 
         // Identify required namespaces BEFORE inlining any modules
         // This is crucial for cases like 'requests' where the entry module has submodules
-        let all_modules_for_namespace_detection = modules
-            .iter()
-            .map(|(name, ast, path, hash)| (name.clone(), ast.clone(), path.clone(), hash.clone()))
-            .collect::<Vec<_>>();
-        self.required_namespaces =
-            NamespaceAnalyzer::identify_required_namespaces(&all_modules_for_namespace_detection);
+        // Namespace requirements are now handled by the centralized registry
+        // The identification of required namespaces happens via require_namespace calls
 
         // If we need to create namespace statements, ensure types import is available
-        if !self.required_namespaces.is_empty() {
+        if !self.namespace_registry.is_empty() {
             log::debug!(
                 "Need to create {} namespace statements - adding types import",
-                self.required_namespaces.len()
+                self.namespace_registry.len()
             );
             import_deduplicator::add_stdlib_import(self, "types");
-
-            // Register all required namespaces with the centralized registry
-            let namespaces_to_register: Vec<String> =
-                self.required_namespaces.iter().cloned().collect();
-            for namespace in namespaces_to_register {
-                // Determine the context based on the namespace structure
-                let context = if let Some(last_dot_pos) = namespace.rfind('.') {
-                    let parent = namespace[..last_dot_pos].to_string();
-                    namespace_manager::NamespaceContext::Attribute { parent }
-                } else {
-                    namespace_manager::NamespaceContext::TopLevel
-                };
-
-                namespace_manager::require_namespace(
-                    self,
-                    &namespace,
-                    context,
-                    namespace_manager::NamespaceParams::default(),
-                );
-            }
 
             // Generate all namespace statements through the centralized method
             // This ensures namespaces exist before any module code that might reference them
@@ -1693,7 +1651,8 @@ impl<'a> Bundler<'a> {
                             let child = parts[1];
 
                             // Check if the full namespace was already created
-                            if self.required_namespaces.contains(module_name) {
+                            let sanitized = sanitize_module_name_for_identifier(module_name);
+                            if self.namespace_registry.contains_key(&sanitized) {
                                 log::debug!(
                                     "Skipping placeholder namespace attribute {parent}.{child} - \
                                      already created as full namespace"
@@ -1831,6 +1790,39 @@ impl<'a> Bundler<'a> {
 
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
+
+        // Register namespaces for wrapper modules that are submodules
+        // This ensures parent namespaces exist for module.child = init() assignments
+        for (module_name, _, _, _) in &wrapper_modules_saved {
+            if module_name.contains('.') {
+                // This is a submodule, ensure parent namespaces exist
+                // The parent namespaces are needed for assignment like parent.child = init()
+                if let Some(last_dot_pos) = module_name.rfind('.') {
+                    let parent = &module_name[..last_dot_pos];
+
+                    // Register parent namespace through centralized system
+                    let context = if let Some(parent_dot_pos) = parent.rfind('.') {
+                        let grandparent = parent[..parent_dot_pos].to_string();
+                        NamespaceContext::Attribute {
+                            parent: grandparent,
+                        }
+                    } else {
+                        NamespaceContext::TopLevel
+                    };
+
+                    namespace_manager::require_namespace(
+                        self,
+                        parent,
+                        context,
+                        namespace_manager::NamespaceParams::default(),
+                    );
+                    log::debug!(
+                        "Registered parent namespace '{parent}' for wrapper submodule: \
+                         {module_name}"
+                    );
+                }
+            }
+        }
 
         // Sort wrapper modules by their dependencies
         let sorted_wrapper_modules = module_transformer::sort_wrapper_modules_by_dependencies(
@@ -2411,22 +2403,49 @@ impl<'a> Bundler<'a> {
                 continue;
             }
 
-            // Check if module has exports
-            let has_exports = self
+            // Check if module has __all__ exports
+            let has_all_exports = self
                 .module_exports
                 .get(module_name)
                 .is_some_and(std::option::Option::is_some);
 
+            let has_semantic_exports = self
+                .semantic_exports
+                .get(module_name)
+                .is_some_and(|exports| !exports.is_empty());
+
+            // For namespace creation, we only care about __all__ exports
+            // Semantic exports are used for other purposes but don't trigger namespace creation
+            let has_exports = has_all_exports;
+
+            if has_semantic_exports && !has_all_exports {
+                log::debug!("Module '{module_name}' has semantic exports but no __all__");
+            }
+
             // Check if this is a submodule that needs a namespace
             let needs_namespace_for_submodule = self.submodule_needs_namespace(module_name);
+
+            // Check if this module has child modules that need namespaces
+            let has_children_needing_namespaces =
+                inlinable_modules.iter().any(|(child_name, _, _, _)| {
+                    if let Some(dot_pos) = child_name.rfind('.') {
+                        let parent = &child_name[..dot_pos];
+                        parent == module_name && self.submodule_needs_namespace(child_name)
+                    } else {
+                        false
+                    }
+                });
 
             // Check if module needs a namespace object:
             // 1. It's imported as a namespace (import module)
             // 2. It's directly imported and has exports
             // 3. It's a submodule that's imported by its parent module via from . import
+            // 4. It has child modules that need namespaces (parent namespace needed for
+            //    parent.child assignments)
             let needs_namespace = self.namespace_imported_modules.contains_key(module_name)
                 || (directly_imported_modules.contains(module_name) && has_exports)
-                || needs_namespace_for_submodule;
+                || needs_namespace_for_submodule
+                || has_children_needing_namespaces;
 
             if needs_namespace {
                 // Check if this namespace was already created
@@ -2450,6 +2469,27 @@ impl<'a> Bundler<'a> {
                         // Namespace already exists, we need to add symbols to it instead
                         log::debug!(
                             "Namespace '{namespace_var}' already exists, adding symbols to it"
+                        );
+
+                        // Ensure the namespace is actually created before we try to add attributes
+                        // to it The namespace might be marked as "created"
+                        // but not yet generated in the output
+                        let context = if let Some(last_dot_pos) = module_name.rfind('.') {
+                            let parent = module_name[..last_dot_pos].to_string();
+                            NamespaceContext::Attribute { parent }
+                        } else {
+                            NamespaceContext::TopLevel
+                        };
+
+                        // Use immediate generation to ensure the namespace exists now
+                        namespace_manager::require_namespace(
+                            self,
+                            module_name,
+                            context,
+                            namespace_manager::NamespaceParams {
+                                immediate: true,
+                                attributes: None,
+                            },
                         );
 
                         // Add all renamed symbols as attributes to the existing namespace
@@ -3340,6 +3380,10 @@ impl<'a> Bundler<'a> {
                         // Track that this symbol was populated after deferred imports
                         self.symbols_populated_after_deferred
                             .insert((module_name.to_string(), original_name.clone()));
+
+                        // NOTE: Parent module re-exports are handled by
+                        // populate_namespace_with_module_symbols
+                        // when the parent module is imported. We don't need to handle them here.
                     }
                 }
             }
@@ -3931,36 +3975,35 @@ impl<'a> Bundler<'a> {
         needs_alias: bool,
         alias_name: Option<String>,
     ) -> String {
-        let sanitized_name = sanitize_module_name_for_identifier(module_path);
-
-        // Check if already registered
-        if let Some(existing) = self.namespace_registry.get_mut(&sanitized_name) {
-            // Update alias info if needed
-            if needs_alias && !existing.needs_alias {
-                existing.needs_alias = true;
-                existing.alias_name = alias_name;
-            }
-            return sanitized_name;
-        }
-
-        // Determine parent module
-        let parent_module = module_path.rsplit_once('.').map(|(p, _)| p.to_string());
-
-        // Create new namespace info
-        let info = NamespaceInfo {
-            original_path: module_path.to_string(),
-            needs_alias,
-            alias_name,
-            attributes: Vec::new(),
-            parent_module,
-            is_created: false,
-            context: NamespaceContext::TopLevel,
-            deferred_symbols: Vec::new(),
+        // Determine context based on whether this is a submodule
+        let context = if let Some(last_dot_pos) = module_path.rfind('.') {
+            let parent = module_path[..last_dot_pos].to_string();
+            NamespaceContext::Attribute { parent }
+        } else {
+            NamespaceContext::TopLevel
         };
 
-        self.namespace_registry.insert(sanitized_name.clone(), info);
-        log::debug!("Registered namespace: {module_path} -> {sanitized_name}");
+        // Use the centralized namespace system which handles parent registration
+        namespace_manager::require_namespace(
+            self,
+            module_path,
+            context,
+            namespace_manager::NamespaceParams::default(),
+        );
 
+        // Get the sanitized name
+        let sanitized_name = sanitize_module_name_for_identifier(module_path);
+
+        // Update alias info if needed
+        if let Some(info) = self.namespace_registry.get_mut(&sanitized_name)
+            && needs_alias
+            && !info.needs_alias
+        {
+            info.needs_alias = true;
+            info.alias_name = alias_name;
+        }
+
+        log::debug!("Registered namespace: {module_path} -> {sanitized_name}");
         sanitized_name
     }
 
@@ -3970,95 +4013,10 @@ impl<'a> Bundler<'a> {
     }
 
     /// Generate all registered namespaces at once
-    fn generate_all_namespaces(&self) -> Vec<Stmt> {
-        let mut stmts = Vec::new();
-        let mut created = FxIndexSet::default();
-
-        // Sort namespaces by depth (parent modules first)
-        let mut sorted_namespaces: Vec<_> = self.namespace_registry.iter().collect();
-        sorted_namespaces.sort_by_key(|(_, info)| info.original_path.matches('.').count());
-
-        for (sanitized_name, info) in sorted_namespaces {
-            // Skip if already created
-            if created.contains(sanitized_name) {
-                continue;
-            }
-
-            // Skip if this is an inlined module that will get a populated namespace later
-            // These modules will have their namespace created by
-            // create_namespace_for_inlined_module_static
-            if self.inlined_modules.contains(&info.original_path) {
-                log::debug!(
-                    "Skipping namespace generation for '{}' - will be created as populated \
-                     namespace during inlining",
-                    info.original_path
-                );
-                continue;
-            }
-
-            // Create namespace: sanitized_name = types.SimpleNamespace()
-            stmts.push(statements::assign(
-                vec![expressions::name(sanitized_name, ExprContext::Store)],
-                expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
-            ));
-
-            // Set __name__ attribute if it's a module namespace
-            if !info.original_path.is_empty() {
-                stmts.push(statements::assign_attribute(
-                    sanitized_name,
-                    "__name__",
-                    expressions::string_literal(&info.original_path),
-                ));
-            }
-
-            // Create alias if needed (e.g., compat = pkg_compat)
-            if info.needs_alias
-                && let Some(ref alias) = info.alias_name
-            {
-                stmts.push(statements::simple_assign(
-                    alias,
-                    expressions::name(sanitized_name, ExprContext::Load),
-                ));
-            }
-
-            // Set as attribute on parent module if needed (e.g., pkg.compat = pkg_compat)
-            // For inlined parent modules, these assignments will be handled by the
-            // module's own import statements when it's inlined
-            if let Some(ref parent) = info.parent_module {
-                let parent_sanitized = sanitize_module_name_for_identifier(parent);
-                // Only set the attribute if parent namespace exists and is NOT an inlined module
-                // Inlined modules will handle their own submodule attributes
-                if self.namespace_registry.contains_key(&parent_sanitized)
-                    && !self.inlined_modules.contains(parent)
-                {
-                    // Extract the attribute name from the path
-                    let attr_name = info
-                        .original_path
-                        .rsplit_once('.')
-                        .map(|(_, name)| name)
-                        .unwrap_or(&info.original_path);
-
-                    stmts.push(statements::assign_attribute(
-                        &parent_sanitized,
-                        attr_name,
-                        expressions::name(sanitized_name, ExprContext::Load),
-                    ));
-                }
-            }
-
-            // Add any registered attributes
-            for (attr_name, value_name) in &info.attributes {
-                stmts.push(statements::assign_attribute(
-                    sanitized_name,
-                    attr_name,
-                    expressions::name(value_name, ExprContext::Load),
-                ));
-            }
-
-            created.insert(sanitized_name.to_string());
-        }
-
-        stmts
+    fn generate_all_namespaces(&mut self) -> Vec<Stmt> {
+        // Delegate to the centralized namespace generation system
+        // This ensures all namespaces are created with proper ordering and attributes
+        namespace_manager::generate_required_namespaces(self)
     }
 
     /// Find modules that are imported directly
