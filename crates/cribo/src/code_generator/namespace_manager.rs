@@ -230,7 +230,12 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         }
 
         // Check if this namespace was already created globally
-        if bundler.created_namespaces.contains(&namespace) {
+        if bundler
+            .namespace_registry
+            .get(&namespace)
+            .map(|info| info.is_created)
+            .unwrap_or(false)
+        {
             debug!("Skipping top-level namespace '{namespace}' - already created globally");
             created_namespaces.insert(namespace);
             continue;
@@ -722,7 +727,9 @@ pub fn require_namespace(
 
                 // Mark as created
                 info.is_created = true;
-                bundler.created_namespaces.insert(sanitized_name.clone());
+
+                // Ensure types module is imported when we generate namespace statements
+                crate::code_generator::import_deduplicator::add_stdlib_import(bundler, "types");
 
                 log::debug!("Generated namespace '{sanitized_name}' with {keyword_count} keywords");
             } else {
@@ -741,6 +748,11 @@ pub fn require_namespace(
 pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
     let mut statements = Vec::new();
     let mut created = FxIndexSet::default();
+
+    // If we're generating any namespaces, ensure types module is imported
+    if !bundler.namespace_registry.is_empty() {
+        crate::code_generator::import_deduplicator::add_stdlib_import(bundler, "types");
+    }
 
     // 1-3. Get all namespaces and sort by depth (parent namespaces first)
     let mut namespace_entries: Vec<(String, NamespaceInfo)> = bundler
@@ -807,7 +819,6 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         if let Some(reg_info) = bundler.namespace_registry.get_mut(&sanitized_name) {
             reg_info.is_created = true;
         }
-        bundler.created_namespaces.insert(sanitized_name.clone());
         created.insert(sanitized_name.clone());
 
         // c. Generate alias if needed (e.g., compat = pkg_compat)
@@ -939,134 +950,6 @@ pub fn detect_namespace_requirements_from_imports(
     );
 }
 
-/// Create namespace for inlined module.
-///
-/// Creates a types.SimpleNamespace object with all the module's symbols,
-/// handling forward references and tree-shaking.
-/// Returns a vector of statements to create and populate the namespace.
-pub(super) fn create_namespace_for_inlined_module_static(
-    bundler: &mut Bundler,
-    module_name: &str,
-    module_renames: &FxIndexMap<String, String>,
-) -> Vec<Stmt> {
-    // If this namespace was already created directly (e.g., core.utils), skip creating underscore
-    // variable
-    let sanitized = sanitize_module_name_for_identifier(module_name);
-    if bundler.namespace_registry.contains_key(&sanitized) {
-        log::debug!("Module '{module_name}' namespace already created directly, skipping");
-        return Vec::new();
-    }
-
-    // Check if this module has forward references that would cause NameError
-    // This happens when the module uses symbols from other modules that haven't been defined
-    // yet
-    let has_forward_references =
-        bundler.check_module_has_forward_references(module_name, module_renames);
-
-    if has_forward_references {
-        log::debug!("Module '{module_name}' has forward references, creating empty namespace");
-
-        // Use centralized namespace management with immediate generation
-        let stmts = require_namespace(
-            bundler,
-            module_name,
-            NamespaceContext::InlinedModule,
-            NamespaceParams::immediate(),
-        );
-        return stmts;
-    }
-    // Create a types.SimpleNamespace with all the module's symbols
-    let mut keywords = Vec::new();
-    let mut seen_args = FxIndexSet::default();
-
-    // Add all renamed symbols as keyword arguments, avoiding duplicates
-    for (original_name, renamed_name) in module_renames {
-        // Skip if we've already added this argument name
-        if seen_args.contains(original_name) {
-            log::debug!(
-                "[create_namespace_for_inlined_module_static] Skipping duplicate namespace \
-                 argument '{original_name}' for module '{module_name}'"
-            );
-            continue;
-        }
-
-        // Check if this symbol survived tree-shaking
-        if !bundler.is_symbol_kept_by_tree_shaking(module_name, original_name) {
-            log::debug!(
-                "Skipping tree-shaken symbol '{original_name}' from namespace for module \
-                 '{module_name}'"
-            );
-            continue;
-        }
-
-        seen_args.insert(original_name.clone());
-
-        keywords.push(Keyword {
-            node_index: AtomicNodeIndex::dummy(),
-            arg: Some(Identifier::new(original_name, TextRange::default())),
-            value: expressions::name(renamed_name, ExprContext::Load),
-            range: TextRange::default(),
-        });
-    }
-
-    // Also check if module has module-level variables that weren't renamed
-    if let Some(exports) = bundler.module_exports.get(module_name)
-        && let Some(export_list) = exports
-    {
-        for export in export_list {
-            // Check if this export was already added as a renamed symbol
-            if !module_renames.contains_key(export) && !seen_args.contains(export) {
-                // Check if this symbol survived tree-shaking
-                if !bundler.is_symbol_kept_by_tree_shaking(module_name, export) {
-                    log::debug!(
-                        "Skipping tree-shaken export '{export}' from namespace for module \
-                         '{module_name}'"
-                    );
-                    continue;
-                }
-
-                // This export wasn't renamed and wasn't already added, add it directly
-                seen_args.insert(export.clone());
-                keywords.push(Keyword {
-                    node_index: AtomicNodeIndex::dummy(),
-                    arg: Some(Identifier::new(export, TextRange::default())),
-                    value: expressions::name(export, ExprContext::Load),
-                    range: TextRange::default(),
-                });
-            }
-        }
-    }
-
-    // Create the namespace variable name
-    let namespace_var = sanitize_module_name_for_identifier(module_name);
-
-    // Check if namespace was already created through other means
-    if bundler.created_namespaces.contains(&namespace_var) {
-        log::debug!("Namespace '{namespace_var}' already created, skipping populated creation");
-        return Vec::new();
-    }
-
-    // Convert keywords to attributes for centralized namespace management
-    let attributes: Vec<(String, Expr)> = keywords
-        .into_iter()
-        .filter_map(|kw| kw.arg.map(|arg| (arg.as_str().to_string(), kw.value)))
-        .collect();
-
-    log::debug!(
-        "Creating populated namespace for '{}' with {} attributes",
-        module_name,
-        attributes.len()
-    );
-
-    // Use centralized namespace management with immediate generation and attributes
-    require_namespace(
-        bundler,
-        module_name,
-        NamespaceContext::InlinedModule,
-        NamespaceParams::immediate_with_attributes(attributes),
-    )
-}
-
 /// Handle assignment for inlined modules that are not wrapper modules.
 ///
 /// This helper function reduces nesting in `generate_submodule_attributes_with_exclusions`
@@ -1106,7 +989,12 @@ fn handle_inlined_module_assignment(
     debug!("Assigning inlined module namespace: {parent}.{attr} = {namespace_var}");
 
     // Ensure namespace variable exists
-    if !bundler.created_namespaces.contains(&namespace_var) {
+    if !bundler
+        .namespace_registry
+        .get(&namespace_var)
+        .map(|info| info.is_created)
+        .unwrap_or(false)
+    {
         debug!("Creating empty namespace for module '{module_name}' before assignment");
         // Use centralized namespace management with immediate generation
         let stmts = require_namespace(
