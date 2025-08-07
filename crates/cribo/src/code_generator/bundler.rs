@@ -2784,9 +2784,23 @@ impl<'a> Bundler<'a> {
                             let mut attributes = Vec::new();
                             let mut seen_attrs = FxIndexSet::default();
 
-                            // Add all renamed symbols as attributes
-                            for (original_name, renamed_name) in module_rename_map {
-                                if seen_attrs.contains(original_name) {
+                            // Combine renamed symbols and other exports into a single iterator
+                            let renamed_symbols = module_rename_map
+                                .iter()
+                                .map(|(k, v)| (k.as_str(), v.as_str()));
+
+                            let other_exports = self
+                                .module_exports
+                                .get(module_name)
+                                .and_then(|e| e.as_ref())
+                                .into_iter()
+                                .flatten()
+                                .filter(|export| !module_rename_map.contains_key(*export))
+                                .map(|export| (export.as_str(), export.as_str()));
+
+                            for (original_name, value_name) in renamed_symbols.chain(other_exports)
+                            {
+                                if !seen_attrs.insert(original_name.to_string()) {
                                     continue;
                                 }
 
@@ -2800,38 +2814,10 @@ impl<'a> Bundler<'a> {
                                     continue;
                                 }
 
-                                seen_attrs.insert(original_name.clone());
                                 attributes.push((
-                                    original_name.clone(),
-                                    expressions::name(renamed_name, ExprContext::Load),
+                                    original_name.to_string(),
+                                    expressions::name(value_name, ExprContext::Load),
                                 ));
-                            }
-
-                            // Also check if module has module-level variables that weren't renamed
-                            if let Some(exports) = self.module_exports.get(module_name)
-                                && let Some(export_list) = exports
-                            {
-                                for export in export_list {
-                                    if !module_rename_map.contains_key(export)
-                                        && !seen_attrs.contains(export)
-                                    {
-                                        // Check if this symbol survived tree-shaking
-                                        if !self.is_symbol_kept_by_tree_shaking(module_name, export)
-                                        {
-                                            log::debug!(
-                                                "Skipping tree-shaken export '{export}' from \
-                                                 namespace for module '{module_name}'"
-                                            );
-                                            continue;
-                                        }
-
-                                        seen_attrs.insert(export.clone());
-                                        attributes.push((
-                                            export.clone(),
-                                            expressions::name(export, ExprContext::Load),
-                                        ));
-                                    }
-                                }
                             }
 
                             // Create namespace with populated attributes

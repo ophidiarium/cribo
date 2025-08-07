@@ -344,6 +344,10 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                 } else if bundler.inlined_modules.contains(&module_name)
                     && !bundler.module_registry.contains_key(&module_name)
                 {
+                    debug!(
+                        "Module '{module_name}' is inlined but not a wrapper module, handling \
+                         assignment"
+                    );
                     // For inlined modules that are NOT wrapper modules, handle namespace assignment
                     handle_inlined_module_assignment(
                         bundler,
@@ -377,13 +381,28 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                 }
             }
         } else {
-            // This is an intermediate namespace - skip if already created via namespace index
+            // This is an intermediate namespace
             let sanitized_mod = sanitize_module_name_for_identifier(&module_name);
-            if bundler.namespace_registry.contains_key(&sanitized_mod) {
+
+            // Check if namespace already exists
+            let namespace_exists = bundler.namespace_registry.contains_key(&sanitized_mod);
+
+            if namespace_exists {
+                // Namespace already created, but we still need the parent-child assignment
                 debug!(
-                    "Skipping intermediate namespace '{module_name}' - already created via \
-                     namespace index"
+                    "Namespace '{module_name}' already created, creating parent-child assignment"
                 );
+
+                // Create: parent.attr = sanitized_name
+                final_body.push(ast_builder::statements::assign(
+                    vec![ast_builder::expressions::attribute(
+                        ast_builder::expressions::name(&parent, ExprContext::Load),
+                        &attr,
+                        ExprContext::Store,
+                    )],
+                    ast_builder::expressions::name(&sanitized_mod, ExprContext::Load),
+                ));
+
                 created_namespaces.insert(module_name);
                 continue;
             }
@@ -847,11 +866,20 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
                     .map(|(_, name)| name)
                     .unwrap_or(&info.original_path);
 
+                debug!(
+                    "Creating parent-child assignment: {}.{} = {}",
+                    parent_sanitized, attr_name, sanitized_name
+                );
                 statements.push(statements::assign_attribute(
                     &parent_sanitized,
                     attr_name,
                     expressions::name(&sanitized_name, ExprContext::Load),
                 ));
+            } else {
+                debug!(
+                    "Parent namespace '{}' not found in registry for child '{}'",
+                    parent_sanitized, info.original_path
+                );
             }
         }
 
@@ -965,6 +993,22 @@ fn handle_inlined_module_assignment(
     module_name: &str,
     final_body: &mut Vec<Stmt>,
 ) {
+    // Check if namespace was already created directly
+    let sanitized = sanitize_module_name_for_identifier(module_name);
+    if bundler.namespace_registry.contains_key(&sanitized) {
+        debug!("Namespace '{module_name}' already exists, creating parent-child assignment");
+        // The namespace exists, but we still need to create the parent.attr = sanitized assignment
+        final_body.push(ast_builder::statements::assign(
+            vec![ast_builder::expressions::attribute(
+                ast_builder::expressions::name(parent, ExprContext::Load),
+                attr,
+                ExprContext::Store,
+            )],
+            ast_builder::expressions::name(&sanitized, ExprContext::Load),
+        ));
+        return;
+    }
+
     // Check if namespace has wrapper submodules
     let has_initialized_wrapper_submodules = bundler
         .module_registry
@@ -975,15 +1019,6 @@ fn handle_inlined_module_assignment(
         debug!(
             "Skipping namespace assignment for '{module_name}' - it already has initialized \
              wrapper submodules"
-        );
-        return;
-    }
-
-    // Check if namespace was already created directly
-    let sanitized = sanitize_module_name_for_identifier(module_name);
-    if bundler.namespace_registry.contains_key(&sanitized) {
-        debug!(
-            "Skipping underscore namespace creation for '{module_name}' - already created directly"
         );
         return;
     }
