@@ -27,6 +27,7 @@ use crate::{
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{INIT_RESULT_VAR, sanitize_module_name_for_identifier},
         module_transformer, namespace_manager,
+        namespace_manager::NamespaceContext,
     },
     resolver::ModuleResolver,
     side_effects::{is_safe_stdlib_module, module_has_side_effects},
@@ -37,32 +38,6 @@ use crate::{
 
 /// Type alias for complex import generation data structure
 type ImportGeneration = Vec<(String, Vec<(String, Option<String>)>, bool)>;
-
-/// Context in which a namespace is required
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NamespaceContext {
-    TopLevel,
-    Attribute {
-        parent: String,
-    },
-    // TODO: These variants will be used in Phase 2 of the migration
-    #[allow(dead_code)]
-    InlinedModule,
-    #[allow(dead_code)]
-    CircularDependencyWrapper,
-}
-
-impl NamespaceContext {
-    /// Defines the priority for overriding contexts. Higher value wins.
-    fn priority(&self) -> u8 {
-        match self {
-            Self::TopLevel => 0,
-            Self::Attribute { .. } => 1,
-            Self::InlinedModule => 2,
-            Self::CircularDependencyWrapper => 3,
-        }
-    }
-}
 
 /// Information about a namespace that needs to be created
 #[derive(Debug, Clone)]
@@ -260,172 +235,6 @@ impl<'a> Bundler<'a> {
             symbols_populated_after_deferred: FxIndexSet::default(),
             modules_with_accessed_all: FxIndexSet::default(),
         }
-    }
-
-    /// Registers a request for a namespace, creating or updating its info.
-    /// This is the ONLY function that should be called to request a namespace.
-    /// It is idempotent and handles parent registration recursively.
-    pub fn require_namespace(&mut self, path: &str, context: NamespaceContext) {
-        // 1. Recursively require parent namespaces if `path` is dotted
-        if let Some(dot_pos) = path.rfind('.') {
-            let parent_path = &path[..dot_pos];
-            // The context for a parent is always that it's an attribute of its own parent.
-            let parent_context = NamespaceContext::Attribute {
-                parent: parent_path
-                    .rsplit_once('.')
-                    .map_or_else(String::new, |(p, _)| p.to_string()),
-            };
-            self.require_namespace(parent_path, parent_context);
-        }
-
-        // 2. Get or create the sanitized name for `path`
-        let sanitized_name = if let Some(existing) = self.path_to_sanitized_name.get(path) {
-            existing.clone()
-        } else {
-            let sanitized = sanitize_module_name_for_identifier(path);
-            self.path_to_sanitized_name
-                .insert(path.to_string(), sanitized.clone());
-            sanitized
-        };
-
-        // 3-5. Update or create the NamespaceInfo in the registry
-        self.namespace_registry
-            .entry(sanitized_name.clone())
-            .and_modify(|info| {
-                // Update context only if the new context has higher priority
-                if context.priority() > info.context.priority() {
-                    info.context = context.clone();
-                }
-            })
-            .or_insert_with(|| {
-                // Determine parent module (but no aliases here - they're context dependent)
-                let parent_module = if path.contains('.') {
-                    let parts: Vec<&str> = path.split('.').collect();
-                    Some(parts[..parts.len() - 1].join("."))
-                } else {
-                    None
-                };
-
-                NamespaceInfo {
-                    original_path: path.to_string(),
-                    needs_alias: false, // Aliases are context-dependent, handled elsewhere
-                    alias_name: None,
-                    attributes: Vec::new(),
-                    parent_module,
-                    is_created: false,
-                    context,
-                    deferred_symbols: Vec::new(),
-                }
-            });
-
-        if let Some(info) = self.namespace_registry.get(&sanitized_name) {
-            debug!(
-                "Required namespace: {path} -> {sanitized_name} with context {:?}",
-                info.context
-            );
-        }
-    }
-
-    /// Generates all required namespace creation and population statements.
-    /// This function guarantees correct, dependency-aware ordering.
-    pub fn generate_required_namespaces(&mut self) -> Vec<Stmt> {
-        let mut statements = Vec::new();
-
-        // 1-3. Get all namespaces and sort by depth (parent namespaces first)
-        let mut namespace_entries: Vec<(String, String)> = self
-            .namespace_registry
-            .iter()
-            .map(|(sanitized, info)| (sanitized.clone(), info.original_path.clone()))
-            .collect();
-
-        // Sort by depth (number of dots) to ensure parent namespaces are created first
-        namespace_entries.sort_by(|(_, path_a), (_, path_b)| {
-            path_a
-                .matches('.')
-                .count()
-                .cmp(&path_b.matches('.').count())
-                .then_with(|| path_a.cmp(path_b))
-        });
-
-        // 4-5. Generate creation and population statements for each namespace
-        for (sanitized_name, original_path) in namespace_entries {
-            let info = self
-                .namespace_registry
-                .get_mut(&sanitized_name)
-                .expect("Namespace should exist in registry after sorting");
-
-            if !info.is_created {
-                // a. Generate the namespace creation statement
-                let creation_stmt = statements::assign(
-                    vec![expressions::name(&sanitized_name, ExprContext::Store)],
-                    expressions::call(
-                        expressions::attribute(
-                            expressions::name("types", ExprContext::Load),
-                            "SimpleNamespace",
-                            ExprContext::Load,
-                        ),
-                        vec![],
-                        vec![],
-                    ),
-                );
-                statements.push(creation_stmt);
-
-                // b. Mark as created
-                info.is_created = true;
-                self.created_namespaces.insert(sanitized_name.clone());
-
-                // c. Generate __name__ attribute assignment
-                let name_attr_stmt = statements::assign(
-                    vec![expressions::attribute(
-                        expressions::name(&sanitized_name, ExprContext::Load),
-                        "__name__",
-                        ExprContext::Store,
-                    )],
-                    expressions::string_literal(&original_path),
-                );
-                statements.push(name_attr_stmt);
-
-                // d. Generate any deferred symbol population statements
-                for (symbol_name, symbol_expr) in &info.deferred_symbols {
-                    let symbol_stmt = statements::assign(
-                        vec![expressions::attribute(
-                            expressions::name(&sanitized_name, ExprContext::Load),
-                            symbol_name,
-                            ExprContext::Store,
-                        )],
-                        symbol_expr.clone(),
-                    );
-                    statements.push(symbol_stmt);
-                }
-
-                // e. Generate alias statement if needed
-                // SKIPPING: Aliases are generated elsewhere to avoid duplicates
-                // The alias generation happens in generate_submodule_attributes_with_exclusions
-
-                // f. Generate parent attribute assignment if this is a submodule
-                if let Some(ref parent_path) = info.parent_module
-                    && let Some(parent_sanitized) = self.path_to_sanitized_name.get(parent_path)
-                {
-                    let last_part = original_path
-                        .split('.')
-                        .next_back()
-                        .unwrap_or(&original_path);
-
-                    let attr_stmt = statements::assign(
-                        vec![expressions::attribute(
-                            expressions::name(parent_sanitized, ExprContext::Load),
-                            last_part,
-                            ExprContext::Store,
-                        )],
-                        expressions::name(&sanitized_name, ExprContext::Load),
-                    );
-                    statements.push(attr_stmt);
-                }
-            }
-        }
-
-        debug!("Generated {} namespace statements", statements.len());
-        statements
     }
 
     /// Create a new node with a proper index from the transformation context
@@ -1879,7 +1688,7 @@ impl<'a> Bundler<'a> {
                                 let context = NamespaceContext::Attribute {
                                     parent: parent.to_string(),
                                 };
-                                self.require_namespace(&full_path, context);
+                                namespace_manager::require_namespace(self, &full_path, context);
                             }
                         }
                     }

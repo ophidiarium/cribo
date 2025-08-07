@@ -18,6 +18,32 @@ use crate::{
     types::{FxIndexMap, FxIndexSet},
 };
 
+/// Context in which a namespace is required
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NamespaceContext {
+    TopLevel,
+    Attribute {
+        parent: String,
+    },
+    // TODO: These variants will be used in Phase 2 of the migration
+    #[allow(dead_code)]
+    InlinedModule,
+    #[allow(dead_code)]
+    CircularDependencyWrapper,
+}
+
+impl NamespaceContext {
+    /// Defines the priority for overriding contexts. Higher value wins.
+    pub fn priority(&self) -> u8 {
+        match self {
+            Self::TopLevel => 0,
+            Self::Attribute { .. } => 1,
+            Self::InlinedModule => 2,
+            Self::CircularDependencyWrapper => 3,
+        }
+    }
+}
+
 /// Context for populating namespace with module symbols.
 ///
 /// This struct encapsulates the state required by the namespace population function,
@@ -477,8 +503,178 @@ fn get_unique_name_with_module_suffix(base_name: &str, module_name: &str) -> Str
 
 // NOTE: ensure_namespace_exists was removed as it became obsolete after implementing
 // the centralized namespace registry. Its functionality is now handled by:
-// - bundler.require_namespace() for registration
-// - bundler.generate_required_namespaces() for generation
+// - require_namespace() for registration
+// - generate_required_namespaces() for generation
+
+/// Registers a request for a namespace, creating or updating its info.
+/// This is the ONLY function that should be called to request a namespace.
+/// It is idempotent and handles parent registration recursively.
+pub fn require_namespace(bundler: &mut Bundler, path: &str, context: NamespaceContext) {
+    // 1. Recursively require parent namespaces if `path` is dotted
+    if let Some(dot_pos) = path.rfind('.') {
+        let parent_path = &path[..dot_pos];
+        // The context for a parent is always that it's an attribute of its own parent.
+        let parent_context = NamespaceContext::Attribute {
+            parent: parent_path
+                .rsplit_once('.')
+                .map_or_else(String::new, |(p, _)| p.to_string()),
+        };
+        require_namespace(bundler, parent_path, parent_context);
+    }
+
+    // 2. Get or create the sanitized name for `path`
+    let sanitized_name = if let Some(existing) = bundler.path_to_sanitized_name.get(path) {
+        existing.clone()
+    } else {
+        let sanitized = sanitize_module_name_for_identifier(path);
+        bundler
+            .path_to_sanitized_name
+            .insert(path.to_string(), sanitized.clone());
+        sanitized
+    };
+
+    // 3-5. Update or create the NamespaceInfo in the registry
+    use crate::code_generator::bundler::NamespaceInfo;
+
+    bundler
+        .namespace_registry
+        .entry(sanitized_name.clone())
+        .and_modify(|info| {
+            // Update context only if the new context has higher priority
+            if context.priority() > info.context.priority() {
+                info.context = context.clone();
+            }
+        })
+        .or_insert_with(|| {
+            // Determine parent module (but no aliases here - they're context dependent)
+            let parent_module = if path.contains('.') {
+                let parts: Vec<&str> = path.split('.').collect();
+                Some(parts[..parts.len() - 1].join("."))
+            } else {
+                None
+            };
+
+            NamespaceInfo {
+                original_path: path.to_string(),
+                needs_alias: false, // Aliases are context-dependent, handled elsewhere
+                alias_name: None,
+                attributes: Vec::new(),
+                parent_module,
+                is_created: false,
+                context,
+                deferred_symbols: Vec::new(),
+            }
+        });
+
+    if let Some(info) = bundler.namespace_registry.get(&sanitized_name) {
+        debug!(
+            "Required namespace: {path} -> {sanitized_name} with context {:?}",
+            info.context
+        );
+    }
+}
+
+/// Generates all required namespace creation and population statements.
+/// This function guarantees correct, dependency-aware ordering.
+pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
+    let mut statements = Vec::new();
+
+    // 1-3. Get all namespaces and sort by depth (parent namespaces first)
+    let mut namespace_entries: Vec<(String, String)> = bundler
+        .namespace_registry
+        .iter()
+        .map(|(sanitized, info)| (sanitized.clone(), info.original_path.clone()))
+        .collect();
+
+    // Sort by depth (number of dots) to ensure parent namespaces are created first
+    namespace_entries.sort_by(|(_, path_a), (_, path_b)| {
+        path_a
+            .matches('.')
+            .count()
+            .cmp(&path_b.matches('.').count())
+            .then_with(|| path_a.cmp(path_b))
+    });
+
+    // 4-5. Generate creation and population statements for each namespace
+    for (sanitized_name, original_path) in namespace_entries {
+        let info = bundler
+            .namespace_registry
+            .get_mut(&sanitized_name)
+            .expect("Namespace should exist in registry after sorting");
+
+        if !info.is_created {
+            // a. Generate the namespace creation statement
+            let creation_stmt = statements::assign(
+                vec![expressions::name(&sanitized_name, ExprContext::Store)],
+                expressions::call(
+                    expressions::attribute(
+                        expressions::name("types", ExprContext::Load),
+                        "SimpleNamespace",
+                        ExprContext::Load,
+                    ),
+                    vec![],
+                    vec![],
+                ),
+            );
+            statements.push(creation_stmt);
+
+            // b. Mark as created
+            info.is_created = true;
+            bundler.created_namespaces.insert(sanitized_name.clone());
+
+            // c. Generate __name__ attribute assignment
+            let name_attr_stmt = statements::assign(
+                vec![expressions::attribute(
+                    expressions::name(&sanitized_name, ExprContext::Load),
+                    "__name__",
+                    ExprContext::Store,
+                )],
+                expressions::string_literal(&original_path),
+            );
+            statements.push(name_attr_stmt);
+
+            // d. Generate any deferred symbol population statements
+            for (symbol_name, symbol_expr) in &info.deferred_symbols {
+                let symbol_stmt = statements::assign(
+                    vec![expressions::attribute(
+                        expressions::name(&sanitized_name, ExprContext::Load),
+                        symbol_name,
+                        ExprContext::Store,
+                    )],
+                    symbol_expr.clone(),
+                );
+                statements.push(symbol_stmt);
+            }
+
+            // e. Generate alias statement if needed
+            // SKIPPING: Aliases are generated elsewhere to avoid duplicates
+            // The alias generation happens in generate_submodule_attributes_with_exclusions
+
+            // f. Generate parent attribute assignment if this is a submodule
+            if let Some(ref parent_path) = info.parent_module
+                && let Some(parent_sanitized) = bundler.path_to_sanitized_name.get(parent_path)
+            {
+                let last_part = original_path
+                    .split('.')
+                    .next_back()
+                    .unwrap_or(&original_path);
+
+                let attr_stmt = statements::assign(
+                    vec![expressions::attribute(
+                        expressions::name(parent_sanitized, ExprContext::Load),
+                        last_part,
+                        ExprContext::Store,
+                    )],
+                    expressions::name(&sanitized_name, ExprContext::Load),
+                );
+                statements.push(attr_stmt);
+            }
+        }
+    }
+
+    debug!("Generated {} namespace statements", statements.len());
+    statements
+}
 
 /// Create a namespace object with __name__ attribute.
 /// DEPRECATED: Use bundler.require_namespace() instead
@@ -518,16 +714,16 @@ pub(super) fn create_namespace_statements(bundler: &mut Bundler) -> Vec<Stmt> {
         let context = if namespace.contains('.') {
             let parts: Vec<&str> = namespace.split('.').collect();
             let parent = parts[..parts.len() - 1].join(".");
-            crate::code_generator::bundler::NamespaceContext::Attribute { parent }
+            NamespaceContext::Attribute { parent }
         } else {
-            crate::code_generator::bundler::NamespaceContext::TopLevel
+            NamespaceContext::TopLevel
         };
 
-        bundler.require_namespace(&namespace, context);
+        require_namespace(bundler, &namespace, context);
     }
 
     // Generate all namespace statements through the centralized method
-    bundler.generate_required_namespaces()
+    generate_required_namespaces(bundler)
 }
 
 /// Create namespace for inlined module.
