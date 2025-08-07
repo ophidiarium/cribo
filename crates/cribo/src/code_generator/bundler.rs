@@ -6,8 +6,8 @@ use anyhow::Result;
 use log::debug;
 use ruff_python_ast::{
     Alias, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier,
-    ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport, StmtImportFrom,
-    visitor::source_order::SourceOrderVisitor,
+    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
+    StmtImportFrom, visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -4206,38 +4206,6 @@ impl<'a> Bundler<'a> {
         )
     }
 
-    /// Create a namespace module using types.SimpleNamespace
-    /// DEPRECATED: Use require_namespace() instead
-    pub(super) fn create_namespace_module(&self, module_name: &str) -> Vec<Stmt> {
-        // Create: module_name = types.SimpleNamespace()
-        // Note: This should only be called with simple (non-dotted) module names
-        debug_assert!(
-            !module_name.contains('.'),
-            "create_namespace_module called with dotted name: {module_name}"
-        );
-
-        // TODO: This should be replaced with require_namespace() calls
-        // For now, keep creating directly for compatibility
-
-        // Create the namespace
-        let mut statements = vec![statements::simple_assign(
-            module_name,
-            expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
-        )];
-
-        // Set the __name__ attribute to match real module behavior
-        statements.push(statements::assign(
-            vec![expressions::attribute(
-                expressions::name(module_name, ExprContext::Load),
-                "__name__",
-                ExprContext::Store,
-            )],
-            expressions::string_literal(module_name),
-        ));
-
-        statements
-    }
-
     /// Process a function definition in the entry module
     fn process_entry_module_function(
         &self,
@@ -6132,15 +6100,46 @@ impl Bundler<'_> {
                 result_stmts
                     .push(self.create_module_reference_assignment(&parent_path, &parent_path));
             } else if !self.bundled_modules.contains(&parent_path) {
+                // Check if this namespace is registered in the centralized system
+                let sanitized = sanitize_module_name_for_identifier(&parent_path);
+                let registered_in_namespace_system =
+                    self.namespace_registry.contains_key(&sanitized);
+
                 // Check if we haven't already created this namespace globally or locally
                 let already_created = self.created_namespaces.contains(&parent_path)
-                    || self.is_namespace_already_created(&parent_path, result_stmts);
+                    || self.is_namespace_already_created(&parent_path, result_stmts)
+                    || registered_in_namespace_system;
 
                 if !already_created {
-                    // Parent is not a wrapper module and not an inlined module, create a simple
-                    // namespace
-                    // TODO: Register with centralized system when we have mutable access
-                    result_stmts.extend(self.create_namespace_module(&parent_path));
+                    // This parent namespace wasn't registered during initial discovery
+                    // This can happen for intermediate namespaces in deeply nested imports
+                    // We need to create it inline since we can't register it now (immutable
+                    // context)
+                    log::debug!(
+                        "Creating unregistered parent namespace '{parent_path}' inline during \
+                         import transformation"
+                    );
+                    // Create: parent_path = types.SimpleNamespace(__name__='parent_path')
+                    let keywords = vec![Keyword {
+                        node_index: AtomicNodeIndex::dummy(),
+                        arg: Some(Identifier::new("__name__", TextRange::default())),
+                        value: expressions::string_literal(&parent_path),
+                        range: TextRange::default(),
+                    }];
+                    result_stmts.push(statements::simple_assign(
+                        &parent_path,
+                        expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
+                    ));
+                } else if registered_in_namespace_system
+                    && !self.created_namespaces.contains(&parent_path)
+                {
+                    // The namespace is registered but hasn't been created yet
+                    // This shouldn't happen if generate_required_namespaces() was called before
+                    // transformation
+                    log::debug!(
+                        "Warning: Namespace '{parent_path}' is registered but not yet created \
+                         during import transformation"
+                    );
                 }
             }
         }

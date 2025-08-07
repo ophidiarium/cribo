@@ -235,7 +235,21 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         }
 
         debug!("Creating top-level namespace: {namespace}");
-        final_body.extend(bundler.create_namespace_module(&namespace));
+        // Create: namespace = types.SimpleNamespace(__name__='namespace')
+        let keywords = vec![Keyword {
+            node_index: AtomicNodeIndex::dummy(),
+            arg: Some(Identifier::new("__name__", TextRange::default())),
+            value: expressions::string_literal(&namespace),
+            range: TextRange::default(),
+        }];
+        final_body.push(ast_builder::statements::simple_assign(
+            &namespace,
+            ast_builder::expressions::call(
+                ast_builder::expressions::simple_namespace_ctor(),
+                vec![],
+                keywords,
+            ),
+        ));
         created_namespaces.insert(namespace);
     }
 
