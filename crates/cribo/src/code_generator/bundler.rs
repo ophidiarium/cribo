@@ -1784,6 +1784,11 @@ impl<'a> Bundler<'a> {
         // Get symbol renames from semantic analysis
         let mut symbol_renames = self.collect_symbol_renames(&modules, &semantic_ctx);
 
+        // Pre-detect namespace requirements from imports of inlined submodules
+        // This must be done after we know which modules are inlined but before transformation
+        // begins
+        namespace_manager::detect_namespace_requirements_from_imports(self, &modules);
+
         // Collect global symbols from the entry module first (for compatibility)
         let mut global_symbols =
             SymbolAnalyzer::collect_global_symbols(&modules, params.entry_module_name);

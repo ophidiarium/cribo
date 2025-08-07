@@ -248,7 +248,6 @@ pub fn create_reassignment(original_name: &str, renamed_name: &str) -> Stmt {
 pub struct NamespaceRequirement {
     pub path: String,
     pub var_name: String,
-    pub attributes: Vec<(String, String)>, // (attr_name, renamed_symbol_name)
 }
 
 /// Create assignments for inlined imports
@@ -291,18 +290,9 @@ pub fn create_assignments_for_inlined_imports(
             // Record that we need a namespace for this module
             let sanitized_name = sanitize_module_name_for_identifier(&full_module_path);
 
-            // Collect attributes that should be added to the namespace
-            let mut attributes = Vec::new();
-            if let Some(module_renames) = symbol_renames.get(&full_module_path) {
-                for (original_name, renamed_name) in module_renames {
-                    attributes.push((original_name.clone(), renamed_name.clone()));
-                }
-            }
-
             namespace_requirements.push(NamespaceRequirement {
                 path: full_module_path.clone(),
                 var_name: sanitized_name.clone(),
-                attributes,
             });
 
             // If local name differs from sanitized name, create alias

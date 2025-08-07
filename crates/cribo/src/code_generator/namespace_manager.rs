@@ -51,6 +51,7 @@ pub enum NamespaceContext {
     InlinedModule,
     #[allow(dead_code)]
     CircularDependencyWrapper,
+    ImportedSubmodule,
 }
 
 impl NamespaceContext {
@@ -61,6 +62,7 @@ impl NamespaceContext {
             Self::Attribute { .. } => 1,
             Self::InlinedModule => 2,
             Self::CircularDependencyWrapper => 3,
+            Self::ImportedSubmodule => 4,
         }
     }
 }
@@ -864,34 +866,77 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
     statements
 }
 
-/// Create a namespace object with __name__ attribute.
-/// DEPRECATED: Use bundler.require_namespace() instead
-pub(super) fn create_namespace_with_name(var_name: &str, module_path: &str) -> Vec<Stmt> {
-    // This function is kept for compatibility during migration
-    // TODO: Remove after full migration to centralized namespace management
+// NOTE: create_namespace_statements has been removed. Most namespace creation goes through
+// require_namespace and generate_required_namespaces from the bundler, but some cases
+// (like import transformation with immutable bundler access) must create namespaces inline
 
-    // Create: var_name = types.SimpleNamespace()
-    let types_simple_namespace_call =
-        expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]);
-    let mut statements = vec![statements::simple_assign(
-        var_name,
-        types_simple_namespace_call,
-    )];
+/// Detect namespace requirements from imports of inlined submodules.
+/// This pre-registers namespaces that will be needed during import transformation,
+/// allowing the centralized system to create them upfront.
+pub fn detect_namespace_requirements_from_imports(
+    bundler: &mut Bundler,
+    modules: &[(String, ModModule, PathBuf, String)],
+) {
+    use ruff_python_ast::Stmt;
 
-    // Set the __name__ attribute
-    let target = expressions::attribute(
-        expressions::name(var_name, ExprContext::Load),
-        "__name__",
-        ExprContext::Store,
+    log::debug!("Detecting namespace requirements from imports");
+
+    // Scan all modules for `from X import Y` statements
+    for (module_name, ast, module_path, _) in modules {
+        for stmt in &ast.body {
+            if let Stmt::ImportFrom(import_from) = stmt
+                && let Some(from_module) = &import_from.module
+            {
+                let from_module_str = from_module.as_str();
+
+                // Handle relative imports
+                let resolved_module = if import_from.level > 0 {
+                    bundler.resolver.resolve_relative_to_absolute_module_name(
+                        import_from.level,
+                        Some(from_module_str),
+                        module_path,
+                    )
+                } else {
+                    Some(from_module_str.to_string())
+                };
+
+                if let Some(resolved) = resolved_module {
+                    // Check each imported name
+                    for alias in &import_from.names {
+                        let imported_name = alias.name.as_str();
+                        let full_module_path = format!("{resolved}.{imported_name}");
+
+                        // Check if this is importing an inlined submodule
+                        if bundler.inlined_modules.contains(&full_module_path) {
+                            log::debug!(
+                                "Found import of inlined submodule '{full_module_path}' in module \
+                                 '{module_name}', pre-registering namespace"
+                            );
+
+                            // Register the namespace WITHOUT attributes - those will be added after
+                            // inlining The attributes can't be set now
+                            // because the symbols don't exist yet
+                            let params = NamespaceParams::default();
+
+                            // Register the namespace with the centralized system
+                            require_namespace(
+                                bundler,
+                                &full_module_path,
+                                NamespaceContext::ImportedSubmodule,
+                                params,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    log::debug!(
+        "Pre-registered {} namespace requirements",
+        bundler.namespace_registry.len()
     );
-    let value = expressions::string_literal(module_path);
-    statements.push(statements::assign(vec![target], value));
-
-    statements
 }
-
-// NOTE: create_namespace_statements has been removed in favor of direct calls to
-// require_namespace and generate_required_namespaces from the bundler
 
 /// Create namespace for inlined module.
 ///
