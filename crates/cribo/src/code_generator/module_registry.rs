@@ -209,6 +209,19 @@ pub fn create_module_attr_assignment(module_var: &str, attr_name: &str) -> Stmt 
     )
 }
 
+/// Create a module attribute assignment statement with a specific value
+pub fn create_module_attr_assignment_with_value(
+    module_var: &str,
+    attr_name: &str,
+    value_name: &str,
+) -> Stmt {
+    ast_builder::statements::assign_attribute(
+        module_var,
+        attr_name,
+        ast_builder::expressions::name(value_name, ExprContext::Load),
+    )
+}
+
 /// Create a reassignment statement (`original_name` = `renamed_name`)
 pub fn create_reassignment(original_name: &str, renamed_name: &str) -> Stmt {
     ast_builder::statements::simple_assign(

@@ -29,7 +29,7 @@ use crate::{
         globals::{GlobalsLifter, transform_globals_in_stmt},
         import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry,
+        module_registry::{self, sanitize_module_name_for_identifier},
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -605,6 +605,10 @@ pub fn transform_module_to_init_function<'a>(
     }
 
     // Now add the submodules as attributes
+    debug!(
+        "Submodules to add for {}: {:?}",
+        ctx.module_name, submodules_to_add
+    );
     for (full_name, relative_name) in submodules_to_add {
         debug!(
             "Setting submodule {} as attribute {} on {}",
@@ -1763,10 +1767,18 @@ fn create_namespace_for_inlined_submodule(
 ) -> Vec<Stmt> {
     let mut stmts = Vec::new();
 
+    // Use the sanitized module name for inlined modules to match the global namespace object
+    let namespace_var = sanitize_module_name_for_identifier(full_module_name);
+
+    log::debug!(
+        "create_namespace_for_inlined_submodule: full_module_name='{full_module_name}', \
+         attr_name='{attr_name}', namespace_var='{namespace_var}'"
+    );
+
     // Create a types.SimpleNamespace() for the inlined module
     stmts.push(ast_builder::statements::assign(
         vec![ast_builder::expressions::name(
-            attr_name,
+            &namespace_var,
             ExprContext::Store,
         )],
         ast_builder::expressions::call(
@@ -1839,17 +1851,19 @@ fn create_namespace_for_inlined_submodule(
             // tree-shaking
             if !renamed_symbol_exists(bundler, &renamed_symbol, symbol_renames) {
                 log::warn!(
-                    "Skipping namespace assignment {attr_name}.{symbol} = {renamed_symbol} - \
+                    "Skipping namespace assignment {namespace_var}.{symbol} = {renamed_symbol} - \
                      renamed symbol doesn't exist after tree-shaking"
                 );
                 continue;
             }
 
-            // attr_name.symbol = renamed_symbol
-            log::debug!("Creating namespace assignment: {attr_name}.{symbol} = {renamed_symbol}");
+            // namespace_var.symbol = renamed_symbol
+            log::debug!(
+                "Creating namespace assignment: {namespace_var}.{symbol} = {renamed_symbol}"
+            );
             stmts.push(ast_builder::statements::assign(
                 vec![ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(attr_name, ExprContext::Load),
+                    ast_builder::expressions::name(&namespace_var, ExprContext::Load),
                     &symbol,
                     ExprContext::Store,
                 )],
@@ -1865,6 +1879,16 @@ fn create_namespace_for_inlined_submodule(
              will be empty unless symbols are added elsewhere."
         );
     }
+
+    // Finally, set module.attr_name = namespace_var (e.g., module.compat = pkg_compat)
+    // This allows the parent module to access the submodule via the expected attribute name
+    stmts.push(
+        crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+            "module",
+            attr_name,
+            &namespace_var,
+        ),
+    );
 
     stmts
 }

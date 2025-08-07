@@ -7,6 +7,10 @@ input_file: crates/cribo/tests/fixtures/import_shadowing/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
+package_b_processor = types.SimpleNamespace()
+package_b_processor.__name__ = 'package_b.processor'
+package_a_processor = types.SimpleNamespace()
+package_a_processor.__name__ = 'package_a.processor'
 package_a = types.SimpleNamespace()
 package_a.__name__ = 'package_a'
 package_b = types.SimpleNamespace()
@@ -19,9 +23,7 @@ def process_a(data):
     return transform(data)
 """Package B processor that imports utils expecting package_b.utils"""
 """Package A processor that imports utils expecting package_a.utils"""
-package_b_processor = types.SimpleNamespace()
 utils = types.SimpleNamespace(transform=transform)
-package_a_processor = types.SimpleNamespace()
 package_a.processor = package_a_processor
 package_b.processor = package_b_processor
 package_b_processor.process_b = process_b

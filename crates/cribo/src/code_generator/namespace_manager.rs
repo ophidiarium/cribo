@@ -626,8 +626,8 @@ pub(super) fn create_namespace_for_inlined_module_static(
         // Skip if we've already added this argument name
         if seen_args.contains(original_name) {
             log::debug!(
-                "Skipping duplicate namespace argument '{original_name}' for module \
-                 '{module_name}'"
+                "[create_namespace_for_inlined_module_static] Skipping duplicate namespace \
+                 argument '{original_name}' for module '{module_name}'"
             );
             continue;
         }
@@ -984,8 +984,9 @@ pub fn populate_namespace_with_module_symbols(
 
             if assignment_exists {
                 debug!(
-                    "Skipping duplicate namespace assignment: {target_name}.{symbol_name} = \
-                     {actual_symbol_name}"
+                    "[populate_namespace_with_module_symbols_with_renames] Skipping duplicate \
+                     namespace assignment: {target_name}.{symbol_name} = {actual_symbol_name} \
+                     (assignment already exists)"
                 );
                 continue;
             }
@@ -1020,9 +1021,10 @@ pub fn populate_namespace_with_module_symbols(
 
                     if parent_assignment_exists {
                         debug!(
-                            "Skipping duplicate namespace assignment: {target_name}.{symbol_name} \
-                             = {actual_symbol_name} (already exists in result_stmts) - in \
-                             populate_namespace_with_module_symbols"
+                            "[populate_namespace_with_module_symbols_with_renames/parent] \
+                             Skipping duplicate namespace assignment: {target_name}.{symbol_name} \
+                             = {actual_symbol_name} (parent assignment already exists in \
+                             result_stmts)"
                         );
                         continue;
                     }

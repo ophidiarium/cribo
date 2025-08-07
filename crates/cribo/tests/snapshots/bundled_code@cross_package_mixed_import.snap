@@ -9,6 +9,20 @@ input_file: crates/cribo/tests/fixtures/cross_package_mixed_import/main.py
 import functools
 import sys
 import types
+models_user = types.SimpleNamespace()
+models_user.__name__ = 'models.user'
+models_base = types.SimpleNamespace()
+models_base.__name__ = 'models.base'
+core_version = types.SimpleNamespace()
+core_version.__name__ = 'core.version'
+core_utils = types.SimpleNamespace()
+core_utils.__name__ = 'core.utils'
+core_utils_config = types.SimpleNamespace()
+core_utils_config.__name__ = 'core.utils.config'
+core_utils.config = core_utils_config
+core_utils_helpers = types.SimpleNamespace()
+core_utils_helpers.__name__ = 'core.utils.helpers'
+core_utils.helpers = core_utils_helpers
 core = types.SimpleNamespace()
 core.__name__ = 'core'
 core.database = types.SimpleNamespace()
@@ -54,8 +68,6 @@ BaseModel.__module__ = 'models.base'
 """Configuration utilities for the core package."""
 """Version module separate from __init__ to avoid circular imports."""
 """Helper utilities for the core package."""
-core_utils_config = types.SimpleNamespace()
-core_utils_helpers = types.SimpleNamespace()
 _cribo_core__initialized = None
 _cribo_core__config = None
 _cribo_models__base_model = None
@@ -90,9 +102,11 @@ def __cribo_init___cribo_f00e4b_core():
     _cribo_core__initialized = _initialized
     global _cribo_core__config
     _cribo_core__config = _config
-    version = types.SimpleNamespace()
-    version.CORE_MODEL_VERSION = CORE_MODEL_VERSION
-    utils = types.SimpleNamespace()
+    core_version = types.SimpleNamespace()
+    core_version.CORE_MODEL_VERSION = CORE_MODEL_VERSION
+    module.version = core_version
+    core_utils = types.SimpleNamespace()
+    module.utils = core_utils
     module.CORE_MODEL_VERSION = CORE_MODEL_VERSION
     module.validate = validate
     module.get_config = get_config
@@ -144,10 +158,12 @@ def __cribo_init___cribo_563ea2_models():
         __all__.append("AdvancedModel")
     global _cribo_models__base_model
     _cribo_models__base_model = _base_model
-    user = types.SimpleNamespace()
-    user.process_user = process_user
-    base = types.SimpleNamespace()
-    base.BaseModel = BaseModel
+    models_user = types.SimpleNamespace()
+    models_user.process_user = process_user
+    module.user = models_user
+    models_base = types.SimpleNamespace()
+    models_base.BaseModel = BaseModel
+    module.base = models_base
     module.process_user = process_user
     return module
 @functools.cache
@@ -240,11 +256,8 @@ def __cribo_init___cribo_782908_core_database():
         return connect(database_name)
     module.safe_connect = safe_connect
     return module
-core_version = types.SimpleNamespace()
 core.version = core_version
-models_base = types.SimpleNamespace()
 models.base = models_base
-models_user = types.SimpleNamespace()
 models.user = models_user
 core.utils.config = core_utils_config
 core.utils.helpers = core_utils_helpers

@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/wrapper_module_builtin_types/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Result: Processed 4 bytes\nSuccess!",
+    stderr: "",
+}

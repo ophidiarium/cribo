@@ -9,6 +9,24 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_symbols_collision/main.py
 import functools
 import types
 import typing
+models_base = types.SimpleNamespace()
+models_base.__name__ = 'models.base'
+models_user = types.SimpleNamespace()
+models_user.__name__ = 'models.user'
+UserLogger = models_user
+services_auth = types.SimpleNamespace()
+services_auth.__name__ = 'services.auth'
+core_utils = types.SimpleNamespace()
+core_utils.__name__ = 'core.utils'
+core_database = types.SimpleNamespace()
+core_database.__name__ = 'core.database'
+core_utils_helpers = types.SimpleNamespace()
+core_utils_helpers.__name__ = 'core.utils.helpers'
+core_validate = core_utils_helpers
+core_utils.helpers = core_utils_helpers
+core_database_connection = types.SimpleNamespace()
+core_database_connection.__name__ = 'core.database.connection'
+core_database.connection = core_database_connection
 core = types.SimpleNamespace()
 core.__name__ = 'core'
 core.database = types.SimpleNamespace()
@@ -241,10 +259,6 @@ Connection_5.__module__ = 'core.database.connection'
 Connection_5.__name__ = 'Connection'
 Connection_5.__qualname__ = 'Connection'
 """\nDatabase connection module with naming conflicts\n"""
-models_base = types.SimpleNamespace()
-models_user = types.SimpleNamespace()
-core_utils_helpers = types.SimpleNamespace()
-core_database_connection = types.SimpleNamespace()
 @functools.cache
 def __cribo_init___cribo_6ccb3a_services_auth_manager():
     module = types.SimpleNamespace()

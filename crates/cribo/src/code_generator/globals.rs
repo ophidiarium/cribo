@@ -3,7 +3,9 @@ use ruff_python_ast::{Expr, ExprContext, Stmt};
 
 use crate::{
     ast_builder::{expressions, statements},
-    code_generator::context::ProcessGlobalsParams,
+    code_generator::{
+        context::ProcessGlobalsParams, module_registry::sanitize_module_name_for_identifier,
+    },
     semantic_bundler::ModuleGlobalInfo,
     types::FxIndexMap,
 };
@@ -146,9 +148,7 @@ impl GlobalsLifter {
             // Only lift variables that are actually used with global statements
             if global_info.global_declarations.contains_key(var_name) {
                 let module_name_sanitized =
-                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                        &global_info.module_name,
-                    );
+                    sanitize_module_name_for_identifier(&global_info.module_name);
                 let var_name_sanitized = sanitize_var_name(var_name);
                 let lifted_name = format!("_cribo_{module_name_sanitized}_{var_name_sanitized}");
 

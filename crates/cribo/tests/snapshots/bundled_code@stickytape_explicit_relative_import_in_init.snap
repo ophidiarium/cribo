@@ -7,10 +7,11 @@ input_file: crates/cribo/tests/fixtures/stickytape_explicit_relative_import_in_i
 # https://github.com/ophidiarium/cribo
 
 import types
+greetings_greeting = types.SimpleNamespace()
+greetings_greeting.__name__ = 'greetings.greeting'
 greetings = types.SimpleNamespace()
 greetings.__name__ = 'greetings'
 message = "Hello"
-greetings_greeting = types.SimpleNamespace()
 greetings.greeting = greetings_greeting
 greetings_greeting.message = message
 greetings.message = message

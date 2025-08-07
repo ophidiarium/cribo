@@ -38,6 +38,21 @@ use crate::{
 /// Type alias for complex import generation data structure
 type ImportGeneration = Vec<(String, Vec<(String, Option<String>)>, bool)>;
 
+/// Information about a namespace that needs to be created
+#[derive(Debug, Clone)]
+pub struct NamespaceInfo {
+    /// The original module path (e.g., "pkg.compat")
+    pub original_path: String,
+    /// Whether this namespace needs an alias (e.g., compat = pkg_compat)
+    pub needs_alias: bool,
+    /// The alias name if needs_alias is true (e.g., "compat")
+    pub alias_name: Option<String>,
+    /// Attributes to set on this namespace (attr_name, value_name)
+    pub attributes: Vec<(String, String)>,
+    /// Parent module that this is an attribute of (e.g., "pkg" for "pkg.compat")
+    pub parent_module: Option<String>,
+}
+
 /// Result of module classification
 struct ClassificationResult {
     inlinable_modules: Vec<(String, ModModule, PathBuf, String)>,
@@ -112,8 +127,10 @@ pub struct Bundler<'a> {
     /// Track all namespaces that need to be created before module initialization
     /// This ensures parent namespaces exist before any submodule assignments
     pub(crate) required_namespaces: FxIndexSet<String>,
+    /// Central registry of all namespaces that need to be created
+    /// Maps sanitized name to NamespaceInfo
+    pub(crate) namespace_registry: FxIndexMap<String, NamespaceInfo>,
     /// Runtime tracking of all created namespaces to prevent duplicates
-    /// This includes both pre-identified and dynamically created namespaces
     pub(crate) created_namespaces: FxIndexSet<String>,
     /// Modules that have explicit __all__ defined
     pub(crate) modules_with_explicit_all: FxIndexSet<String>,
@@ -196,6 +213,7 @@ impl<'a> Bundler<'a> {
             module_asts: None,
             global_deferred_imports: FxIndexMap::default(),
             required_namespaces: FxIndexSet::default(),
+            namespace_registry: FxIndexMap::default(),
             created_namespaces: FxIndexSet::default(),
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
@@ -342,15 +360,22 @@ impl<'a> Bundler<'a> {
                 let is_submodule_with_init = self.module_registry.contains_key(&full_path);
                 let value_is_same_as_attr = value.id.as_str() == attr.attr.as_str();
 
-                log::debug!(
-                    "Checking assignment: {}.{} = {} | bundled={} | has_init={} | same_name={}",
-                    base.id.as_str(),
-                    attr.attr.as_str(),
-                    value.id.as_str(),
+                // Filter out self-referential assignments to inlined submodules
+                // For example: pkg.compat = compat where pkg.compat is an inlined module
+                // This is problematic when 'compat' doesn't exist as a separate namespace
+                // BUT: Don't filter if the right-hand side is a local variable (not the module
+                // itself)
+                if self.should_filter_self_referential_assignment(SelfReferentialAssignmentCheck {
                     is_bundled_submodule,
-                    is_submodule_with_init,
-                    value_is_same_as_attr
-                );
+                    value_is_same_as_attr,
+                    full_path: &full_path,
+                    base_id: base.id.as_str(),
+                    attr_name: attr.attr.as_str(),
+                    value_id: value.id.as_str(),
+                    local_variables,
+                }) {
+                    return false;
+                }
 
                 if is_submodule_with_init && value_is_same_as_attr {
                     // Always filter out assignments to submodules with init functions
@@ -1988,19 +2013,92 @@ impl<'a> Bundler<'a> {
             }
         }
 
+        // Register all inlined submodules that will need namespaces
+        {
+            let inlined_submodules: Vec<_> = self
+                .inlined_modules
+                .iter()
+                .filter(|name| name.contains('.'))
+                .cloned()
+                .collect();
+
+            for module_name in inlined_submodules {
+                // Skip special modules like __version__, __about__, etc.
+                // These are typically imported for their contents, not used as namespaces
+                if Self::is_dunder_module(&module_name) {
+                    log::debug!(
+                        "Skipping namespace registration for special module: {module_name}"
+                    );
+                    continue;
+                }
+
+                // Extract parent module if it exists
+                let parent = module_name.rsplit_once('.').map(|(p, _)| p.to_string());
+                self.register_namespace(&module_name, false, None);
+
+                // Set parent module relationship if applicable
+                if let Some(ref parent_module) = parent {
+                    let sanitized = sanitize_module_name_for_identifier(&module_name);
+                    if let Some(info) = self.namespace_registry.get_mut(&sanitized) {
+                        info.parent_module = Some(parent_module.clone());
+                    }
+                }
+            }
+        }
+
         // Process normalized imports from inlined modules to ensure they are hoisted
-        for (_module_name, ast, _, _) in &inlinable_modules {
-            // Scan for import statements and add normalized stdlib imports to our hoisted list
+        // Also pre-scan for namespace requirements
+        for (_module_name, ast, module_path, _) in &inlinable_modules {
+            // Scan for import statements
             for stmt in &ast.body {
-                if let Stmt::Import(import_stmt) = stmt {
-                    for alias in &import_stmt.names {
-                        let module_name = alias.name.as_str();
-                        if is_safe_stdlib_module(module_name) && alias.asname.is_none() {
-                            // This is a normalized stdlib import (no alias), ensure it's
-                            // hoisted
-                            import_deduplicator::add_stdlib_import(self, module_name);
+                match stmt {
+                    Stmt::Import(import_stmt) => {
+                        for alias in &import_stmt.names {
+                            let imported_name = alias.name.as_str();
+                            if is_safe_stdlib_module(imported_name) && alias.asname.is_none() {
+                                // This is a normalized stdlib import (no alias), ensure it's
+                                // hoisted
+                                import_deduplicator::add_stdlib_import(self, imported_name);
+                            }
                         }
                     }
+                    Stmt::ImportFrom(import_from) => {
+                        // Check if this is an import from an inlined module
+                        let resolved_module = if import_from.level > 0 {
+                            self.resolver.resolve_relative_to_absolute_module_name(
+                                import_from.level,
+                                import_from.module.as_ref().map(|m| m.as_str()),
+                                module_path,
+                            )
+                        } else {
+                            import_from.module.as_ref().map(|m| m.as_str().to_string())
+                        };
+
+                        if let Some(ref resolved) = resolved_module
+                            && self.inlined_modules.contains(resolved)
+                        {
+                            // Skip dunder modules like __version__, __about__, etc.
+                            if Self::is_dunder_module(resolved) {
+                                log::debug!(
+                                    "Skipping namespace registration for dunder module during \
+                                     import processing: {resolved}"
+                                );
+                                continue;
+                            }
+
+                            // This import will need a namespace object
+                            let needs_alias = import_from.names.iter().any(|alias| {
+                                alias.asname.is_some() || alias.name.as_str() != resolved
+                            });
+                            let alias_name = import_from
+                                .names
+                                .first()
+                                .and_then(|alias| alias.asname.as_ref())
+                                .map(|name| name.as_str().to_string());
+                            self.register_namespace(resolved, needs_alias, alias_name);
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -2333,9 +2431,9 @@ impl<'a> Bundler<'a> {
                             let assignment_key = (namespace_var.clone(), original_name.clone());
                             if self.namespace_assignments_made.contains(&assignment_key) {
                                 log::debug!(
-                                    "Skipping duplicate namespace assignment: \
-                                     {namespace_var}.{original_name} = {renamed_name} (already \
-                                     assigned)"
+                                    "[populate_empty_namespace/renamed] Skipping duplicate \
+                                     namespace assignment: {namespace_var}.{original_name} = \
+                                     {renamed_name} (already assigned)"
                                 );
                                 continue;
                             }
@@ -2357,73 +2455,12 @@ impl<'a> Bundler<'a> {
                                      re-export from child modules"
                                 );
 
-                                // Check if symbol is actually defined in a child module
-                                // by examining ASTs of child modules
-                                let result = if let Some(module_asts) = &self.module_asts {
-                                    module_asts.iter().any(|(inlined_module_name, ast, _, _)| {
-                                        let is_child = inlined_module_name != module_name
-                                            && inlined_module_name
-                                                .starts_with(&format!("{module_name}."));
-                                        if is_child {
-                                            // Check if this module defines the symbol (as a class,
-                                            // function, or variable)
-                                            let defines_symbol =
-                                                ast.body.iter().any(|stmt| match stmt {
-                                                    Stmt::ClassDef(class_def) => {
-                                                        class_def.name.id.as_str() == original_name
-                                                    }
-                                                    Stmt::FunctionDef(func_def) => {
-                                                        func_def.name.id.as_str() == original_name
-                                                    }
-                                                    Stmt::Assign(assign) => {
-                                                        assign.targets.iter().any(|target| {
-                                                            if let Expr::Name(name) = target {
-                                                                name.id.as_str() == original_name
-                                                            } else {
-                                                                false
-                                                            }
-                                                        })
-                                                    }
-                                                    _ => false,
-                                                });
-                                            if defines_symbol {
-                                                log::debug!(
-                                                    "  Child module '{inlined_module_name}' \
-                                                     defines symbol '{original_name}' directly"
-                                                );
-                                            }
-                                            defines_symbol
-                                        } else {
-                                            false
-                                        }
-                                    })
-                                } else {
-                                    // Fallback to checking rename maps if ASTs not available
-                                    inlinable_modules.iter().any(
-                                        |(inlined_module_name, _, _, _)| {
-                                            let is_child = inlined_module_name != module_name
-                                                && inlined_module_name
-                                                    .starts_with(&format!("{module_name}."));
-                                            if is_child {
-                                                let has_symbol = symbol_renames
-                                                    .get(inlined_module_name)
-                                                    .is_some_and(|child_renames| {
-                                                        child_renames.contains_key(original_name)
-                                                    });
-                                                log::debug!(
-                                                    "  Child module '{inlined_module_name}' has \
-                                                     symbol '{original_name}' in rename map: \
-                                                     {has_symbol}"
-                                                );
-                                                has_symbol
-                                            } else {
-                                                false
-                                            }
-                                        },
-                                    )
-                                };
-                                log::debug!("  Result: is_reexport = {result}");
-                                result
+                                self.is_symbol_reexport_from_child_modules(
+                                    module_name,
+                                    original_name,
+                                    &inlinable_modules,
+                                    &symbol_renames,
+                                )
                             } else {
                                 false
                             };
@@ -2491,7 +2528,8 @@ impl<'a> Bundler<'a> {
                                     let assignment_key = (namespace_var.clone(), export.clone());
                                     if self.namespace_assignments_made.contains(&assignment_key) {
                                         log::debug!(
-                                            "Skipping duplicate namespace assignment: \
+                                            "[populate_empty_namespace/exports] Skipping \
+                                             duplicate namespace assignment: \
                                              {namespace_var}.{export} = {export} (already \
                                              assigned)"
                                         );
@@ -2687,26 +2725,23 @@ impl<'a> Bundler<'a> {
                 } else if self.inlined_modules.contains(module_name)
                     && !self.module_registry.contains_key(module_name)
                 {
+                    // Skip dunder modules like __version__, __about__, etc.
+                    if Self::is_dunder_module(module_name) {
+                        log::debug!(
+                            "Skipping namespace registration for dunder module with no symbols: \
+                             {module_name}"
+                        );
+                        continue;
+                    }
+
                     // Module has no symbols in symbol_renames but is still an inlined module
                     // We need to create an empty namespace for it
                     log::debug!(
                         "Module '{module_name}' has no symbols but needs a namespace object"
                     );
 
-                    let namespace_var = sanitize_module_name_for_identifier(module_name);
-                    let namespace_already_exists = self.created_namespaces.contains(&namespace_var);
-
-                    if !namespace_already_exists {
-                        // Create empty namespace = types.SimpleNamespace()
-                        let namespace_stmt = statements::simple_assign(
-                            &namespace_var,
-                            expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
-                        );
-                        final_body.push(namespace_stmt);
-
-                        // Track the created namespace
-                        self.created_namespaces.insert(namespace_var);
-                    }
+                    // Register the namespace - it will be created upfront
+                    self.register_namespace(module_name, false, None);
                 }
             }
         }
@@ -2765,8 +2800,19 @@ impl<'a> Bundler<'a> {
                 log::info!("Using module cache - initializing all modules immediately");
 
                 // Call all init functions in sorted order
+                // Track which modules have been initialized in this scope
+                let mut initialized_in_scope = FxIndexSet::default();
+
                 for module_name in &sorted_wrapped {
                     if let Some(synthetic_name) = self.module_registry.get(module_name) {
+                        // Skip if already initialized in this scope
+                        if initialized_in_scope.contains(module_name) {
+                            log::debug!(
+                                "Skipping duplicate initialization of module {module_name}"
+                            );
+                            continue;
+                        }
+
                         let init_func_name = &self.init_functions[synthetic_name];
 
                         // Generate init call and assignment
@@ -2780,6 +2826,9 @@ impl<'a> Bundler<'a> {
                         let init_stmts =
                             self.generate_module_assignment_from_init(module_name, init_call);
                         final_body.extend(init_stmts);
+
+                        // Mark as initialized in this scope
+                        initialized_in_scope.insert(module_name.clone());
 
                         // Extract hard dependencies from this module immediately after
                         // initialization This is critical for modules that
@@ -3168,77 +3217,13 @@ impl<'a> Bundler<'a> {
                                 "Checking if '{original_name}' in module '{module_name}' is a \
                                  re-export from child modules"
                             );
-                            // Check if symbol is actually defined in a child module
-                            // by examining ASTs of child modules
-                            let result = if let Some(module_asts) = &self.module_asts {
-                                module_asts.iter().any(|(inlined_module_name, ast, _, _)| {
-                                    let is_child = inlined_module_name != module_name
-                                        && inlined_module_name
-                                            .starts_with(&format!("{module_name}."));
-                                    if is_child {
-                                        // Check if this module defines the symbol (as a class,
-                                        // function, or variable)
-                                        let defines_symbol =
-                                            ast.body.iter().any(|stmt| match stmt {
-                                                Stmt::ClassDef(class_def) => {
-                                                    class_def.name.id.as_str() == original_name
-                                                }
-                                                Stmt::FunctionDef(func_def) => {
-                                                    func_def.name.id.as_str() == original_name
-                                                }
-                                                Stmt::Assign(assign) => {
-                                                    assign.targets.iter().any(|target| {
-                                                        if let Expr::Name(name) = target {
-                                                            name.id.as_str() == original_name
-                                                        } else {
-                                                            false
-                                                        }
-                                                    })
-                                                }
-                                                _ => false,
-                                            });
-                                        if defines_symbol {
-                                            log::debug!(
-                                                "  Child module '{inlined_module_name}' defines \
-                                                 symbol '{original_name}' directly"
-                                            );
-                                        }
-                                        defines_symbol
-                                    } else {
-                                        false
-                                    }
-                                })
-                            } else {
-                                // Fallback to checking rename maps if ASTs not available
-                                inlinable_modules
-                                    .iter()
-                                    .any(|(inlined_module_name, _, _, _)| {
-                                        let is_child = inlined_module_name != module_name
-                                            && inlined_module_name
-                                                .starts_with(&format!("{module_name}."));
-                                        if is_child {
-                                            let has_symbol = symbol_renames
-                                                .get(inlined_module_name)
-                                                .is_some_and(|renames| {
-                                                    renames.contains_key(original_name)
-                                                });
-                                            if has_symbol {
-                                                log::debug!(
-                                                    "  Child module '{inlined_module_name}' has \
-                                                     symbol '{original_name}' in rename map"
-                                                );
-                                            }
-                                            has_symbol
-                                        } else {
-                                            false
-                                        }
-                                    })
-                            };
-                            log::debug!(
-                                "  Symbol '{original_name}' is re-export from child modules: \
-                                 {result}"
-                            );
-                            result
+
+                            self.is_symbol_reexport_from_child_modules(
+                                module_name,
+                                original_name,
+                                &inlinable_modules,
+                                &symbol_renames,
+                            )
                         } else {
                             false
                         };
@@ -3256,9 +3241,9 @@ impl<'a> Bundler<'a> {
                         let assignment_key = (namespace_var.clone(), original_name.clone());
                         if self.namespace_assignments_made.contains(&assignment_key) {
                             log::debug!(
-                                "Skipping duplicate namespace assignment: \
-                                 {namespace_var}.{original_name} = {renamed_name} (already \
-                                 assigned)"
+                                "[populate_namespace_with_symbols/renamed] Skipping duplicate \
+                                 namespace assignment: {namespace_var}.{original_name} = \
+                                 {renamed_name} (already assigned)"
                             );
                             continue;
                         }
@@ -3281,9 +3266,9 @@ impl<'a> Bundler<'a> {
 
                         if assignment_exists {
                             log::debug!(
-                                "Skipping duplicate namespace assignment: \
-                                 {namespace_var}.{original_name} = {renamed_name} (already exists \
-                                 in final_body)"
+                                "[populate_namespace_with_symbols/exists-in-body] Skipping \
+                                 duplicate namespace assignment: {namespace_var}.{original_name} \
+                                 = {renamed_name} (already exists in final_body)"
                             );
                             continue;
                         }
@@ -3750,6 +3735,9 @@ impl<'a> Bundler<'a> {
             }
 
             // Add init calls first
+            // Track which have been initialized to avoid duplicates in this scope
+            let mut initialized_in_deferred = FxIndexSet::default();
+
             for synthetic_name in needed_init_calls {
                 // Note: This is in a context where we can't mutate self, so we'll rely on
                 // the namespaces being pre-created by identify_required_namespaces
@@ -3762,6 +3750,15 @@ impl<'a> Bundler<'a> {
                         || synthetic_name.clone(),
                         |(orig_name, _)| orig_name.to_string(),
                     );
+
+                // Skip if already initialized in this scope
+                if initialized_in_deferred.contains(&module_name) {
+                    log::debug!(
+                        "Skipping duplicate initialization of module {module_name} in deferred \
+                         imports"
+                    );
+                    continue;
+                }
 
                 let init_stmts = crate::code_generator::module_registry::generate_module_init_call(
                     &synthetic_name,
@@ -3779,6 +3776,9 @@ impl<'a> Bundler<'a> {
                     },
                 );
                 final_body.extend(init_stmts);
+
+                // Mark as initialized in this scope
+                initialized_in_deferred.insert(module_name);
             }
 
             // Then deduplicate and add the actual imports (without init calls)
@@ -3816,14 +3816,22 @@ impl<'a> Bundler<'a> {
             final_body.extend(deduped_imports);
         }
 
+        // Generate all registered namespaces upfront to avoid duplicates
+        let namespace_statements = self.generate_all_namespaces();
+
+        // If we're generating any namespace statements, ensure types is imported
+        if !namespace_statements.is_empty() {
+            import_deduplicator::add_stdlib_import(self, "types");
+        }
+
         // Add hoisted imports at the beginning of final_body
-        // This is done here after all transformations to ensure we capture all needed imports
+        // This is done here after all transformations and after determining
+        // all necessary imports (including types for namespaces)
         let mut hoisted_imports = Vec::new();
         import_deduplicator::add_hoisted_imports(self, &mut hoisted_imports);
 
-        // Note: Namespace statements are now created earlier, before module inlining
-        // to ensure they exist when module code references them
-
+        // Build final body: imports -> namespaces -> rest of code
+        hoisted_imports.extend(namespace_statements);
         hoisted_imports.extend(final_body);
         final_body = hoisted_imports;
 
@@ -3833,9 +3841,9 @@ impl<'a> Bundler<'a> {
             final_body = self.fix_forward_references_in_statements(final_body);
         }
 
-        // Deduplicate namespace assignments that may have been created multiple times
-        // This happens when processing imports like `import mypackage` and `import mypackage.utils`
-        final_body = self.deduplicate_namespace_assignments(final_body);
+        // Deduplicate namespace creation statements that were created by different systems
+        // This is a targeted fix for the specific duplicate pattern we're seeing
+        final_body = self.deduplicate_namespace_creation_statements(final_body);
 
         // Final filter: Remove any invalid assignments where module.attr = attr and attr is a
         // submodule that doesn't exist as a local variable
@@ -3880,6 +3888,123 @@ impl<'a> Bundler<'a> {
         log::info!("  New nodes created: {}", stats.new_nodes);
 
         Ok(result)
+    }
+
+    /// Register a namespace that needs to be created
+    pub fn register_namespace(
+        &mut self,
+        module_path: &str,
+        needs_alias: bool,
+        alias_name: Option<String>,
+    ) -> String {
+        let sanitized_name = sanitize_module_name_for_identifier(module_path);
+
+        // Check if already registered
+        if let Some(existing) = self.namespace_registry.get_mut(&sanitized_name) {
+            // Update alias info if needed
+            if needs_alias && !existing.needs_alias {
+                existing.needs_alias = true;
+                existing.alias_name = alias_name;
+            }
+            return sanitized_name;
+        }
+
+        // Determine parent module
+        let parent_module = module_path.rsplit_once('.').map(|(p, _)| p.to_string());
+
+        // Create new namespace info
+        let info = NamespaceInfo {
+            original_path: module_path.to_string(),
+            needs_alias,
+            alias_name,
+            attributes: Vec::new(),
+            parent_module,
+        };
+
+        self.namespace_registry.insert(sanitized_name.clone(), info);
+        log::debug!("Registered namespace: {module_path} -> {sanitized_name}");
+
+        sanitized_name
+    }
+
+    /// Check if a namespace is already registered
+    pub fn is_namespace_registered(&self, sanitized_name: &str) -> bool {
+        self.namespace_registry.contains_key(sanitized_name)
+    }
+
+    /// Generate all registered namespaces at once
+    fn generate_all_namespaces(&self) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+        let mut created = FxIndexSet::default();
+
+        // Sort namespaces by depth (parent modules first)
+        let mut sorted_namespaces: Vec<_> = self.namespace_registry.iter().collect();
+        sorted_namespaces.sort_by_key(|(_, info)| info.original_path.matches('.').count());
+
+        for (sanitized_name, info) in sorted_namespaces {
+            // Skip if already created
+            if created.contains(sanitized_name) {
+                continue;
+            }
+
+            // Create namespace: sanitized_name = types.SimpleNamespace()
+            stmts.push(statements::assign(
+                vec![expressions::name(sanitized_name, ExprContext::Store)],
+                expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
+            ));
+
+            // Set __name__ attribute if it's a module namespace
+            if !info.original_path.is_empty() {
+                stmts.push(statements::assign_attribute(
+                    sanitized_name,
+                    "__name__",
+                    expressions::string_literal(&info.original_path),
+                ));
+            }
+
+            // Create alias if needed (e.g., compat = pkg_compat)
+            if info.needs_alias
+                && let Some(ref alias) = info.alias_name
+            {
+                stmts.push(statements::simple_assign(
+                    alias,
+                    expressions::name(sanitized_name, ExprContext::Load),
+                ));
+            }
+
+            // Set as attribute on parent module if needed (e.g., pkg.compat = pkg_compat)
+            if let Some(ref parent) = info.parent_module {
+                let parent_sanitized = sanitize_module_name_for_identifier(parent);
+                // Only set the attribute if parent exists
+                if self.namespace_registry.contains_key(&parent_sanitized) {
+                    // Extract the attribute name from the path
+                    let attr_name = info
+                        .original_path
+                        .rsplit_once('.')
+                        .map(|(_, name)| name)
+                        .unwrap_or(&info.original_path);
+
+                    stmts.push(statements::assign_attribute(
+                        &parent_sanitized,
+                        attr_name,
+                        expressions::name(sanitized_name, ExprContext::Load),
+                    ));
+                }
+            }
+
+            // Add any registered attributes
+            for (attr_name, value_name) in &info.attributes {
+                stmts.push(statements::assign_attribute(
+                    sanitized_name,
+                    attr_name,
+                    expressions::name(value_name, ExprContext::Load),
+                ));
+            }
+
+            created.insert(sanitized_name.to_string());
+        }
+
+        stmts
     }
 
     /// Find modules that are imported directly
@@ -5756,7 +5881,150 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
 }
 
 // Helper methods for import rewriting
+/// Parameters for checking self-referential assignments
+struct SelfReferentialAssignmentCheck<'a> {
+    is_bundled_submodule: bool,
+    value_is_same_as_attr: bool,
+    full_path: &'a str,
+    base_id: &'a str,
+    attr_name: &'a str,
+    value_id: &'a str,
+    local_variables: Option<&'a FxIndexSet<String>>,
+}
+
 impl Bundler<'_> {
+    /// Check if a module name represents a dunder module like __version__, __about__, etc.
+    /// These are Python's "magic" modules with double underscores.
+    fn is_dunder_module(module_name: &str) -> bool {
+        // Get the last part of the module name (after the last dot, or the whole name if no dots)
+        let last_part = module_name.rsplit_once('.').map_or(module_name, |(_, p)| p);
+        // Check if it's a valid dunder name (starts and ends with __, and has content in between)
+        last_part.starts_with("__") && last_part.ends_with("__") && last_part.len() > 4
+    }
+
+    /// Check if a symbol is a re-export from child modules or is itself a submodule
+    ///
+    /// Returns true if:
+    /// - The symbol is actually a submodule name (e.g., 'compat' is 'pkg.compat')
+    /// - The symbol is defined in a child module (by checking ASTs or rename maps)
+    fn is_symbol_reexport_from_child_modules(
+        &self,
+        module_name: &str,
+        symbol_name: &str,
+        inlinable_modules: &[(String, ModModule, std::path::PathBuf, String)],
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> bool {
+        // First check if this is actually a submodule name itself
+        let full_submodule_path = format!("{module_name}.{symbol_name}");
+        if self.bundled_modules.contains(&full_submodule_path) {
+            log::debug!("  Symbol '{symbol_name}' is actually a submodule: {full_submodule_path}");
+            // This is a submodule, treat it as a "re-export" to skip
+            // creating invalid assignments like pkg.compat = compat
+            return true;
+        }
+
+        // Check if symbol is actually defined in a child module
+        // by examining ASTs of child modules
+        let result = if let Some(module_asts) = &self.module_asts {
+            module_asts.iter().any(|(inlined_module_name, ast, _, _)| {
+                let is_child = inlined_module_name != module_name
+                    && inlined_module_name.starts_with(&format!("{module_name}."));
+                if is_child {
+                    // Check if this module defines the symbol (as a class, function, or variable)
+                    let defines_symbol = ast.body.iter().any(|stmt| match stmt {
+                        Stmt::ClassDef(class_def) => class_def.name.id.as_str() == symbol_name,
+                        Stmt::FunctionDef(func_def) => func_def.name.id.as_str() == symbol_name,
+                        Stmt::Assign(assign) => assign.targets.iter().any(|target| {
+                            if let Expr::Name(name) = target {
+                                name.id.as_str() == symbol_name
+                            } else {
+                                false
+                            }
+                        }),
+                        _ => false,
+                    });
+                    if defines_symbol {
+                        log::debug!(
+                            "  Child module '{inlined_module_name}' defines symbol \
+                             '{symbol_name}' directly"
+                        );
+                    }
+                    defines_symbol
+                } else {
+                    false
+                }
+            })
+        } else {
+            // Fallback to checking rename maps if ASTs not available
+            inlinable_modules
+                .iter()
+                .any(|(inlined_module_name, _, _, _)| {
+                    let is_child = inlined_module_name != module_name
+                        && inlined_module_name.starts_with(&format!("{module_name}."));
+                    if is_child {
+                        let has_symbol = symbol_renames
+                            .get(inlined_module_name)
+                            .is_some_and(|child_renames| child_renames.contains_key(symbol_name));
+                        if has_symbol {
+                            log::debug!(
+                                "  Child module '{inlined_module_name}' has symbol \
+                                 '{symbol_name}' in rename map"
+                            );
+                        }
+                        has_symbol
+                    } else {
+                        false
+                    }
+                })
+        };
+
+        log::debug!("  Symbol '{symbol_name}' is re-export from child modules: {result}");
+        result
+    }
+
+    /// Check if a self-referential assignment should be filtered out
+    ///
+    /// This handles the complex logic for filtering assignments like `pkg.compat = compat`
+    /// where `pkg.compat` is an inlined submodule and `compat` is not a local variable.
+    fn should_filter_self_referential_assignment(
+        &self,
+        check: SelfReferentialAssignmentCheck,
+    ) -> bool {
+        if !check.is_bundled_submodule
+            || !check.value_is_same_as_attr
+            || !self.inlined_modules.contains(check.full_path)
+        {
+            return false;
+        }
+
+        let value_is_local_var = check
+            .local_variables
+            .map(|vars| vars.contains(check.value_id))
+            .unwrap_or(false);
+
+        if !value_is_local_var {
+            let sanitized_name = sanitize_module_name_for_identifier(check.full_path);
+            log::debug!(
+                "Filtering out self-referential assignment: {}.{} = {} (inlined submodule, will \
+                 use alias '{} = {}')",
+                check.base_id,
+                check.attr_name,
+                check.value_id,
+                check.value_id,
+                sanitized_name
+            );
+            true
+        } else {
+            log::debug!(
+                "Keeping assignment: {}.{} = {} (value is local variable, not self-referential)",
+                check.base_id,
+                check.attr_name,
+                check.value_id
+            );
+            false
+        }
+    }
+
     /// Create a module reference assignment
     pub(super) fn create_module_reference_assignment(
         &self,
@@ -6299,59 +6567,101 @@ impl Bundler<'_> {
         false
     }
 
-    /// Deduplicate namespace assignments (e.g., mypackage.__all__ = [...])
-    /// This is needed when the same namespace is populated multiple times
-    /// (e.g., when both `import mypackage` and `import mypackage.utils` are processed)
-    fn deduplicate_namespace_assignments(&self, stmts: Vec<Stmt>) -> Vec<Stmt> {
-        let mut seen_assignments: indexmap::IndexSet<(String, String)> = indexmap::IndexSet::new();
+    /// Deduplicate namespace creation statements (var = types.SimpleNamespace())
+    /// and namespace attribute assignments (var.__name__ = '...')
+    /// This removes duplicates created by different parts of the bundling process
+    fn deduplicate_namespace_creation_statements(&self, stmts: Vec<Stmt>) -> Vec<Stmt> {
+        let mut seen_namespace_creations = FxIndexSet::default();
+        let mut seen_attribute_assignments = FxIndexSet::default();
         let mut result = Vec::new();
 
         for stmt in stmts {
-            let should_keep = match &stmt {
-                Stmt::Assign(assign) => {
-                    if let [Expr::Attribute(attr)] = assign.targets.as_slice() {
-                        if let Expr::Name(base) = attr.value.as_ref() {
-                            // Deduplicate namespace init assignments
-                            if let Expr::Call(call) = assign.value.as_ref() {
-                                if let Expr::Name(func_name) = call.func.as_ref() {
-                                    if func_name.id.starts_with("__cribo_init_") {
-                                        // Only keep if we haven't seen this assignment before
-                                        seen_assignments
-                                            .insert((base.id.to_string(), attr.attr.to_string()))
-                                    } else {
-                                        true
-                                    }
-                                } else {
-                                    true
-                                }
-                            } else if attr.attr.as_str().starts_with("__")
-                                && attr.attr.as_str().ends_with("__")
-                            {
-                                // Only keep if we haven't seen this assignment before
-                                seen_assignments
-                                    .insert((base.id.to_string(), attr.attr.to_string()))
-                            } else {
-                                // Don't deduplicate regular attributes
-                                true
-                            }
-                        } else {
-                            true
-                        }
-                    } else {
-                        true
-                    }
-                }
-                _ => true,
+            // Check if this is a namespace creation: var = types.SimpleNamespace()
+            let is_namespace_creation = if let Stmt::Assign(ref assign) = stmt {
+                assign.targets.len() == 1
+                    && matches!(&assign.targets[0], Expr::Name(_))
+                    && self.is_types_simplenamespace_call(&assign.value)
+            } else {
+                false
             };
 
-            if should_keep {
-                result.push(stmt);
-            } else {
-                log::debug!("Deduplicating duplicate namespace assignment");
+            if is_namespace_creation
+                && let Stmt::Assign(ref assign) = stmt
+                && let Expr::Name(name) = &assign.targets[0]
+            {
+                let var_name = name.id.as_str();
+
+                // Skip if we've already seen this namespace creation
+                if seen_namespace_creations.contains(var_name) {
+                    log::debug!(
+                        "Skipping duplicate namespace creation: {var_name} = \
+                         types.SimpleNamespace()"
+                    );
+                    continue;
+                }
+                seen_namespace_creations.insert(var_name.to_string());
             }
+
+            // Check if this is a duplicate attribute assignment like var.__name__ = '...'
+            // or var.attr = namespace_var
+            if let Stmt::Assign(ref assign) = stmt
+                && assign.targets.len() == 1
+                && let Expr::Attribute(attr) = &assign.targets[0]
+                && let Expr::Name(base) = attr.value.as_ref()
+            {
+                let key = format!("{}.{}", base.id.as_str(), attr.attr.as_str());
+
+                // Check if this exact assignment has been seen before
+                if seen_attribute_assignments.contains(&key) {
+                    // Skip duplicates only for bundler-generated patterns:
+                    // 1. __name__ assignments (always bundler-generated)
+                    // 2. types.SimpleNamespace() calls
+                    // 3. Assignments of known namespace variables
+
+                    // Always skip __name__ duplicates (these are bundler-generated)
+                    if attr.attr.as_str() == "__name__" {
+                        log::debug!("Skipping duplicate __name__ assignment: {key}");
+                        continue;
+                    }
+
+                    // Check the value being assigned
+                    if let Expr::Name(name) = assign.value.as_ref() {
+                        // Skip if assigning a known namespace or synthetic module
+                        if seen_namespace_creations.contains(name.id.as_str())
+                            || self
+                                .module_registry
+                                .values()
+                                .any(|synthetic_name| synthetic_name == name.id.as_str())
+                        {
+                            log::debug!("Skipping duplicate namespace variable assignment: {key}");
+                            continue;
+                        }
+                    } else if self.is_types_simplenamespace_call(assign.value.as_ref()) {
+                        // Direct namespace creation as attribute (bundler-generated)
+                        log::debug!("Skipping duplicate namespace creation assignment: {key}");
+                        continue;
+                    }
+                }
+                seen_attribute_assignments.insert(key);
+            }
+
+            result.push(stmt);
         }
 
         result
+    }
+
+    /// Check if an expression is a types.SimpleNamespace() call
+    fn is_types_simplenamespace_call(&self, expr: &Expr) -> bool {
+        if let Expr::Call(call) = expr
+            && let Expr::Attribute(attr) = call.func.as_ref()
+            && let Expr::Name(module) = attr.value.as_ref()
+        {
+            return module.id.as_str() == "types"
+                && attr.attr.as_str() == "SimpleNamespace"
+                && call.arguments.args.is_empty();
+        }
+        false
     }
 
     /// Deduplicate function definitions that may have been created multiple times
