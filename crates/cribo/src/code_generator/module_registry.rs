@@ -230,7 +230,15 @@ pub fn create_reassignment(original_name: &str, renamed_name: &str) -> Stmt {
     )
 }
 
+/// Information about a namespace that needs to be created
+pub struct NamespaceRequirement {
+    pub path: String,
+    pub var_name: String,
+    pub attributes: Vec<(String, String)>, // (attr_name, renamed_symbol_name)
+}
+
 /// Create assignments for inlined imports
+/// Returns (statements, namespace_requirements)
 #[allow(clippy::too_many_arguments)]
 pub fn create_assignments_for_inlined_imports(
     import_from: &StmtImportFrom,
@@ -239,9 +247,9 @@ pub fn create_assignments_for_inlined_imports(
     module_registry: &FxIndexMap<String, String>,
     inlined_modules: &FxIndexSet<String>,
     bundled_modules: &FxIndexSet<String>,
-    create_namespace_with_name: impl Fn(&str, &str) -> Vec<Stmt>,
-) -> Vec<Stmt> {
+) -> (Vec<Stmt>, Vec<NamespaceRequirement>) {
     let mut assignments = Vec::new();
+    let mut namespace_requirements = Vec::new();
 
     for alias in &import_from.names {
         let imported_name = alias.name.as_str();
@@ -266,26 +274,29 @@ pub fn create_assignments_for_inlined_imports(
                  '{module_name}' - module was inlined"
             );
 
-            // Create a SimpleNamespace-like object with __name__ set
-            let namespace_stmts =
-                create_namespace_with_name(local_name.as_str(), &full_module_path);
-            assignments.extend(namespace_stmts);
+            // Record that we need a namespace for this module
+            let sanitized_name = sanitize_module_name_for_identifier(&full_module_path);
 
-            // Now add all symbols from the inlined module to the namespace
-            // This should come from semantic analysis of what symbols the module exports
+            // Collect attributes that should be added to the namespace
+            let mut attributes = Vec::new();
             if let Some(module_renames) = symbol_renames.get(&full_module_path) {
-                // Add each symbol from the module to the namespace
                 for (original_name, renamed_name) in module_renames {
-                    // base.original_name = renamed_name
-                    assignments.push(ast_builder::statements::assign(
-                        vec![ast_builder::expressions::attribute(
-                            ast_builder::expressions::name(local_name.as_str(), ExprContext::Load),
-                            original_name,
-                            ExprContext::Store,
-                        )],
-                        ast_builder::expressions::name(renamed_name, ExprContext::Load),
-                    ));
+                    attributes.push((original_name.clone(), renamed_name.clone()));
                 }
+            }
+
+            namespace_requirements.push(NamespaceRequirement {
+                path: full_module_path.clone(),
+                var_name: sanitized_name.clone(),
+                attributes,
+            });
+
+            // If local name differs from sanitized name, create alias
+            if local_name.as_str() != sanitized_name {
+                assignments.push(ast_builder::statements::simple_assign(
+                    local_name.as_str(),
+                    ast_builder::expressions::name(&sanitized_name, ExprContext::Load),
+                ));
             }
         } else {
             // Regular symbol import
@@ -314,7 +325,7 @@ pub fn create_assignments_for_inlined_imports(
         }
     }
 
-    assignments
+    (assignments, namespace_requirements)
 }
 
 /// Prefix for all cribo-generated init-related names

@@ -9,9 +9,8 @@ input_file: crates/cribo/tests/fixtures/stickytape_implicit_init_import/main.py
 import types
 greetings = types.SimpleNamespace()
 greetings.__name__ = 'greetings'
-greetings_irrelevant = types.SimpleNamespace()
-greetings_irrelevant.__name__ = 'greetings.irrelevant'
-greetings.irrelevant = greetings_irrelevant
 message = "Hello"
+greetings_irrelevant = types.SimpleNamespace(__name__='greetings.irrelevant')
+greetings.irrelevant = greetings_irrelevant
 greetings.message = message
 print(greetings.message)

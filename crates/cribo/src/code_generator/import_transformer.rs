@@ -2398,21 +2398,47 @@ fn rewrite_import_from(
         log::debug!(
             "Module '{module_name}' was inlined, creating assignments for imported symbols"
         );
-        #[allow(clippy::too_many_arguments)]
-        crate::code_generator::module_registry::create_assignments_for_inlined_imports(
-            &import_from,
-            &module_name,
-            symbol_renames,
-            &bundler.module_registry,
-            &bundler.inlined_modules,
-            &bundler.bundled_modules,
-            |local_name, full_module_path| {
+        let (mut assignments, namespace_requirements) =
+            crate::code_generator::module_registry::create_assignments_for_inlined_imports(
+                &import_from,
+                &module_name,
+                symbol_renames,
+                &bundler.module_registry,
+                &bundler.inlined_modules,
+                &bundler.bundled_modules,
+            );
+
+        // For now, create the namespaces directly using the old function
+        // TODO: These should be registered with bundler.require_namespace() once we have mutable
+        // access
+        for ns_req in namespace_requirements {
+            let namespace_stmts =
                 crate::code_generator::namespace_manager::create_namespace_with_name(
-                    local_name,
-                    full_module_path,
-                )
-            },
-        )
+                    &ns_req.var_name,
+                    &ns_req.path,
+                );
+            // Insert namespace creation statements at the beginning
+            let insertion_point = assignments.len();
+            assignments.extend(namespace_stmts);
+
+            // Add attribute assignments for the namespace
+            for (attr_name, renamed_name) in ns_req.attributes {
+                assignments.push(statements::assign(
+                    vec![expressions::attribute(
+                        expressions::name(&ns_req.var_name, ExprContext::Load),
+                        &attr_name,
+                        ExprContext::Store,
+                    )],
+                    expressions::name(&renamed_name, ExprContext::Load),
+                ));
+            }
+
+            // Move the namespace statements to the beginning
+            let namespace_and_attrs = assignments.split_off(insertion_point);
+            assignments.splice(0..0, namespace_and_attrs);
+        }
+
+        assignments
     }
 }
 

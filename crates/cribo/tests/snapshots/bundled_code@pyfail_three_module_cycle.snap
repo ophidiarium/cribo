@@ -19,7 +19,7 @@ def process_c():
     """Process C that depends back on A - creates the cycle"""
     value = get_value_a()
     return f"C(using_{value})"
-module_a = types.SimpleNamespace(process_a=process_a, get_value_a=get_value_a)
+module_a = types.SimpleNamespace(__name__='module_a', process_a=process_a, get_value_a=get_value_a)
 def main():
     result = module_a.process_a()
     print(f"Result: {result}")

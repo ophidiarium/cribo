@@ -1645,13 +1645,33 @@ impl<'a> Bundler<'a> {
             );
             import_deduplicator::add_stdlib_import(self, "types");
 
-            // Create namespace statements immediately after identifying them
+            // Register all required namespaces with the centralized registry
+            let namespaces_to_register: Vec<String> =
+                self.required_namespaces.iter().cloned().collect();
+            for namespace in namespaces_to_register {
+                // Determine the context based on the namespace structure
+                let context = if let Some(last_dot_pos) = namespace.rfind('.') {
+                    let parent = namespace[..last_dot_pos].to_string();
+                    namespace_manager::NamespaceContext::Attribute { parent }
+                } else {
+                    namespace_manager::NamespaceContext::TopLevel
+                };
+
+                namespace_manager::require_namespace(
+                    self,
+                    &namespace,
+                    context,
+                    namespace_manager::NamespaceParams::default(),
+                );
+            }
+
+            // Generate all namespace statements through the centralized method
             // This ensures namespaces exist before any module code that might reference them
             log::debug!(
-                "Creating {} namespace statements before module inlining",
-                self.required_namespaces.len()
+                "Generating namespace statements for {} registered namespaces",
+                self.namespace_registry.len()
             );
-            let namespace_statements = namespace_manager::create_namespace_statements(self);
+            let namespace_statements = namespace_manager::generate_required_namespaces(self);
             final_body.extend(namespace_statements);
 
             // For wrapper modules that are submodules (e.g., requests.compat),
@@ -1688,7 +1708,12 @@ impl<'a> Bundler<'a> {
                                 let context = NamespaceContext::Attribute {
                                     parent: parent.to_string(),
                                 };
-                                namespace_manager::require_namespace(self, &full_path, context);
+                                namespace_manager::require_namespace(
+                                    self,
+                                    &full_path,
+                                    context,
+                                    namespace_manager::NamespaceParams::default(),
+                                );
                             }
                         }
                     }
@@ -2703,15 +2728,13 @@ impl<'a> Bundler<'a> {
                             .check_module_has_forward_references(module_name, module_rename_map);
 
                         // Create a SimpleNamespace for this module only if it doesn't exist
-                        if let Some(namespace_stmt) =
+                        let namespace_stmts =
                             namespace_manager::create_namespace_for_inlined_module_static(
                                 self,
                                 module_name,
                                 module_rename_map,
-                            )
-                        {
-                            final_body.push(namespace_stmt);
-                        }
+                            );
+                        final_body.extend(namespace_stmts);
 
                         // Parent-child namespace assignments will be handled later by
                         // generate_submodule_attributes_with_exclusions, which runs after
@@ -3961,6 +3984,18 @@ impl<'a> Bundler<'a> {
                 continue;
             }
 
+            // Skip if this is an inlined module that will get a populated namespace later
+            // These modules will have their namespace created by
+            // create_namespace_for_inlined_module_static
+            if self.inlined_modules.contains(&info.original_path) {
+                log::debug!(
+                    "Skipping namespace generation for '{}' - will be created as populated \
+                     namespace during inlining",
+                    info.original_path
+                );
+                continue;
+            }
+
             // Create namespace: sanitized_name = types.SimpleNamespace()
             stmts.push(statements::assign(
                 vec![expressions::name(sanitized_name, ExprContext::Store)],
@@ -3987,10 +4022,15 @@ impl<'a> Bundler<'a> {
             }
 
             // Set as attribute on parent module if needed (e.g., pkg.compat = pkg_compat)
+            // For inlined parent modules, these assignments will be handled by the
+            // module's own import statements when it's inlined
             if let Some(ref parent) = info.parent_module {
                 let parent_sanitized = sanitize_module_name_for_identifier(parent);
-                // Only set the attribute if parent exists
-                if self.namespace_registry.contains_key(&parent_sanitized) {
+                // Only set the attribute if parent namespace exists and is NOT an inlined module
+                // Inlined modules will handle their own submodule attributes
+                if self.namespace_registry.contains_key(&parent_sanitized)
+                    && !self.inlined_modules.contains(parent)
+                {
                     // Extract the attribute name from the path
                     let attr_name = info
                         .original_path

@@ -14,7 +14,7 @@ class BaseError(Exception):
     pass
 BaseError.__module__ = 'exceptions_module'
 """Module that uses imports from compat_module (like requests.exceptions)."""
-exceptions_module = types.SimpleNamespace(BaseError=BaseError)
+exceptions_module = types.SimpleNamespace(__name__='exceptions_module', BaseError=BaseError)
 @functools.cache
 def __cribo_init___cribo_244765_compat_module():
     module = types.SimpleNamespace()

@@ -9,12 +9,6 @@ input_file: crates/cribo/tests/fixtures/all_variable_handling/main.py
 import types
 nested_package = types.SimpleNamespace()
 nested_package.__name__ = 'nested_package'
-nested_package_submodule = types.SimpleNamespace()
-nested_package_submodule.__name__ = 'nested_package.submodule'
-nested_package.submodule = nested_package_submodule
-nested_package_utils = types.SimpleNamespace()
-nested_package_utils.__name__ = 'nested_package.utils'
-nested_package.utils = nested_package_utils
 message_1 = "from conflict_module"
 SUB_CONSTANT = "submodule_value"
 CONSTANT = 42
@@ -30,7 +24,11 @@ def helper_func():
 def public_func():
     """A public function that should be exported."""
     return "Hello from public_func"
-simple_module = types.SimpleNamespace(CONSTANT=CONSTANT, public_func=public_func)
+nested_package_submodule = types.SimpleNamespace(__name__='nested_package.submodule')
+nested_package_utils = types.SimpleNamespace(__name__='nested_package.utils')
+simple_module = types.SimpleNamespace(__name__='simple_module', CONSTANT=CONSTANT, public_func=public_func)
+nested_package.submodule = nested_package_submodule
+nested_package.utils = nested_package_utils
 nested_package_submodule.SUB_CONSTANT = SUB_CONSTANT
 nested_package_submodule.sub_function = sub_function
 nested_package.exported_from_init = exported_from_init

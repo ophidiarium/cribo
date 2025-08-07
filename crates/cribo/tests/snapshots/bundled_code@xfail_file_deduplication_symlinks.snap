@@ -7,16 +7,10 @@ input_file: crates/cribo/tests/fixtures/xfail_file_deduplication_symlinks/main.p
 # https://github.com/ophidiarium/cribo
 
 import types
-shared = types.SimpleNamespace()
-shared.__name__ = 'shared'
 lib = types.SimpleNamespace()
 lib.__name__ = 'lib'
-shared_common = types.SimpleNamespace()
-shared_common.__name__ = 'shared.common'
-shared.common = shared_common
-lib_helpers = types.SimpleNamespace()
-lib_helpers.__name__ = 'lib.helpers'
-lib.helpers = lib_helpers
+shared = types.SimpleNamespace()
+shared.__name__ = 'shared'
 counter_1 = 0
 counter_2 = 0
 def get_location_1():
@@ -31,6 +25,10 @@ def increment_counter_2():
     global counter_2
     counter_2 += 1
     return counter_2
+shared_common = types.SimpleNamespace(__name__='shared.common')
+lib_helpers = types.SimpleNamespace(__name__='lib.helpers')
+lib.helpers = lib_helpers
+shared.common = shared_common
 shared_common.counter = counter_1
 shared_common.get_location = get_location_1
 shared_common.increment_counter = increment_counter_1

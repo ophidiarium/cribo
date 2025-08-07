@@ -11,7 +11,7 @@ def handler_2() -> str:
     return "Hello from boo.py"
 def handler_3() -> str:
     return "Hello from foo.py"
-foo = types.SimpleNamespace(handler=handler_3)
+foo = types.SimpleNamespace(__name__='foo', handler=handler_3)
 boo_handler = handler_2
 def handler_1():
     print(foo.handler())

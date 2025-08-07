@@ -9,6 +9,6 @@ input_file: crates/cribo/tests/fixtures/stickytape_script_using_stdlib_module_in
 import types
 import xml.etree.ElementTree
 message = "Hello"
-greeting = types.SimpleNamespace(message=message)
+greeting = types.SimpleNamespace(__name__='greeting', message=message)
 print(xml.etree.ElementTree.__name__)
 print(greeting.message)
