@@ -9,17 +9,28 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_mixed_collisions/main.py
 import functools
 import types
 import typing
+models = types.SimpleNamespace()
+models.__name__ = 'models'
+services = types.SimpleNamespace()
+services.__name__ = 'services'
+core = types.SimpleNamespace()
+core.__name__ = 'core'
+services_auth = types.SimpleNamespace()
+services_auth.__name__ = 'services.auth'
+services.auth = services_auth
+core_utils = types.SimpleNamespace()
+core_utils.__name__ = 'core.utils'
+core.utils = core_utils
+core_database = types.SimpleNamespace()
+core_database.__name__ = 'core.database'
+core.database = core_database
 models_base = types.SimpleNamespace()
 models_base.__name__ = 'models.base'
+models.base = models_base
 models_user = types.SimpleNamespace()
 models_user.__name__ = 'models.user'
 UserLogger = models_user
-services_auth = types.SimpleNamespace()
-services_auth.__name__ = 'services.auth'
-core_utils = types.SimpleNamespace()
-core_utils.__name__ = 'core.utils'
-core_database = types.SimpleNamespace()
-core_database.__name__ = 'core.database'
+models.user = models_user
 core_utils_helpers = types.SimpleNamespace()
 core_utils_helpers.__name__ = 'core.utils.helpers'
 core_validate = core_utils_helpers
@@ -27,15 +38,6 @@ core_utils.helpers = core_utils_helpers
 core_database_connection = types.SimpleNamespace()
 core_database_connection.__name__ = 'core.database.connection'
 core_database.connection = core_database_connection
-core = types.SimpleNamespace()
-core.__name__ = 'core'
-core.database = types.SimpleNamespace()
-core.utils = types.SimpleNamespace()
-models = types.SimpleNamespace()
-models.__name__ = 'models'
-services = types.SimpleNamespace()
-services.__name__ = 'services'
-services.auth = types.SimpleNamespace()
 result_2 = "base_result"
 result_3 = {"model": "user"}
 connection_3 = None
@@ -408,8 +410,6 @@ def __cribo_init___cribo_ee1d45_services_auth_manager():
     _cribo_services_auth_manager_result = result
     return module
 services.auth.manager = __cribo_init___cribo_ee1d45_services_auth_manager()
-models.base = models_base
-models.user = models_user
 core.database.connection = core_database_connection
 core.utils.helpers = core_utils_helpers
 core_validate = validate_6

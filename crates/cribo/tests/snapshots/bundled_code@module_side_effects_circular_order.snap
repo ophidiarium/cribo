@@ -8,12 +8,14 @@ input_file: crates/cribo/tests/fixtures/module_side_effects_circular_order/main.
 
 import functools
 import types
-my_package_mod_l = types.SimpleNamespace()
-my_package_mod_l.__name__ = 'my_package.mod_l'
-my_package_mod_c = types.SimpleNamespace()
-my_package_mod_c.__name__ = 'my_package.mod_c'
 my_package = types.SimpleNamespace()
 my_package.__name__ = 'my_package'
+my_package_mod_l = types.SimpleNamespace()
+my_package_mod_l.__name__ = 'my_package.mod_l'
+my_package.mod_l = my_package_mod_l
+my_package_mod_c = types.SimpleNamespace()
+my_package_mod_c.__name__ = 'my_package.mod_c'
+my_package.mod_c = my_package_mod_c
 C_CONSTANT = 21
 @functools.cache
 def __cribo_init___cribo_c04dc3_my_package():
@@ -61,8 +63,6 @@ __cribo_init_result = __cribo_init___cribo_c04dc3_my_package()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(my_package, attr, getattr(__cribo_init_result, attr))
-my_package.mod_c = my_package_mod_c
-my_package.mod_l = my_package_mod_l
 my_package_mod_c.C_CONSTANT = C_CONSTANT
 __cribo_init_result = __cribo_init___cribo_c04dc3_my_package()
 for attr in dir(__cribo_init_result):

@@ -7,12 +7,14 @@ input_file: crates/cribo/tests/fixtures/pyfail_relative_import_cycles/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-services_auth = types.SimpleNamespace()
-services_auth.__name__ = 'services.auth'
-services_database = types.SimpleNamespace()
-services_database.__name__ = 'services.database'
 services = types.SimpleNamespace()
 services.__name__ = 'services'
+services_auth = types.SimpleNamespace()
+services_auth.__name__ = 'services.auth'
+services.auth = services_auth
+services_database = types.SimpleNamespace()
+services_database.__name__ = 'services.database'
+services.database = services_database
 def authenticate_user(username):
     """Authenticate user using database connection"""
     conn = get_connection()
@@ -24,8 +26,6 @@ def get_connection():
     """Get database connection with user context"""
     context = get_user_context()
     return f"db_connection(context={context})"
-services.auth = services_auth
-services.database = services_database
 services_auth.authenticate_user = authenticate_user
 services_auth.get_user_context = get_user_context
 services_database.get_connection = get_connection

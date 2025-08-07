@@ -13,12 +13,14 @@ import random
 import types
 import urllib.parse
 import xml.etree.ElementTree
-utils_config = types.SimpleNamespace()
-utils_config.__name__ = 'utils.config'
-utils_helpers = types.SimpleNamespace()
-utils_helpers.__name__ = 'utils.helpers'
 utils = types.SimpleNamespace()
 utils.__name__ = 'utils'
+utils_config = types.SimpleNamespace()
+utils_config.__name__ = 'utils.config'
+utils.config = utils_config
+utils_helpers = types.SimpleNamespace()
+utils_helpers.__name__ = 'utils.helpers'
+utils.helpers = utils_helpers
 DEFAULT_CONFIG = {"debug": True, "timeout": 30}
 class UtilityClass:
     """A simple utility class."""
@@ -37,8 +39,6 @@ def helper_function():
 """Configuration module for testing regular import aliases."""
 UtilityClass.__module__ = 'utils.helpers'
 """Utility module for testing regular import aliases."""
-utils.config = utils_config
-utils.helpers = utils_helpers
 utils_config.DEFAULT_CONFIG = DEFAULT_CONFIG
 utils_config.get_config = get_config
 utils_helpers.UtilityClass = UtilityClass

@@ -10,13 +10,16 @@ import functools
 import re
 import types
 import typing
-utils_validation = types.SimpleNamespace()
-utils_validation.__name__ = 'utils.validation'
-schemas = types.SimpleNamespace()
-schemas.__name__ = 'schemas'
 utils = types.SimpleNamespace()
 utils.__name__ = 'utils'
-schemas.user = types.SimpleNamespace()
+schemas = types.SimpleNamespace()
+schemas.__name__ = 'schemas'
+schemas_user = types.SimpleNamespace()
+schemas_user.__name__ = 'schemas.user'
+schemas.user = schemas_user
+utils_validation = types.SimpleNamespace()
+utils_validation.__name__ = 'utils.validation'
+utils.validation = utils_validation
 @functools.cache
 def __cribo_init___cribo_f275a8_schemas_user():
     module = types.SimpleNamespace()
@@ -69,7 +72,6 @@ def validate_email(email: str) -> bool:
 """Utils package initialization."""
 """Validation utilities."""
 """Schemas package initialization."""
-utils.validation = utils_validation
 utils_validation.validate_email = validate_email
 """Pydantic test project entry point."""
 from pydantic import ValidationError

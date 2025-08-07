@@ -10,8 +10,12 @@ import functools
 import types
 my_package = types.SimpleNamespace()
 my_package.__name__ = 'my_package'
-my_package.utils = types.SimpleNamespace()
-my_package.__version__ = types.SimpleNamespace()
+my_package_utils = types.SimpleNamespace()
+my_package_utils.__name__ = 'my_package.utils'
+my_package.utils = my_package_utils
+my_package___version__ = types.SimpleNamespace()
+my_package___version__.__name__ = 'my_package.__version__'
+my_package.__version__ = my_package___version__
 @functools.cache
 def __cribo_init___cribo_699da1_my_package___version__():
     module = types.SimpleNamespace()

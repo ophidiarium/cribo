@@ -7,18 +7,18 @@ input_file: crates/cribo/tests/fixtures/simple_two_dots/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-foo_boo = types.SimpleNamespace()
-foo_boo.__name__ = 'foo.boo'
-foo_zoo = types.SimpleNamespace()
-foo_zoo.__name__ = 'foo.zoo'
 foo = types.SimpleNamespace()
 foo.__name__ = 'foo'
-foo.boo = types.SimpleNamespace()
+foo_boo = types.SimpleNamespace()
+foo_boo.__name__ = 'foo.boo'
+foo.boo = foo_boo
+foo_zoo = types.SimpleNamespace()
+foo_zoo.__name__ = 'foo.zoo'
+foo.zoo = foo_zoo
 ANIMAL = "cat"
 def tada() -> str:
     return f"Tada {ANIMAL}!"
 foo_boo___main__ = types.SimpleNamespace()
-foo.zoo = foo_zoo
 foo.boo.__main__ = foo_boo___main__
 foo_boo___main__.tada = tada
 foo_zoo.ANIMAL = ANIMAL

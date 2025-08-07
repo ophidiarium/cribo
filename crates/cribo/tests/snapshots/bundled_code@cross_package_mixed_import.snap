@@ -9,26 +9,31 @@ input_file: crates/cribo/tests/fixtures/cross_package_mixed_import/main.py
 import functools
 import sys
 import types
-models_user = types.SimpleNamespace()
-models_user.__name__ = 'models.user'
-models_base = types.SimpleNamespace()
-models_base.__name__ = 'models.base'
-core_version = types.SimpleNamespace()
-core_version.__name__ = 'core.version'
+models = types.SimpleNamespace()
+models.__name__ = 'models'
+core = types.SimpleNamespace()
+core.__name__ = 'core'
+core_database = types.SimpleNamespace()
+core_database.__name__ = 'core.database'
+core.database = core_database
 core_utils = types.SimpleNamespace()
 core_utils.__name__ = 'core.utils'
+core.utils = core_utils
+models_user = types.SimpleNamespace()
+models_user.__name__ = 'models.user'
+models.user = models_user
+models_base = types.SimpleNamespace()
+models_base.__name__ = 'models.base'
+models.base = models_base
+core_version = types.SimpleNamespace()
+core_version.__name__ = 'core.version'
+core.version = core_version
 core_utils_config = types.SimpleNamespace()
 core_utils_config.__name__ = 'core.utils.config'
 core_utils.config = core_utils_config
 core_utils_helpers = types.SimpleNamespace()
 core_utils_helpers.__name__ = 'core.utils.helpers'
 core_utils.helpers = core_utils_helpers
-core = types.SimpleNamespace()
-core.__name__ = 'core'
-core.database = types.SimpleNamespace()
-core.utils = types.SimpleNamespace()
-models = types.SimpleNamespace()
-models.__name__ = 'models'
 CORE_MODEL_VERSION = "1.0.0"
 class BaseModel:
     """Base model class."""
@@ -256,9 +261,6 @@ def __cribo_init___cribo_782908_core_database():
         return connect(database_name)
     module.safe_connect = safe_connect
     return module
-core.version = core_version
-models.base = models_base
-models.user = models_user
 core.utils.config = core_utils_config
 core.utils.helpers = core_utils_helpers
 models_user.process_user = process_user

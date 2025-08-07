@@ -475,53 +475,25 @@ fn get_unique_name_with_module_suffix(base_name: &str, module_name: &str) -> Str
     format!("{base_name}_{module_suffix}")
 }
 
-/// Ensure a namespace exists, creating it and any parent namespaces if needed.
-/// Returns statements to create any missing namespaces.
-pub(super) fn ensure_namespace_exists(bundler: &mut Bundler, namespace_path: &str) -> Vec<Stmt> {
-    let mut statements = Vec::new();
-
-    // For dotted names like "models.user", we need to ensure "models" exists first
-    if namespace_path.contains('.') {
-        let parts: Vec<&str> = namespace_path.split('.').collect();
-
-        // Create all parent namespaces
-        for i in 1..=parts.len() {
-            let namespace = parts[..i].join(".");
-
-            if !bundler.created_namespaces.contains(&namespace) {
-                debug!("Creating namespace dynamically: {namespace}");
-
-                if i == 1 {
-                    // Top-level namespace
-                    statements.extend(bundler.create_namespace_module(&namespace));
-                } else {
-                    // Nested namespace - create as attribute
-                    let parent = parts[..i - 1].join(".");
-                    let child = parts[i - 1];
-                    statements.push(create_namespace_attribute(bundler, &parent, child));
-                }
-
-                bundler.created_namespaces.insert(namespace);
-            }
-        }
-    } else {
-        // Simple namespace without dots
-        if !bundler.created_namespaces.contains(namespace_path) {
-            debug!("Creating simple namespace dynamically: {namespace_path}");
-            statements.extend(bundler.create_namespace_module(namespace_path));
-            bundler
-                .created_namespaces
-                .insert(namespace_path.to_string());
-        }
-    }
-
-    statements
-}
+// NOTE: ensure_namespace_exists was removed as it became obsolete after implementing
+// the centralized namespace registry. Its functionality is now handled by:
+// - bundler.require_namespace() for registration
+// - bundler.generate_required_namespaces() for generation
 
 /// Create namespace attribute assignment.
 ///
 /// Creates: parent.child = `types.SimpleNamespace()`
+/// DEPRECATED: Use bundler.require_namespace() instead
 pub(super) fn create_namespace_attribute(bundler: &mut Bundler, parent: &str, child: &str) -> Stmt {
+    // Register with centralized namespace system
+    let full_path = format!("{parent}.{child}");
+    let context = crate::code_generator::bundler::NamespaceContext::Attribute {
+        parent: parent.to_string(),
+    };
+    bundler.require_namespace(&full_path, context);
+
+    // For now, still create the statement directly for compatibility
+    // TODO: Remove this after full migration
     // Create: parent.child = types.SimpleNamespace()
     let mut stmt = statements::assign(
         vec![expressions::attribute(
@@ -543,7 +515,11 @@ pub(super) fn create_namespace_attribute(bundler: &mut Bundler, parent: &str, ch
 }
 
 /// Create a namespace object with __name__ attribute.
+/// DEPRECATED: Use bundler.require_namespace() instead
 pub(super) fn create_namespace_with_name(var_name: &str, module_path: &str) -> Vec<Stmt> {
+    // This function is kept for compatibility during migration
+    // TODO: Remove after full migration to centralized namespace management
+
     // Create: var_name = types.SimpleNamespace()
     let types_simple_namespace_call =
         expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]);
@@ -566,21 +542,26 @@ pub(super) fn create_namespace_with_name(var_name: &str, module_path: &str) -> V
 
 /// Create namespace statements for required namespaces.
 pub(super) fn create_namespace_statements(bundler: &mut Bundler) -> Vec<Stmt> {
-    let mut statements = Vec::new();
+    // Register all required namespaces with the centralized registry
+    let namespaces_to_register: Vec<String> = bundler.required_namespaces.iter().cloned().collect();
 
-    // Sort namespaces for deterministic output
-    let mut sorted_namespaces: Vec<String> = bundler.required_namespaces.iter().cloned().collect();
-    sorted_namespaces.sort();
+    for namespace in namespaces_to_register {
+        debug!("Registering namespace with central registry: {namespace}");
 
-    for namespace in sorted_namespaces {
-        debug!("Creating namespace statement for: {namespace}");
+        // Determine the context based on the namespace structure
+        let context = if namespace.contains('.') {
+            let parts: Vec<&str> = namespace.split('.').collect();
+            let parent = parts[..parts.len() - 1].join(".");
+            crate::code_generator::bundler::NamespaceContext::Attribute { parent }
+        } else {
+            crate::code_generator::bundler::NamespaceContext::TopLevel
+        };
 
-        // Use ensure_namespace_exists to handle both simple and dotted namespaces
-        let namespace_stmts = ensure_namespace_exists(bundler, &namespace);
-        statements.extend(namespace_stmts);
+        bundler.require_namespace(&namespace, context);
     }
 
-    statements
+    // Generate all namespace statements through the centralized method
+    bundler.generate_required_namespaces()
 }
 
 /// Create namespace for inlined module.

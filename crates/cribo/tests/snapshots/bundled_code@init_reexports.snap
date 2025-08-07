@@ -9,22 +9,26 @@ input_file: crates/cribo/tests/fixtures/init_reexports/main.py
 import functools
 import os
 import types
+mypackage = types.SimpleNamespace()
+mypackage.__name__ = 'mypackage'
 mypackage_utils = types.SimpleNamespace()
 mypackage_utils.__name__ = 'mypackage.utils'
+mypackage.utils = mypackage_utils
+mypackage_config = types.SimpleNamespace()
+mypackage_config.__name__ = 'mypackage.config'
+mypackage.config = mypackage_config
 mypackage_formatter = types.SimpleNamespace()
 mypackage_formatter.__name__ = 'mypackage.formatter'
+mypackage.formatter = mypackage_formatter
 mypackage_data_processor = types.SimpleNamespace()
 mypackage_data_processor.__name__ = 'mypackage.data_processor'
+mypackage.data_processor = mypackage_data_processor
 mypackage_utils_constants = types.SimpleNamespace()
 mypackage_utils_constants.__name__ = 'mypackage.utils.constants'
 mypackage_utils.constants = mypackage_utils_constants
 mypackage_utils_helper = types.SimpleNamespace()
 mypackage_utils_helper.__name__ = 'mypackage.utils.helper'
 mypackage_utils.helper = mypackage_utils_helper
-mypackage = types.SimpleNamespace()
-mypackage.__name__ = 'mypackage'
-mypackage.utils = types.SimpleNamespace()
-mypackage.config = types.SimpleNamespace()
 def helper_function(data):
     """Helper function for processing data."""
     return f"Helped: {data}"
@@ -88,10 +92,9 @@ __cribo_init_result = __cribo_init___cribo_a81151_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
-mypackage.data_processor = mypackage_data_processor
-mypackage.formatter = mypackage_formatter
 mypackage.utils.constants = mypackage_utils_constants
 mypackage.utils.helper = mypackage_utils_helper
+mypackage_utils.helper_function = helper_function
 mypackage_utils_helper.helper_function = helper_function
 mypackage_formatter.format_data = format_data
 mypackage_data_processor.process_data = process_data

@@ -9,11 +9,14 @@ input_file: crates/cribo/tests/fixtures/forward_reference_import_before_init/mai
 import collections.abc
 import functools
 import types
-mypkg_exceptions = types.SimpleNamespace()
-mypkg_exceptions.__name__ = 'mypkg.exceptions'
 mypkg = types.SimpleNamespace()
 mypkg.__name__ = 'mypkg'
-mypkg.compat = types.SimpleNamespace()
+mypkg_compat = types.SimpleNamespace()
+mypkg_compat.__name__ = 'mypkg.compat'
+mypkg.compat = mypkg_compat
+mypkg_exceptions = types.SimpleNamespace()
+mypkg_exceptions.__name__ = 'mypkg.exceptions'
+mypkg.exceptions = mypkg_exceptions
 class BaseException(Exception):
     """Base exception class"""
     pass
@@ -44,7 +47,6 @@ BaseException.__module__ = 'mypkg.exceptions'
 CustomJSONError.__module__ = 'mypkg.exceptions'
 mypkg.compat = __cribo_init___cribo_4089db_mypkg_compat()
 JSONDecodeError = mypkg.compat.JSONDecodeError
-mypkg.exceptions = mypkg_exceptions
 mypkg_exceptions.BaseException = BaseException
 mypkg_exceptions.CustomJSONError = CustomJSONError
 mypkg.CustomJSONError = CustomJSONError

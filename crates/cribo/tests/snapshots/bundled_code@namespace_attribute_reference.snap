@@ -10,10 +10,12 @@ import functools
 import types
 mypkg = types.SimpleNamespace()
 mypkg.__name__ = 'mypkg'
+mypkg_compat = types.SimpleNamespace()
+mypkg_compat.__name__ = 'mypkg.compat'
+mypkg.compat = mypkg_compat
 mypkg_exceptions = types.SimpleNamespace()
 mypkg_exceptions.__name__ = 'mypkg.exceptions'
 mypkg.exceptions = mypkg_exceptions
-mypkg.compat = types.SimpleNamespace()
 class MyError(Exception):
     """Base exception class"""
     pass

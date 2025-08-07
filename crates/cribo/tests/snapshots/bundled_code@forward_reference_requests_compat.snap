@@ -14,6 +14,9 @@ import types
 import urllib.parse
 myrequests = types.SimpleNamespace()
 myrequests.__name__ = 'myrequests'
+myrequests_compat = types.SimpleNamespace()
+myrequests_compat.__name__ = 'myrequests.compat'
+myrequests.compat = myrequests_compat
 myrequests_utils = types.SimpleNamespace()
 myrequests_utils.__name__ = 'myrequests.utils'
 myrequests.utils = myrequests_utils
@@ -23,7 +26,6 @@ myrequests.exceptions = myrequests_exceptions
 myrequests_cookies = types.SimpleNamespace()
 myrequests_cookies.__name__ = 'myrequests.cookies'
 myrequests.cookies = myrequests_cookies
-myrequests.compat = types.SimpleNamespace()
 InvalidJSONError = None
 class RequestException(Exception):
     """Base exception for all request errors."""

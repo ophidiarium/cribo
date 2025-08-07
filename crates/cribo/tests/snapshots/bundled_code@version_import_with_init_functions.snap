@@ -7,10 +7,11 @@ input_file: crates/cribo/tests/fixtures/version_import_with_init_functions/main.
 # https://github.com/ophidiarium/cribo
 
 import types
-mypackage_utils = types.SimpleNamespace()
-mypackage_utils.__name__ = 'mypackage.utils'
 mypackage = types.SimpleNamespace()
 mypackage.__name__ = 'mypackage'
+mypackage_utils = types.SimpleNamespace()
+mypackage_utils.__name__ = 'mypackage.utils'
+mypackage.utils = mypackage_utils
 __version__ = "3.0.0"
 def get_user_agent():
     """Return user agent string with version."""
@@ -19,7 +20,6 @@ def get_user_agent():
 """Version information for the package."""
 """Main package module."""
 mypackage___version__ = types.SimpleNamespace()
-mypackage.utils = mypackage_utils
 mypackage_utils.get_user_agent = get_user_agent
 mypackage___version__.__version__ = __version__
 """Test fixture for version imports with complex module initialization."""

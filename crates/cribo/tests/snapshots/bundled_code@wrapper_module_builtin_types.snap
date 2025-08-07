@@ -10,6 +10,9 @@ import functools
 import types
 pkg = types.SimpleNamespace()
 pkg.__name__ = 'pkg'
+pkg__internal_utils = types.SimpleNamespace()
+pkg__internal_utils.__name__ = 'pkg._internal_utils'
+pkg._internal_utils = pkg__internal_utils
 pkg_sessions = types.SimpleNamespace()
 pkg_sessions.__name__ = 'pkg.sessions'
 pkg.sessions = pkg_sessions
@@ -25,7 +28,6 @@ pkg.utils = pkg_utils
 pkg_certs = types.SimpleNamespace()
 pkg_certs.__name__ = 'pkg.certs'
 pkg.certs = pkg_certs
-pkg._internal_utils = types.SimpleNamespace()
 bytes = bytes
 str = str
 def process_data(data):

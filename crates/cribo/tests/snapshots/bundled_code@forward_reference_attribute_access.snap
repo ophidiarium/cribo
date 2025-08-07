@@ -8,20 +8,20 @@ input_file: crates/cribo/tests/fixtures/forward_reference_attribute_access/main.
 
 import json
 import types
-mymodule_compat = types.SimpleNamespace()
-mymodule_compat.__name__ = 'mymodule.compat'
-mymodule_exceptions = types.SimpleNamespace()
-mymodule_exceptions.__name__ = 'mymodule.exceptions'
 mymodule = types.SimpleNamespace()
 mymodule.__name__ = 'mymodule'
+mymodule_compat = types.SimpleNamespace()
+mymodule_compat.__name__ = 'mymodule.compat'
+mymodule.compat = mymodule_compat
+mymodule_exceptions = types.SimpleNamespace()
+mymodule_exceptions.__name__ = 'mymodule.exceptions'
+mymodule.exceptions = mymodule_exceptions
 MyError = None
 JSONDecodeError = json.JSONDecodeError
 class MyError(Exception):
     """Base error class"""
     pass
 MyError.__module__ = 'mymodule.exceptions'
-mymodule.compat = mymodule_compat
-mymodule.exceptions = mymodule_exceptions
 mymodule_compat.JSONDecodeError = JSONDecodeError
 mymodule_exceptions.MyError = MyError
 CompatJSONDecodeError = JSONDecodeError
