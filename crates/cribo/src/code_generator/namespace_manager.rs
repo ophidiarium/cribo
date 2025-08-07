@@ -591,8 +591,7 @@ pub fn require_namespace(
     params: NamespaceParams,
 ) -> Vec<Stmt> {
     // 1. Recursively require parent namespaces if `path` is dotted
-    if let Some(dot_pos) = path.rfind('.') {
-        let parent_path = &path[..dot_pos];
+    if let Some((parent_path, _)) = path.rsplit_once('.') {
         // The context for a parent is always that it's an attribute of its own parent.
         let parent_context = NamespaceContext::Attribute {
             parent: parent_path

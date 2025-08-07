@@ -745,8 +745,7 @@ impl<'a> Bundler<'a> {
                     // Handle relative imports within the same package
                     let resolved_module = if import_from.level > 0 {
                         // This is a relative import - resolve it based on the current module
-                        if let Some(parent_idx) = module_name.rfind('.') {
-                            let parent = &module_name[..parent_idx];
+                        if let Some((parent, _)) = module_name.rsplit_once('.') {
                             if let Some(module) = &import_from.module {
                                 // from .submodule import something
                                 format!("{parent}.{module}")
@@ -2430,8 +2429,7 @@ impl<'a> Bundler<'a> {
             // Check if this module has child modules that need namespaces
             let has_children_needing_namespaces =
                 inlinable_modules.iter().any(|(child_name, _, _, _)| {
-                    if let Some(dot_pos) = child_name.rfind('.') {
-                        let parent = &child_name[..dot_pos];
+                    if let Some((parent, _)) = child_name.rsplit_once('.') {
                         parent == module_name && self.submodule_needs_namespace(child_name)
                     } else {
                         false
@@ -2476,12 +2474,12 @@ impl<'a> Bundler<'a> {
                         // Ensure the namespace is actually created before we try to add attributes
                         // to it The namespace might be marked as "created"
                         // but not yet generated in the output
-                        let context = if let Some(last_dot_pos) = module_name.rfind('.') {
-                            let parent = module_name[..last_dot_pos].to_string();
-                            NamespaceContext::Attribute { parent }
-                        } else {
-                            NamespaceContext::TopLevel
-                        };
+                        let context = module_name
+                            .rsplit_once('.')
+                            .map(|(parent, _)| NamespaceContext::Attribute {
+                                parent: parent.to_string(),
+                            })
+                            .unwrap_or(NamespaceContext::TopLevel);
 
                         // Use immediate generation to ensure the namespace exists now
                         namespace_manager::require_namespace(
@@ -3978,12 +3976,12 @@ impl<'a> Bundler<'a> {
         alias_name: Option<String>,
     ) -> String {
         // Determine context based on whether this is a submodule
-        let context = if let Some(last_dot_pos) = module_path.rfind('.') {
-            let parent = module_path[..last_dot_pos].to_string();
-            NamespaceContext::Attribute { parent }
-        } else {
-            NamespaceContext::TopLevel
-        };
+        let context = module_path
+            .rsplit_once('.')
+            .map(|(parent, _)| NamespaceContext::Attribute {
+                parent: parent.to_string(),
+            })
+            .unwrap_or(NamespaceContext::TopLevel);
 
         // Use the centralized namespace system which handles parent registration
         namespace_manager::require_namespace(
