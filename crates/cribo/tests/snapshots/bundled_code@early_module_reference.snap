@@ -7,14 +7,11 @@ input_file: crates/cribo/tests/fixtures/early_module_reference/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-mypkg = types.SimpleNamespace()
-mypkg.__name__ = 'mypkg'
-mypkg_sessions = types.SimpleNamespace()
-mypkg_sessions.__name__ = 'mypkg.sessions'
-mypkg.sessions = mypkg_sessions
-mypkg_api = types.SimpleNamespace()
-mypkg_api.__name__ = 'mypkg.api'
+mypkg = types.SimpleNamespace(__name__='mypkg')
+mypkg_api = types.SimpleNamespace(__name__='mypkg.api')
 mypkg.api = mypkg_api
+mypkg_sessions = types.SimpleNamespace(__name__='mypkg.sessions')
+mypkg.sessions = mypkg_sessions
 class Session:
     """A simple session class."""
 

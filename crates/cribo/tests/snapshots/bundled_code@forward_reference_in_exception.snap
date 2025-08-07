@@ -9,10 +9,8 @@ input_file: crates/cribo/tests/fixtures/forward_reference_in_exception/main.py
 import collections.abc
 import json
 import types
-myrequests = types.SimpleNamespace()
-myrequests.__name__ = 'myrequests'
-myrequests_compat = types.SimpleNamespace()
-myrequests_compat.__name__ = 'myrequests.compat'
+myrequests = types.SimpleNamespace(__name__='myrequests')
+myrequests_compat = types.SimpleNamespace(__name__='myrequests.compat')
 myrequests.compat = myrequests_compat
 MutableMapping_2 = collections.abc.MutableMapping
 JSONDecodeError_2 = json.JSONDecodeError

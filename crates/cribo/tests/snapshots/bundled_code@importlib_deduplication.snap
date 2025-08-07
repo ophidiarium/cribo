@@ -8,9 +8,7 @@ input_file: crates/cribo/tests/fixtures/importlib_deduplication/main.py
 
 import functools
 import types
-package = types.SimpleNamespace()
-package.__name__ = 'package'
-package.submodule = types.SimpleNamespace()
+package = types.SimpleNamespace(__name__='package')
 @functools.cache
 def __cribo_init___cribo_75ebb7_package_submodule():
     module = types.SimpleNamespace()

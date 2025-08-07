@@ -10,12 +10,9 @@ from __future__ import annotations
 import functools
 import types
 import typing
-mypackage_submodule = types.SimpleNamespace()
-mypackage_submodule.__name__ = 'mypackage.submodule'
-mypackage = types.SimpleNamespace()
-mypackage.__name__ = 'mypackage'
-mypackage.submodule = types.SimpleNamespace()
-mypackage.core = types.SimpleNamespace()
+mypackage = types.SimpleNamespace(__name__='mypackage')
+mypackage_submodule = types.SimpleNamespace(__name__='mypackage.submodule')
+mypackage.submodule = mypackage_submodule
 """Submodule with future imports."""
 """Package initialization with future import."""
 @functools.cache

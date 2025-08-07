@@ -7,8 +7,7 @@ input_file: crates/cribo/tests/fixtures/cross_module_inheritance/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-auth = types.SimpleNamespace()
-auth.__name__ = 'auth'
+auth = types.SimpleNamespace(__name__='auth')
 class HTTPBasicAuth_2:
     """Basic HTTP authentication."""
 
