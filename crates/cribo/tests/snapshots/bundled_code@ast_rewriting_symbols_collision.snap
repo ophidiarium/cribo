@@ -9,33 +9,25 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_symbols_collision/main.py
 import functools
 import types
 import typing
-models_base = types.SimpleNamespace()
-models_base.__name__ = 'models.base'
-models_user = types.SimpleNamespace()
-models_user.__name__ = 'models.user'
+core = types.SimpleNamespace(__name__='core')
+models = types.SimpleNamespace(__name__='models')
+services = types.SimpleNamespace(__name__='services')
+core_database = types.SimpleNamespace(__name__='core.database')
+core.database = core_database
+core_utils = types.SimpleNamespace(__name__='core.utils')
+core.utils = core_utils
+models_base = types.SimpleNamespace(__name__='models.base')
+models.base = models_base
+models_user = types.SimpleNamespace(__name__='models.user')
 UserLogger = models_user
-services_auth = types.SimpleNamespace()
-services_auth.__name__ = 'services.auth'
-core_utils = types.SimpleNamespace()
-core_utils.__name__ = 'core.utils'
-core_database = types.SimpleNamespace()
-core_database.__name__ = 'core.database'
-core_utils_helpers = types.SimpleNamespace()
-core_utils_helpers.__name__ = 'core.utils.helpers'
+models.user = models_user
+services_auth = types.SimpleNamespace(__name__='services.auth')
+services.auth = services_auth
+core_database_connection = types.SimpleNamespace(__name__='core.database.connection')
+core_database.connection = core_database_connection
+core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
 core_validate = core_utils_helpers
 core_utils.helpers = core_utils_helpers
-core_database_connection = types.SimpleNamespace()
-core_database_connection.__name__ = 'core.database.connection'
-core_database.connection = core_database_connection
-core = types.SimpleNamespace()
-core.__name__ = 'core'
-core.database = types.SimpleNamespace()
-core.utils = types.SimpleNamespace()
-models = types.SimpleNamespace()
-models.__name__ = 'models'
-services = types.SimpleNamespace()
-services.__name__ = 'services'
-services.auth = types.SimpleNamespace()
 result_3 = {"model": "user"}
 result_5 = 0
 User_4 = "helper_user_string"
@@ -391,10 +383,6 @@ def __cribo_init___cribo_6ccb3a_services_auth_manager():
             return {"manager_results": result}
     module.AuthManager = AuthManager
     return module
-models.base = models_base
-models.user = models_user
-core.database.connection = core_database_connection
-core.utils.helpers = core_utils_helpers
 core_validate = validate_5
 UserLogger = Logger_2
 util_process = process_5

@@ -6,7 +6,6 @@
 
 pub mod dependency_analyzer;
 pub mod import_analyzer;
-pub mod namespace_analyzer;
 pub mod symbol_analyzer;
 pub mod types;
 

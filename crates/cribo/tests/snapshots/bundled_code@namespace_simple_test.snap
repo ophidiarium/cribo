@@ -7,16 +7,14 @@ input_file: crates/cribo/tests/fixtures/namespace_simple_test/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-mymodule_utils = types.SimpleNamespace()
-mymodule_utils.__name__ = 'mymodule.utils'
-mymodule = types.SimpleNamespace()
-mymodule.__name__ = 'mymodule'
+mymodule = types.SimpleNamespace(__name__='mymodule')
+mymodule_utils = types.SimpleNamespace(__name__='mymodule.utils')
+mymodule.utils = mymodule_utils
 CONSTANT = 42
 def greet(name: str) -> str:
     """Greet someone"""
     return f"Hello, {name}!"
 """Simple utilities module"""
-mymodule.utils = mymodule_utils
 mymodule_utils.CONSTANT = CONSTANT
 mymodule_utils.greet = greet
 """Test namespace imports with simple module"""

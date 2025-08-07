@@ -2398,21 +2398,48 @@ fn rewrite_import_from(
         log::debug!(
             "Module '{module_name}' was inlined, creating assignments for imported symbols"
         );
-        #[allow(clippy::too_many_arguments)]
-        crate::code_generator::module_registry::create_assignments_for_inlined_imports(
-            &import_from,
-            &module_name,
-            symbol_renames,
-            &bundler.module_registry,
-            &bundler.inlined_modules,
-            &bundler.bundled_modules,
-            |local_name, full_module_path| {
-                crate::code_generator::namespace_manager::create_namespace_with_name(
-                    local_name,
-                    full_module_path,
-                )
-            },
-        )
+        let (assignments, namespace_requirements) =
+            crate::code_generator::module_registry::create_assignments_for_inlined_imports(
+                &import_from,
+                &module_name,
+                symbol_renames,
+                &bundler.module_registry,
+                &bundler.inlined_modules,
+                &bundler.bundled_modules,
+            );
+
+        // Check for unregistered namespaces - this indicates a bug in pre-detection
+        let unregistered_namespaces: Vec<_> = namespace_requirements
+            .iter()
+            .filter(|ns_req| !bundler.namespace_registry.contains_key(&ns_req.var_name))
+            .collect();
+
+        if !unregistered_namespaces.is_empty() {
+            #[cfg(debug_assertions)]
+            panic!(
+                "Unregistered namespaces detected: {:?}. This indicates a bug in \
+                 detect_namespace_requirements_from_imports",
+                unregistered_namespaces
+                    .iter()
+                    .map(|ns| format!("{} (var: {})", ns.path, ns.var_name))
+                    .collect::<Vec<_>>()
+            );
+
+            #[cfg(not(debug_assertions))]
+            for ns_req in &unregistered_namespaces {
+                log::warn!(
+                    "Namespace '{}' (var: {}) was not pre-registered by \
+                     detect_namespace_requirements_from_imports",
+                    ns_req.path,
+                    ns_req.var_name
+                );
+            }
+        }
+
+        // The namespaces are now pre-created by detect_namespace_requirements_from_imports
+        // and the aliases are handled by create_assignments_for_inlined_imports,
+        // so we just return the assignments
+        assignments
     }
 }
 

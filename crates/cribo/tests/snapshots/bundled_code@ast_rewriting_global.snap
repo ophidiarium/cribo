@@ -17,7 +17,7 @@ def modify_foo():
     global foo_3
     foo_3 = "module1_foo_modified"
 """Module demonstrating global keyword usage."""
-module_global_keyword = types.SimpleNamespace(foo=foo_3, get_foo=get_foo, modify_foo=modify_foo)
+module_global_keyword = types.SimpleNamespace(__name__='module_global_keyword', foo=foo_3, get_foo=get_foo, modify_foo=modify_foo)
 _cribo_module_mixed_patterns_foo = None
 _cribo_module_mixed_patterns_counter = None
 @functools.cache

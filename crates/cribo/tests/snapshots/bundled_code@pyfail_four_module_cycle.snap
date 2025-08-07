@@ -22,7 +22,7 @@ def process_in_c():
 def process_in_d():
     """Process in D, depends back on A - completes the 4-module cycle"""
     return f"D({final_step()})"
-module_a = types.SimpleNamespace(start_process=start_process, final_step=final_step)
+module_a = types.SimpleNamespace(__name__='module_a', start_process=start_process, final_step=final_step)
 def main():
     result = module_a.start_process()
     print(f"Four module cycle result: {result}")

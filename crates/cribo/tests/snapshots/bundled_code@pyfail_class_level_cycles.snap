@@ -7,10 +7,8 @@ input_file: crates/cribo/tests/fixtures/pyfail_class_level_cycles/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-user_class = types.SimpleNamespace()
-user_class.__name__ = 'user_class'
-admin_class = types.SimpleNamespace()
-admin_class.__name__ = 'admin_class'
+admin_class = types.SimpleNamespace(__name__='admin_class')
+user_class = types.SimpleNamespace(__name__='user_class')
 User = None
 class Admin(User):
     """Admin class that inherits from User."""

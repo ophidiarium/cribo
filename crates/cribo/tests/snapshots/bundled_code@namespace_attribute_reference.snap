@@ -8,12 +8,9 @@ input_file: crates/cribo/tests/fixtures/namespace_attribute_reference/main.py
 
 import functools
 import types
-mypkg = types.SimpleNamespace()
-mypkg.__name__ = 'mypkg'
-mypkg_exceptions = types.SimpleNamespace()
-mypkg_exceptions.__name__ = 'mypkg.exceptions'
+mypkg = types.SimpleNamespace(__name__='mypkg')
+mypkg_exceptions = types.SimpleNamespace(__name__='mypkg.exceptions')
 mypkg.exceptions = mypkg_exceptions
-mypkg.compat = types.SimpleNamespace()
 class MyError(Exception):
     """Base exception class"""
     pass

@@ -8,24 +8,17 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_globals_collision/main.py
 
 import functools
 import types
-core_utils = types.SimpleNamespace()
-core_utils.__name__ = 'core.utils'
-core_database = types.SimpleNamespace()
-core_database.__name__ = 'core.database'
-core_utils_helpers = types.SimpleNamespace()
-core_utils_helpers.__name__ = 'core.utils.helpers'
+core = types.SimpleNamespace(__name__='core')
+models = types.SimpleNamespace(__name__='models')
+services = types.SimpleNamespace(__name__='services')
+core_database = types.SimpleNamespace(__name__='core.database')
+core.database = core_database
+core_utils = types.SimpleNamespace(__name__='core.utils')
+core.utils = core_utils
+services_auth = types.SimpleNamespace(__name__='services.auth')
+services.auth = services_auth
+core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
 core_utils.helpers = core_utils_helpers
-core = types.SimpleNamespace()
-core.__name__ = 'core'
-core.database = types.SimpleNamespace()
-core.utils = types.SimpleNamespace()
-models = types.SimpleNamespace()
-models.__name__ = 'models'
-services = types.SimpleNamespace()
-services.__name__ = 'services'
-services.auth = types.SimpleNamespace()
-models.base = types.SimpleNamespace()
-models.user = types.SimpleNamespace()
 process_count = 0
 validate_cache = {}
 Logger_6 = str
@@ -353,7 +346,6 @@ __cribo_init_result = __cribo_init___cribo_b2dda7_services()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(services, attr, getattr(__cribo_init_result, attr))
-core.utils.helpers = core_utils_helpers
 core_utils_helpers.process_count = process_count
 core_utils_helpers.validate_cache = validate_cache
 core_utils_helpers.Logger = Logger_6

@@ -7,12 +7,9 @@ input_file: crates/cribo/tests/fixtures/mixed_import_patterns/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-config = types.SimpleNamespace()
-config.__name__ = 'config'
-logger = types.SimpleNamespace()
-logger.__name__ = 'logger'
-utils = types.SimpleNamespace()
-utils.__name__ = 'utils'
+config = types.SimpleNamespace(__name__='config')
+logger = types.SimpleNamespace(__name__='logger')
+utils = types.SimpleNamespace(__name__='utils')
 _logger = None
 _config = None
 class Application:

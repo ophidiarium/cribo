@@ -8,11 +8,9 @@ input_file: crates/cribo/tests/fixtures/cross_module_attribute_import/main.py
 
 import functools
 import types
-mypackage_core = types.SimpleNamespace()
-mypackage_core.__name__ = 'mypackage.core'
-mypackage = types.SimpleNamespace()
-mypackage.__name__ = 'mypackage'
-mypackage.utils = types.SimpleNamespace()
+mypackage = types.SimpleNamespace(__name__='mypackage')
+mypackage_core = types.SimpleNamespace(__name__='mypackage.core')
+mypackage.core = mypackage_core
 @functools.cache
 def __cribo_init___cribo_35f1d1_mypackage_utils():
     module = types.SimpleNamespace()
@@ -38,11 +36,9 @@ def process_data():
 """Package init that creates circular dependency."""
 """Core module that creates circular dependency."""
 """Version information module."""
-mypackage.get_full_info = get_full_info
-mypackage___version__ = types.SimpleNamespace()
+mypackage___version__ = types.SimpleNamespace(__name__='mypackage.__version__')
 mypackage.utils = __cribo_init___cribo_35f1d1_mypackage_utils()
-mypackage.__version__ = mypackage___version__
-mypackage.core = mypackage_core
+mypackage.get_full_info = get_full_info
 mypackage_core.process_data = process_data
 mypackage___version__.__version__ = __version__
 """Test cross-module attribute import with circular dependencies that require init functions."""
