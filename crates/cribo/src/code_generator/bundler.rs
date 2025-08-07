@@ -363,43 +363,18 @@ impl<'a> Bundler<'a> {
                 // Filter out self-referential assignments to inlined submodules
                 // For example: pkg.compat = compat where pkg.compat is an inlined module
                 // This is problematic when 'compat' doesn't exist as a separate namespace
-                // BUT: Don't filter if the right-hand side is a local variable (not the module itself)
-                if is_bundled_submodule
-                    && value_is_same_as_attr
-                    && self.inlined_modules.contains(&full_path)
-                {
-                    // Check if the value exists as a local variable
-                    // If it does, this is NOT self-referential - it's assigning a local value
-                    let value_is_local_var = local_variables
-                        .map(|vars| vars.contains(value.id.as_str()))
-                        .unwrap_or(false);
-                    if !value_is_local_var {
-                        // This assignment is trying to assign a submodule to itself
-                        // For inlined submodules, we should always filter this out as it will be
-                        // handled by the alias creation (e.g., compat = pkg_compat)
-                        let sanitized_name =
-                            crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                                &full_path,
-                            );
-
-                        log::debug!(
-                            "Filtering out self-referential assignment: {}.{} = {} (inlined \
-                             submodule, will use alias '{} = {}')",
-                            base.id.as_str(),
-                            attr.attr.as_str(),
-                            value.id.as_str(),
-                            value.id.as_str(),
-                            sanitized_name
-                        );
-                        return false;
-                    } else {
-                        log::debug!(
-                            "Keeping assignment: {}.{} = {} (value is local variable, not self-referential)",
-                            base.id.as_str(),
-                            attr.attr.as_str(),
-                            value.id.as_str()
-                        );
-                    }
+                // BUT: Don't filter if the right-hand side is a local variable (not the module
+                // itself)
+                if self.should_filter_self_referential_assignment(
+                    is_bundled_submodule,
+                    value_is_same_as_attr,
+                    &full_path,
+                    base.id.as_str(),
+                    attr.attr.as_str(),
+                    value.id.as_str(),
+                    local_variables,
+                ) {
+                    return false;
                 }
 
                 if is_submodule_with_init && value_is_same_as_attr {
@@ -5994,6 +5969,50 @@ impl Bundler<'_> {
 
         log::debug!("  Symbol '{symbol_name}' is re-export from child modules: {result}");
         result
+    }
+
+    /// Check if a self-referential assignment should be filtered out
+    ///
+    /// This handles the complex logic for filtering assignments like `pkg.compat = compat`
+    /// where `pkg.compat` is an inlined submodule and `compat` is not a local variable.
+    fn should_filter_self_referential_assignment(
+        &self,
+        is_bundled_submodule: bool,
+        value_is_same_as_attr: bool,
+        full_path: &str,
+        base_id: &str,
+        attr_name: &str,
+        value_id: &str,
+        local_variables: Option<&FxIndexSet<String>>,
+    ) -> bool {
+        if !is_bundled_submodule
+            || !value_is_same_as_attr
+            || !self.inlined_modules.contains(full_path)
+        {
+            return false;
+        }
+
+        let value_is_local_var = local_variables
+            .map(|vars| vars.contains(value_id))
+            .unwrap_or(false);
+
+        if !value_is_local_var {
+            let sanitized_name =
+                crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                    full_path,
+                );
+            log::debug!(
+                "Filtering out self-referential assignment: {base_id}.{attr_name} = {value_id} \
+                 (inlined submodule, will use alias '{value_id} = {sanitized_name}')"
+            );
+            true
+        } else {
+            log::debug!(
+                "Keeping assignment: {base_id}.{attr_name} = {value_id} (value is local variable, \
+                 not self-referential)"
+            );
+            false
+        }
     }
 
     /// Create a module reference assignment
