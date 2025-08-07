@@ -339,9 +339,12 @@ impl<'a> Bundler<'a> {
             .collect();
 
         // Sort by depth (number of dots) to ensure parent namespaces are created first
-        namespace_entries.sort_by_key(|(_, original_path)| {
-            let depth = original_path.matches('.').count();
-            (depth, original_path.clone())
+        namespace_entries.sort_by(|(_, path_a), (_, path_b)| {
+            path_a
+                .matches('.')
+                .count()
+                .cmp(&path_b.matches('.').count())
+                .then_with(|| path_a.cmp(path_b))
         });
 
         // 4-5. Generate creation and population statements for each namespace
