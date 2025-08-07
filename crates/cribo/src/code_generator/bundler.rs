@@ -267,20 +267,15 @@ impl<'a> Bundler<'a> {
     /// It is idempotent and handles parent registration recursively.
     pub fn require_namespace(&mut self, path: &str, context: NamespaceContext) {
         // 1. Recursively require parent namespaces if `path` is dotted
-        if path.contains('.') {
-            let parts: Vec<&str> = path.split('.').collect();
-            // Build and register all parent namespaces
-            for i in 1..parts.len() {
-                let parent_path = parts[..i].join(".");
-                let parent_context = NamespaceContext::Attribute {
-                    parent: if i > 1 {
-                        parts[..i - 1].join(".")
-                    } else {
-                        String::new()
-                    },
-                };
-                self.require_namespace(&parent_path, parent_context);
-            }
+        if let Some(dot_pos) = path.rfind('.') {
+            let parent_path = &path[..dot_pos];
+            // The context for a parent is always that it's an attribute of its own parent.
+            let parent_context = NamespaceContext::Attribute {
+                parent: parent_path
+                    .rsplit_once('.')
+                    .map_or_else(String::new, |(p, _)| p.to_string()),
+            };
+            self.require_namespace(parent_path, parent_context);
         }
 
         // 2. Get or create the sanitized name for `path`
