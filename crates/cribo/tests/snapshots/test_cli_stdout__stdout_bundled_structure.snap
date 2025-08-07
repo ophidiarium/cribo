@@ -41,6 +41,8 @@ models = types.SimpleNamespace(__name__='models')
 models_user = types.SimpleNamespace(__name__='models.user')
 utils = types.SimpleNamespace(__name__='utils')
 utils_helpers = types.SimpleNamespace(__name__='utils.helpers')
+models.user = models_user
+utils.helpers = utils_helpers
 models_user.dataclass = dataclass
 models_user.User = User
 utils_helpers.greet = greet

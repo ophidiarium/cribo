@@ -26,6 +26,8 @@ nested_package_submodule = types.SimpleNamespace(__name__='nested_package.submod
 nested_package = types.SimpleNamespace(__name__='nested_package')
 nested_package_utils = types.SimpleNamespace(__name__='nested_package.utils')
 simple_module = types.SimpleNamespace(__name__='simple_module', CONSTANT=CONSTANT, public_func=public_func)
+nested_package.submodule = nested_package_submodule
+nested_package.utils = nested_package_utils
 nested_package_submodule.SUB_CONSTANT = SUB_CONSTANT
 nested_package_submodule.sub_function = sub_function
 nested_package.exported_from_init = exported_from_init

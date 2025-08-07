@@ -34,6 +34,9 @@ utils_helpers = types.SimpleNamespace(__name__='utils.helpers')
 utils_config_manager = types.SimpleNamespace(__name__='utils.config_manager')
 utils = types.SimpleNamespace(__name__='utils')
 utils_data_processor = types.SimpleNamespace(__name__='utils.data_processor')
+utils.config_manager = utils_config_manager
+utils.data_processor = utils_data_processor
+utils.helpers = utils_helpers
 utils_helpers.helper_func = helper_func
 utils_helpers.debug_print = debug_print
 utils_config_manager.load_config = load_config
