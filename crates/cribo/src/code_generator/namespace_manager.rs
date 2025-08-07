@@ -677,13 +677,24 @@ pub fn require_namespace(
             "Immediate generation requested for namespace '{sanitized_name}', checking if already \
              created"
         );
-        if let Some(info) = bundler.namespace_registry.get_mut(&sanitized_name) {
-            log::debug!(
-                "Namespace '{}' found in registry, is_created: {}",
-                sanitized_name,
-                info.is_created
-            );
-            if !info.is_created {
+
+        // Check if namespace needs to be created
+        let needs_creation = bundler
+            .namespace_registry
+            .get(&sanitized_name)
+            .map(|info| !info.is_created)
+            .unwrap_or(false);
+
+        if needs_creation {
+            // Ensure types module is imported when we generate namespace statements
+            crate::code_generator::import_deduplicator::add_stdlib_import(bundler, "types");
+
+            if let Some(info) = bundler.namespace_registry.get_mut(&sanitized_name) {
+                log::debug!(
+                    "Namespace '{}' found in registry, is_created: {}",
+                    sanitized_name,
+                    info.is_created
+                );
                 // Build keywords for the namespace constructor
                 let mut keywords = Vec::new();
 
@@ -728,15 +739,8 @@ pub fn require_namespace(
                 // Mark as created
                 info.is_created = true;
 
-                // Ensure types module is imported when we generate namespace statements
-                crate::code_generator::import_deduplicator::add_stdlib_import(bundler, "types");
-
                 log::debug!("Generated namespace '{sanitized_name}' with {keyword_count} keywords");
-            } else {
-                log::debug!("Namespace '{sanitized_name}' already created, skipping");
             }
-        } else {
-            log::debug!("Namespace '{sanitized_name}' not found in registry");
         }
     }
 
