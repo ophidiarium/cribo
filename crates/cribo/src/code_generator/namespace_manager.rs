@@ -706,9 +706,8 @@ pub(super) fn create_namespace_statements(bundler: &mut Bundler) -> Vec<Stmt> {
         debug!("Registering namespace with central registry: {namespace}");
 
         // Determine the context based on the namespace structure
-        let context = if namespace.contains('.') {
-            let parts: Vec<&str> = namespace.split('.').collect();
-            let parent = parts[..parts.len() - 1].join(".");
+        let context = if let Some(last_dot_pos) = namespace.rfind('.') {
+            let parent = namespace[..last_dot_pos].to_string();
             NamespaceContext::Attribute { parent }
         } else {
             NamespaceContext::TopLevel
