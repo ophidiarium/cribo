@@ -9,12 +9,12 @@ input_file: crates/cribo/tests/fixtures/stickytape_explicit_relative_import_sing
 import types
 greetings = types.SimpleNamespace()
 greetings.__name__ = 'greetings'
-message_2 = "Hello"
 greetings_greeting = types.SimpleNamespace()
+greetings_greeting.__name__ = 'greetings.greeting'
 greetings.greeting = greetings_greeting
-greeting = types.SimpleNamespace()
-greeting.message = message_2
-message_1 = greeting.message
+message_2 = "Hello"
+greeting = greetings_greeting
 greetings_greeting.message = message_2
+message_1 = greeting.message
 greetings.message = message_1
 print(greetings.message)

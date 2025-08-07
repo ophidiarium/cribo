@@ -9,6 +9,8 @@ input_file: crates/cribo/tests/fixtures/forward_reference_import_before_init/mai
 import collections.abc
 import functools
 import types
+mypkg_exceptions = types.SimpleNamespace()
+mypkg_exceptions.__name__ = 'mypkg.exceptions'
 mypkg = types.SimpleNamespace()
 mypkg.__name__ = 'mypkg'
 mypkg.compat = types.SimpleNamespace()
@@ -40,7 +42,7 @@ class CustomJSONError(BaseException, mypkg.compat.JSONDecodeError):
         return mypkg.compat.JSONDecodeError.__reduce__(self)
 BaseException.__module__ = 'mypkg.exceptions'
 CustomJSONError.__module__ = 'mypkg.exceptions'
-mypkg_exceptions = types.SimpleNamespace()
+mypkg.compat = __cribo_init___cribo_4089db_mypkg_compat()
 JSONDecodeError = mypkg.compat.JSONDecodeError
 mypkg.exceptions = mypkg_exceptions
 mypkg_exceptions.BaseException = BaseException

@@ -61,6 +61,10 @@ pub struct RecursiveImportTransformer<'a> {
     /// Track imports from wrapper modules that need to be rewritten
     /// Maps local name to (`wrapper_module`, `original_name`)
     wrapper_module_imports: FxIndexMap<String, (String, String)>,
+    /// Track which modules have already been populated with symbols in this transformation session
+    /// This prevents duplicate namespace assignments when multiple imports reference the same
+    /// module
+    populated_modules: FxIndexSet<String>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -82,6 +86,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             importlib_inlined_modules: FxIndexMap::default(),
             created_namespace_objects: false,
             wrapper_module_imports: FxIndexMap::default(),
+            populated_modules: FxIndexSet::default(),
         }
     }
 
@@ -484,6 +489,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.bundler,
                         import_stmt.clone(),
                         self.symbol_renames,
+                        &mut self.populated_modules,
                     );
                     log::debug!(
                         "rewrite_import_with_renames for module '{}': import {:?} -> {} statements",
@@ -777,16 +783,34 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 );
 
                                 // Create the namespace and populate it as deferred imports
-                                // Create: local_name = types.SimpleNamespace()
-                                let types_simple_namespace_call = expressions::call(
-                                    expressions::simple_namespace_ctor(),
-                                    vec![],
-                                    vec![],
-                                );
-                                self.deferred_imports.push(statements::simple_assign(
-                                    local_name,
-                                    types_simple_namespace_call,
-                                ));
+                                // For inlined modules, use the sanitized module name instead of
+                                // local_name e.g., pkg_compat
+                                // instead of compat
+                                let namespace_var =
+                                    sanitize_module_name_for_identifier(&full_module_path);
+
+                                // Only create the namespace if it hasn't been created yet
+                                // The bundler should have already registered it during pre-scanning
+                                if !self.bundler.is_namespace_registered(&namespace_var) {
+                                    // Create: namespace_var = types.SimpleNamespace()
+                                    let types_simple_namespace_call = expressions::call(
+                                        expressions::simple_namespace_ctor(),
+                                        vec![],
+                                        vec![],
+                                    );
+                                    self.deferred_imports.push(statements::simple_assign(
+                                        &namespace_var,
+                                        types_simple_namespace_call,
+                                    ));
+                                }
+
+                                // If local_name is different from namespace_var, create an alias
+                                if local_name != namespace_var {
+                                    self.deferred_imports.push(statements::simple_assign(
+                                        local_name,
+                                        expressions::name(&namespace_var, ExprContext::Load),
+                                    ));
+                                }
                                 self.created_namespace_objects = true;
 
                                 // If this is a submodule being imported (from . import compat),
@@ -935,29 +959,50 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         let export_strings: Vec<&str> =
                                             filtered_exports.iter().map(String::as_str).collect();
                                         self.deferred_imports.push(statements::set_list_attribute(
-                                            local_name,
+                                            &namespace_var,
                                             "__all__",
                                             &export_strings,
                                         ));
                                     }
 
-                                    for symbol in filtered_exports {
-                                        // local_name.symbol = symbol
-                                        let target = expressions::attribute(
-                                            expressions::name(local_name, ExprContext::Load),
-                                            &symbol,
-                                            ExprContext::Store,
-                                        );
-                                        let symbol_name = self
-                                            .symbol_renames
-                                            .get(&full_module_path)
-                                            .and_then(|renames| renames.get(&symbol))
-                                            .cloned()
-                                            .unwrap_or_else(|| symbol.clone());
-                                        let value =
-                                            expressions::name(&symbol_name, ExprContext::Load);
-                                        self.deferred_imports
-                                            .push(statements::assign(vec![target], value));
+                                    // Only populate the namespace if it wasn't already populated
+                                    // Check if this namespace was already populated by the bundler
+                                    // symbols_populated_after_deferred contains (namespace, symbol)
+                                    // tuples
+                                    let namespace_already_populated = self
+                                        .bundler
+                                        .symbols_populated_after_deferred
+                                        .iter()
+                                        .any(|(ns, _)| ns == &namespace_var)
+                                        || self.populated_modules.contains(&full_module_path);
+
+                                    if !namespace_already_populated {
+                                        for symbol in filtered_exports {
+                                            // Use the sanitized namespace variable for inlined
+                                            // modules
+                                            // namespace_var.symbol = symbol
+                                            let target = expressions::attribute(
+                                                expressions::name(
+                                                    &namespace_var,
+                                                    ExprContext::Load,
+                                                ),
+                                                &symbol,
+                                                ExprContext::Store,
+                                            );
+                                            let symbol_name = self
+                                                .symbol_renames
+                                                .get(&full_module_path)
+                                                .and_then(|renames| renames.get(&symbol))
+                                                .cloned()
+                                                .unwrap_or_else(|| symbol.clone());
+                                            let value =
+                                                expressions::name(&symbol_name, ExprContext::Load);
+                                            self.deferred_imports
+                                                .push(statements::assign(vec![target], value));
+                                        }
+                                        // Mark this module as populated to prevent duplicate
+                                        // assignments
+                                        self.populated_modules.insert(full_module_path.clone());
                                     }
                                 }
                             } else {
@@ -1929,6 +1974,7 @@ fn rewrite_import_with_renames(
     bundler: &Bundler,
     import_stmt: StmtImport,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    populated_modules: &mut FxIndexSet<String>,
 ) -> Vec<Stmt> {
     // Check each import individually
     let mut result_stmts = Vec::new();
@@ -1985,7 +2031,10 @@ fn rewrite_import_with_renames(
                         for i in 1..=parts.len() {
                             let partial_module = parts[..i].join(".");
                             // Only populate if this module was actually bundled and has exports
-                            if bundler.bundled_modules.contains(&partial_module) {
+                            // AND we haven't already populated it in this session
+                            if bundler.bundled_modules.contains(&partial_module)
+                                && !populated_modules.contains(&partial_module)
+                            {
                                 // Note: This is a limitation - we can't mutate
                                 // namespace_assignments_made
                                 // from here since bundler is immutable. This will be handled during
@@ -2007,6 +2056,7 @@ fn rewrite_import_with_renames(
                                     symbol_renames,
                                 );
                                 result_stmts.extend(new_stmts);
+                                populated_modules.insert(partial_module.clone());
                             }
                         }
                     } else {
@@ -2090,24 +2140,33 @@ fn rewrite_import_with_renames(
                     result_stmts.push(namespace_stmt);
                 }
 
-                // Always populate the namespace with symbols
-                // Note: This is a limitation - we can't mutate namespace_assignments_made
-                // from here since bundler is immutable. This will be handled during
-                // the main bundle process where bundler is mutable.
-                log::debug!(
-                    "Cannot track namespace assignments for '{module_name}' in import transformer \
-                     due to immutability"
-                );
-                // For now, we'll create the statements without tracking duplicates
-                let mut temp_assignments = FxIndexSet::default();
-                let mut ctx = create_namespace_population_context(bundler, &mut temp_assignments);
-                let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
-                    &mut ctx,
-                    target_name.as_str(),
-                    module_name,
-                    symbol_renames,
-                );
-                result_stmts.extend(new_stmts);
+                // Populate the namespace with symbols only if not already populated
+                if !populated_modules.contains(module_name) {
+                    // Note: This is a limitation - we can't mutate namespace_assignments_made
+                    // from here since bundler is immutable. This will be handled during
+                    // the main bundle process where bundler is mutable.
+                    log::debug!(
+                        "Cannot track namespace assignments for '{module_name}' in import \
+                         transformer due to immutability"
+                    );
+                    // For now, we'll create the statements without tracking duplicates
+                    let mut temp_assignments = FxIndexSet::default();
+                    let mut ctx =
+                        create_namespace_population_context(bundler, &mut temp_assignments);
+                    let new_stmts = crate::code_generator::namespace_manager::populate_namespace_with_module_symbols(
+                        &mut ctx,
+                        target_name.as_str(),
+                        module_name,
+                        symbol_renames,
+                    );
+                    result_stmts.extend(new_stmts);
+                    populated_modules.insert(module_name.to_string());
+                } else {
+                    log::debug!(
+                        "Skipping namespace population for '{module_name}' - already populated in \
+                         this transformation session"
+                    );
+                }
             }
         }
     }

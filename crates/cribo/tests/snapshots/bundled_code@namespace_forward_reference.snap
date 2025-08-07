@@ -8,6 +8,10 @@ input_file: crates/cribo/tests/fixtures/namespace_forward_reference/main.py
 
 import json
 import types
+mypkg_exceptions = types.SimpleNamespace()
+mypkg_exceptions.__name__ = 'mypkg.exceptions'
+mypkg_compat = types.SimpleNamespace()
+mypkg_compat.__name__ = 'mypkg.compat'
 mypkg = types.SimpleNamespace()
 mypkg.__name__ = 'mypkg'
 JSONDecodeError = json.JSONDecodeError
@@ -18,8 +22,6 @@ class MyJSONError(JSONDecodeError, Exception):
         JSONDecodeError.__init__(self, *args)
         Exception.__init__(self, str(args[0]) if args else "")
 MyJSONError.__module__ = 'mypkg.exceptions'
-mypkg_exceptions = types.SimpleNamespace()
-mypkg_compat = types.SimpleNamespace()
 mypkg.compat = mypkg_compat
 mypkg.exceptions = mypkg_exceptions
 mypkg_exceptions.MyJSONError = MyJSONError
