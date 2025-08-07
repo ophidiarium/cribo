@@ -2480,95 +2480,12 @@ impl<'a> Bundler<'a> {
                                      re-export from child modules"
                                 );
 
-                                // First check if this is actually a submodule name itself
-                                let full_submodule_path = format!("{module_name}.{original_name}");
-                                if self.bundled_modules.contains(&full_submodule_path) {
-                                    log::debug!(
-                                        "  Symbol '{original_name}' is actually a submodule: \
-                                         {full_submodule_path}"
-                                    );
-                                    // This is a submodule, treat it as a "re-export" to skip
-                                    // creating invalid assignments like pkg.compat = compat
-                                    true
-                                } else {
-                                    // Check if symbol is actually defined in a child module
-                                    // by examining ASTs of child modules
-                                    let result = if let Some(module_asts) = &self.module_asts {
-                                        module_asts.iter().any(
-                                            |(inlined_module_name, ast, _, _)| {
-                                                let is_child = inlined_module_name != module_name
-                                                    && inlined_module_name
-                                                        .starts_with(&format!("{module_name}."));
-                                                if is_child {
-                                                    // Check if this module defines the symbol (as a
-                                                    // class,
-                                                    // function, or variable)
-                                                    let defines_symbol =
-                                                        ast.body.iter().any(|stmt| match stmt {
-                                                            Stmt::ClassDef(class_def) => {
-                                                                class_def.name.id.as_str()
-                                                                    == original_name
-                                                            }
-                                                            Stmt::FunctionDef(func_def) => {
-                                                                func_def.name.id.as_str()
-                                                                    == original_name
-                                                            }
-                                                            Stmt::Assign(assign) => assign
-                                                                .targets
-                                                                .iter()
-                                                                .any(|target| {
-                                                                    if let Expr::Name(name) = target
-                                                                    {
-                                                                        name.id.as_str()
-                                                                            == original_name
-                                                                    } else {
-                                                                        false
-                                                                    }
-                                                                }),
-                                                            _ => false,
-                                                        });
-                                                    if defines_symbol {
-                                                        log::debug!(
-                                                            "  Child module \
-                                                             '{inlined_module_name}' defines \
-                                                             symbol '{original_name}' directly"
-                                                        );
-                                                    }
-                                                    defines_symbol
-                                                } else {
-                                                    false
-                                                }
-                                            },
-                                        )
-                                    } else {
-                                        // Fallback to checking rename maps if ASTs not available
-                                        inlinable_modules.iter().any(
-                                            |(inlined_module_name, _, _, _)| {
-                                                let is_child = inlined_module_name != module_name
-                                                    && inlined_module_name
-                                                        .starts_with(&format!("{module_name}."));
-                                                if is_child {
-                                                    let has_symbol = symbol_renames
-                                                        .get(inlined_module_name)
-                                                        .is_some_and(|child_renames| {
-                                                            child_renames
-                                                                .contains_key(original_name)
-                                                        });
-                                                    log::debug!(
-                                                        "  Child module '{inlined_module_name}' \
-                                                         has symbol '{original_name}' in rename \
-                                                         map: {has_symbol}"
-                                                    );
-                                                    has_symbol
-                                                } else {
-                                                    false
-                                                }
-                                            },
-                                        )
-                                    };
-                                    log::debug!("  Result: is_reexport = {result}");
-                                    result
-                                }
+                                self.is_symbol_reexport_from_child_modules(
+                                    module_name,
+                                    original_name,
+                                    &inlinable_modules,
+                                    &symbol_renames,
+                                )
                             } else {
                                 false
                             };
@@ -3326,90 +3243,12 @@ impl<'a> Bundler<'a> {
                                  re-export from child modules"
                             );
 
-                            // First check if this is actually a submodule name itself
-                            let full_submodule_path = format!("{module_name}.{original_name}");
-                            if self.bundled_modules.contains(&full_submodule_path) {
-                                log::debug!(
-                                    "  Symbol '{original_name}' is actually a submodule: \
-                                     {full_submodule_path}"
-                                );
-                                // This is a submodule, treat it as a "re-export" to skip
-                                // creating invalid assignments like pkg.compat = compat
-                                true
-                            } else {
-                                // Check if symbol is actually defined in a child module
-                                // by examining ASTs of child modules
-                                let result = if let Some(module_asts) = &self.module_asts {
-                                    module_asts.iter().any(|(inlined_module_name, ast, _, _)| {
-                                        let is_child = inlined_module_name != module_name
-                                            && inlined_module_name
-                                                .starts_with(&format!("{module_name}."));
-                                        if is_child {
-                                            // Check if this module defines the symbol (as a class,
-                                            // function, or variable)
-                                            let defines_symbol =
-                                                ast.body.iter().any(|stmt| match stmt {
-                                                    Stmt::ClassDef(class_def) => {
-                                                        class_def.name.id.as_str() == original_name
-                                                    }
-                                                    Stmt::FunctionDef(func_def) => {
-                                                        func_def.name.id.as_str() == original_name
-                                                    }
-                                                    Stmt::Assign(assign) => {
-                                                        assign.targets.iter().any(|target| {
-                                                            if let Expr::Name(name) = target {
-                                                                name.id.as_str() == original_name
-                                                            } else {
-                                                                false
-                                                            }
-                                                        })
-                                                    }
-                                                    _ => false,
-                                                });
-                                            if defines_symbol {
-                                                log::debug!(
-                                                    "  Child module '{inlined_module_name}' \
-                                                     defines symbol '{original_name}' directly"
-                                                );
-                                            }
-                                            defines_symbol
-                                        } else {
-                                            false
-                                        }
-                                    })
-                                } else {
-                                    // Fallback to checking rename maps if ASTs not available
-                                    inlinable_modules.iter().any(
-                                        |(inlined_module_name, _, _, _)| {
-                                            let is_child = inlined_module_name != module_name
-                                                && inlined_module_name
-                                                    .starts_with(&format!("{module_name}."));
-                                            if is_child {
-                                                let has_symbol = symbol_renames
-                                                    .get(inlined_module_name)
-                                                    .is_some_and(|renames| {
-                                                        renames.contains_key(original_name)
-                                                    });
-                                                if has_symbol {
-                                                    log::debug!(
-                                                        "  Child module '{inlined_module_name}' \
-                                                         has symbol '{original_name}' in rename \
-                                                         map"
-                                                    );
-                                                }
-                                                has_symbol
-                                            } else {
-                                                false
-                                            }
-                                        },
-                                    )
-                                };
-                                log::debug!(
-                                    "  Symbol '{original_name}' is re-export from child modules: \
-                                     {result}"
-                                );
-                                result
-                            }
+                            self.is_symbol_reexport_from_child_modules(
+                                module_name,
+                                original_name,
+                                &inlinable_modules,
+                                &symbol_renames,
+                            )
                         } else {
                             false
                         };
@@ -6075,6 +5914,86 @@ impl Bundler<'_> {
         let last_part = module_name.rsplit_once('.').map_or(module_name, |(_, p)| p);
         // Check if it's a valid dunder name (starts and ends with __, and has content in between)
         last_part.starts_with("__") && last_part.ends_with("__") && last_part.len() > 4
+    }
+
+    /// Check if a symbol is a re-export from child modules or is itself a submodule
+    ///
+    /// Returns true if:
+    /// - The symbol is actually a submodule name (e.g., 'compat' is 'pkg.compat')
+    /// - The symbol is defined in a child module (by checking ASTs or rename maps)
+    fn is_symbol_reexport_from_child_modules(
+        &self,
+        module_name: &str,
+        symbol_name: &str,
+        inlinable_modules: &[(String, ModModule, std::path::PathBuf, String)],
+        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    ) -> bool {
+        // First check if this is actually a submodule name itself
+        let full_submodule_path = format!("{module_name}.{symbol_name}");
+        if self.bundled_modules.contains(&full_submodule_path) {
+            log::debug!("  Symbol '{symbol_name}' is actually a submodule: {full_submodule_path}");
+            // This is a submodule, treat it as a "re-export" to skip
+            // creating invalid assignments like pkg.compat = compat
+            return true;
+        }
+
+        // Check if symbol is actually defined in a child module
+        // by examining ASTs of child modules
+        let result = if let Some(module_asts) = &self.module_asts {
+            module_asts.iter().any(|(inlined_module_name, ast, _, _)| {
+                let is_child = inlined_module_name != module_name
+                    && inlined_module_name.starts_with(&format!("{module_name}."));
+                if is_child {
+                    // Check if this module defines the symbol (as a class, function, or variable)
+                    let defines_symbol = ast.body.iter().any(|stmt| match stmt {
+                        Stmt::ClassDef(class_def) => class_def.name.id.as_str() == symbol_name,
+                        Stmt::FunctionDef(func_def) => func_def.name.id.as_str() == symbol_name,
+                        Stmt::Assign(assign) => assign.targets.iter().any(|target| {
+                            if let Expr::Name(name) = target {
+                                name.id.as_str() == symbol_name
+                            } else {
+                                false
+                            }
+                        }),
+                        _ => false,
+                    });
+                    if defines_symbol {
+                        log::debug!(
+                            "  Child module '{inlined_module_name}' defines symbol \
+                             '{symbol_name}' directly"
+                        );
+                    }
+                    defines_symbol
+                } else {
+                    false
+                }
+            })
+        } else {
+            // Fallback to checking rename maps if ASTs not available
+            inlinable_modules
+                .iter()
+                .any(|(inlined_module_name, _, _, _)| {
+                    let is_child = inlined_module_name != module_name
+                        && inlined_module_name.starts_with(&format!("{module_name}."));
+                    if is_child {
+                        let has_symbol = symbol_renames
+                            .get(inlined_module_name)
+                            .is_some_and(|child_renames| child_renames.contains_key(symbol_name));
+                        if has_symbol {
+                            log::debug!(
+                                "  Child module '{inlined_module_name}' has symbol \
+                                 '{symbol_name}' in rename map"
+                            );
+                        }
+                        has_symbol
+                    } else {
+                        false
+                    }
+                })
+        };
+
+        log::debug!("  Symbol '{symbol_name}' is re-export from child modules: {result}");
+        result
     }
 
     /// Create a module reference assignment
