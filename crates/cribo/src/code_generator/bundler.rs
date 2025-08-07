@@ -365,15 +365,15 @@ impl<'a> Bundler<'a> {
                 // This is problematic when 'compat' doesn't exist as a separate namespace
                 // BUT: Don't filter if the right-hand side is a local variable (not the module
                 // itself)
-                if self.should_filter_self_referential_assignment(
+                if self.should_filter_self_referential_assignment(SelfReferentialAssignmentCheck {
                     is_bundled_submodule,
                     value_is_same_as_attr,
-                    &full_path,
-                    base.id.as_str(),
-                    attr.attr.as_str(),
-                    value.id.as_str(),
+                    full_path: &full_path,
+                    base_id: base.id.as_str(),
+                    attr_name: attr.attr.as_str(),
+                    value_id: value.id.as_str(),
                     local_variables,
-                ) {
+                }) {
                     return false;
                 }
 
@@ -5881,6 +5881,17 @@ fn collect_local_vars(stmts: &[Stmt], local_vars: &mut rustc_hash::FxHashSet<Str
 }
 
 // Helper methods for import rewriting
+/// Parameters for checking self-referential assignments
+struct SelfReferentialAssignmentCheck<'a> {
+    is_bundled_submodule: bool,
+    value_is_same_as_attr: bool,
+    full_path: &'a str,
+    base_id: &'a str,
+    attr_name: &'a str,
+    value_id: &'a str,
+    local_variables: Option<&'a FxIndexSet<String>>,
+}
+
 impl Bundler<'_> {
     /// Check if a module name represents a dunder module like __version__, __about__, etc.
     /// These are Python's "magic" modules with double underscores.
@@ -5977,36 +5988,38 @@ impl Bundler<'_> {
     /// where `pkg.compat` is an inlined submodule and `compat` is not a local variable.
     fn should_filter_self_referential_assignment(
         &self,
-        is_bundled_submodule: bool,
-        value_is_same_as_attr: bool,
-        full_path: &str,
-        base_id: &str,
-        attr_name: &str,
-        value_id: &str,
-        local_variables: Option<&FxIndexSet<String>>,
+        check: SelfReferentialAssignmentCheck,
     ) -> bool {
-        if !is_bundled_submodule
-            || !value_is_same_as_attr
-            || !self.inlined_modules.contains(full_path)
+        if !check.is_bundled_submodule
+            || !check.value_is_same_as_attr
+            || !self.inlined_modules.contains(check.full_path)
         {
             return false;
         }
 
-        let value_is_local_var = local_variables
-            .map(|vars| vars.contains(value_id))
+        let value_is_local_var = check
+            .local_variables
+            .map(|vars| vars.contains(check.value_id))
             .unwrap_or(false);
 
         if !value_is_local_var {
-            let sanitized_name = sanitize_module_name_for_identifier(full_path);
+            let sanitized_name = sanitize_module_name_for_identifier(check.full_path);
             log::debug!(
-                "Filtering out self-referential assignment: {base_id}.{attr_name} = {value_id} \
-                 (inlined submodule, will use alias '{value_id} = {sanitized_name}')"
+                "Filtering out self-referential assignment: {}.{} = {} (inlined submodule, will \
+                 use alias '{} = {}')",
+                check.base_id,
+                check.attr_name,
+                check.value_id,
+                check.value_id,
+                sanitized_name
             );
             true
         } else {
             log::debug!(
-                "Keeping assignment: {base_id}.{attr_name} = {value_id} (value is local variable, \
-                 not self-referential)"
+                "Keeping assignment: {}.{} = {} (value is local variable, not self-referential)",
+                check.base_id,
+                check.attr_name,
+                check.value_id
             );
             false
         }
