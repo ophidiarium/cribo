@@ -1868,14 +1868,15 @@ impl<'a> Bundler<'a> {
                                 );
                             } else {
                                 log::debug!(
-                                    "Creating placeholder namespace attribute {parent}.{child} \
-                                     for wrapper module"
+                                    "Registering namespace attribute {parent}.{child} for wrapper \
+                                     module"
                                 );
-                                let placeholder_stmt =
-                                    namespace_manager::create_namespace_attribute(
-                                        self, parent, child,
-                                    );
-                                final_body.push(placeholder_stmt);
+                                // Register the full namespace path for the wrapper module
+                                let full_path = format!("{parent}.{child}");
+                                let context = NamespaceContext::Attribute {
+                                    parent: parent.to_string(),
+                                };
+                                self.require_namespace(&full_path, context);
                             }
                         }
                     }

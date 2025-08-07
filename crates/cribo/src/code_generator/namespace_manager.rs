@@ -480,40 +480,6 @@ fn get_unique_name_with_module_suffix(base_name: &str, module_name: &str) -> Str
 // - bundler.require_namespace() for registration
 // - bundler.generate_required_namespaces() for generation
 
-/// Create namespace attribute assignment.
-///
-/// Creates: parent.child = `types.SimpleNamespace()`
-/// DEPRECATED: Use bundler.require_namespace() instead
-pub(super) fn create_namespace_attribute(bundler: &mut Bundler, parent: &str, child: &str) -> Stmt {
-    // Register with centralized namespace system
-    let full_path = format!("{parent}.{child}");
-    let context = crate::code_generator::bundler::NamespaceContext::Attribute {
-        parent: parent.to_string(),
-    };
-    bundler.require_namespace(&full_path, context);
-
-    // For now, still create the statement directly for compatibility
-    // TODO: Remove this after full migration
-    // Create: parent.child = types.SimpleNamespace()
-    let mut stmt = statements::assign(
-        vec![expressions::attribute(
-            expressions::name(parent, ExprContext::Load),
-            child,
-            ExprContext::Store,
-        )],
-        expressions::call(expressions::simple_namespace_ctor(), vec![], vec![]),
-    );
-
-    // Update the node index for tracking
-    if let Stmt::Assign(assign) = &mut stmt {
-        assign.node_index = bundler
-            .transformation_context
-            .create_new_node(format!("Create namespace attribute {parent}.{child}"));
-    }
-
-    stmt
-}
-
 /// Create a namespace object with __name__ attribute.
 /// DEPRECATED: Use bundler.require_namespace() instead
 pub(super) fn create_namespace_with_name(var_name: &str, module_path: &str) -> Vec<Stmt> {
