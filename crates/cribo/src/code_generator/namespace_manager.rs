@@ -14,7 +14,9 @@ use ruff_text_size::TextRange;
 use crate::{
     analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{self, expressions, statements},
-    code_generator::{bundler::Bundler, module_registry::sanitize_module_name_for_identifier},
+    code_generator::{
+        bundler::Bundler, import_deduplicator, module_registry::sanitize_module_name_for_identifier,
+    },
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -221,7 +223,11 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
     for namespace in sorted_namespaces {
         // Skip if this namespace was already created via the namespace tracking index
         let sanitized = sanitize_module_name_for_identifier(&namespace);
-        if bundler.namespace_registry.contains_key(&sanitized) {
+        if bundler
+            .namespace_registry
+            .get(&sanitized)
+            .is_some_and(|info| info.is_created)
+        {
             debug!(
                 "Skipping top-level namespace '{namespace}' - already created via namespace index"
             );
@@ -237,6 +243,8 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         }
 
         debug!("Creating top-level namespace: {namespace}");
+        // Ensure types module is imported
+        import_deduplicator::add_stdlib_import(bundler, "types");
         // Create: namespace = types.SimpleNamespace(__name__='namespace')
         let keywords = vec![Keyword {
             node_index: AtomicNodeIndex::dummy(),
