@@ -82,14 +82,17 @@ jobs:
           shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
           cache-on-failure: true
 
-      # - name: Install MSBuild (Visual Studio Build Tools)
-      #   uses: microsoft/setup-msbuild@v2
-      #   if: matrix.platform.os == 'windows-latest' || matrix.platform.os == 'windows-11-arm'
+      - name: Set up MSBuild (arm64)
+        if: matrix.platform.os == 'windows-11-arm'
+        uses: microsoft/setup-msbuild@v2 # v2.0.0
+        with:
+          msbuild-architecture: arm64
 
-      - name: Install Visual Studio Build Tools
-        if: matrix.platform.os == 'windows-latest' || matrix.platform.os == 'windows-11-arm'
-        run: |
-          choco install visualstudio2019buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive --norestart"
+      - name: Set up MSBuild (x64)
+        if: matrix.platform.os == 'windows-latest'
+        uses: microsoft/setup-msbuild@v2 # v2.0.0
+        with:
+          msbuild-architecture: x64
 
       - name: 'Install cargo insta'
         uses: taiki-e/install-action@v2
