@@ -216,8 +216,11 @@ jobs:
           }
           EOF
 
-      - name: Run Rust tests
-        run: cargo test --workspace
+      - name: 'Run tests'
+        shell: bash
+        env:
+          NEXTEST_PROFILE: 'ci'
+        run: cargo insta test --all-features --check --unreferenced reject
 
       - name: Build wheels
         uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a # v1.49.3
