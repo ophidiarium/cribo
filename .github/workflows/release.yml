@@ -87,12 +87,22 @@ jobs:
         uses: microsoft/setup-msbuild@v2 # v2.0.0
         with:
           msbuild-architecture: arm64
+      - name: Install C++ ARM64 build tools
+        if: matrix.platform.os == 'windows-11-arm'
+        run: |
+          choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.ARM64 --includeRecommended --includeOptional"
+      - name: Set VCTargetsPath for ARM64
+        if: matrix.platform.os == 'windows-11-arm'
+        run: echo "VCTargetsPath=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\ARM64" >> $GITHUB_ENV
 
       - name: Set up MSBuild (x64)
         if: matrix.platform.os == 'windows-latest'
         uses: microsoft/setup-msbuild@v2 # v2.0.0
         with:
           msbuild-architecture: x64
+      - name: Install C++ x64 build tools
+        if: matrix.platform.os == 'windows-latest'
+        run: choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --includeOptional"
 
       - name: 'Install cargo insta'
         uses: taiki-e/install-action@v2
