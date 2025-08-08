@@ -1210,8 +1210,11 @@ impl<'a> Bundler<'a> {
         }
 
         // Sort by depth to ensure parents are assigned before children
-        assignments
-            .sort_by_key(|(depth, parent, attr, _, _)| (*depth, parent.clone(), attr.clone()));
+        assignments.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.cmp(&b.2))
+        });
 
         // Generate the assignments
         for (_depth, ref parent_sanitized, ref attr_name, ref child_sanitized, ref original_path) in
