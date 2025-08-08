@@ -14,7 +14,9 @@ use ruff_text_size::TextRange;
 use crate::{
     analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{self, expressions, statements},
-    code_generator::{bundler::Bundler, module_registry::sanitize_module_name_for_identifier},
+    code_generator::{
+        bundler::Bundler, import_deduplicator, module_registry::sanitize_module_name_for_identifier,
+    },
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -23,11 +25,11 @@ use crate::{
 pub struct NamespaceInfo {
     /// The original module path (e.g., "pkg.compat")
     pub original_path: String,
-    /// Whether this namespace needs an alias (e.g., compat = pkg_compat)
+    /// Whether this namespace needs an alias (e.g., compat = `pkg_compat`)
     pub needs_alias: bool,
-    /// The alias name if needs_alias is true (e.g., "compat")
+    /// The alias name if `needs_alias` is true (e.g., "compat")
     pub alias_name: Option<String>,
-    /// Attributes to set on this namespace (attr_name, value_name)
+    /// Attributes to set on this namespace (`attr_name`, `value_name`)
     pub attributes: Vec<(String, String)>,
     /// Parent module that this is an attribute of (e.g., "pkg" for "pkg.compat")
     pub parent_module: Option<String>,
@@ -221,7 +223,11 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
     for namespace in sorted_namespaces {
         // Skip if this namespace was already created via the namespace tracking index
         let sanitized = sanitize_module_name_for_identifier(&namespace);
-        if bundler.namespace_registry.contains_key(&sanitized) {
+        if bundler
+            .namespace_registry
+            .get(&sanitized)
+            .is_some_and(|info| info.is_created)
+        {
             debug!(
                 "Skipping top-level namespace '{namespace}' - already created via namespace index"
             );
@@ -237,6 +243,8 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         }
 
         debug!("Creating top-level namespace: {namespace}");
+        // Ensure types module is imported
+        import_deduplicator::add_stdlib_import(bundler, "types");
         // Create: namespace = types.SimpleNamespace(__name__='namespace')
         let keywords = vec![Keyword {
             node_index: AtomicNodeIndex::dummy(),
@@ -582,7 +590,7 @@ impl NamespaceParams {
 /// It is idempotent and handles parent registration recursively.
 ///
 /// If params.immediate is true, generates and returns the creation statements immediately
-/// instead of deferring to generate_required_namespaces().
+/// instead of deferring to `generate_required_namespaces()`.
 /// If params.attributes is non-empty, generates attribute assignment statements.
 pub fn require_namespace(
     bundler: &mut Bundler,
@@ -678,7 +686,9 @@ pub fn require_namespace(
                 sanitized_name,
                 info.is_created
             );
-            if !info.is_created {
+            if info.is_created {
+                log::debug!("Namespace '{sanitized_name}' already created, skipping");
+            } else {
                 // Build keywords for the namespace constructor
                 let mut keywords = Vec::new();
 
@@ -725,8 +735,6 @@ pub fn require_namespace(
                 bundler.created_namespaces.insert(sanitized_name.clone());
 
                 log::debug!("Generated namespace '{sanitized_name}' with {keyword_count} keywords");
-            } else {
-                log::debug!("Namespace '{sanitized_name}' already created, skipping");
             }
         } else {
             log::debug!("Namespace '{sanitized_name}' not found in registry");
@@ -829,8 +837,7 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
                 let attr_name = info
                     .original_path
                     .rsplit_once('.')
-                    .map(|(_, name)| name)
-                    .unwrap_or(&info.original_path);
+                    .map_or(info.original_path.as_str(), |(_, name)| name);
 
                 statements.push(statements::assign_attribute(
                     &parent_sanitized,
@@ -1119,14 +1126,7 @@ fn handle_inlined_module_assignment(
     }
 
     // Create assignment: parent.attr = namespace_var
-    final_body.push(statements::assign(
-        vec![expressions::attribute(
-            expressions::name(parent, ExprContext::Load),
-            attr,
-            ExprContext::Store,
-        )],
-        expressions::name(&namespace_var, ExprContext::Load),
-    ));
+    final_body.push(bundler.create_dotted_attribute_assignment(parent, attr, &namespace_var));
 }
 
 /// Populate a namespace object with all symbols from a given module, applying renames.

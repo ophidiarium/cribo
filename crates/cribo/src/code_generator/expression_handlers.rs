@@ -605,7 +605,7 @@ pub(super) fn transform_expr_for_lifted_globals(
     bundler: &Bundler,
     expr: &mut Expr,
     lifted_names: &FxIndexMap<String, String>,
-    _global_info: &crate::semantic_bundler::ModuleGlobalInfo,
+    global_info: &crate::semantic_bundler::ModuleGlobalInfo,
     in_function_with_globals: Option<&FxIndexSet<String>>,
 ) {
     match expr {
@@ -624,7 +624,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                 bundler,
                 &mut attr_expr.value,
                 lifted_names,
-                _global_info,
+                global_info,
                 in_function_with_globals,
             );
         }
@@ -633,7 +633,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                 bundler,
                 &mut call_expr.func,
                 lifted_names,
-                _global_info,
+                global_info,
                 in_function_with_globals,
             );
             for arg in &mut call_expr.arguments.args {
@@ -641,7 +641,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                     bundler,
                     arg,
                     lifted_names,
-                    _global_info,
+                    global_info,
                     in_function_with_globals,
                 );
             }
@@ -650,7 +650,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                     bundler,
                     &mut keyword.value,
                     lifted_names,
-                    _global_info,
+                    global_info,
                     in_function_with_globals,
                 );
             }
@@ -660,7 +660,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                 bundler,
                 expr,
                 lifted_names,
-                _global_info,
+                global_info,
                 in_function_with_globals,
             );
         }
@@ -669,14 +669,14 @@ pub(super) fn transform_expr_for_lifted_globals(
                 bundler,
                 &mut binop.left,
                 lifted_names,
-                _global_info,
+                global_info,
                 in_function_with_globals,
             );
             transform_expr_for_lifted_globals(
                 bundler,
                 &mut binop.right,
                 lifted_names,
-                _global_info,
+                global_info,
                 in_function_with_globals,
             );
         }
@@ -685,7 +685,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                 bundler,
                 &mut unaryop.operand,
                 lifted_names,
-                _global_info,
+                global_info,
                 in_function_with_globals,
             );
         }
@@ -694,7 +694,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                 bundler,
                 &mut compare.left,
                 lifted_names,
-                _global_info,
+                global_info,
                 in_function_with_globals,
             );
             for comparator in &mut compare.comparators {
@@ -702,7 +702,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                     bundler,
                     comparator,
                     lifted_names,
-                    _global_info,
+                    global_info,
                     in_function_with_globals,
                 );
             }
@@ -712,14 +712,14 @@ pub(super) fn transform_expr_for_lifted_globals(
                 bundler,
                 &mut subscript.value,
                 lifted_names,
-                _global_info,
+                global_info,
                 in_function_with_globals,
             );
             transform_expr_for_lifted_globals(
                 bundler,
                 &mut subscript.slice,
                 lifted_names,
-                _global_info,
+                global_info,
                 in_function_with_globals,
             );
         }
@@ -729,7 +729,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                     bundler,
                     elem,
                     lifted_names,
-                    _global_info,
+                    global_info,
                     in_function_with_globals,
                 );
             }
@@ -740,7 +740,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                     bundler,
                     elem,
                     lifted_names,
-                    _global_info,
+                    global_info,
                     in_function_with_globals,
                 );
             }
@@ -752,7 +752,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                         bundler,
                         key,
                         lifted_names,
-                        _global_info,
+                        global_info,
                         in_function_with_globals,
                     );
                 }
@@ -760,7 +760,7 @@ pub(super) fn transform_expr_for_lifted_globals(
                     bundler,
                     &mut item.value,
                     lifted_names,
-                    _global_info,
+                    global_info,
                     in_function_with_globals,
                 );
             }

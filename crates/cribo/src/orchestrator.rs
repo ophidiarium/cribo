@@ -608,11 +608,13 @@ impl BundleOrchestrator {
                     .module_paths
                     .iter()
                     .find(|(_, id)| **id == module_id)
-                    .map(|(p, _)| p.clone())
-                    .unwrap_or_else(|| {
-                        warn!("Module path not found for {name}, using name as fallback");
-                        PathBuf::from(&name)
-                    });
+                    .map_or_else(
+                        || {
+                            warn!("Module path not found for {name}, using name as fallback");
+                            PathBuf::from(&name)
+                        },
+                        |(p, _)| p.clone(),
+                    );
 
                 // Extract imports from module items
                 let imports = self.extract_imports_from_module_items(&module.items);
@@ -831,9 +833,8 @@ impl BundleOrchestrator {
     /// Helper method to find module name in source directories
     fn find_module_in_src_dirs(&self, entry_path: &Path) -> Option<String> {
         for src_dir in &self.config.src {
-            let relative_path = match entry_path.strip_prefix(src_dir) {
-                Ok(path) => path,
-                Err(_) => continue,
+            let Ok(relative_path) = entry_path.strip_prefix(src_dir) else {
+                continue;
             };
             if let Some(module_name) = self.path_to_module_name(relative_path) {
                 return Some(module_name);
