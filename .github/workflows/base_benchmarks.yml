@@ -67,7 +67,7 @@ jobs:
           --err \
           --adapter rust_criterion \
           --github-actions '${{ secrets.GITHUB_TOKEN }}' \
-          "cargo bench --bench bundling"
+          "cargo bench --bench bundling --features bench"
 
       # Upload benchmark artifacts for debugging
       - name: Upload benchmark results
