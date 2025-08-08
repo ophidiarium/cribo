@@ -82,6 +82,10 @@ jobs:
           shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
           cache-on-failure: true
 
+      - name: Install MSBuild (Visual Studio Build Tools)
+        uses: microsoft/setup-msbuild@v2
+        if: matrix.platform.os == 'windows-latest' || matrix.platform.os == 'windows-11-arm'
+
       - name: 'Install cargo insta'
         uses: taiki-e/install-action@v2
         with:
