@@ -600,9 +600,8 @@ impl ModuleResolver {
 
     /// Detect common virtual environment directory names
     fn detect_fallback_virtualenv_paths(&self) -> Vec<PathBuf> {
-        let current_dir = match std::env::current_dir() {
-            Ok(dir) => dir,
-            Err(_) => return Vec::new(),
+        let Ok(current_dir) = std::env::current_dir() else {
+            return Vec::new();
         };
 
         let common_venv_names = [".venv", "venv", "env", ".virtualenv", "virtualenv"];

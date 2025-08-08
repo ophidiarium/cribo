@@ -262,7 +262,7 @@ impl<'a> Visitor<'a> for SideEffectDetector {
                 for stmt in &class_def.body {
                     match stmt {
                         // Method definitions are not side effects
-                        Stmt::FunctionDef(_) => continue,
+                        Stmt::FunctionDef(_) => {}
 
                         // Assignments in class body could be side effects if they call functions
                         Stmt::Assign(assign) => {

@@ -111,7 +111,7 @@ pub struct Bundler<'a> {
     pub(crate) global_deferred_imports: FxIndexMap<(String, String), String>,
     /// Track all namespaces that need to be created before module initialization
     /// Central registry of all namespaces that need to be created
-    /// Maps sanitized name to NamespaceInfo
+    /// Maps sanitized name to `NamespaceInfo`
     pub(crate) namespace_registry: FxIndexMap<String, NamespaceInfo>,
     /// Reverse lookup: Maps ORIGINAL path to SANITIZED name
     pub(crate) path_to_sanitized_name: FxIndexMap<String, String>,
@@ -351,7 +351,7 @@ impl<'a> Bundler<'a> {
                 // This is problematic when 'compat' doesn't exist as a separate namespace
                 // BUT: Don't filter if the right-hand side is a local variable (not the module
                 // itself)
-                if self.should_filter_self_referential_assignment(SelfReferentialAssignmentCheck {
+                if self.should_filter_self_referential_assignment(&SelfReferentialAssignmentCheck {
                     is_bundled_submodule,
                     value_is_same_as_attr,
                     full_path: &full_path,
@@ -2096,7 +2096,10 @@ impl<'a> Bundler<'a> {
                         let resolved_module = if import_from.level > 0 {
                             self.resolver.resolve_relative_to_absolute_module_name(
                                 import_from.level,
-                                import_from.module.as_ref().map(|m| m.as_str()),
+                                import_from
+                                    .module
+                                    .as_ref()
+                                    .map(ruff_python_ast::Identifier::as_str),
                                 module_path,
                             )
                         } else {
@@ -2474,12 +2477,12 @@ impl<'a> Bundler<'a> {
                         // Ensure the namespace is actually created before we try to add attributes
                         // to it The namespace might be marked as "created"
                         // but not yet generated in the output
-                        let context = module_name
-                            .rsplit_once('.')
-                            .map(|(parent, _)| NamespaceContext::Attribute {
+                        let context = module_name.rsplit_once('.').map_or(
+                            NamespaceContext::TopLevel,
+                            |(parent, _)| NamespaceContext::Attribute {
                                 parent: parent.to_string(),
-                            })
-                            .unwrap_or(NamespaceContext::TopLevel);
+                            },
+                        );
 
                         // Use immediate generation to ensure the namespace exists now
                         namespace_manager::require_namespace(
@@ -3976,12 +3979,14 @@ impl<'a> Bundler<'a> {
         alias_name: Option<String>,
     ) -> String {
         // Determine context based on whether this is a submodule
-        let context = module_path
-            .rsplit_once('.')
-            .map(|(parent, _)| NamespaceContext::Attribute {
-                parent: parent.to_string(),
-            })
-            .unwrap_or(NamespaceContext::TopLevel);
+        let context =
+            module_path
+                .rsplit_once('.')
+                .map_or(NamespaceContext::TopLevel, |(parent, _)| {
+                    NamespaceContext::Attribute {
+                        parent: parent.to_string(),
+                    }
+                });
 
         // Use the centralized namespace system which handles parent registration
         namespace_manager::require_namespace(
@@ -5969,7 +5974,7 @@ impl Bundler<'_> {
     /// where `pkg.compat` is an inlined submodule and `compat` is not a local variable.
     fn should_filter_self_referential_assignment(
         &self,
-        check: SelfReferentialAssignmentCheck,
+        check: &SelfReferentialAssignmentCheck,
     ) -> bool {
         if !check.is_bundled_submodule
             || !check.value_is_same_as_attr
@@ -5980,10 +5985,17 @@ impl Bundler<'_> {
 
         let value_is_local_var = check
             .local_variables
-            .map(|vars| vars.contains(check.value_id))
-            .unwrap_or(false);
+            .is_some_and(|vars| vars.contains(check.value_id));
 
-        if !value_is_local_var {
+        if value_is_local_var {
+            log::debug!(
+                "Keeping assignment: {}.{} = {} (value is local variable, not self-referential)",
+                check.base_id,
+                check.attr_name,
+                check.value_id
+            );
+            false
+        } else {
             let sanitized_name = sanitize_module_name_for_identifier(check.full_path);
             log::debug!(
                 "Filtering out self-referential assignment: {}.{} = {} (inlined submodule, will \
@@ -5995,14 +6007,6 @@ impl Bundler<'_> {
                 sanitized_name
             );
             true
-        } else {
-            log::debug!(
-                "Keeping assignment: {}.{} = {} (value is local variable, not self-referential)",
-                check.base_id,
-                check.attr_name,
-                check.value_id
-            );
-            false
         }
     }
 
@@ -6580,7 +6584,7 @@ impl Bundler<'_> {
         false
     }
 
-    /// Deduplicate namespace creation statements (var = types.SimpleNamespace())
+    /// Deduplicate namespace creation statements (var = `types.SimpleNamespace()`)
     /// and namespace attribute assignments (var.__name__ = '...')
     /// This removes duplicates created by different parts of the bundling process
     fn deduplicate_namespace_creation_statements(&self, stmts: Vec<Stmt>) -> Vec<Stmt> {
@@ -6664,7 +6668,7 @@ impl Bundler<'_> {
         result
     }
 
-    /// Check if an expression is a types.SimpleNamespace() call
+    /// Check if an expression is a `types.SimpleNamespace()` call
     fn is_types_simplenamespace_call(&self, expr: &Expr) -> bool {
         if let Expr::Call(call) = expr
             && let Expr::Attribute(attr) = call.func.as_ref()

@@ -251,7 +251,7 @@ pub struct NamespaceRequirement {
 }
 
 /// Create assignments for inlined imports
-/// Returns (statements, namespace_requirements)
+/// Returns (statements, `namespace_requirements`)
 #[allow(clippy::too_many_arguments)]
 pub fn create_assignments_for_inlined_imports(
     import_from: &StmtImportFrom,
