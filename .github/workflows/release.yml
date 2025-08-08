@@ -146,7 +146,7 @@ jobs:
           fi
 
           # Get current version for comparison
-          CURRENT_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+          CURRENT_VERSION=$(grep -A 5 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
           echo "Current version in Cargo.toml: ${CURRENT_VERSION}"
           echo "New version to set: ${VERSION}"
 
@@ -221,7 +221,7 @@ jobs:
           SCCACHE_CACHE_SIZE: ''
         run: |
           # Get current version from Cargo.toml
-          CURRENT_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+          CURRENT_VERSION=$(grep -A 5 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
           echo "Building npm binary for version: ${CURRENT_VERSION}"
 
           RUST_TARGET="${{ matrix.platform.rust_target }}"
@@ -548,6 +548,10 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Update npm
+        run: |
+          npm install -g npm@latest
+
       - name: Generate npm packages
         run: |
           VERSION=$(cat version.txt)
@@ -723,6 +727,9 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Update npm
+        run: npm install -g npm@latest
+
       - name: Download npm packages
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -750,8 +757,8 @@ jobs:
           echo ""
 
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # env:
+        #   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION=$(cat version.txt)
           node scripts/publish-npm.js "${VERSION}" ./npm-dist
