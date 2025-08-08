@@ -82,8 +82,26 @@ jobs:
           shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
           cache-on-failure: true
 
-      - name: install taplo-cli
-        run: cargo install taplo-cli --locked
+      - name: 'Install cargo insta'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-insta
+      - name: 'Install cargo nextest'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Install taplo
+        uses: taiki-e/install-action@v2
+        with:
+          tool: taplo
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+          python-version: 3.12
 
       - name: Extract version from tag
         id: get_version
