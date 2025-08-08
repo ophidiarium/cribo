@@ -608,11 +608,13 @@ impl BundleOrchestrator {
                     .module_paths
                     .iter()
                     .find(|(_, id)| **id == module_id)
-                    .map(|(p, _)| p.clone())
-                    .unwrap_or_else(|| {
-                        warn!("Module path not found for {name}, using name as fallback");
-                        PathBuf::from(&name)
-                    });
+                    .map_or_else(
+                        || {
+                            warn!("Module path not found for {name}, using name as fallback");
+                            PathBuf::from(&name)
+                        },
+                        |(p, _)| p.clone(),
+                    );
 
                 // Extract imports from module items
                 let imports = self.extract_imports_from_module_items(&module.items);
