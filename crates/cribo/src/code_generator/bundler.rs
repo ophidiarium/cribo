@@ -351,7 +351,7 @@ impl<'a> Bundler<'a> {
                 // This is problematic when 'compat' doesn't exist as a separate namespace
                 // BUT: Don't filter if the right-hand side is a local variable (not the module
                 // itself)
-                if self.should_filter_self_referential_assignment(SelfReferentialAssignmentCheck {
+                if self.should_filter_self_referential_assignment(&SelfReferentialAssignmentCheck {
                     is_bundled_submodule,
                     value_is_same_as_attr,
                     full_path: &full_path,
@@ -5974,7 +5974,7 @@ impl Bundler<'_> {
     /// where `pkg.compat` is an inlined submodule and `compat` is not a local variable.
     fn should_filter_self_referential_assignment(
         &self,
-        check: SelfReferentialAssignmentCheck,
+        check: &SelfReferentialAssignmentCheck,
     ) -> bool {
         if !check.is_bundled_submodule
             || !check.value_is_same_as_attr
