@@ -2946,11 +2946,8 @@ impl<'a> Bundler<'a> {
                         }
                     }
 
-                    // Mark the namespace as created in the registry
-                    let namespace_var = sanitize_module_name_for_identifier(module_name);
-                    if let Some(info) = self.namespace_registry.get_mut(&namespace_var) {
-                        info.is_created = true;
-                    }
+                    // Note: The namespace is already marked as created inside require_namespace,
+                    // so we don't need to set is_created here
                 } else if self.inlined_modules.contains(module_name)
                     && !self.module_registry.contains_key(module_name)
                 {
