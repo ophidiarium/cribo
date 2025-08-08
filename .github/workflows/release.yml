@@ -26,6 +26,8 @@ jobs:
   build:
     name: Build distribution 📦
     runs-on: ${{ matrix.platform.os }}
+    env:
+      RUSTUP_TOOLCHAIN: stable
     permissions:
       # Required for attestation generation
       id-token: write
@@ -81,6 +83,9 @@ jobs:
         with:
           shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
           cache-on-failure: true
+
+      - name: install taplo-cli
+        run: cargo +stable install taplo-cli --locked
 
       - name: Extract version from tag
         id: get_version
@@ -145,8 +150,8 @@ jobs:
             VERSION="${{ steps.manual_version.outputs.VERSION }}"
           fi
 
-          # Get current version for comparison
-          CURRENT_VERSION=$(grep -A 5 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+          # Get current version for comparison (use taplo)
+          CURRENT_VERSION=$(taplo get -f Cargo.toml 'workspace.package.version')
           echo "Current version in Cargo.toml: ${CURRENT_VERSION}"
           echo "New version to set: ${VERSION}"
 
@@ -156,15 +161,15 @@ jobs:
             exit 1
           fi
 
-          # Verify the update was successful
-          if ! grep -q "version = \"${VERSION}\"" Cargo.toml; then
+          # Verify the update was successful using taplo
+          if [[ "$(taplo get -f Cargo.toml 'workspace.package.version')" != "${VERSION}" ]]; then
             echo "::error::Failed to verify version update in Cargo.toml"
             exit 1
           fi
 
           # Show the changes
           echo "Updated Cargo.toml:"
-          grep -A 2 "workspace.package" Cargo.toml
+          taplo get -f Cargo.toml -o toml workspace.package
 
       - name: Save version to file
         if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
@@ -175,8 +180,8 @@ jobs:
             UPDATED_VERSION=$(cat version.txt)
             echo "Using existing version.txt from release-please: ${UPDATED_VERSION}"
           else
-            # Fallback: extract from Cargo.toml (for manual releases)
-            UPDATED_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+            # Fallback: extract from Cargo.toml (for manual releases) using taplo
+            UPDATED_VERSION=$(taplo get -f Cargo.toml 'workspace.package.version')
             echo "${UPDATED_VERSION}" > version.txt
             echo "Created version.txt from Cargo.toml: ${UPDATED_VERSION}"
           fi
@@ -199,7 +204,7 @@ jobs:
           python-version: '3.12'
 
       - name: Run Rust tests
-        run: cargo test --workspace
+        run: cargo +stable test --workspace
 
       - name: Build wheels
         uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a # v1.49.3
@@ -221,7 +226,7 @@ jobs:
           SCCACHE_CACHE_SIZE: ''
         run: |
           # Get current version from Cargo.toml
-          CURRENT_VERSION=$(grep -A 5 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+          CURRENT_VERSION=$(taplo get -f Cargo.toml 'workspace.package.version')
           echo "Building npm binary for version: ${CURRENT_VERSION}"
 
           RUST_TARGET="${{ matrix.platform.rust_target }}"
@@ -234,7 +239,7 @@ jobs:
           fi
 
           # Build the binary for the specific target
-          cargo build --release --package cribo --target "$RUST_TARGET"
+            cargo +stable build --release --package cribo --target "$RUST_TARGET"
           BINARY_PATH="target/${RUST_TARGET}/release/${BINARY_NAME}"
 
           # Create npm-binaries directory with target-specific naming
@@ -255,8 +260,7 @@ jobs:
         shell: bash
         run: |
           # Get current version from Cargo.toml
-          CURRENT_VERSION=$(grep -A 1 "workspace.package" Cargo.toml | \
-            grep "version" | cut -d'"' -f2)
+          CURRENT_VERSION=$(taplo get -f Cargo.toml 'workspace.package.version')
           echo "Building version: ${CURRENT_VERSION}"
 
           ls -la dist/
@@ -284,7 +288,7 @@ jobs:
         run: |
           # Get binary name and version
           RUST_TARGET="${{ matrix.platform.rust_target }}"
-          VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+          VERSION=$(taplo get -f Cargo.toml 'workspace.package.version')
           BINARY_NAME="cribo"
 
           if [[ "$RUST_TARGET" == *"windows"* ]]; then
@@ -371,7 +375,7 @@ jobs:
         run: |
           # Get archive info
           RUST_TARGET="${{ matrix.platform.rust_target }}"
-          VERSION=$(grep -A 1 "workspace.package" Cargo.toml | grep "version" | cut -d'"' -f2)
+          VERSION=$(taplo get -f Cargo.toml 'workspace.package.version')
 
           # Map target to archive naming (same logic as above)
           case "$RUST_TARGET" in
