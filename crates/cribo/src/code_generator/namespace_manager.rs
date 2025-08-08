@@ -99,6 +99,17 @@ impl NamespacePopulationContext<'_> {
     }
 }
 
+/// Check if a namespace has been created for the given module
+#[inline]
+pub(super) fn namespace_is_created(bundler: &Bundler, module_name: &str) -> bool {
+    let sanitized = sanitize_module_name_for_identifier(module_name);
+    bundler
+        .namespace_registry
+        .get(&sanitized)
+        .map(|info| info.is_created)
+        .unwrap_or(false)
+}
+
 /// Generates submodule attributes with exclusions for namespace organization.
 ///
 /// This function analyzes module hierarchies and creates namespace modules and assignments
