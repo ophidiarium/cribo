@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.10](https://github.com/ophidiarium/cribo/compare/v0.5.9...v0.5.10) (2025-08-08)
+
+
+### Features
+
+* implement centralized namespace management system ([#263](https://github.com/ophidiarium/cribo/issues/263)) ([2768882](https://github.com/ophidiarium/cribo/commit/276888220bb742aebff4b3663cc24fd8bedb134b))
+
+
+### Bug Fixes
+
+* base branch bench missed feature ([afc35dc](https://github.com/ophidiarium/cribo/commit/afc35dc60d3caa58d792432bfa4d546a63530616))
+* centralize namespace management to prevent duplicates and fix special module handling ([#261](https://github.com/ophidiarium/cribo/issues/261)) ([c67ab00](https://github.com/ophidiarium/cribo/commit/c67ab007599cb218883695cf4cb4267f91deb495))
+* rename bundled_exit_code to python_exit_code for clarity ([76e6c71](https://github.com/ophidiarium/cribo/commit/76e6c714652469d8332e3252bb7ae2798038b781))
+* replace cast with try_from for leading_dots conversion ([057f108](https://github.com/ophidiarium/cribo/commit/057f10851d8d3aaf0bc5ba76c07565d6e25f6be3))
+* replace unnecessary Debug formatting with Display for paths ([#260](https://github.com/ophidiarium/cribo/issues/260)) ([5b0fe45](https://github.com/ophidiarium/cribo/commit/5b0fe450594072e71b1a2ad1333020f07d1ef8ff))
+* use case-insensitive file extension comparison in util.rs ([17133f9](https://github.com/ophidiarium/cribo/commit/17133f9974885bd149283cbd2a4dac105940ff61))
+
 ## [0.5.9](https://github.com/ophidiarium/cribo/compare/v0.5.8...v0.5.9) (2025-08-05)
 
 
