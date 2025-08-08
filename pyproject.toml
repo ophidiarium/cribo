@@ -41,6 +41,7 @@ dev = [
 # dependencies used for fixtures testing
 fixtures = [
     "pandera[io,polars,pyspark]>=0.22.1",
+    "pyarrow~=17.0.0",
     "pydantic[email,timezone]>=2.5.3",
 ]
 # dependencies for ecosystem testing
