@@ -831,9 +831,8 @@ impl BundleOrchestrator {
     /// Helper method to find module name in source directories
     fn find_module_in_src_dirs(&self, entry_path: &Path) -> Option<String> {
         for src_dir in &self.config.src {
-            let relative_path = match entry_path.strip_prefix(src_dir) {
-                Ok(path) => path,
-                Err(_) => continue,
+            let Ok(relative_path) = entry_path.strip_prefix(src_dir) else {
+                continue;
             };
             if let Some(module_name) = self.path_to_module_name(relative_path) {
                 return Some(module_name);

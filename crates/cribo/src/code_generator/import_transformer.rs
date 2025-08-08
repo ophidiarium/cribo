@@ -2141,7 +2141,12 @@ fn rewrite_import_with_renames(
                 }
 
                 // Populate the namespace with symbols only if not already populated
-                if !populated_modules.contains(module_name) {
+                if populated_modules.contains(module_name) {
+                    log::debug!(
+                        "Skipping namespace population for '{module_name}' - already populated in \
+                         this transformation session"
+                    );
+                } else {
                     // Note: This is a limitation - we can't mutate namespace_assignments_made
                     // from here since bundler is immutable. This will be handled during
                     // the main bundle process where bundler is mutable.
@@ -2161,11 +2166,6 @@ fn rewrite_import_with_renames(
                     );
                     result_stmts.extend(new_stmts);
                     populated_modules.insert(module_name.to_string());
-                } else {
-                    log::debug!(
-                        "Skipping namespace population for '{module_name}' - already populated in \
-                         this transformation session"
-                    );
                 }
             }
         }
@@ -2414,27 +2414,15 @@ fn rewrite_import_from(
             .filter(|ns_req| !bundler.namespace_registry.contains_key(&ns_req.var_name))
             .collect();
 
-        if !unregistered_namespaces.is_empty() {
-            #[cfg(debug_assertions)]
-            panic!(
-                "Unregistered namespaces detected: {:?}. This indicates a bug in \
-                 detect_namespace_requirements_from_imports",
-                unregistered_namespaces
-                    .iter()
-                    .map(|ns| format!("{} (var: {})", ns.path, ns.var_name))
-                    .collect::<Vec<_>>()
-            );
-
-            #[cfg(not(debug_assertions))]
-            for ns_req in &unregistered_namespaces {
-                log::warn!(
-                    "Namespace '{}' (var: {}) was not pre-registered by \
-                     detect_namespace_requirements_from_imports",
-                    ns_req.path,
-                    ns_req.var_name
-                );
-            }
-        }
+        assert!(
+            unregistered_namespaces.is_empty(),
+            "Unregistered namespaces detected: {:?}. This indicates a bug in \
+             detect_namespace_requirements_from_imports",
+            unregistered_namespaces
+                .iter()
+                .map(|ns| format!("{} (var: {})", ns.path, ns.var_name))
+                .collect::<Vec<_>>()
+        );
 
         // The namespaces are now pre-created by detect_namespace_requirements_from_imports
         // and the aliases are handled by create_assignments_for_inlined_imports,
