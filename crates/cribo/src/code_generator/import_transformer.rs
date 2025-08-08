@@ -2100,7 +2100,6 @@ fn rewrite_import_with_renames(
                 }
             } else {
                 handled_all = false;
-                continue;
             }
         } else {
             // Non-dotted import - handle as before
