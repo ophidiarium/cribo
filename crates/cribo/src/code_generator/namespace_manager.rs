@@ -1127,14 +1127,7 @@ fn handle_inlined_module_assignment(
     }
 
     // Create assignment: parent.attr = namespace_var
-    final_body.push(statements::assign(
-        vec![expressions::attribute(
-            expressions::name(parent, ExprContext::Load),
-            attr,
-            ExprContext::Store,
-        )],
-        expressions::name(&namespace_var, ExprContext::Load),
-    ));
+    final_body.push(bundler.create_dotted_attribute_assignment(parent, attr, &namespace_var));
 }
 
 /// Populate a namespace object with all symbols from a given module, applying renames.
