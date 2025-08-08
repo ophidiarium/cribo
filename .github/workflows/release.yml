@@ -101,6 +101,7 @@ jobs:
         with:
           enable-cache: true
           activate-environment: true
+          ignore-nothing-to-cache: true
           python-version: 3.12
 
       - name: Extract version from tag
@@ -211,13 +212,6 @@ jobs:
             "triggered_by": "${{ github.event_name }}"
           }
           EOF
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6
-        with:
-          enable-cache: true
-          ignore-nothing-to-cache: true
-          python-version: '3.12'
 
       - name: Run Rust tests
         run: cargo test --workspace
