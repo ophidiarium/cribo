@@ -2064,7 +2064,13 @@ fn rewrite_import_with_renames(
                         // the module's exports
 
                         // Check if namespace already exists
-                        if bundler.created_namespaces.contains(target_name.as_str()) {
+                        let sanitized = crate::code_generator::module_registry::sanitize_module_name_for_identifier(target_name.as_str());
+                        if bundler
+                            .namespace_registry
+                            .get(&sanitized)
+                            .map(|info| info.is_created)
+                            .unwrap_or(false)
+                        {
                             log::debug!(
                                 "Skipping namespace creation for '{}' - already created globally",
                                 target_name.as_str()
@@ -2129,7 +2135,16 @@ fn rewrite_import_with_renames(
 
                 // Create namespace object with the module's exports
                 // Check if namespace already exists
-                if bundler.created_namespaces.contains(target_name.as_str()) {
+                let sanitized =
+                    crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                        target_name.as_str(),
+                    );
+                if bundler
+                    .namespace_registry
+                    .get(&sanitized)
+                    .map(|info| info.is_created)
+                    .unwrap_or(false)
+                {
                     log::debug!(
                         "Skipping namespace creation for '{}' - already created globally",
                         target_name.as_str()
