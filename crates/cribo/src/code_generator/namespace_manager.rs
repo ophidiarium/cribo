@@ -725,8 +725,7 @@ pub fn require_namespace(
         let needs_creation = bundler
             .namespace_registry
             .get(&sanitized_name)
-            .map(|info| !info.is_created)
-            .unwrap_or(false);
+            .is_some_and(|info| !info.is_created);
 
         if needs_creation {
             // Ensure types module is imported when we generate namespace statements
