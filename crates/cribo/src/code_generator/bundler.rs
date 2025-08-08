@@ -1241,6 +1241,56 @@ impl<'a> Bundler<'a> {
         created_assignments
     }
 
+    /// Collect namespace attributes for a module, respecting tree-shaking and renames
+    fn collect_namespace_attributes(
+        &self,
+        module_name: &str,
+        module_rename_map: &FxIndexMap<String, String>,
+    ) -> Vec<(String, Expr)> {
+        use ruff_python_ast::ExprContext;
+
+        use crate::ast_builder::expressions;
+
+        let mut attributes = Vec::new();
+        let mut seen_attrs = FxIndexSet::default();
+
+        // Combine renamed symbols and other exports into a single iterator
+        let renamed_symbols = module_rename_map
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()));
+
+        let other_exports = self
+            .module_exports
+            .get(module_name)
+            .and_then(|e| e.as_ref())
+            .into_iter()
+            .flatten()
+            .filter(|export| !module_rename_map.contains_key(*export))
+            .map(|export| (export.as_str(), export.as_str()));
+
+        for (original_name, value_name) in renamed_symbols.chain(other_exports) {
+            if !seen_attrs.insert(original_name.to_string()) {
+                continue;
+            }
+
+            // Check if this symbol survived tree-shaking
+            if !self.is_symbol_kept_by_tree_shaking(module_name, original_name) {
+                log::debug!(
+                    "Skipping tree-shaken symbol '{original_name}' from namespace for module \
+                     '{module_name}'"
+                );
+                continue;
+            }
+
+            attributes.push((
+                original_name.to_string(),
+                expressions::name(value_name, ExprContext::Load),
+            ));
+        }
+
+        attributes
+    }
+
     /// Check if module has forward references that would cause `NameError`
     pub(crate) fn check_module_has_forward_references(
         &self,
@@ -2867,44 +2917,8 @@ impl<'a> Bundler<'a> {
                             final_body.extend(namespace_stmts);
                         } else {
                             // Create populated namespace with all symbols
-                            let mut attributes = Vec::new();
-                            let mut seen_attrs = FxIndexSet::default();
-
-                            // Combine renamed symbols and other exports into a single iterator
-                            let renamed_symbols = module_rename_map
-                                .iter()
-                                .map(|(k, v)| (k.as_str(), v.as_str()));
-
-                            let other_exports = self
-                                .module_exports
-                                .get(module_name)
-                                .and_then(|e| e.as_ref())
-                                .into_iter()
-                                .flatten()
-                                .filter(|export| !module_rename_map.contains_key(*export))
-                                .map(|export| (export.as_str(), export.as_str()));
-
-                            for (original_name, value_name) in renamed_symbols.chain(other_exports)
-                            {
-                                if !seen_attrs.insert(original_name.to_string()) {
-                                    continue;
-                                }
-
-                                // Check if this symbol survived tree-shaking
-                                if !self.is_symbol_kept_by_tree_shaking(module_name, original_name)
-                                {
-                                    log::debug!(
-                                        "Skipping tree-shaken symbol '{original_name}' from \
-                                         namespace for module '{module_name}'"
-                                    );
-                                    continue;
-                                }
-
-                                attributes.push((
-                                    original_name.to_string(),
-                                    expressions::name(value_name, ExprContext::Load),
-                                ));
-                            }
+                            let attributes =
+                                self.collect_namespace_attributes(module_name, module_rename_map);
 
                             // Create namespace with populated attributes
                             let namespace_stmts = namespace_manager::require_namespace(
