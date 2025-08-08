@@ -25,11 +25,11 @@ use crate::{
 pub struct NamespaceInfo {
     /// The original module path (e.g., "pkg.compat")
     pub original_path: String,
-    /// Whether this namespace needs an alias (e.g., compat = pkg_compat)
+    /// Whether this namespace needs an alias (e.g., compat = `pkg_compat`)
     pub needs_alias: bool,
-    /// The alias name if needs_alias is true (e.g., "compat")
+    /// The alias name if `needs_alias` is true (e.g., "compat")
     pub alias_name: Option<String>,
-    /// Attributes to set on this namespace (attr_name, value_name)
+    /// Attributes to set on this namespace (`attr_name`, `value_name`)
     pub attributes: Vec<(String, String)>,
     /// Parent module that this is an attribute of (e.g., "pkg" for "pkg.compat")
     pub parent_module: Option<String>,
@@ -590,7 +590,7 @@ impl NamespaceParams {
 /// It is idempotent and handles parent registration recursively.
 ///
 /// If params.immediate is true, generates and returns the creation statements immediately
-/// instead of deferring to generate_required_namespaces().
+/// instead of deferring to `generate_required_namespaces()`.
 /// If params.attributes is non-empty, generates attribute assignment statements.
 pub fn require_namespace(
     bundler: &mut Bundler,
@@ -686,7 +686,9 @@ pub fn require_namespace(
                 sanitized_name,
                 info.is_created
             );
-            if !info.is_created {
+            if info.is_created {
+                log::debug!("Namespace '{sanitized_name}' already created, skipping");
+            } else {
                 // Build keywords for the namespace constructor
                 let mut keywords = Vec::new();
 
@@ -733,8 +735,6 @@ pub fn require_namespace(
                 bundler.created_namespaces.insert(sanitized_name.clone());
 
                 log::debug!("Generated namespace '{sanitized_name}' with {keyword_count} keywords");
-            } else {
-                log::debug!("Namespace '{sanitized_name}' already created, skipping");
             }
         } else {
             log::debug!("Namespace '{sanitized_name}' not found in registry");
@@ -837,8 +837,7 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
                 let attr_name = info
                     .original_path
                     .rsplit_once('.')
-                    .map(|(_, name)| name)
-                    .unwrap_or(&info.original_path);
+                    .map_or(info.original_path.as_str(), |(_, name)| name);
 
                 statements.push(statements::assign_attribute(
                     &parent_sanitized,
