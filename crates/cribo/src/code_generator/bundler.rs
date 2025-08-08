@@ -1291,6 +1291,16 @@ impl<'a> Bundler<'a> {
         attributes
     }
 
+    /// Check if a namespace has been created for the given module
+    #[inline]
+    fn namespace_is_created(&self, module_name: &str) -> bool {
+        let sanitized = sanitize_module_name_for_identifier(module_name);
+        self.namespace_registry
+            .get(&sanitized)
+            .map(|info| info.is_created)
+            .unwrap_or(false)
+    }
+
     /// Check if module has forward references that would cause `NameError`
     pub(crate) fn check_module_has_forward_references(
         &self,
@@ -2583,11 +2593,7 @@ impl<'a> Bundler<'a> {
             if needs_namespace {
                 // Check if this namespace was already created
                 let namespace_var = sanitize_module_name_for_identifier(module_name);
-                let namespace_already_exists = self
-                    .namespace_registry
-                    .get(&namespace_var)
-                    .map(|info| info.is_created)
-                    .unwrap_or(false);
+                let namespace_already_exists = self.namespace_is_created(module_name);
 
                 log::debug!(
                     "Namespace for inlined module '{module_name}' already exists: \
@@ -3428,12 +3434,7 @@ impl<'a> Bundler<'a> {
 
             // Check if this module has a namespace that needs population
             let namespace_var = sanitize_module_name_for_identifier(module_name);
-            if self
-                .namespace_registry
-                .get(&namespace_var)
-                .map(|info| info.is_created)
-                .unwrap_or(false)
-            {
+            if self.namespace_is_created(module_name) {
                 log::debug!("Populating empty namespace '{namespace_var}' with symbols");
 
                 // Don't mark the module as fully populated yet, we'll track individual symbols
@@ -6278,11 +6279,7 @@ impl Bundler<'_> {
                     self.namespace_registry.contains_key(&sanitized);
 
                 // Check if we haven't already created this namespace globally or locally
-                let already_created = self
-                    .namespace_registry
-                    .get(&sanitized)
-                    .map(|info| info.is_created)
-                    .unwrap_or(false)
+                let already_created = self.namespace_is_created(&parent_path)
                     || self.is_namespace_already_created(&parent_path, result_stmts)
                     || registered_in_namespace_system;
 
@@ -6306,12 +6303,7 @@ impl Bundler<'_> {
                         &parent_path,
                         expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
                     ));
-                } else if registered_in_namespace_system
-                    && !self
-                        .namespace_registry
-                        .get(&sanitized)
-                        .map(|info| info.is_created)
-                        .unwrap_or(false)
+                } else if registered_in_namespace_system && !self.namespace_is_created(&parent_path)
                 {
                     // The namespace is registered but hasn't been created yet
                     // This shouldn't happen if generate_required_namespaces() was called before
@@ -6378,13 +6370,7 @@ impl Bundler<'_> {
             }
 
             // Skip if this namespace was already created globally
-            let sanitized = sanitize_module_name_for_identifier(&partial_module);
-            if self
-                .namespace_registry
-                .get(&sanitized)
-                .map(|info| info.is_created)
-                .unwrap_or(false)
-            {
+            if self.namespace_is_created(&partial_module) {
                 log::debug!(
                     "Skipping namespace creation for '{partial_module}' - already created globally"
                 );
