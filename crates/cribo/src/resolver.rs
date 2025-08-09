@@ -766,13 +766,12 @@ impl ModuleResolver {
         site_packages_dir: &Path,
         import_name: &str,
     ) -> Option<String> {
-        // First check if the import directory exists
-        let import_dir = site_packages_dir.join(import_name);
-        if !import_dir.exists() {
-            return None;
-        }
-
         // Look for corresponding dist-info directory
+        // Note: We don't check if the import exists first because:
+        // - Single-file modules (foo.py)
+        // - Compiled extensions (foo.cpython-312-darwin.so)
+        // - Namespace packages
+        // may not have a directory
         let Ok(entries) = std::fs::read_dir(site_packages_dir) else {
             return None;
         };
@@ -807,6 +806,8 @@ impl ModuleResolver {
                     let path_norm = path_part.replace('\\', "/");
                     if path_norm == format!("{import_name}.py")
                         || path_norm.starts_with(&format!("{import_name}/"))
+                        // Handle compiled extension modules (e.g., ujson.cpython-312-darwin.so)
+                        || (path_norm.starts_with(&format!("{import_name}.")) && !path_norm.contains('/'))
                     {
                         matches_import = true;
                         break;
