@@ -4,6 +4,8 @@
 [submodule "ecosystem/packages/requests"]
 	path = ecosystem/packages/requests
 	url = https://github.com/psf/requests.git
+	shallow = true
 [submodule "ecosystem/packages/rich"]
 	path = ecosystem/packages/rich
 	url = https://github.com/Textualize/rich.git
+	shallow = true
