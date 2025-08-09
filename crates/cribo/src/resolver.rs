@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     ffi::OsStr,
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
 };
 
@@ -795,28 +796,36 @@ impl ModuleResolver {
             // by checking the RECORD file for the import directory
             let record_file = path.join("RECORD");
             if record_file.exists()
-                && let Ok(content) = std::fs::read_to_string(&record_file)
-            {
-                // Check if the RECORD mentions our import directory
-                if content.contains(&format!("{import_name}/"))
-                    || content.contains(&format!("{import_name}\\"))
-                {
-                    // Found the right dist-info, now extract package name from METADATA
-                    let metadata_file = path.join("METADATA");
-                    if metadata_file.exists()
-                        && let Ok(metadata) = std::fs::read_to_string(&metadata_file)
-                    {
-                        // Parse the Name field from METADATA
-                        for line in metadata.lines() {
-                            if let Some(name) = line.strip_prefix("Name: ") {
-                                // Apply PEP 503 normalization: lowercase and replace runs of [._-] with -
-                                let normalized = Self::normalize_package_name(name.trim());
-                                return Some(normalized);
+                && let Ok(file) = std::fs::File::open(&record_file) {
+                    let reader = BufReader::new(file);
+                    let mut matches_import = false;
+                    for line in reader.lines().flatten() {
+                        // RECORD entries are CSV; the first field is the path
+                        let path_part = line.split(',').next().unwrap_or("");
+                        // Normalize separators to forward slash for matching
+                        let path_norm = path_part.replace('\\', "/");
+                        if path_norm == format!("{import_name}.py")
+                            || path_norm.starts_with(&format!("{import_name}/"))
+                        {
+                            matches_import = true;
+                            break;
+                        }
+                    }
+                    if matches_import {
+                        // Found the right dist-info, now extract package name from METADATA
+                        let metadata_file = path.join("METADATA");
+                        if metadata_file.exists()
+                            && let Ok(metadata) = std::fs::read_to_string(&metadata_file)
+                        {
+                            for line in metadata.lines() {
+                                if let Some(name) = line.strip_prefix("Name: ") {
+                                    let normalized = Self::normalize_package_name(name.trim());
+                                    return Some(normalized);
+                                }
                             }
                         }
                     }
                 }
-            }
         }
 
         None
