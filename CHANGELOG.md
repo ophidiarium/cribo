@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.11](https://github.com/ophidiarium/cribo/compare/v0.5.10...v0.5.11) (2025-08-09)
+
+
+### Features
+
+* use taplo and stable rust ([bc4f080](https://github.com/ophidiarium/cribo/commit/bc4f080391c9f55d28e0f00ba41f9e6894ff8f43))
+
+
+### Bug Fixes
+
+* install msbuild on windows ([76f8e43](https://github.com/ophidiarium/cribo/commit/76f8e437021eac4910a2d748ac5176aeb6493c9e))
+
 ## [0.5.10](https://github.com/ophidiarium/cribo/compare/v0.5.9...v0.5.10) (2025-08-08)
 
 
