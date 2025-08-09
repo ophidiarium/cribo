@@ -37,3 +37,6 @@ disable=SC2039
 
 # Disable warnings about using command -v instead of which
 disable=SC2230
+
+# Echo may not expand variables in some shells
+disable=SC2028
