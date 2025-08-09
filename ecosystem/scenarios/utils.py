@@ -214,44 +214,28 @@ def _parse_pyproject_toml(pyproject_path: Path, tomllib) -> Dict[str, Set[str]]:
         elif "project" in data:
             project_data = data["project"]
 
-            # Import Requirement parser for robust PEP 508 parsing
-            try:
-                from packaging.requirements import Requirement
-            except ImportError:
-                # Fall back to manual parsing if packaging is not available
-                Requirement = None
-                print("Warning: packaging library not available, using fallback parsing")
+            from packaging.requirements import Requirement
 
             # Process dependencies
             if "dependencies" in project_data:
                 for dep in project_data["dependencies"]:
-                    if Requirement:
-                        try:
-                            # Use robust parser for PEP 508 strings
-                            req = Requirement(dep)
-                            install_requires.add(req.name)
-                        except Exception as e:
-                            print(f"Warning: Could not parse dependency '{dep}': {e}")
-                    else:
-                        # Fallback to manual parsing
-                        pkg_name = dep.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].split("[")[0].strip()
-                        install_requires.add(pkg_name)
+                    try:
+                        # Use robust parser for PEP 508 strings
+                        req = Requirement(dep)
+                        install_requires.add(req.name)
+                    except Exception as e:
+                        print(f"Warning: Could not parse dependency '{dep}': {e}")
 
             # Process optional dependencies
             if "optional-dependencies" in project_data:
                 for extra_deps in project_data["optional-dependencies"].values():
                     for dep in extra_deps:
-                        if Requirement:
-                            try:
-                                # Use robust parser for PEP 508 strings
-                                req = Requirement(dep)
-                                extras_require.add(req.name)
-                            except Exception as e:
-                                print(f"Warning: Could not parse optional dependency '{dep}': {e}")
-                        else:
-                            # Fallback to manual parsing
-                            pkg_name = dep.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].split("[")[0].strip()
-                            extras_require.add(pkg_name)
+                        try:
+                            # Use robust parser for PEP 508 strings
+                            req = Requirement(dep)
+                            extras_require.add(req.name)
+                        except Exception as e:
+                            print(f"Warning: Could not parse optional dependency '{dep}': {e}")
 
         return {"install_requires": install_requires, "extras_require": extras_require}
 
@@ -339,47 +323,28 @@ def get_package_requirements(package_root: Path) -> Dict[str, Set[str]]:
             code = compile(f.read(), str(setup_py), "exec")
             exec(code, namespace)
 
-        # Import Requirement parser for robust PEP 508 parsing
-        try:
-            from packaging.requirements import Requirement
-        except ImportError:
-            # Fall back to manual parsing if packaging is not available
-            Requirement = None
+        from packaging.requirements import Requirement
 
         # Parse requirements to extract package names
         install_requires = set()
         for req in requirements.get("install_requires", []):
-            if Requirement:
-                try:
-                    # Use robust parser for PEP 508 strings
-                    parsed_req = Requirement(req)
-                    install_requires.add(parsed_req.name)
-                except Exception:
-                    # Fallback to manual parsing for this requirement
-                    pkg_name = req.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].split("[")[0].strip()
-                    install_requires.add(pkg_name)
-            else:
-                # Fallback to manual parsing
-                pkg_name = req.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].split("[")[0].strip()
-                install_requires.add(pkg_name)
+            try:
+                # Use robust parser for PEP 508 strings
+                parsed_req = Requirement(req)
+                install_requires.add(parsed_req.name)
+            except Exception as e:
+                print(f"Warning: Could not parse requirement '{req}': {e}")
 
         # Collect all extras
         extras_require = set()
         for extra_reqs in requirements.get("extras_require", {}).values():
             for req in extra_reqs:
-                if Requirement:
-                    try:
-                        # Use robust parser for PEP 508 strings
-                        parsed_req = Requirement(req)
-                        extras_require.add(parsed_req.name)
-                    except Exception:
-                        # Fallback to manual parsing for this requirement
-                        pkg_name = req.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].split("[")[0].strip()
-                        extras_require.add(pkg_name)
-                else:
-                    # Fallback to manual parsing
-                    pkg_name = req.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].split("[")[0].strip()
-                    extras_require.add(pkg_name)
+                try:
+                    # Use robust parser for PEP 508 strings
+                    parsed_req = Requirement(req)
+                    extras_require.add(parsed_req.name)
+                except Exception as e:
+                    print(f"Warning: Could not parse extra requirement '{req}': {e}")
 
         return {"install_requires": install_requires, "extras_require": extras_require}
 
