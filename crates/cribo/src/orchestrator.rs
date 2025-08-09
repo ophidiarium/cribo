@@ -1673,10 +1673,11 @@ impl BundleOrchestrator {
             for import in imports {
                 debug!("Checking import '{import}' for requirements");
                 if let ImportType::ThirdParty = resolver.classify_import(import) {
-                    // Extract top-level package name
-                    let package_name = import.split('.').next().unwrap_or(import);
+                    // Map the import name to the actual package name
+                    // This handles cases like "markdown_it" -> "markdown-it-py"
+                    let package_name = resolver.map_import_to_package_name(import);
                     debug!("Adding '{package_name}' to requirements (from '{import}')");
-                    third_party_imports.insert(package_name.to_string());
+                    third_party_imports.insert(package_name);
                 }
             }
         }

@@ -6,7 +6,8 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use indexmap::{IndexMap, IndexSet};
-use log::{debug, warn};
+use log::{debug, info, warn};
+use pep508_rs::PackageName;
 use ruff_python_stdlib::sys;
 
 use crate::config::Config;
@@ -701,6 +702,121 @@ impl ModuleResolver {
         }
 
         false
+    }
+
+    /// Map an import name to its package name by checking dist-info metadata in the virtual environment
+    /// For example: "`markdown_it`" -> "markdown-it-py"
+    pub fn map_import_to_package_name(&self, import_name: &str) -> String {
+        // Extract the root module name (e.g., "markdown_it" from "markdown_it.parser")
+        let root_import = import_name.split('.').next().unwrap_or(import_name);
+
+        debug!("Attempting to map import '{import_name}' (root: '{root_import}') to package name");
+
+        // Check if we have a virtual environment
+        let explicit_virtualenv = self
+            .virtualenv_override
+            .as_deref()
+            .map(std::borrow::ToOwned::to_owned)
+            .or_else(|| std::env::var("VIRTUAL_ENV").ok());
+
+        let virtualenv_paths = if let Some(virtualenv_path) = explicit_virtualenv {
+            vec![PathBuf::from(virtualenv_path)]
+        } else {
+            // Fallback: detect common virtual environment directory names
+            self.detect_fallback_virtualenv_paths()
+        };
+
+        // Try to find the package name from dist-info
+        for venv_path in virtualenv_paths {
+            debug!("Checking venv path: {}", venv_path.display());
+            for site_packages_dir in self.get_virtualenv_site_packages_directories(&venv_path) {
+                debug!("Checking site-packages: {}", site_packages_dir.display());
+                if let Some(package_name) =
+                    self.find_package_name_in_site_packages(&site_packages_dir, root_import)
+                {
+                    info!("Mapped import '{root_import}' to package '{package_name}'");
+                    return package_name;
+                }
+            }
+        }
+
+        // If no mapping found, return the import name as-is
+        debug!("No package mapping found for '{root_import}', using import name as-is");
+        root_import.to_string()
+    }
+
+    /// Normalize a package name according to PEP 503 using `pep508_rs`
+    fn normalize_package_name(name: &str) -> String {
+        // Use pep508_rs::PackageName for proper PEP 503 normalization
+        if let Ok(package_name) = PackageName::new(name.to_string()) { package_name.to_string() } else {
+            // If normalization fails (shouldn't happen for valid package names),
+            // fall back to simple lowercase
+            debug!(
+                "Failed to normalize package name '{name}', using lowercase"
+            );
+            name.to_lowercase()
+        }
+    }
+
+    /// Find the package name for an import by scanning dist-info directories
+    fn find_package_name_in_site_packages(
+        &self,
+        site_packages_dir: &Path,
+        import_name: &str,
+    ) -> Option<String> {
+        // First check if the import directory exists
+        let import_dir = site_packages_dir.join(import_name);
+        if !import_dir.exists() {
+            return None;
+        }
+
+        // Look for corresponding dist-info directory
+        let Ok(entries) = std::fs::read_dir(site_packages_dir) else {
+            return None;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+
+            // Check if this is a dist-info directory
+            if !dir_name.ends_with(".dist-info") {
+                continue;
+            }
+
+            // Check if this dist-info might be related to our import
+            // by checking the RECORD file for the import directory
+            let record_file = path.join("RECORD");
+            if record_file.exists()
+                && let Ok(content) = std::fs::read_to_string(&record_file) {
+                    // Check if the RECORD mentions our import directory
+                    if content.contains(&format!("{import_name}/"))
+                        || content.contains(&format!("{import_name}\\"))
+                    {
+                        // Found the right dist-info, now extract package name from METADATA
+                        let metadata_file = path.join("METADATA");
+                        if metadata_file.exists()
+                            && let Ok(metadata) = std::fs::read_to_string(&metadata_file) {
+                                // Parse the Name field from METADATA
+                                for line in metadata.lines() {
+                                    if let Some(name) = line.strip_prefix("Name: ") {
+                                        // Apply PEP 503 normalization: lowercase and replace runs of [._-] with -
+                                        let normalized = Self::normalize_package_name(name.trim());
+                                        return Some(normalized);
+                                    }
+                                }
+                            }
+                    }
+                }
+        }
+
+        None
     }
 
     /// Resolves a relative import to an absolute module name.

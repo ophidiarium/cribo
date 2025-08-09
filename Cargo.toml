@@ -30,6 +30,8 @@ ruff_text_size       = { git = "https://github.com/astral-sh/ruff/", tag = "0.12
 # Serialization and configuration
 serde = { version = "1.0", features = ["derive"] }
 toml  = "0.9"
+# Package name normalization (PEP 503)
+pep508_rs = "0.9"
 
 # Error handling and logging
 anyhow     = "1.0"

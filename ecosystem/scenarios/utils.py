@@ -169,15 +169,98 @@ def load_bundled_module(bundle_path: Path, module_name: str):
         sys.path[:] = original_sys_path
 
 
-def get_package_requirements(package_root: Path) -> Dict[str, Set[str]]:
-    """Extract requirements from a package's setup.py.
+def _parse_pyproject_toml(pyproject_path: Path, tomllib) -> Dict[str, Set[str]]:
+    """Parse pyproject.toml to extract dependencies.
 
     Args:
-        package_root: Root directory of the package containing setup.py
+        pyproject_path: Path to pyproject.toml file
+        tomllib: The TOML parsing library (either tomllib or tomli)
 
     Returns:
         Dictionary with 'install_requires' and 'extras_require' sets
     """
+    try:
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+
+        install_requires = set()
+        extras_require = set()
+
+        # Check for Poetry dependencies
+        if "tool" in data and "poetry" in data["tool"]:
+            poetry_data = data["tool"]["poetry"]
+
+            # Process main dependencies
+            if "dependencies" in poetry_data:
+                for dep, spec in poetry_data["dependencies"].items():
+                    if dep.lower() == "python":
+                        continue
+                    # Handle both string specs and dict specs with optional=true
+                    if isinstance(spec, dict):
+                        if not spec.get("optional", False):
+                            install_requires.add(dep)
+                        else:
+                            extras_require.add(dep)
+                    else:
+                        install_requires.add(dep)
+
+            # Process extras
+            if "extras" in poetry_data:
+                for extra_deps in poetry_data["extras"].values():
+                    for dep in extra_deps:
+                        extras_require.add(dep)
+
+        # Check for standard PEP 621 dependencies
+        elif "project" in data:
+            project_data = data["project"]
+
+            # Process dependencies
+            if "dependencies" in project_data:
+                for dep in project_data["dependencies"]:
+                    # Extract package name from requirement string
+                    pkg_name = dep.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].split("[")[0].strip()
+                    install_requires.add(pkg_name)
+
+            # Process optional dependencies
+            if "optional-dependencies" in project_data:
+                for extra_deps in project_data["optional-dependencies"].values():
+                    for dep in extra_deps:
+                        pkg_name = dep.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].split("[")[0].strip()
+                        extras_require.add(pkg_name)
+
+        return {"install_requires": install_requires, "extras_require": extras_require}
+
+    except Exception as e:
+        print(f"Warning: Failed to parse pyproject.toml: {e}")
+        return {"install_requires": set(), "extras_require": set()}
+
+
+def get_package_requirements(package_root: Path) -> Dict[str, Set[str]]:
+    """Extract requirements from a package's setup.py or pyproject.toml.
+
+    Args:
+        package_root: Root directory of the package containing setup.py or pyproject.toml
+
+    Returns:
+        Dictionary with 'install_requires' and 'extras_require' sets
+    """
+    # First try pyproject.toml if it exists
+    pyproject_toml = package_root / "pyproject.toml"
+    if pyproject_toml.exists():
+        try:
+            import tomllib
+        except ImportError:
+            try:
+                import tomli as tomllib
+            except ImportError:
+                # Fall back to setup.py if no TOML parser available
+                pass
+            else:
+                return _parse_pyproject_toml(pyproject_toml, tomllib)
+        else:
+            return _parse_pyproject_toml(pyproject_toml, tomllib)
+
+    # Fall back to setup.py
     setup_py = package_root / "setup.py"
     if not setup_py.exists():
         return {"install_requires": set(), "extras_require": set()}

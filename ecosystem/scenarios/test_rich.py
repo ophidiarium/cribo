@@ -111,7 +111,7 @@ def run_smoke_tests(rich: "ModuleType | RichType"):
     # Test 6: Markdown rendering
     print("  6. Testing markdown rendering...")
     markdown_text = """# Header 1
-    
+
 This is **bold** text and this is *italic* text.
 
 - Item 1
@@ -231,21 +231,22 @@ def test_rich_bundled():
     package_root = Path("ecosystem/packages/rich")
     package_reqs = get_package_requirements(package_root)
 
-    if package_reqs["install_requires"]:
-        print("\n   Expected dependencies from package metadata:")
-        for dep in sorted(package_reqs["install_requires"]):
+    print("\n   Expected dependencies from package metadata:")
+    for dep in sorted(package_reqs["install_requires"]):
+        print(f"     - {dep}")
+
+    if package_reqs["extras_require"]:
+        print("\n   Optional dependencies from extras_require:")
+        for dep in sorted(package_reqs["extras_require"]):
             print(f"     - {dep}")
 
-    # Rich has minimal required dependencies (only pygments and typing_extensions)
-    # but may import other optional packages
-    expected_deps = {"pygments", "typing_extensions"}
+    # Verify expected dependencies for rich
+    # Note: cribo detects all possible imports, not just runtime dependencies
+    expected_deps = package_reqs["install_requires"]
 
-    # Optional dependencies that may be detected
-    optional_deps = {
-        "markdown-it-py",  # For markdown rendering
-        "ipywidgets",  # For Jupyter support
-        "commonmark",  # Alternative markdown parser
-    }
+    # Optional/conditional dependencies that may be detected
+    # Include both extras_require and known conditional imports
+    optional_deps = package_reqs["extras_require"]
 
     # Parse the requirements
     found_deps = set()
@@ -256,16 +257,21 @@ def test_rich_bundled():
             found_deps.add(pkg_name)
 
     missing_deps = expected_deps - found_deps
+    unexpected_deps = found_deps - expected_deps - optional_deps
     detected_optional = found_deps & optional_deps
 
     if missing_deps:
-        print(f"   ⚠️  Missing expected dependencies: {missing_deps}")
-        # Rich may work without all dependencies for basic features
+        print(f"   ❌ Missing expected dependencies: {missing_deps}")
+        sys.exit(1)
 
     if detected_optional:
         print(f"   ℹ️  Optional dependencies detected: {detected_optional}")
 
-    print("   ✓ Requirements check completed")
+    if unexpected_deps:
+        print(f"   ⚠️  Unexpected dependencies found: {unexpected_deps}")
+        # Don't fail on unexpected deps, just warn
+
+    print("   ✓ All required dependencies found")
 
     # Run smoke tests by importing the bundled module
     print("\n🧪 Running smoke tests with bundled library...")
