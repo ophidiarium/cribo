@@ -247,7 +247,7 @@ jobs:
         run: cargo insta test --all-features --check --unreferenced reject
 
       - name: Build wheels
-        uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a # v1.49.3
+        uses: PyO3/maturin-action@v1
         with:
           command: build
           args: --release --out dist
@@ -256,7 +256,7 @@ jobs:
           # Disable sccache for release builds to ensure clean builds (following maturin CI pattern)
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           target: ${{ matrix.platform.rust_target }}
-          maturin-version: '1.7.4'
+          # maturin-version: '1.7.4'
 
       - name: Build npm binary
         shell: bash
