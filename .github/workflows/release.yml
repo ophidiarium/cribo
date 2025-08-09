@@ -31,6 +31,12 @@ jobs:
       id-token: write
       contents: read
       attestations: write
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_NET_RETRY: 10
+      CARGO_TERM_COLOR: always
+      RUSTUP_MAX_RETRIES: 10
+
     strategy:
       matrix:
         platform:
@@ -82,27 +88,18 @@ jobs:
           shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
           cache-on-failure: true
 
-      - name: Set up MSBuild (arm64)
-        if: matrix.platform.os == 'windows-11-arm'
-        uses: microsoft/setup-msbuild@v2 # v2.0.0
-        with:
-          msbuild-architecture: arm64
-      - name: Install C++ ARM64 build tools
-        if: matrix.platform.os == 'windows-11-arm'
-        run: |
-          choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.ARM64 --includeRecommended --includeOptional"
-      - name: Set VCTargetsPath for ARM64
-        if: matrix.platform.os == 'windows-11-arm'
-        run: echo "VCTargetsPath=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\ARM64" >> $GITHUB_ENV
-
-      # - name: Set up MSBuild (x64)
-      #   if: matrix.platform.os == 'windows-latest'
+      # - name: Set up MSBuild (arm64)
+      #   if: matrix.platform.os == 'windows-11-arm'
       #   uses: microsoft/setup-msbuild@v2 # v2.0.0
       #   with:
-      #     msbuild-architecture: x64
-      # - name: Install C++ x64 build tools
-      #   if: matrix.platform.os == 'windows-latest'
-      #   run: choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --includeOptional"
+      #     msbuild-architecture: arm64
+      # - name: Install C++ ARM64 build tools
+      #   if: matrix.platform.os == 'windows-11-arm'
+      #   run: |
+      #     choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.ARM64 --includeRecommended --includeOptional"
+      # - name: Set VCTargetsPath for ARM64
+      #   if: matrix.platform.os == 'windows-11-arm'
+      #   run: echo "VCTargetsPath=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\ARM64" >> $GITHUB_ENV
 
       - name: 'Install cargo insta'
         uses: taiki-e/install-action@v2
@@ -128,6 +125,9 @@ jobs:
 
       - name: Install Python dependencies
         run: uv sync --all-groups
+        # not installing on Windows ARM64 as most Python dependences can't build there
+        # x86 Windows will fail tests anyway
+        if: matrix.platform.os != 'windows-11-arm'
 
       # maturing uses pip in some platforms
       - run: uv pip install pip
@@ -244,6 +244,7 @@ jobs:
         shell: bash
         env:
           NEXTEST_PROFILE: 'ci'
+        if: matrix.platform.os != 'windows-11-arm'
         run: cargo insta test --all-features --check --unreferenced reject
 
       - name: Build wheels
@@ -256,7 +257,6 @@ jobs:
           # Disable sccache for release builds to ensure clean builds (following maturin CI pattern)
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           target: ${{ matrix.platform.rust_target }}
-          # maturin-version: '1.7.4'
 
       - name: Build npm binary
         shell: bash
