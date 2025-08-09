@@ -224,7 +224,9 @@ pub(super) fn collect_imports_from_module(
                         import_from.level
                     );
                     // Do not process relative imports as stdlib
-                } else if let Some(module) = &import_from.module {
+                    continue;
+                }
+                if let Some(module) = &import_from.module {
                     let module_str = module.as_str();
 
                     log::trace!(

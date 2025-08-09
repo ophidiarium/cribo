@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
+use cow_utils::CowUtils;
 use indexmap::{IndexMap, IndexSet};
 use log::{debug, info, warn};
 use pep508_rs::PackageName;
@@ -748,13 +749,13 @@ impl ModuleResolver {
     /// Normalize a package name according to PEP 503 using `pep508_rs`
     fn normalize_package_name(name: &str) -> String {
         // Use pep508_rs::PackageName for proper PEP 503 normalization
-        if let Ok(package_name) = PackageName::new(name.to_string()) { package_name.to_string() } else {
+        if let Ok(package_name) = PackageName::new(name.to_string()) {
+            package_name.to_string()
+        } else {
             // If normalization fails (shouldn't happen for valid package names),
             // fall back to simple lowercase
-            debug!(
-                "Failed to normalize package name '{name}', using lowercase"
-            );
-            name.to_lowercase()
+            debug!("Failed to normalize package name '{name}', using lowercase");
+            name.cow_to_lowercase().into_owned()
         }
     }
 
@@ -794,26 +795,28 @@ impl ModuleResolver {
             // by checking the RECORD file for the import directory
             let record_file = path.join("RECORD");
             if record_file.exists()
-                && let Ok(content) = std::fs::read_to_string(&record_file) {
-                    // Check if the RECORD mentions our import directory
-                    if content.contains(&format!("{import_name}/"))
-                        || content.contains(&format!("{import_name}\\"))
+                && let Ok(content) = std::fs::read_to_string(&record_file)
+            {
+                // Check if the RECORD mentions our import directory
+                if content.contains(&format!("{import_name}/"))
+                    || content.contains(&format!("{import_name}\\"))
+                {
+                    // Found the right dist-info, now extract package name from METADATA
+                    let metadata_file = path.join("METADATA");
+                    if metadata_file.exists()
+                        && let Ok(metadata) = std::fs::read_to_string(&metadata_file)
                     {
-                        // Found the right dist-info, now extract package name from METADATA
-                        let metadata_file = path.join("METADATA");
-                        if metadata_file.exists()
-                            && let Ok(metadata) = std::fs::read_to_string(&metadata_file) {
-                                // Parse the Name field from METADATA
-                                for line in metadata.lines() {
-                                    if let Some(name) = line.strip_prefix("Name: ") {
-                                        // Apply PEP 503 normalization: lowercase and replace runs of [._-] with -
-                                        let normalized = Self::normalize_package_name(name.trim());
-                                        return Some(normalized);
-                                    }
-                                }
+                        // Parse the Name field from METADATA
+                        for line in metadata.lines() {
+                            if let Some(name) = line.strip_prefix("Name: ") {
+                                // Apply PEP 503 normalization: lowercase and replace runs of [._-] with -
+                                let normalized = Self::normalize_package_name(name.trim());
+                                return Some(normalized);
                             }
+                        }
                     }
                 }
+            }
         }
 
         None
