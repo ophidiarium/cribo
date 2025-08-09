@@ -63,7 +63,17 @@ Each package has a dedicated test scenario that:
 Example scenarios:
 
 - **requests**: Make HTTP GET/POST to httpbin.org, verify response
-- **rich**: Generate formatted console output, capture and compare
+- **rich**: Test comprehensive terminal formatting features including:
+  - Console output with colors and styles
+  - Table rendering with columns and rows
+  - Panel rendering with borders and titles
+  - Progress bar creation and updates
+  - Syntax highlighting for code blocks
+  - Markdown rendering with formatting
+  - Text styling with bold, italic, underline
+  - Tree structure visualization
+  - Pretty printing of data structures
+  - Rule/separator rendering
 - **idna**: Encode/decode international domain names
 - **pyyaml**: Parse and dump YAML documents
 - **httpx**: Async HTTP requests with response validation
@@ -110,22 +120,83 @@ GitHub Actions workflow:
 Implement test scenarios for each package:
 
 ```python
+# ecosystem/scenarios/test_rich.py
+import subprocess
+import sys
+from pathlib import Path
+from io import StringIO
+
+
+def test_rich_bundled():
+    # Bundle rich
+    result = subprocess.run(
+        [
+            "cribo",
+            "--entry",
+            "ecosystem/packages/rich/rich",
+            "--output",
+            "target/tmp/rich_bundled.py",
+            "--emit-requirements",
+            "--no-tree-shake",  # Rich uses dynamic imports
+        ],
+        capture_output=True,
+    )
+
+    assert result.returncode == 0
+
+    # Run comprehensive smoke tests
+    test_script = """
+import sys
+sys.path.insert(0, 'target/tmp')
+import rich_bundled as rich
+from io import StringIO
+
+# Test console with colors
+console = rich.console.Console(file=StringIO(), force_terminal=True)
+console.print("[bold red]Test[/bold red] [green]Colors[/green]")
+
+# Test table rendering
+table = rich.table.Table(title="Test")
+table.add_column("Name")
+table.add_column("Value")
+table.add_row("Test", "123")
+console.print(table)
+
+# Test progress bar
+progress = rich.progress.Progress()
+task = progress.add_task("Processing", total=100)
+progress.update(task, advance=100)
+
+# Test syntax highlighting
+code = 'def hello(): return "world"'
+syntax = rich.syntax.Syntax(code, "python", theme="monokai")
+console.print(syntax)
+
+# Test markdown
+markdown = rich.markdown.Markdown("# Header\\n**Bold** *italic*")
+console.print(markdown)
+
+print("✓ All rich tests passed")
+"""
+
+    result = subprocess.run([sys.executable, "-c", test_script], capture_output=True)
+    assert result.returncode == 0
+```
+
+```python
 # ecosystem/scenarios/test_requests.py
 import subprocess
 import json
 import sys
 from pathlib import Path
 
+
 def test_requests_bundled():
     # Bundle requests
-    result = subprocess.run([
-        "cribo",
-        "--entry", "ecosystem/packages/requests/src/requests/__init__.py",
-        "--output", "target/tmp/requests_bundled.py"
-    ], capture_output=True)
-    
+    result = subprocess.run(["cribo", "--entry", "ecosystem/packages/requests/src/requests/__init__.py", "--output", "target/tmp/requests_bundled.py"], capture_output=True)
+
     assert result.returncode == 0
-    
+
     # Run smoke test
     test_script = """
 import sys
@@ -143,7 +214,7 @@ assert resp.json()['json'] == {'key': 'value'}
 
 print("✓ All requests tests passed")
 """
-    
+
     result = subprocess.run([sys.executable, "-c", test_script], capture_output=True)
     assert result.returncode == 0
 ```
