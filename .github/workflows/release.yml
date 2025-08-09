@@ -316,7 +316,7 @@ jobs:
           done
 
       - name: Store the distribution packages
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4
         with:
           # Improved artifact naming following maturin CI patterns
           name: wheels-${{ matrix.platform.target }}-${{ github.run_id }}
@@ -498,14 +498,15 @@ jobs:
       # Build source distribution (sdist) - only on one platform to avoid duplicates
       - name: Build sdist
         if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
-        uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a # v1.49.3
+        uses: PyO3/maturin-action@v1 # v1.49.3
         with:
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           command: sdist
           args: --out dist
 
       - name: Store source distribution
         if: matrix.platform.rust_target == 'x86_64-unknown-linux-gnu'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4
         with:
           name: wheels-sdist-${{ github.run_id }}
           path: dist/
