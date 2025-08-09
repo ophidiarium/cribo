@@ -228,7 +228,7 @@ def test_rich_bundled():
         print(f"     - {line}")
 
     # Get expected dependencies from setup.py or pyproject.toml
-    package_root = Path("ecosystem/packages/rich")
+    package_root = Path(__file__).resolve().parent.parent / "packages" / "rich"
     package_reqs = get_package_requirements(package_root)
 
     print("\n   Expected dependencies from package metadata:")
