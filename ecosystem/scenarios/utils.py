@@ -186,6 +186,9 @@ def _parse_pyproject_toml(pyproject_path: Path, tomllib) -> Dict[str, Set[str]]:
         install_requires = set()
         extras_require = set()
 
+        # Import Requirement for robust PEP 508 parsing
+        from packaging.requirements import Requirement
+
         # Check for Poetry dependencies
         if "tool" in data and "poetry" in data["tool"]:
             poetry_data = data["tool"]["poetry"]
@@ -208,13 +211,17 @@ def _parse_pyproject_toml(pyproject_path: Path, tomllib) -> Dict[str, Set[str]]:
             if "extras" in poetry_data:
                 for extra_deps in poetry_data["extras"].values():
                     for dep in extra_deps:
-                        extras_require.add(dep)
+                        try:
+                            # Parse with Requirement to extract clean package name
+                            req = Requirement(dep)
+                            extras_require.add(req.name)
+                        except Exception:
+                            # If it's just a package name without version spec, use as-is
+                            extras_require.add(dep)
 
         # Check for standard PEP 621 dependencies
         elif "project" in data:
             project_data = data["project"]
-
-            from packaging.requirements import Requirement
 
             # Process dependencies
             if "dependencies" in project_data:
