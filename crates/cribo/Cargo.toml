@@ -25,6 +25,7 @@ env_logger           = { workspace = true }
 etcetera             = { workspace = true }
 indexmap             = { workspace = true }
 log                  = { workspace = true }
+pep508_rs            = { workspace = true }
 petgraph             = { workspace = true }
 ruff_linter          = { workspace = true }
 ruff_python_ast      = { workspace = true }

@@ -281,6 +281,7 @@ dev = [
 ]
 ecosystem = [
     { name = "requests" },
+    { name = "rich" },
 ]
 fixtures = [
     { name = "pandera", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, extra = ["io", "polars", "pyspark"], marker = "python_full_version < '3.9'" },
@@ -299,7 +300,10 @@ dev = [
     { name = "pyrefly", specifier = ">=0.21.0" },
     { name = "vale", specifier = ">=3.11.2.0" },
 ]
-ecosystem = [{ name = "requests", specifier = ">=2.32.0" }]
+ecosystem = [
+    { name = "requests", specifier = ">=2.32.0" },
+    { name = "rich", specifier = ">=14.1.0" },
+]
 fixtures = [
     { name = "pandera", extras = ["io", "polars", "pyspark"], specifier = ">=0.22.1" },
     { name = "pyarrow", specifier = "~=17.0.0" },
