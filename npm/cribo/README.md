@@ -21,8 +21,8 @@ cribo --help
 This package automatically installs the correct binary for your platform:
 
 - Linux (x64, ARM64) - both glibc and musl variants
-- macOS (x64, ARM64)
-- Windows (x64, x86)
+- macOS (x64, Apple Silicon)
+- Windows (x64, ARM64)
 
 ## Requirements
 
