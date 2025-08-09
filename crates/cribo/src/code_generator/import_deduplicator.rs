@@ -229,7 +229,7 @@ pub(super) fn collect_imports_from_module(
                 if let Some(module) = &import_from.module {
                     let module_str = module.as_str();
 
-                    log::trace!(
+                    log::debug!(
                         "Checking import: from {} import {:?} (level: {})",
                         module_str,
                         import_from
