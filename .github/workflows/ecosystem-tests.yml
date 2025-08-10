@@ -48,55 +48,70 @@ jobs:
           python-version: 3.12
 
       - name: Install Python dependencies
-        run: uv sync --all-groups
+        run: |
+          uv sync --all-groups
+          uv pip install pytest
 
       - name: Build cribo (release mode)
         run: cargo build --release --bin cribo
 
       - name: Run ecosystem tests
         run: |
-          # Find and run all test_*.py files in ecosystem/scenarios
-          test_count=0
-          failed_tests=""
-          passed_tests=""
+          # Run all ecosystem tests with pytest
+          # --tb=short for shorter tracebacks
+          # -v for verbose output
+          # --junit-xml for test reporting
+          # Tests marked with xfail are expected to fail
 
-          for test_file in ecosystem/scenarios/test_*.py; do
-            if [ -f "$test_file" ]; then
-              test_name=$(basename "$test_file" .py)
-              echo "::group::Running $test_name"
+          echo "::group::Running ecosystem tests with pytest"
 
-              if python -m ecosystem.scenarios.$test_name; then
-                echo "✅ $test_name passed"
-                passed_tests="$passed_tests $test_name"
-              else
-                echo "❌ $test_name failed (continuing with other tests)"
-                failed_tests="$failed_tests $test_name"
-              fi
+          # Run pytest (exit code is not used since xfail tests are expected)
+          pytest ecosystem/scenarios/test_*.py \
+            -v \
+            --tb=short \
+            --junit-xml=test-results.xml \
+            --color=yes || true
 
-              echo "::endgroup::"
-              ((test_count++))
-            fi
-          done
+          echo "::endgroup::"
 
-          echo "-----------------------------------"
-          echo "Ran $test_count ecosystem test(s)"
+          # Parse results for reporting
+          if [ -f test-results.xml ]; then
+            # Extract test counts from JUnit XML
+            total_tests=$(grep -o 'tests="[0-9]*"' test-results.xml | head -1 | grep -o '[0-9]*' || echo "0")
+            failures=$(grep -o 'failures="[0-9]*"' test-results.xml | head -1 | grep -o '[0-9]*' || echo "0")
+            errors=$(grep -o 'errors="[0-9]*"' test-results.xml | head -1 | grep -o '[0-9]*' || echo "0")
+            skipped=$(grep -o 'skipped="[0-9]*"' test-results.xml | head -1 | grep -o '[0-9]*' || echo "0")
 
-          if [ -n "$passed_tests" ]; then
-            echo "✅ Passed:$passed_tests"
+            echo "-----------------------------------"
+            echo "Test Results Summary:"
+            echo "  Total tests: $total_tests"
+            echo "  Passed: $((total_tests - failures - errors - skipped))"
+            echo "  Failed: $failures"
+            echo "  Errors: $errors"
+            echo "  Skipped: $skipped"
+            echo "-----------------------------------"
+
+            # Save results for the report
+            {
+              echo "ECOSYSTEM_TEST_COUNT=$total_tests"
+              echo "ECOSYSTEM_PASSED=$((total_tests - failures - errors - skipped))"
+              echo "ECOSYSTEM_FAILED=$failures"
+              echo "ECOSYSTEM_ERRORS=$errors"
+              echo "ECOSYSTEM_SKIPPED=$skipped"
+            } >> $GITHUB_ENV
+          else
+            # No test results file, save defaults
+            {
+              echo "ECOSYSTEM_TEST_COUNT=0"
+              echo "ECOSYSTEM_PASSED=0"
+              echo "ECOSYSTEM_FAILED=0"
+              echo "ECOSYSTEM_ERRORS=0"
+              echo "ECOSYSTEM_SKIPPED=0"
+            } >> $GITHUB_ENV
           fi
 
-          if [ -n "$failed_tests" ]; then
-            echo "❌ Failed:$failed_tests"
-            echo "::warning::Some ecosystem tests failed:$failed_tests"
-            # Don't exit with error - we want to see all results
-          fi
-
-          # Save test results for the report
-          {
-            echo "ECOSYSTEM_TEST_COUNT=$test_count"
-            echo "ECOSYSTEM_FAILED_TESTS=$failed_tests"
-            echo "ECOSYSTEM_PASSED_TESTS=$passed_tests"
-          } >> $GITHUB_ENV
+          # Don't fail the workflow - xfail tests are expected to fail
+          exit 0
 
       - name: Run ecosystem benchmarks
         id: bench
@@ -125,25 +140,20 @@ jobs:
             echo "### 📋 Test Status"
             echo ""
 
-            if [ -n "$ECOSYSTEM_PASSED_TESTS" ]; then
-              echo "✅ **Passed tests:**"
-              for test in $ECOSYSTEM_PASSED_TESTS; do
-                echo "  - ${test#test_}"
-              done
+            if [ -n "$ECOSYSTEM_TEST_COUNT" ] && [ "$ECOSYSTEM_TEST_COUNT" -gt 0 ]; then
+              echo "**Test Summary:**"
+              echo "- Total: $ECOSYSTEM_TEST_COUNT"
+              echo "- ✅ Passed: $ECOSYSTEM_PASSED"
+              echo "- ❌ Failed: $ECOSYSTEM_FAILED"
+              echo "- ⚠️ Errors: $ECOSYSTEM_ERRORS"
+              echo "- ⏭️ Skipped: $ECOSYSTEM_SKIPPED"
               echo ""
-            fi
 
-            if [ -n "$ECOSYSTEM_FAILED_TESTS" ]; then
-              echo "⚠️ **Failed tests:**"
-              for test in $ECOSYSTEM_FAILED_TESTS; do
-                echo "  - ${test#test_}"
-              done
-              echo ""
-              echo "> Note: These failures are expected while the ecosystem tests are being stabilized."
-              echo ""
-            fi
-
-            if [ -z "$ECOSYSTEM_PASSED_TESTS" ] && [ -z "$ECOSYSTEM_FAILED_TESTS" ]; then
+              if [ "$ECOSYSTEM_FAILED" -gt 0 ] || [ "$ECOSYSTEM_ERRORS" -gt 0 ]; then
+                echo "> Note: Tests marked with \`@pytest.mark.xfail\` are expected to fail while issues are being resolved."
+                echo ""
+              fi
+            else
               echo "No ecosystem tests were run."
               echo ""
             fi
@@ -152,9 +162,9 @@ jobs:
             echo ""
 
             if [ -f benchmark_results.txt ]; then
-              echo '```'
+              echo "\`\`\`"
               cat benchmark_results.txt
-              echo '```'
+              echo "\`\`\`"
             else
               echo "No benchmark comparison available."
             fi
@@ -212,13 +222,14 @@ jobs:
               });
             }
 
-      - name: Upload benchmark results
+      - name: Upload test and benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ecosystem-benchmark-results
+          name: ecosystem-test-results
           if-no-files-found: ignore
           path: |
+            test-results.xml
             target/criterion/
             ecosystem-report.md
             benchmark_results.txt
