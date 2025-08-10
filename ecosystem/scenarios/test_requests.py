@@ -39,8 +39,7 @@ def bundled_requests():
         tree_shake=False,  # TODO: Enable once relative import bug is fixed
     )
 
-    if result.returncode != 0:
-        pytest.fail(f"Failed to bundle requests: {result.stderr}")
+    assert result.returncode == 0, f"Failed to bundle requests: {result.stderr}"
 
     bundle_size = bundled_output.stat().st_size
     print(f"✅ Successfully bundled to {bundled_output}")
@@ -48,8 +47,7 @@ def bundled_requests():
 
     # Check requirements.txt generation
     requirements_path = bundled_output.parent / "requirements.txt"
-    if not requirements_path.exists():
-        pytest.fail("requirements.txt was not generated!")
+    assert requirements_path.exists(), "requirements.txt was not generated!"
 
     requirements_content = requirements_path.read_text().strip()
     print(f"\n📋 Generated requirements.txt at: {requirements_path}")

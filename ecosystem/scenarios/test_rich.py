@@ -41,8 +41,7 @@ def bundled_rich():
         # Rich uses dynamic imports extensively, but we'll test with tree-shaking enabled
     )
 
-    if result.returncode != 0:
-        pytest.fail(f"Failed to bundle rich: {result.stderr}")
+    assert result.returncode == 0, f"Failed to bundle rich: {result.stderr}"
 
     bundle_size = bundled_output.stat().st_size
     print(f"✅ Successfully bundled to {bundled_output}")
@@ -50,8 +49,7 @@ def bundled_rich():
 
     # Check requirements.txt generation
     requirements_path = bundled_output.parent / "requirements.txt"
-    if not requirements_path.exists():
-        pytest.fail("requirements.txt was not generated!")
+    assert requirements_path.exists(), "requirements.txt was not generated!"
 
     requirements_content = requirements_path.read_text().strip()
     print(f"\n📋 Generated requirements.txt at: {requirements_path}")
