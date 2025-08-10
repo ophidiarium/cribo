@@ -56,6 +56,7 @@ jobs:
         run: cargo build --release --bin cribo
 
       - name: Run ecosystem tests
+        continue-on-error: true
         run: |
           # Run all ecosystem tests with pytest
           # --tb=short for shorter tracebacks
@@ -65,12 +66,12 @@ jobs:
 
           echo "::group::Running ecosystem tests with pytest"
 
-          # Run pytest (exit code is not used since xfail tests are expected)
+          # Run pytest
           pytest ecosystem/scenarios/test_*.py \
             -v \
             --tb=short \
             --junit-xml=test-results.xml \
-            --color=yes || true
+            --color=yes
 
           echo "::endgroup::"
 
@@ -109,9 +110,6 @@ jobs:
               echo "ECOSYSTEM_SKIPPED=0"
             } >> $GITHUB_ENV
           fi
-
-          # Don't fail the workflow - xfail tests are expected to fail
-          exit 0
 
       - name: Run ecosystem benchmarks
         id: bench
