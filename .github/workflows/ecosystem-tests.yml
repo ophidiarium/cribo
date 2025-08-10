@@ -76,31 +76,72 @@ jobs:
 
           # Parse results for reporting
           if [ -f test-results.xml ]; then
-            # Extract test counts from JUnit XML
-            total_tests=$(grep -o 'tests="[0-9]*"' test-results.xml | head -1 | grep -o '[0-9]*' || echo "0")
-            failures=$(grep -o 'failures="[0-9]*"' test-results.xml | head -1 | grep -o '[0-9]*' || echo "0")
-            errors=$(grep -o 'errors="[0-9]*"' test-results.xml | head -1 | grep -o '[0-9]*' || echo "0")
-            skipped=$(grep -o 'skipped="[0-9]*"' test-results.xml | head -1 | grep -o '[0-9]*' || echo "0")
-
-            echo "-----------------------------------"
-            echo "Test Results Summary:"
-            echo "  Total tests: $total_tests"
-            echo "  Passed: $((total_tests - failures - errors - skipped))"
-            echo "  Failed: $failures"
-            echo "  Errors: $errors"
-            echo "  Skipped: $skipped"
-            echo "-----------------------------------"
-
-            # Save results for the report
+            # Robustly parse JUnit XML using Python
             {
-              echo "ECOSYSTEM_TEST_COUNT=$total_tests"
-              echo "ECOSYSTEM_PASSED=$((total_tests - failures - errors - skipped))"
-              echo "ECOSYSTEM_FAILED=$failures"
-              echo "ECOSYSTEM_ERRORS=$errors"
-              echo "ECOSYSTEM_SKIPPED=$skipped"
+              python3 <<'PYTHON_SCRIPT'
+          import xml.etree.ElementTree as ET
+          import sys
+
+          try:
+              tree = ET.parse("test-results.xml")
+              root = tree.getroot()
+
+              # Initialize counters
+              total_tests = 0
+              total_failures = 0
+              total_errors = 0
+              total_skipped = 0
+
+              # Handle both single testsuite and testsuites formats
+              if root.tag == "testsuites":
+                  # Multiple test suites
+                  for testsuite in root.findall("testsuite"):
+                      total_tests += int(testsuite.get("tests", 0))
+                      total_failures += int(testsuite.get("failures", 0))
+                      total_errors += int(testsuite.get("errors", 0))
+                      total_skipped += int(testsuite.get("skipped", 0))
+              elif root.tag == "testsuite":
+                  # Single test suite
+                  total_tests = int(root.get("tests", 0))
+                  total_failures = int(root.get("failures", 0))
+                  total_errors = int(root.get("errors", 0))
+                  total_skipped = int(root.get("skipped", 0))
+
+              total_passed = total_tests - total_failures - total_errors - total_skipped
+
+              # Output environment variables
+              print(f"ECOSYSTEM_TEST_COUNT={total_tests}")
+              print(f"ECOSYSTEM_PASSED={total_passed}")
+              print(f"ECOSYSTEM_FAILED={total_failures}")
+              print(f"ECOSYSTEM_ERRORS={total_errors}")
+              print(f"ECOSYSTEM_SKIPPED={total_skipped}")
+
+              # Also output summary for display
+              print("-----------------------------------", file=sys.stderr)
+              print("Test Results Summary:", file=sys.stderr)
+              print(f"  Total tests: {total_tests}", file=sys.stderr)
+              print(f"  Passed: {total_passed}", file=sys.stderr)
+              print(f"  Failed: {total_failures}", file=sys.stderr)
+              print(f"  Errors: {total_errors}", file=sys.stderr)
+              print(f"  Skipped: {total_skipped}", file=sys.stderr)
+              print("-----------------------------------", file=sys.stderr)
+
+          except Exception as e:
+              print(f"Error parsing test results: {e}", file=sys.stderr)
+              # Output defaults on error
+              print("ECOSYSTEM_TEST_COUNT=0")
+              print("ECOSYSTEM_PASSED=0")
+              print("ECOSYSTEM_FAILED=0")
+              print("ECOSYSTEM_ERRORS=0")
+              print("ECOSYSTEM_SKIPPED=0")
+          PYTHON_SCRIPT
             } >> $GITHUB_ENV
           else
             # No test results file, save defaults
+            echo "-----------------------------------"
+            echo "Test Results Summary:"
+            echo "  No test results file found"
+            echo "-----------------------------------"
             {
               echo "ECOSYSTEM_TEST_COUNT=0"
               echo "ECOSYSTEM_PASSED=0"
