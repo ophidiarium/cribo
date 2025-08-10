@@ -54,7 +54,19 @@ jobs:
         run: cargo build --release --bin cribo
 
       - name: Run ecosystem tests
-        run: cargo test --test test_ecosystem -- --ignored --nocapture
+        run: |
+          # Find and run all test_*.py files in ecosystem/scenarios
+          test_count=0
+          for test_file in ecosystem/scenarios/test_*.py; do
+            if [ -f "$test_file" ]; then
+              test_name=$(basename "$test_file" .py)
+              echo "::group::Running $test_name"
+              python -m ecosystem.scenarios.$test_name || exit 1
+              echo "::endgroup::"
+              ((test_count++))
+            fi
+          done
+          echo "Successfully ran $test_count ecosystem test(s)"
 
       - name: Run ecosystem benchmarks
         id: bench
@@ -99,12 +111,12 @@ jobs:
             # Add bundle size information if available
             if [ -d target/tmp ]; then
               echo -e "\n### 📦 Bundle Sizes\n"
-              find target/tmp -name "*_bundled.py" -exec ls -lh {} \; | awk '{
+              find target/tmp -name "*_bundled.py" -exec ls -lh {} \; | sort | awk '{
                 # Extract package name from path like "target/tmp/requests_bundled.py"
                 split($9, path_parts, "/")
                 filename = path_parts[length(path_parts)]
                 gsub(/_bundled\.py$/, "", filename)
-                print "- " filename ": " $5
+                print "- **" filename "**: " $5
               }'
             fi
           } > ecosystem-report.md
