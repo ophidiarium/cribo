@@ -224,6 +224,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ecosystem-test-results
+          retention-days: 14
           if-no-files-found: ignore
           path: |
             test-results.xml
