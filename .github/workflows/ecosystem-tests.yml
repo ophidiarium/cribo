@@ -50,7 +50,6 @@ jobs:
       - name: Install Python dependencies
         run: |
           uv sync --all-groups
-          uv pip install pytest
 
       - name: Build cribo (release mode)
         run: cargo build --release --bin cribo
