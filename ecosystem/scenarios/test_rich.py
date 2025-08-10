@@ -203,7 +203,7 @@ def test_rich_bundled():
         str(rich_init),
         str(bundled_output),
         emit_requirements=True,
-        tree_shake=False,  # Rich uses dynamic imports extensively
+        # tree_shake=False,  # Rich uses dynamic imports extensively
     )
 
     if result.returncode != 0:
