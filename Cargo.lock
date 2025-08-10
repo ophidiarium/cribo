@@ -367,6 +367,7 @@ dependencies = [
  "insta",
  "log",
  "once_cell",
+ "pep508_rs",
  "petgraph",
  "pretty_assertions",
  "ruff_linter",

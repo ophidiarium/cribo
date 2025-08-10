@@ -39,14 +39,35 @@ First, build cribo in release mode:
 cargo build --release --bin cribo
 ```
 
-### All Ecosystem Tests
+### Local Development (see actual errors)
+
+When developing locally, you want to see the actual errors from xfail tests:
 
 ```bash
-# Run the Rust integration test
-cargo test --test test_ecosystem -- --ignored --nocapture
+# Run all ecosystem tests with actual error output
+python ecosystem/run_tests.py
 
-# Or run Python test directly as a module
-python -m ecosystem.scenarios.test_requests
+# Run specific test
+python ecosystem/run_tests.py requests
+python ecosystem/run_tests.py rich
+
+# Using pytest directly with error visibility
+pytest ecosystem/scenarios/test_requests.py --runxfail -xvs
+
+# Run a specific test function
+pytest ecosystem/scenarios/test_requests.py::test_bundled_module_loading --runxfail -xvs
+```
+
+### CI Mode (xfail tests don't fail the build)
+
+In CI, tests marked with `@pytest.mark.xfail` are expected to fail and won't stop the build:
+
+```bash
+# Run in CI mode
+python ecosystem/run_tests.py --ci
+
+# Or using pytest directly (without --runxfail)
+pytest ecosystem/scenarios/test_*.py -v
 ```
 
 Note: The test scripts automatically find the cribo executable in `target/release/`. If not found, they fall back to using `cribo` from PATH.
@@ -322,13 +343,36 @@ Each test scenario:
 
 ### Current Packages
 
-- **requests** (v2.32.4): Popular HTTP library
-  - Tests GET/POST requests
-  - Verifies headers and parameters
-  - Tests timeout handling
-  - Validates status codes
-  - Verifies requirements.txt generation (detects urllib3, idna, charset_normalizer, plus optional deps)
-  - **Status**: Requirements generation ✅, Code execution ❌ (fails due to relative import bug: `from . import sessions`)
+#### requests (v2.32.4)
+
+Popular HTTP library for making web requests.
+
+**Test Status:**
+
+- ✅ Bundle generation (`test_bundle_generation`)
+- ✅ Requirements detection (`test_requirements_generation`)
+- ❌ Module loading (`test_bundled_module_loading`) - `AttributeError: 'types.SimpleNamespace' object has no attribute 'sessions'`
+- ❌ GET requests (`test_bundled_get_request`) - Blocked by module loading
+- ❌ POST requests (`test_bundled_post_request`) - Blocked by module loading
+- ❌ Custom headers (`test_bundled_custom_headers`) - Blocked by module loading
+- ❌ Query parameters (`test_bundled_query_params`) - Blocked by module loading
+- ❌ Timeout handling (`test_bundled_timeout`) - Blocked by module loading
+- ❌ Status codes (`test_bundled_status_codes`) - Blocked by module loading
+
+#### rich (v13.7.0)
+
+Python library for rich text and beautiful formatting in the terminal.
+
+**Test Status:**
+
+- ✅ Bundle generation (`test_bundle_generation`)
+- ✅ Requirements detection (`test_requirements_generation`)
+- ❌ Module loading (`test_bundled_module_loading`) - `ImportError: cannot import name 'abc' from 'abc'`
+- ❌ Print functionality (`test_bundled_print_functionality`) - Blocked by module loading
+- ❌ Table rendering (`test_bundled_table_rendering`) - Blocked by module loading
+- ❌ Text formatting (`test_bundled_text_formatting`) - Blocked by module loading
+- ❌ Progress bar (`test_bundled_progress_bar`) - Blocked by module loading
+- ❌ Markdown rendering (`test_bundled_markdown_rendering`) - Blocked by module loading
 
 ## CI Integration
 
