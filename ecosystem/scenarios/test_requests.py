@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from .utils import run_cribo, format_bundle_size, load_bundled_module, ensure_test_directories, get_package_requirements
+from .utils import run_cribo, format_bundle_size, load_bundled_module, ensure_test_directories, get_package_requirements, parse_requirements_file
 
 # Type hint for better IDE support
 if TYPE_CHECKING:
@@ -70,21 +70,14 @@ def test_requirements_generation(bundled_requests):
     requirements_path = bundled_requests.parent / "requirements.txt"
     assert requirements_path.exists()
 
-    requirements_content = requirements_path.read_text().strip()
+    # Parse the generated requirements.txt
+    found_deps = parse_requirements_file(requirements_path)
 
     # Get expected dependencies from setup.py
     package_root = Path(__file__).parent.parent / "packages" / "requests"
     package_reqs = get_package_requirements(package_root)
 
-    # Parse the requirements
-    found_deps = set()
-    for line in requirements_content.splitlines():
-        if line and not line.startswith("#"):
-            # Extract package name (before any version specifier)
-            pkg_name = line.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].strip()
-            found_deps.add(pkg_name)
-
-    # Check for expected dependencies
+    # Check for expected dependencies (both sets are already normalized)
     expected_deps = package_reqs["install_requires"]
     missing_deps = expected_deps - found_deps
 
