@@ -60,17 +60,22 @@ jobs:
           # Run all ecosystem tests with pytest
           # --tb=short for shorter tracebacks
           # -v for verbose output
+          # -ra for summary of all test outcomes with reasons
           # --junit-xml for test reporting
           # Tests marked with xfail are expected to fail
 
           echo "::group::Running ecosystem tests with pytest"
 
-          # Run pytest
+          # Run pytest and capture exit code
           pytest ecosystem/scenarios/test_*.py \
             -v \
             --tb=short \
+            -ra \
             --junit-xml=test-results.xml \
             --color=yes
+
+          # Capture pytest exit code for potential reporting
+          echo "ECOSYSTEM_PYTEST_EXIT_CODE=$?" >> $GITHUB_ENV
 
           echo "::endgroup::"
 
