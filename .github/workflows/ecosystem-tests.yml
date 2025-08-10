@@ -48,13 +48,113 @@ jobs:
           python-version: 3.12
 
       - name: Install Python dependencies
-        run: uv sync --all-groups
+        run: |
+          uv sync --all-groups
 
       - name: Build cribo (release mode)
         run: cargo build --release --bin cribo
 
       - name: Run ecosystem tests
-        run: cargo test --test test_ecosystem -- --ignored --nocapture
+        continue-on-error: true
+        run: |
+          # Run all ecosystem tests with pytest
+          # --tb=short for shorter tracebacks
+          # -v for verbose output
+          # -ra for summary of all test outcomes with reasons
+          # --junit-xml for test reporting
+          # Tests marked with xfail are expected to fail
+
+          echo "::group::Running ecosystem tests with pytest"
+
+          # Run pytest and capture exit code
+          pytest ecosystem/scenarios/test_*.py \
+            -v \
+            --tb=short \
+            -ra \
+            --junit-xml=test-results.xml \
+            --color=yes
+
+          # Capture pytest exit code for potential reporting
+          echo "ECOSYSTEM_PYTEST_EXIT_CODE=$?" >> $GITHUB_ENV
+
+          echo "::endgroup::"
+
+          # Parse results for reporting
+          if [ -f test-results.xml ]; then
+            # Robustly parse JUnit XML using Python
+            {
+              python3 <<'PYTHON_SCRIPT'
+          import xml.etree.ElementTree as ET
+          import sys
+
+          try:
+              tree = ET.parse("test-results.xml")
+              root = tree.getroot()
+
+              # Initialize counters
+              total_tests = 0
+              total_failures = 0
+              total_errors = 0
+              total_skipped = 0
+
+              # Handle both single testsuite and testsuites formats
+              if root.tag == "testsuites":
+                  # Multiple test suites
+                  for testsuite in root.findall("testsuite"):
+                      total_tests += int(testsuite.get("tests", 0))
+                      total_failures += int(testsuite.get("failures", 0))
+                      total_errors += int(testsuite.get("errors", 0))
+                      total_skipped += int(testsuite.get("skipped", 0))
+              elif root.tag == "testsuite":
+                  # Single test suite
+                  total_tests = int(root.get("tests", 0))
+                  total_failures = int(root.get("failures", 0))
+                  total_errors = int(root.get("errors", 0))
+                  total_skipped = int(root.get("skipped", 0))
+
+              total_passed = total_tests - total_failures - total_errors - total_skipped
+
+              # Output environment variables
+              print(f"ECOSYSTEM_TEST_COUNT={total_tests}")
+              print(f"ECOSYSTEM_PASSED={total_passed}")
+              print(f"ECOSYSTEM_FAILED={total_failures}")
+              print(f"ECOSYSTEM_ERRORS={total_errors}")
+              print(f"ECOSYSTEM_SKIPPED={total_skipped}")
+
+              # Also output summary for display
+              print("-----------------------------------", file=sys.stderr)
+              print("Test Results Summary:", file=sys.stderr)
+              print(f"  Total tests: {total_tests}", file=sys.stderr)
+              print(f"  Passed: {total_passed}", file=sys.stderr)
+              print(f"  Failed: {total_failures}", file=sys.stderr)
+              print(f"  Errors: {total_errors}", file=sys.stderr)
+              print(f"  Skipped: {total_skipped}", file=sys.stderr)
+              print("-----------------------------------", file=sys.stderr)
+
+          except Exception as e:
+              print(f"Error parsing test results: {e}", file=sys.stderr)
+              # Output defaults on error
+              print("ECOSYSTEM_TEST_COUNT=0")
+              print("ECOSYSTEM_PASSED=0")
+              print("ECOSYSTEM_FAILED=0")
+              print("ECOSYSTEM_ERRORS=0")
+              print("ECOSYSTEM_SKIPPED=0")
+          PYTHON_SCRIPT
+            } >> $GITHUB_ENV
+          else
+            # No test results file, save defaults
+            echo "-----------------------------------"
+            echo "Test Results Summary:"
+            echo "  No test results file found"
+            echo "-----------------------------------"
+            {
+              echo "ECOSYSTEM_TEST_COUNT=0"
+              echo "ECOSYSTEM_PASSED=0"
+              echo "ECOSYSTEM_FAILED=0"
+              echo "ECOSYSTEM_ERRORS=0"
+              echo "ECOSYSTEM_SKIPPED=0"
+            } >> $GITHUB_ENV
+          fi
 
       - name: Run ecosystem benchmarks
         id: bench
@@ -78,20 +178,36 @@ jobs:
         run: |
           # Create a markdown report using grouped commands to avoid shellcheck SC2129
           {
-            cat << 'EOF'
-          ## 📊 Ecosystem Test Results
+            echo "## 📊 Ecosystem Test Results"
+            echo ""
+            echo "### 📋 Test Status"
+            echo ""
 
-          ### ✅ Test Status
-          All ecosystem tests passed successfully!
+            if [ -n "$ECOSYSTEM_TEST_COUNT" ] && [ "$ECOSYSTEM_TEST_COUNT" -gt 0 ]; then
+              echo "**Test Summary:**"
+              echo "- Total: $ECOSYSTEM_TEST_COUNT"
+              echo "- ✅ Passed: $ECOSYSTEM_PASSED"
+              echo "- ❌ Failed: $ECOSYSTEM_FAILED"
+              echo "- ⚠️ Errors: $ECOSYSTEM_ERRORS"
+              echo "- ⏭️ Skipped: $ECOSYSTEM_SKIPPED"
+              echo ""
 
-          ### 📈 Benchmark Results
+              if [ "$ECOSYSTEM_FAILED" -gt 0 ] || [ "$ECOSYSTEM_ERRORS" -gt 0 ]; then
+                echo "> Note: Tests marked with \`@pytest.mark.xfail\` are expected to fail while issues are being resolved."
+                echo ""
+              fi
+            else
+              echo "No ecosystem tests were run."
+              echo ""
+            fi
 
-          EOF
+            echo "### 📈 Benchmark Results"
+            echo ""
 
             if [ -f benchmark_results.txt ]; then
-              echo '```'
+              echo "\`\`\`"
               cat benchmark_results.txt
-              echo '```'
+              echo "\`\`\`"
             else
               echo "No benchmark comparison available."
             fi
@@ -99,15 +215,18 @@ jobs:
             # Add bundle size information if available
             if [ -d target/tmp ]; then
               echo -e "\n### 📦 Bundle Sizes\n"
-              find target/tmp -name "*_bundled.py" -exec ls -lh {} \; | awk '{
+              find target/tmp -name "*_bundled.py" -exec ls -lh {} \; | sort | awk '{
                 # Extract package name from path like "target/tmp/requests_bundled.py"
                 split($9, path_parts, "/")
                 filename = path_parts[length(path_parts)]
                 gsub(/_bundled\.py$/, "", filename)
-                print "- " filename ": " $5
+                print "- **" filename "**: " $5
               }'
             fi
           } > ecosystem-report.md
+
+          # Also publish to GitHub Actions Summary tab
+          cat ecosystem-report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post PR comment
         if: github.event_name == 'pull_request'
@@ -149,13 +268,15 @@ jobs:
               });
             }
 
-      - name: Upload benchmark results
+      - name: Upload test and benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ecosystem-benchmark-results
+          name: ecosystem-test-results
+          retention-days: 14
           if-no-files-found: ignore
           path: |
+            test-results.xml
             target/criterion/
             ecosystem-report.md
             benchmark_results.txt

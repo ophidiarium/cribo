@@ -208,11 +208,50 @@ pub(super) fn collect_imports_from_module(
     for stmt in &ast.body {
         match stmt {
             Stmt::ImportFrom(import_from) => {
+                // Skip relative imports - they can never be stdlib imports
+                if import_from.level > 0 {
+                    log::trace!(
+                        "Skipping relative import: from {} import {:?} (level: {})",
+                        import_from
+                            .module
+                            .as_ref()
+                            .map_or("", ruff_python_ast::Identifier::as_str),
+                        import_from
+                            .names
+                            .iter()
+                            .map(|a| a.name.as_str())
+                            .collect::<Vec<_>>(),
+                        import_from.level
+                    );
+                    // Do not process relative imports as stdlib
+                    continue;
+                }
                 if let Some(module) = &import_from.module {
                     let module_str = module.as_str();
 
+                    log::debug!(
+                        "Checking import: from {} import {:?} (level: {})",
+                        module_str,
+                        import_from
+                            .names
+                            .iter()
+                            .map(|a| a.name.as_str())
+                            .collect::<Vec<_>>(),
+                        import_from.level
+                    );
+
                     // Check if this is a safe stdlib module, skipping __future__ imports.
                     if module_str != "__future__" && is_safe_stdlib_module(module_str) {
+                        log::debug!(
+                            "Collecting stdlib import: from {} import {:?} (level: {})",
+                            module_str,
+                            import_from
+                                .names
+                                .iter()
+                                .map(|a| a.name.as_str())
+                                .collect::<Vec<_>>(),
+                            import_from.level
+                        );
                         let import_map = bundler
                             .stdlib_import_from_map
                             .entry(module_str.to_string())

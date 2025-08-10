@@ -169,15 +169,150 @@ def load_bundled_module(bundle_path: Path, module_name: str):
         sys.path[:] = original_sys_path
 
 
-def get_package_requirements(package_root: Path) -> Dict[str, Set[str]]:
-    """Extract requirements from a package's setup.py.
+def _parse_pyproject_toml(pyproject_path: Path, tomllib) -> Dict[str, Set[str]]:
+    """Parse pyproject.toml to extract dependencies.
 
     Args:
-        package_root: Root directory of the package containing setup.py
+        pyproject_path: Path to pyproject.toml file
+        tomllib: The TOML parsing library (either tomllib or tomli)
 
     Returns:
         Dictionary with 'install_requires' and 'extras_require' sets
     """
+    try:
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+
+        install_requires = set()
+        extras_require = set()
+
+        # Import Requirement for robust PEP 508 parsing
+        from packaging.requirements import Requirement
+
+        # Check for Poetry dependencies
+        if "tool" in data and "poetry" in data["tool"]:
+            poetry_data = data["tool"]["poetry"]
+
+            # Process main dependencies
+            if "dependencies" in poetry_data:
+                for dep, spec in poetry_data["dependencies"].items():
+                    if dep.lower() == "python":
+                        continue
+                    # Handle both string specs and dict specs with optional=true
+                    if isinstance(spec, dict):
+                        if not spec.get("optional", False):
+                            install_requires.add(normalize_package_name(dep))
+                        else:
+                            extras_require.add(normalize_package_name(dep))
+                    else:
+                        install_requires.add(normalize_package_name(dep))
+
+            # Process extras
+            if "extras" in poetry_data:
+                for extra_deps in poetry_data["extras"].values():
+                    for dep in extra_deps:
+                        try:
+                            # Parse with Requirement to extract clean package name
+                            req = Requirement(dep)
+                            extras_require.add(normalize_package_name(req.name))
+                        except Exception:
+                            # If it's just a package name without version spec, normalize it
+                            extras_require.add(normalize_package_name(dep))
+
+        # Check for standard PEP 621 dependencies
+        elif "project" in data:
+            project_data = data["project"]
+
+            # Process dependencies
+            if "dependencies" in project_data:
+                for dep in project_data["dependencies"]:
+                    try:
+                        # Use robust parser for PEP 508 strings
+                        req = Requirement(dep)
+                        install_requires.add(normalize_package_name(req.name))
+                    except Exception as e:
+                        print(f"Warning: Could not parse dependency '{dep}': {e}")
+
+            # Process optional dependencies
+            if "optional-dependencies" in project_data:
+                for extra_deps in project_data["optional-dependencies"].values():
+                    for dep in extra_deps:
+                        try:
+                            # Use robust parser for PEP 508 strings
+                            req = Requirement(dep)
+                            extras_require.add(normalize_package_name(req.name))
+                        except Exception as e:
+                            print(f"Warning: Could not parse optional dependency '{dep}': {e}")
+
+        return {"install_requires": install_requires, "extras_require": extras_require}
+
+    except Exception as e:
+        print(f"Warning: Failed to parse pyproject.toml: {e}")
+        return {"install_requires": set(), "extras_require": set()}
+
+
+def normalize_package_name(name: str) -> str:
+    """Normalize package name according to PEP 503.
+
+    Args:
+        name: Package name to normalize
+
+    Returns:
+        Normalized package name (lowercase with underscores replaced by hyphens)
+    """
+    return name.lower().replace("_", "-")
+
+
+def parse_requirements_file(requirements_path: Path) -> Set[str]:
+    """Parse a requirements.txt file and extract normalized package names.
+
+    This parses the requirements.txt output from cribo, which should always
+    be well-formed package names (no version specifiers).
+
+    Args:
+        requirements_path: Path to requirements.txt file
+
+    Returns:
+        Set of normalized package names found in the file
+    """
+    found_deps = set()
+    requirements_content = requirements_path.read_text().strip()
+
+    for line in requirements_content.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            # Cribo outputs clean package names without version specifiers
+            found_deps.add(normalize_package_name(line))
+
+    return found_deps
+
+
+def get_package_requirements(package_root: Path) -> Dict[str, Set[str]]:
+    """Extract requirements from a package's setup.py or pyproject.toml.
+
+    Args:
+        package_root: Root directory of the package containing setup.py or pyproject.toml
+
+    Returns:
+        Dictionary with 'install_requires' and 'extras_require' sets
+    """
+    # First try pyproject.toml if it exists
+    pyproject_toml = package_root / "pyproject.toml"
+    if pyproject_toml.exists():
+        try:
+            import tomllib
+        except ImportError:
+            try:
+                import tomli as tomllib
+            except ImportError:
+                # Fall back to setup.py if no TOML parser available
+                pass
+            else:
+                return _parse_pyproject_toml(pyproject_toml, tomllib)
+        else:
+            return _parse_pyproject_toml(pyproject_toml, tomllib)
+
+    # Fall back to setup.py
     setup_py = package_root / "setup.py"
     if not setup_py.exists():
         return {"install_requires": set(), "extras_require": set()}
@@ -231,19 +366,28 @@ def get_package_requirements(package_root: Path) -> Dict[str, Set[str]]:
             code = compile(f.read(), str(setup_py), "exec")
             exec(code, namespace)
 
-        # Parse requirements to extract package names
+        from packaging.requirements import Requirement
+
+        # Parse requirements to extract normalized package names
         install_requires = set()
         for req in requirements.get("install_requires", []):
-            # Extract package name (before any version specifier)
-            pkg_name = req.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].split("[")[0].strip()
-            install_requires.add(pkg_name)
+            try:
+                # Use robust parser for PEP 508 strings
+                parsed_req = Requirement(req)
+                install_requires.add(normalize_package_name(parsed_req.name))
+            except Exception as e:
+                print(f"Warning: Could not parse requirement '{req}': {e}")
 
         # Collect all extras
         extras_require = set()
         for extra_reqs in requirements.get("extras_require", {}).values():
             for req in extra_reqs:
-                pkg_name = req.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].split("[")[0].strip()
-                extras_require.add(pkg_name)
+                try:
+                    # Use robust parser for PEP 508 strings
+                    parsed_req = Requirement(req)
+                    extras_require.add(normalize_package_name(parsed_req.name))
+                except Exception as e:
+                    print(f"Warning: Could not parse extra requirement '{req}': {e}")
 
         return {"install_requires": install_requires, "extras_require": extras_require}
 

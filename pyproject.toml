@@ -36,6 +36,7 @@ dev = [
     "lefthook>=1.11.13",
     "maturin",
     "pyrefly>=0.21.0",
+    "pytest>=8.3.5",
     "vale>=3.11.2.0",
 ]
 # dependencies used for fixtures testing
@@ -47,6 +48,7 @@ fixtures = [
 # dependencies for ecosystem testing
 ecosystem = [
     "requests>=2.32.0",
+    "rich>=14.1.0",
 ]
 
 [tool.maturin]
