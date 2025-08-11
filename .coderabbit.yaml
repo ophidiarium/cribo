@@ -40,10 +40,16 @@ reviews:
         Do not provide any review comments, suggestions, or analysis.
         Do not flag any issues or violations.
         Simply acknowledge these are test fixtures and skip detailed review.
+    - path: 'npm/cribo/package.json'
+      instructions: |
+        This file is used to publish `@cribo/*` dependencies
+        mentioned in the optionalDependencies section -
+        DO NOT PERFORM VERSIONS EXISTENCE CHECK
   path_filters:
     - '!**/tests/fixtures/**'
     - '!CHANGELOG.md'
     - '!**/docs/**'
+    - '!npm/cribo/package.json'
 chat:
   auto_reply: true
 knowledge_base:
