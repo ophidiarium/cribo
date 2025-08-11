@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.12](https://github.com/ophidiarium/cribo/compare/v0.5.11...v0.5.12) (2025-08-11)
+
+
+### Bug Fixes
+
+* relative imports being incorrectly classified as stdlib imports ([#267](https://github.com/ophidiarium/cribo/issues/267)) ([bd28eab](https://github.com/ophidiarium/cribo/commit/bd28eabc7b20e7d91c827e2fa5abf5781f46c6bd))
+
 ## [0.5.11](https://github.com/ophidiarium/cribo/compare/v0.5.10...v0.5.11) (2025-08-09)
 
 
