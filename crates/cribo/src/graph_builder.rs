@@ -397,6 +397,14 @@ impl<'a> GraphBuilder<'a> {
             for arg in &arguments.args {
                 self.collect_vars_in_expr_with_attrs(arg, &mut read_vars, &mut attribute_accesses);
             }
+            // Collect variables from keyword arguments (e.g., metaclass=ABCMeta)
+            for kw in &arguments.keywords {
+                self.collect_vars_in_expr_with_attrs(
+                    &kw.value,
+                    &mut read_vars,
+                    &mut attribute_accesses,
+                );
+            }
         }
 
         // Build symbol dependencies - the class depends on its base classes and decorators
@@ -1429,6 +1437,14 @@ impl<'a> GraphBuilder<'a> {
                             for arg in &arguments.args {
                                 self.collect_vars_in_expr_with_attrs(
                                     arg,
+                                    read_vars,
+                                    attribute_accesses,
+                                );
+                            }
+                            // Collect variables from keyword arguments (e.g., metaclass=ABCMeta)
+                            for kw in &arguments.keywords {
+                                self.collect_vars_in_expr_with_attrs(
+                                    &kw.value,
                                     read_vars,
                                     attribute_accesses,
                                 );
