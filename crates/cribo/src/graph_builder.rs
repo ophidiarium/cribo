@@ -1422,6 +1422,99 @@ impl<'a> GraphBuilder<'a> {
                             );
                         }
                     }
+                    Stmt::ClassDef(class_def) => {
+                        // Collect variables from decorators
+                        for decorator in &class_def.decorator_list {
+                            self.collect_vars_in_expr_with_attrs(
+                                &decorator.expression,
+                                read_vars,
+                                attribute_accesses,
+                            );
+                        }
+
+                        // Collect variables from base classes
+                        if let Some(arguments) = &class_def.arguments {
+                            for arg in &arguments.args {
+                                self.collect_vars_in_expr_with_attrs(
+                                    arg,
+                                    read_vars,
+                                    attribute_accesses,
+                                );
+                            }
+                        }
+
+                        // Recursively process the class body
+                        stack.push(&class_def.body);
+                    }
+                    Stmt::FunctionDef(func_def) => {
+                        // Collect variables from decorators
+                        for decorator in &func_def.decorator_list {
+                            self.collect_vars_in_expr_with_attrs(
+                                &decorator.expression,
+                                read_vars,
+                                attribute_accesses,
+                            );
+                        }
+
+                        // Collect from parameter annotations
+                        for param in &func_def.parameters.posonlyargs {
+                            if let Some(annotation) = &param.parameter.annotation {
+                                self.collect_vars_in_expr_with_attrs(
+                                    annotation,
+                                    read_vars,
+                                    attribute_accesses,
+                                );
+                            }
+                        }
+                        for param in &func_def.parameters.args {
+                            if let Some(annotation) = &param.parameter.annotation {
+                                self.collect_vars_in_expr_with_attrs(
+                                    annotation,
+                                    read_vars,
+                                    attribute_accesses,
+                                );
+                            }
+                        }
+                        for param in &func_def.parameters.kwonlyargs {
+                            if let Some(annotation) = &param.parameter.annotation {
+                                self.collect_vars_in_expr_with_attrs(
+                                    annotation,
+                                    read_vars,
+                                    attribute_accesses,
+                                );
+                            }
+                        }
+                        if let Some(vararg) = &func_def.parameters.vararg
+                            && let Some(annotation) = &vararg.annotation
+                        {
+                            self.collect_vars_in_expr_with_attrs(
+                                annotation,
+                                read_vars,
+                                attribute_accesses,
+                            );
+                        }
+                        if let Some(kwarg) = &func_def.parameters.kwarg
+                            && let Some(annotation) = &kwarg.annotation
+                        {
+                            self.collect_vars_in_expr_with_attrs(
+                                annotation,
+                                read_vars,
+                                attribute_accesses,
+                            );
+                        }
+
+                        // Collect from return type annotation
+                        if let Some(returns) = &func_def.returns {
+                            self.collect_vars_in_expr_with_attrs(
+                                returns,
+                                read_vars,
+                                attribute_accesses,
+                            );
+                        }
+
+                        // Recursively process the function body
+                        stack.push(&func_def.body);
+                    }
                     _ => {} // Other statements
                 }
             }
