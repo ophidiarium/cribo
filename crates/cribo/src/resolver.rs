@@ -803,7 +803,6 @@ impl ModuleResolver {
                     // RECORD entries are CSV; the first field is the path
                     let path_part = line.split(',').next().unwrap_or("");
                     // Normalize separators to forward slash for matching
-                    use cow_utils::CowUtils;
                     let path_norm = path_part.cow_replace('\\', "/").into_owned();
                     if path_norm == format!("{import_name}.py")
                         || path_norm.starts_with(&format!("{import_name}/"))
