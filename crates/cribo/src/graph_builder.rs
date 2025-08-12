@@ -294,7 +294,7 @@ impl<'a> GraphBuilder<'a> {
             self.collect_vars_in_expr(&decorator.expression, &mut read_vars);
         }
 
-        // Process parameter type annotations
+        // Process parameter type annotations and defaults
         for param in func_def
             .parameters
             .posonlyargs
@@ -304,6 +304,9 @@ impl<'a> GraphBuilder<'a> {
         {
             if let Some(annotation) = &param.parameter.annotation {
                 self.collect_vars_in_expr(annotation, &mut read_vars);
+            }
+            if let Some(default) = &param.default {
+                self.collect_vars_in_expr(default, &mut read_vars);
             }
         }
         if let Some(vararg) = &func_def.parameters.vararg
@@ -417,7 +420,7 @@ impl<'a> GraphBuilder<'a> {
         let mut method_attribute_accesses = FxHashMap::default();
         for stmt in &class_def.body {
             if let Stmt::FunctionDef(method_def) = stmt {
-                // Collect variables from method parameter annotations
+                // Collect variables from method parameter annotations and defaults
                 for param in method_def
                     .parameters
                     .posonlyargs
@@ -427,6 +430,9 @@ impl<'a> GraphBuilder<'a> {
                 {
                     if let Some(annotation) = &param.parameter.annotation {
                         self.collect_vars_in_expr(annotation, &mut method_read_vars);
+                    }
+                    if let Some(default) = &param.default {
+                        self.collect_vars_in_expr(default, &mut method_read_vars);
                     }
                 }
 
@@ -1464,7 +1470,7 @@ impl<'a> GraphBuilder<'a> {
                             );
                         }
 
-                        // Collect from parameter annotations
+                        // Collect from parameter annotations and defaults
                         for param in func_def
                             .parameters
                             .posonlyargs
@@ -1475,6 +1481,13 @@ impl<'a> GraphBuilder<'a> {
                             if let Some(annotation) = &param.parameter.annotation {
                                 self.collect_vars_in_expr_with_attrs(
                                     annotation,
+                                    read_vars,
+                                    attribute_accesses,
+                                );
+                            }
+                            if let Some(default) = &param.default {
+                                self.collect_vars_in_expr_with_attrs(
+                                    default,
                                     read_vars,
                                     attribute_accesses,
                                 );
