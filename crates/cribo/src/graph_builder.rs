@@ -295,17 +295,13 @@ impl<'a> GraphBuilder<'a> {
         }
 
         // Process parameter type annotations
-        for param in &func_def.parameters.posonlyargs {
-            if let Some(annotation) = &param.parameter.annotation {
-                self.collect_vars_in_expr(annotation, &mut read_vars);
-            }
-        }
-        for param in &func_def.parameters.args {
-            if let Some(annotation) = &param.parameter.annotation {
-                self.collect_vars_in_expr(annotation, &mut read_vars);
-            }
-        }
-        for param in &func_def.parameters.kwonlyargs {
+        for param in func_def
+            .parameters
+            .posonlyargs
+            .iter()
+            .chain(func_def.parameters.args.iter())
+            .chain(func_def.parameters.kwonlyargs.iter())
+        {
             if let Some(annotation) = &param.parameter.annotation {
                 self.collect_vars_in_expr(annotation, &mut read_vars);
             }
@@ -414,17 +410,13 @@ impl<'a> GraphBuilder<'a> {
         for stmt in &class_def.body {
             if let Stmt::FunctionDef(method_def) = stmt {
                 // Collect variables from method parameter annotations
-                for param in &method_def.parameters.posonlyargs {
-                    if let Some(annotation) = &param.parameter.annotation {
-                        self.collect_vars_in_expr(annotation, &mut method_read_vars);
-                    }
-                }
-                for param in &method_def.parameters.args {
-                    if let Some(annotation) = &param.parameter.annotation {
-                        self.collect_vars_in_expr(annotation, &mut method_read_vars);
-                    }
-                }
-                for param in &method_def.parameters.kwonlyargs {
+                for param in method_def
+                    .parameters
+                    .posonlyargs
+                    .iter()
+                    .chain(method_def.parameters.args.iter())
+                    .chain(method_def.parameters.kwonlyargs.iter())
+                {
                     if let Some(annotation) = &param.parameter.annotation {
                         self.collect_vars_in_expr(annotation, &mut method_read_vars);
                     }
@@ -1457,25 +1449,13 @@ impl<'a> GraphBuilder<'a> {
                         }
 
                         // Collect from parameter annotations
-                        for param in &func_def.parameters.posonlyargs {
-                            if let Some(annotation) = &param.parameter.annotation {
-                                self.collect_vars_in_expr_with_attrs(
-                                    annotation,
-                                    read_vars,
-                                    attribute_accesses,
-                                );
-                            }
-                        }
-                        for param in &func_def.parameters.args {
-                            if let Some(annotation) = &param.parameter.annotation {
-                                self.collect_vars_in_expr_with_attrs(
-                                    annotation,
-                                    read_vars,
-                                    attribute_accesses,
-                                );
-                            }
-                        }
-                        for param in &func_def.parameters.kwonlyargs {
+                        for param in func_def
+                            .parameters
+                            .posonlyargs
+                            .iter()
+                            .chain(func_def.parameters.args.iter())
+                            .chain(func_def.parameters.kwonlyargs.iter())
+                        {
                             if let Some(annotation) = &param.parameter.annotation {
                                 self.collect_vars_in_expr_with_attrs(
                                     annotation,
