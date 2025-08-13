@@ -298,9 +298,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                     Stmt::ClassDef(class_def) => {
                         // Check if this class has hard dependencies that should not be transformed
                         let class_name = class_def.name.as_str();
-                        let has_hard_deps = self.bundler.hard_dependencies.iter().any(|dep| {
-                            dep.module_name == self.module_name && dep.class_name == class_name
-                        });
+
+                        // Pre-filter hard dependencies for this specific class to avoid repeated scans
+                        let class_hard_deps: Vec<_> = self
+                            .bundler
+                            .hard_dependencies
+                            .iter()
+                            .filter(|dep| {
+                                dep.module_name == self.module_name && dep.class_name == class_name
+                            })
+                            .collect();
+
+                        let has_hard_deps = !class_hard_deps.is_empty();
 
                         // Transform base classes only if there are no hard dependencies
                         if let Some(ref mut arguments) = class_def.arguments {
@@ -317,31 +326,25 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         // transformation to be safe
                                         true
                                     } else {
-                                        self.bundler.hard_dependencies.iter().any(|dep| {
-                                            dep.module_name == self.module_name
-                                                && dep.class_name == class_name
-                                                && (dep.imported_attr == base_str
-                                                    || dep
-                                                        .base_class
-                                                        .ends_with(&format!(".{base_str}")))
+                                        class_hard_deps.iter().any(|dep| {
+                                            dep.imported_attr == base_str
+                                                || dep.base_class.ends_with(&format!(".{base_str}"))
                                         })
                                     };
 
                                     if is_hard_dep_base {
                                         // Check if this specific hard dependency is from a stdlib module
                                         // If so, still transform it since stdlib normalization handles it
-                                        let is_from_stdlib =
-                                            self.bundler.hard_dependencies.iter().any(|dep| {
-                                                dep.module_name == self.module_name
-                                                    && dep.class_name == class_name
-                                                    // This check is crucial to link the dependency to the current base class
-                                                    && (dep.imported_attr == base_str
-                                                        || dep.base_class.ends_with(&format!(".{base_str}")))
-                                                    && crate::resolver::is_stdlib_module(
-                                                        &dep.source_module,
-                                                        self.python_version,
-                                                    )
-                                            });
+                                        let is_from_stdlib = class_hard_deps.iter().any(|dep| {
+                                            (dep.imported_attr == base_str
+                                                || dep
+                                                    .base_class
+                                                    .ends_with(&format!(".{base_str}")))
+                                                && crate::resolver::is_stdlib_module(
+                                                    &dep.source_module,
+                                                    self.python_version,
+                                                )
+                                        });
 
                                         if is_from_stdlib {
                                             log::debug!(
