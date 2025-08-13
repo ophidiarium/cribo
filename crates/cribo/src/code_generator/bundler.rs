@@ -169,6 +169,48 @@ impl<'a> Bundler<'a> {
         }
     }
 
+    /// Collect all names introduced by stdlib imports in the current scope
+    /// This includes module names, their aliases, and imported symbols with their aliases
+    pub(crate) fn collect_stdlib_names_in_scope(&self) -> FxIndexSet<String> {
+        let mut stdlib_names = FxIndexSet::default();
+
+        // Add names from `import <name>` and `import <name> as <alias>`
+        stdlib_names.extend(
+            self.stdlib_import_statements
+                .iter()
+                .filter_map(|stmt| match stmt {
+                    Stmt::Import(import_stmt) => Some(import_stmt),
+                    _ => None,
+                })
+                .flat_map(|import_stmt| &import_stmt.names)
+                .map(|alias| {
+                    // Use the alias if present; otherwise the top-level module name
+                    // e.g., "import importlib.machinery" binds "importlib"
+                    if let Some(asname) = &alias.asname {
+                        asname.as_str().to_string()
+                    } else {
+                        alias
+                            .name
+                            .as_str()
+                            .split('.')
+                            .next()
+                            .unwrap_or_else(|| alias.name.as_str())
+                            .to_string()
+                    }
+                }),
+        );
+
+        // Add names from `from <mod> import <name>` and `from <mod> import <name> as <alias>`
+        stdlib_names.extend(
+            self.stdlib_import_from_map
+                .values()
+                .flatten()
+                .map(|(name, alias_opt)| alias_opt.as_ref().unwrap_or(name).clone()),
+        );
+
+        stdlib_names
+    }
+
     /// Create a new bundler instance
     pub fn new(
         module_info_registry: Option<&'a crate::orchestrator::ModuleRegistry>,
