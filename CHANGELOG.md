@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.13](https://github.com/ophidiarium/cribo/compare/v0.5.12...v0.5.13) (2025-08-13)
+
+
+### Bug Fixes
+
+* collect dependencies from nested classes and functions in graph builder ([#272](https://github.com/ophidiarium/cribo/issues/272)) ([d0d174b](https://github.com/ophidiarium/cribo/commit/d0d174b89bdabb2fc6a35c46dfc11458c0ef64cc))
+* handle stdlib module name conflicts in bundler ([#279](https://github.com/ophidiarium/cribo/issues/279)) ([b245fbe](https://github.com/ophidiarium/cribo/commit/b245fbe87bf7e6de8b426ede9991fb383541d76c))
+* improve class ordering for cross-module inheritance ([#277](https://github.com/ophidiarium/cribo/issues/277)) ([ed8fee4](https://github.com/ophidiarium/cribo/commit/ed8fee4c22185f8e67a60384f30958ec38613c3d))
+* prevent stdlib module name conflicts in bundled imports ([#275](https://github.com/ophidiarium/cribo/issues/275)) ([6b304fe](https://github.com/ophidiarium/cribo/commit/6b304fee74bf84c9b4a22f341df1bf2c0226da17))
+
 ## [0.5.12](https://github.com/ophidiarium/cribo/compare/v0.5.11...v0.5.12) (2025-08-11)
 
 
