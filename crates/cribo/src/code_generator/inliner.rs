@@ -87,6 +87,7 @@ impl Bundler<'_> {
             is_entry_module: false, // This is not the entry module
             is_wrapper_init: false, // Not a wrapper init
             global_deferred_imports: Some(&self.global_deferred_imports), // Pass global registry
+            python_version: ctx.python_version,
         });
         transformer.transform_module(&mut ast);
 

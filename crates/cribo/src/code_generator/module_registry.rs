@@ -256,8 +256,12 @@ fn create_assignment_if_no_stdlib_conflict(
     value_name: &str,
     stdlib_names: &FxIndexSet<String>,
     assignments: &mut Vec<Stmt>,
+    python_version: u8,
 ) {
-    if stdlib_names.contains(local_name) {
+    // Check both explicitly imported stdlib names and if the name itself is a stdlib module
+    if stdlib_names.contains(local_name)
+        || crate::resolver::is_stdlib_module(local_name, python_version)
+    {
         log::debug!(
             "Skipping assignment '{local_name} = {value_name}' - would conflict \
              with stdlib name '{local_name}'"
@@ -282,6 +286,7 @@ pub fn create_assignments_for_inlined_imports(
     inlined_modules: &FxIndexSet<String>,
     bundled_modules: &FxIndexSet<String>,
     stdlib_names: &FxIndexSet<String>,
+    python_version: u8,
 ) -> (Vec<Stmt>, Vec<NamespaceRequirement>) {
     let mut assignments = Vec::new();
     let mut namespace_requirements = Vec::new();
@@ -325,6 +330,7 @@ pub fn create_assignments_for_inlined_imports(
                     &sanitized_name,
                     stdlib_names,
                     &mut assignments,
+                    python_version,
                 );
             }
         } else {
@@ -346,6 +352,7 @@ pub fn create_assignments_for_inlined_imports(
                     actual_name,
                     stdlib_names,
                     &mut assignments,
+                    python_version,
                 );
             }
         }
