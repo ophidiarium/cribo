@@ -28,94 +28,7 @@ impl SymbolDependencyGraph {
         graph: &petgraph::Graph<String, ()>,
         cycle_node: petgraph::graph::NodeIndex,
     ) -> Vec<String> {
-        use petgraph::visit::EdgeRef;
-        use rustc_hash::FxHashMap;
-
-        /// State for Tarjan's SCC algorithm
-        struct TarjanState {
-            index_counter: usize,
-            stack: Vec<petgraph::graph::NodeIndex>,
-            indices: FxHashMap<petgraph::graph::NodeIndex, usize>,
-            lowlinks: FxHashMap<petgraph::graph::NodeIndex, usize>,
-            on_stack: FxHashMap<petgraph::graph::NodeIndex, bool>,
-            components: Vec<Vec<petgraph::graph::NodeIndex>>,
-        }
-
-        impl TarjanState {
-            fn new() -> Self {
-                Self {
-                    index_counter: 0,
-                    stack: Vec::new(),
-                    indices: FxHashMap::default(),
-                    lowlinks: FxHashMap::default(),
-                    on_stack: FxHashMap::default(),
-                    components: Vec::new(),
-                }
-            }
-        }
-
-        fn tarjan_strongconnect(
-            graph: &petgraph::Graph<String, ()>,
-            v: petgraph::graph::NodeIndex,
-            state: &mut TarjanState,
-        ) {
-            state.indices.insert(v, state.index_counter);
-            state.lowlinks.insert(v, state.index_counter);
-            state.index_counter += 1;
-            state.stack.push(v);
-            state.on_stack.insert(v, true);
-
-            for edge in graph.edges(v) {
-                let w = edge.target();
-                if !state.indices.contains_key(&w) {
-                    tarjan_strongconnect(graph, w, state);
-                    let w_lowlink = *state.lowlinks.get(&w).expect("w should exist in lowlinks");
-                    let v_lowlink = *state.lowlinks.get(&v).expect("v should exist in lowlinks");
-                    state.lowlinks.insert(v, v_lowlink.min(w_lowlink));
-                } else if *state.on_stack.get(&w).unwrap_or(&false) {
-                    let w_index = *state.indices.get(&w).expect("w should exist in indices");
-                    let v_lowlink = *state.lowlinks.get(&v).expect("v should exist in lowlinks");
-                    state.lowlinks.insert(v, v_lowlink.min(w_index));
-                }
-            }
-
-            if state.lowlinks[&v] == state.indices[&v] {
-                let mut component = Vec::new();
-                while let Some(w) = state.stack.pop() {
-                    state.on_stack.insert(w, false);
-                    component.push(w);
-                    if w == v {
-                        break;
-                    }
-                }
-                if component.len() > 1 {
-                    state.components.push(component);
-                }
-            }
-        }
-
-        let mut state = TarjanState::new();
-
-        // Run Tarjan's algorithm on all unvisited nodes
-        for node_index in graph.node_indices() {
-            if !state.indices.contains_key(&node_index) {
-                tarjan_strongconnect(graph, node_index, &mut state);
-            }
-        }
-
-        // Find the SCC containing our cycle node
-        for component in state.components {
-            if component.contains(&cycle_node) {
-                // Return all symbols in this SCC
-                return component
-                    .into_iter()
-                    .map(|idx| graph[idx].clone())
-                    .collect();
-            }
-        }
-
-        // If no SCC found (shouldn't happen), fall back to single symbol
-        vec![graph[cycle_node].clone()]
+        Self::find_cycle_symbols_generic(graph, cycle_node)
     }
 
     /// Find all symbols in the strongly connected component containing the given node
@@ -124,6 +37,18 @@ impl SymbolDependencyGraph {
         graph: &petgraph::Graph<(String, String), ()>,
         cycle_node: petgraph::graph::NodeIndex,
     ) -> Vec<(String, String)> {
+        Self::find_cycle_symbols_generic(graph, cycle_node)
+    }
+
+    /// Generic implementation of Tarjan's strongly connected components algorithm
+    /// Works with any graph node type that implements Clone
+    fn find_cycle_symbols_generic<T>(
+        graph: &petgraph::Graph<T, ()>,
+        cycle_node: petgraph::graph::NodeIndex,
+    ) -> Vec<T>
+    where
+        T: Clone,
+    {
         use petgraph::visit::EdgeRef;
         use rustc_hash::FxHashMap;
 
@@ -150,8 +75,8 @@ impl SymbolDependencyGraph {
             }
         }
 
-        fn tarjan_strongconnect(
-            graph: &petgraph::Graph<(String, String), ()>,
+        fn tarjan_strongconnect<T>(
+            graph: &petgraph::Graph<T, ()>,
             v: petgraph::graph::NodeIndex,
             state: &mut TarjanState,
         ) {
@@ -165,12 +90,12 @@ impl SymbolDependencyGraph {
                 let w = edge.target();
                 if !state.indices.contains_key(&w) {
                     tarjan_strongconnect(graph, w, state);
-                    let w_lowlink = *state.lowlinks.get(&w).expect("w should exist in lowlinks");
-                    let v_lowlink = *state.lowlinks.get(&v).expect("v should exist in lowlinks");
+                    let w_lowlink = state.lowlinks[&w];
+                    let v_lowlink = state.lowlinks[&v];
                     state.lowlinks.insert(v, v_lowlink.min(w_lowlink));
-                } else if *state.on_stack.get(&w).unwrap_or(&false) {
-                    let w_index = *state.indices.get(&w).expect("w should exist in indices");
-                    let v_lowlink = *state.lowlinks.get(&v).expect("v should exist in lowlinks");
+                } else if state.on_stack.get(&w).copied().unwrap_or(false) {
+                    let w_index = state.indices[&w];
+                    let v_lowlink = state.lowlinks[&v];
                     state.lowlinks.insert(v, v_lowlink.min(w_index));
                 }
             }
@@ -184,6 +109,7 @@ impl SymbolDependencyGraph {
                         break;
                     }
                 }
+                // Only store components with more than one node (actual cycles)
                 if component.len() > 1 {
                     state.components.push(component);
                 }
@@ -210,7 +136,7 @@ impl SymbolDependencyGraph {
             }
         }
 
-        // If no SCC found (shouldn't happen), fall back to single symbol
+        // If no SCC found (shouldn't happen for actual cycles), fall back to single symbol
         vec![graph[cycle_node].clone()]
     }
 
