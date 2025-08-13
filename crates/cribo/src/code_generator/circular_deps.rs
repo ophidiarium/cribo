@@ -716,10 +716,18 @@ mod tests {
 
         // Create a complex cycle: A -> B -> C -> D -> A
         // Plus an additional path: A -> C (creating a diamond)
-        graph.symbol_definitions.insert(("mod1".to_string(), "A".to_string()));
-        graph.symbol_definitions.insert(("mod1".to_string(), "B".to_string()));
-        graph.symbol_definitions.insert(("mod1".to_string(), "C".to_string()));
-        graph.symbol_definitions.insert(("mod1".to_string(), "D".to_string()));
+        graph
+            .symbol_definitions
+            .insert(("mod1".to_string(), "A".to_string()));
+        graph
+            .symbol_definitions
+            .insert(("mod1".to_string(), "B".to_string()));
+        graph
+            .symbol_definitions
+            .insert(("mod1".to_string(), "C".to_string()));
+        graph
+            .symbol_definitions
+            .insert(("mod1".to_string(), "D".to_string()));
 
         // A depends on B and C (diamond shape)
         graph.module_level_dependencies.insert(
@@ -766,10 +774,18 @@ mod tests {
         let mut graph = SymbolDependencyGraph::default();
 
         // Create a complex 4-node cycle
-        graph.symbol_definitions.insert(("mod1".to_string(), "A".to_string()));
-        graph.symbol_definitions.insert(("mod1".to_string(), "B".to_string()));
-        graph.symbol_definitions.insert(("mod1".to_string(), "C".to_string()));
-        graph.symbol_definitions.insert(("mod1".to_string(), "D".to_string()));
+        graph
+            .symbol_definitions
+            .insert(("mod1".to_string(), "A".to_string()));
+        graph
+            .symbol_definitions
+            .insert(("mod1".to_string(), "B".to_string()));
+        graph
+            .symbol_definitions
+            .insert(("mod1".to_string(), "C".to_string()));
+        graph
+            .symbol_definitions
+            .insert(("mod1".to_string(), "D".to_string()));
 
         // A -> B -> C -> D -> A
         graph.module_level_dependencies.insert(
@@ -816,13 +832,21 @@ mod tests {
         test_graph.add_edge(node_d, node_a, ());
 
         // Test our SCC detection method
-        let cycle_symbols = SymbolDependencyGraph::find_cycle_symbols_with_scc_pairs(&test_graph, node_a);
-        
+        let cycle_symbols =
+            SymbolDependencyGraph::find_cycle_symbols_with_scc_pairs(&test_graph, node_a);
+
         // All 4 symbols should be detected in the cycle
-        assert_eq!(cycle_symbols.len(), 4, "All 4 symbols should be detected in cycle");
-        
+        assert_eq!(
+            cycle_symbols.len(),
+            4,
+            "All 4 symbols should be detected in cycle"
+        );
+
         // Convert to set of symbol names for easier verification
-        let symbol_names: indexmap::IndexSet<_> = cycle_symbols.iter().map(|(_, name)| name.as_str()).collect();
+        let symbol_names: indexmap::IndexSet<_> = cycle_symbols
+            .iter()
+            .map(|(_, name)| name.as_str())
+            .collect();
         assert!(symbol_names.contains("A"));
         assert!(symbol_names.contains("B"));
         assert!(symbol_names.contains("C"));
