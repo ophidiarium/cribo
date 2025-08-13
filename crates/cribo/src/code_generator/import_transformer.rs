@@ -328,19 +328,22 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     };
 
                                     if is_hard_dep_base {
-                                        // Check if the hard dependency is from a stdlib module
+                                        // Check if this specific hard dependency is from a stdlib module
                                         // If so, still transform it since stdlib normalization handles it
-                                        let is_stdlib_hard_dep =
+                                        let is_from_stdlib =
                                             self.bundler.hard_dependencies.iter().any(|dep| {
                                                 dep.module_name == self.module_name
                                                     && dep.class_name == class_name
+                                                    // This check is crucial to link the dependency to the current base class
+                                                    && (dep.imported_attr == base_str
+                                                        || dep.base_class.ends_with(&format!(".{base_str}")))
                                                     && crate::resolver::is_stdlib_module(
                                                         &dep.source_module,
                                                         self.python_version,
                                                     )
                                             });
 
-                                        if is_stdlib_hard_dep {
+                                        if is_from_stdlib {
                                             log::debug!(
                                                 "Transforming stdlib hard dependency base class {} for \
                                                  class {class_name} - stdlib normalization will handle it",

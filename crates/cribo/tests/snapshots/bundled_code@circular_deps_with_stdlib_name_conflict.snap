@@ -20,7 +20,7 @@ pkg.console = pkg_console
 pkg_style = types.SimpleNamespace(__name__='pkg.style')
 pkg.style = pkg_style
 @functools.cache
-def __cribo_init___cribo_1ce680_pkg_pretty():
+def __cribo_init___cribo_2353ad_pkg_pretty():
     module = types.SimpleNamespace()
     module.__name__ = 'pkg.pretty'
     global Console, RichRenderable
@@ -129,7 +129,7 @@ Color.__module__ = 'pkg.color'
 """Color module that participates in circular dependencies."""
 Style.__module__ = 'pkg.style'
 """Style module that participates in circular dependencies."""
-pkg.pretty = __cribo_init___cribo_1ce680_pkg_pretty()
+pkg.pretty = __cribo_init___cribo_2353ad_pkg_pretty()
 pkg_abc.RichRenderable = RichRenderable
 pkg_abc.abstractmethod = abstractmethod
 pkg_console.ConsoleBase = ConsoleBase
