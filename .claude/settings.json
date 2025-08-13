@@ -28,5 +28,9 @@
             "WebFetch(domain:pypi.org)"
         ],
         "deny": []
+    },
+    "env": {
+        "DISABLE_TELEMETRY": "1",
+        "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1"
     }
 }
