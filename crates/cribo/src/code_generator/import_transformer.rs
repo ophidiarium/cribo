@@ -65,12 +65,17 @@ pub struct RecursiveImportTransformer<'a> {
     /// This prevents duplicate namespace assignments when multiple imports reference the same
     /// module
     populated_modules: FxIndexSet<String>,
+    /// Cached set of stdlib names in scope to avoid repeated computation
+    stdlib_names_in_scope: FxIndexSet<String>,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
     /// Create a new transformer from parameters
     #[allow(clippy::needless_pass_by_value)] // params contains mutable references
     pub fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
+        // Compute stdlib names once during initialization
+        let stdlib_names_in_scope = params.bundler.collect_stdlib_names_in_scope();
+
         Self {
             bundler: params.bundler,
             module_name: params.module_name,
@@ -87,6 +92,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             created_namespace_objects: false,
             wrapper_module_imports: FxIndexMap::default(),
             populated_modules: FxIndexSet::default(),
+            stdlib_names_in_scope,
         }
     }
 
@@ -808,9 +814,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 // But skip if it would conflict with a stdlib name in scope
                                 if local_name != namespace_var {
                                     // Check if this would conflict with a stdlib name in scope
-                                    let stdlib_names = self.bundler.collect_stdlib_names_in_scope();
-
-                                    if stdlib_names.contains(local_name) {
+                                    if self.stdlib_names_in_scope.contains(local_name) {
                                         log::debug!(
                                             "  Skipping alias '{local_name} = {namespace_var}' - would \
                                              conflict with stdlib name '{local_name}'"
@@ -1302,14 +1306,15 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         // Otherwise, use standard transformation
         let empty_renames = FxIndexMap::default();
-        rewrite_import_from(
-            self.bundler,
-            import_from.clone(),
-            self.module_name,
-            self.module_path,
-            &empty_renames,
-            self.is_wrapper_init,
-        )
+        rewrite_import_from(RewriteImportFromParams {
+            bundler: self.bundler,
+            import_from: import_from.clone(),
+            current_module: self.module_name,
+            module_path: self.module_path,
+            symbol_renames: &empty_renames,
+            inside_wrapper_init: self.is_wrapper_init,
+            stdlib_names: &self.stdlib_names_in_scope,
+        })
     }
 
     /// Transform an expression, rewriting module attribute access to direct references
@@ -2233,15 +2238,28 @@ fn has_bundled_submodules(
     false
 }
 
-/// Rewrite import from statement with proper handling for bundled modules
-fn rewrite_import_from(
-    bundler: &Bundler,
+/// Parameters for rewriting import from statements
+struct RewriteImportFromParams<'a> {
+    bundler: &'a Bundler<'a>,
     import_from: StmtImportFrom,
-    current_module: &str,
-    module_path: Option<&Path>,
-    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    current_module: &'a str,
+    module_path: Option<&'a Path>,
+    symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
     inside_wrapper_init: bool,
-) -> Vec<Stmt> {
+    stdlib_names: &'a FxIndexSet<String>,
+}
+
+/// Rewrite import from statement with proper handling for bundled modules
+fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
+    let RewriteImportFromParams {
+        bundler,
+        import_from,
+        current_module,
+        module_path,
+        symbol_renames,
+        inside_wrapper_init,
+        stdlib_names,
+    } = params;
     // Resolve relative imports to absolute module names
     log::debug!(
         "rewrite_import_from: Processing import {:?} in module '{}'",
@@ -2408,8 +2426,6 @@ fn rewrite_import_from(
         log::debug!(
             "Module '{module_name}' was inlined, creating assignments for imported symbols"
         );
-        // Collect all stdlib names in scope (modules, aliases, and imported symbols)
-        let stdlib_names = bundler.collect_stdlib_names_in_scope();
 
         let (assignments, namespace_requirements) =
             crate::code_generator::module_registry::create_assignments_for_inlined_imports(
@@ -2419,7 +2435,7 @@ fn rewrite_import_from(
                 &bundler.module_registry,
                 &bundler.inlined_modules,
                 &bundler.bundled_modules,
-                &stdlib_names,
+                stdlib_names,
             );
 
         // Check for unregistered namespaces - this indicates a bug in pre-detection
