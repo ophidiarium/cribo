@@ -2320,42 +2320,48 @@ impl<'a> Bundler<'a> {
                         true,
                     ));
                 } else {
-                    // Check if the source module is a bundled wrapper module
-                    let is_bundled_wrapper = wrapper_modules_saved
-                        .iter()
-                        .any(|(name, _, _, _)| name == &source_module);
-
-                    if is_bundled_wrapper && use_module_cache_for_wrappers {
-                        // The source module is a bundled wrapper module that will be initialized
-                        // later We can't use a regular import, so we'll
-                        // defer this until after module initialization
+                    // Check if the source module is a bundled module (either inlined or wrapper)
+                    // This must be checked before stdlib to handle first-party modules with stdlib names
+                    let is_bundled_module = self.bundled_modules.contains(&source_module);
+                    if is_bundled_module {
                         log::debug!(
-                            "Deferring hard dependency imports from bundled wrapper module \
-                             {source_module}"
+                            "Skipping hard dependency imports from bundled module {source_module} - \
+                             symbols are defined locally"
                         );
-                        // We'll handle these later after all modules are initialized
-                    } else {
-                        // Regular external module - collect unique imports with their aliases
-                        let mut imports_to_make: FxIndexMap<String, Option<String>> =
-                            FxIndexMap::default();
-                        for dep in deps {
-                            // If this dependency has a mandatory alias, use it
-                            if dep.alias_is_mandatory && dep.alias.is_some() {
-                                imports_to_make
-                                    .insert(dep.imported_attr.clone(), dep.alias.clone());
-                            } else {
-                                // Only insert if we haven't already added this import
-                                imports_to_make
-                                    .entry(dep.imported_attr.clone())
-                                    .or_insert(None);
-                            }
-                        }
+                        // Bundled modules don't need imports, their symbols are defined locally
+                        continue;
+                    }
 
-                        if !imports_to_make.is_empty() {
-                            let import_list: Vec<(String, Option<String>)> =
-                                imports_to_make.into_iter().collect();
-                            imports_to_generate.push((source_module, import_list, false));
+                    // Check if the source module is a stdlib module that has already been normalized
+                    if crate::resolver::is_stdlib_module(&source_module, python_version) {
+                        log::debug!(
+                            "Skipping hard dependency imports from stdlib module {source_module} - \
+                             already handled by stdlib normalization"
+                        );
+                        // Stdlib imports are already normalized and hoisted, skip them
+                        continue;
+                    }
+
+                    // Regular external module - collect unique imports with their aliases
+                    let mut imports_to_make: FxIndexMap<String, Option<String>> =
+                        FxIndexMap::default();
+                    for dep in deps {
+                        // If this dependency has a mandatory alias, use it
+                        if dep.alias_is_mandatory && dep.alias.is_some() {
+                            imports_to_make.insert(dep.imported_attr.clone(), dep.alias.clone());
+                        } else {
+                            // Only insert if we haven't already added this import
+                            imports_to_make
+                                .entry(dep.imported_attr.clone())
+                                .or_insert(None);
                         }
+                    }
+
+                    if !imports_to_make.is_empty() {
+                        let mut import_list: Vec<(String, Option<String>)> =
+                            imports_to_make.into_iter().collect();
+                        import_list.sort_by(|(a, _), (b, _)| a.cmp(b));
+                        imports_to_generate.push((source_module, import_list, false));
                     }
                 }
             }
