@@ -1,42 +1,39 @@
-name: Copilot Development Setup
+name: 'Copilot Setup Steps'
 
+# Automatically run the setup steps when they are changed to allow for easy validation, and
+# allow manual testing through the repository's "Actions" tab
 on:
-  workflow_call:
-    inputs:
-      rust-toolchain:
-        description: 'Rust toolchain to use (stable, nightly, etc.)'
-        required: false
-        default: 'stable'
-        type: string
-      python-version:
-        description: 'Python version to install'
-        required: false
-        default: '3.12'
-        type: string
-      enable-cache:
-        description: 'Enable Rust and uv caching'
-        required: false
-        default: true
-        type: boolean
+  workflow_dispatch:
+
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
 
 jobs:
-  setup:
+  # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
+  copilot-setup-steps:
     runs-on: ubuntu-latest
+
+    # Set the permissions to the lowest permissions possible needed for your steps.
+    # Copilot will be given its own token for its operations.
+    permissions:
+      # If you want to clone the repository as part of your setup steps,
+      # for example to install dependencies, you'll need the `contents: read` permission. If you don't clone the repository in your setup steps, Copilot will do this for you automatically after the steps complete.
+      contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+        uses: actions/checkout@v5
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ inputs.rust-toolchain }}
+          toolchain: stable
           components: clippy, rustfmt
 
       - name: Cache Rust dependencies
-        if: ${{ inputs.enable-cache }}
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
@@ -45,12 +42,16 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
         with:
-          enable-cache: ${{ inputs.enable-cache }}
+          enable-cache: true
           activate-environment: true
-          python-version: ${{ inputs.python-version }}
+          ignore-nothing-to-cache: true
+          python-version: 3.12
 
       - name: Install Python dependencies
         run: uv sync --all-groups
+
+      - name: Install lefthook
+        run: lefthook install
 
       - name: Install cargo-insta
         uses: taiki-e/install-action@v2
@@ -68,7 +69,6 @@ jobs:
           tool: taplo
 
       - name: Install typos
-        uses: crate-ci/typos@v1
         uses: taiki-e/install-action@v2
         with:
           tool: typos-cli
@@ -77,16 +77,13 @@ jobs:
           echo "🦀 Rust toolchain:"
           rustc --version
           cargo --version
-          
+
           echo "🐍 Python environment:"
           python --version
           uv --version
-          
+
           echo "🔧 Development tools:"
           cargo insta --version
           cargo nextest --version
           taplo --version
           typos --version
-          
-          echo "📦 Python packages:"
-          uv pip list
