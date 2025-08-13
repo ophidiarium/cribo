@@ -420,6 +420,11 @@ impl<'a> GraphBuilder<'a> {
         let mut method_attribute_accesses = FxIndexMap::default();
         for stmt in &class_def.body {
             if let Stmt::FunctionDef(method_def) = stmt {
+                // Collect variables from method decorators (execute at class body time)
+                for decorator in &method_def.decorator_list {
+                    self.collect_vars_in_expr(&decorator.expression, &mut method_read_vars);
+                }
+
                 // Collect variables from method parameter annotations and defaults
                 for param in method_def
                     .parameters
@@ -434,6 +439,18 @@ impl<'a> GraphBuilder<'a> {
                     if let Some(default) = &param.default {
                         self.collect_vars_in_expr(default, &mut method_read_vars);
                     }
+                }
+
+                // Collect vararg/kwarg annotations for parity with function handling
+                if let Some(vararg) = &method_def.parameters.vararg
+                    && let Some(annotation) = &vararg.annotation
+                {
+                    self.collect_vars_in_expr(annotation, &mut method_read_vars);
+                }
+                if let Some(kwarg) = &method_def.parameters.kwarg
+                    && let Some(annotation) = &kwarg.annotation
+                {
+                    self.collect_vars_in_expr(annotation, &mut method_read_vars);
                 }
 
                 // Collect variables from return type annotation
