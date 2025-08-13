@@ -7,11 +7,11 @@ input_file: crates/cribo/tests/fixtures/pyfail_three_module_cycle/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
+def get_value_a():
+    return "value_from_A"
 def process_a():
     """Process A that depends on B"""
     return process_b() + "->A"
-def get_value_a():
-    return "value_from_A"
 def process_b():
     """Process B that depends on C"""
     return process_c() + "->B"
@@ -19,7 +19,7 @@ def process_c():
     """Process C that depends back on A - creates the cycle"""
     value = get_value_a()
     return f"C(using_{value})"
-module_a = types.SimpleNamespace(__name__='module_a', process_a=process_a, get_value_a=get_value_a)
+module_a = types.SimpleNamespace(__name__='module_a', get_value_a=get_value_a, process_a=process_a)
 def main():
     result = module_a.process_a()
     print(f"Result: {result}")

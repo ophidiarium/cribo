@@ -12,19 +12,19 @@ services_auth = types.SimpleNamespace(__name__='services.auth')
 services.auth = services_auth
 services_database = types.SimpleNamespace(__name__='services.database')
 services.database = services_database
+def get_user_context():
+    """Get user context - used by database module"""
+    return "user_context_from_auth"
 def authenticate_user(username):
     """Authenticate user using database connection"""
     conn = get_connection()
     return f"auth({username}, conn={conn})"
-def get_user_context():
-    """Get user context - used by database module"""
-    return "user_context_from_auth"
 def get_connection():
     """Get database connection with user context"""
     context = get_user_context()
     return f"db_connection(context={context})"
-services_auth.authenticate_user = authenticate_user
 services_auth.get_user_context = get_user_context
+services_auth.authenticate_user = authenticate_user
 services_database.get_connection = get_connection
 auth = services_auth
 def main():

@@ -2,20 +2,20 @@
 /// This module bridges the gap between ruff's AST and our dependency graph
 use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     cribo_graph::{ItemData, ItemType, ModuleDepGraph},
     side_effects::is_safe_stdlib_module,
+    types::{FxIndexMap, FxIndexSet},
     visitors::ExpressionSideEffectDetector,
 };
 
 /// Context for for statement variable collection
 struct ForStmtContext<'a, 'b> {
-    read_vars: &'a mut FxHashSet<String>,
-    write_vars: &'a mut FxHashSet<String>,
+    read_vars: &'a mut FxIndexSet<String>,
+    write_vars: &'a mut FxIndexSet<String>,
     stack: &'a mut Vec<&'b [Stmt]>,
-    attribute_accesses: &'a mut FxHashMap<String, FxHashSet<String>>,
+    attribute_accesses: &'a mut FxIndexMap<String, FxIndexSet<String>>,
 }
 
 /// Builds a `ModuleDepGraph` from a Python AST
@@ -25,10 +25,10 @@ pub struct GraphBuilder<'a> {
     /// Track import aliases for importlib detection
     /// Maps local name -> module path (e.g., "il" -> "importlib", "im" ->
     /// "`importlib.import_module`")
-    import_aliases: FxHashMap<String, String>,
+    import_aliases: FxIndexMap<String, String>,
     /// Track which modules were created by stdlib normalization
     /// This helps with tree-shaking normalized imports
-    normalized_modules: FxHashSet<String>,
+    normalized_modules: FxIndexSet<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -43,13 +43,13 @@ impl<'a> GraphBuilder<'a> {
         Self {
             graph,
             current_scope: ScopeType::Module,
-            import_aliases: FxHashMap::default(),
-            normalized_modules: FxHashSet::default(),
+            import_aliases: FxIndexMap::default(),
+            normalized_modules: FxIndexSet::default(),
         }
     }
 
     /// Set the modules that were created by stdlib normalization
-    pub fn set_normalized_modules(&mut self, modules: FxHashSet<String>) {
+    pub fn set_normalized_modules(&mut self, modules: FxIndexSet<String>) {
         self.normalized_modules = modules;
     }
 
@@ -124,8 +124,8 @@ impl<'a> GraphBuilder<'a> {
                     .insert(local_name.to_string(), "importlib".to_string());
             }
 
-            let mut imported_names = FxHashSet::default();
-            let mut var_decls = FxHashSet::default();
+            let mut imported_names = FxIndexSet::default();
+            let mut var_decls = FxIndexSet::default();
 
             // For imports like `import xml.etree.ElementTree`:
             // - The imported name is the full module path "xml.etree.ElementTree"
@@ -167,16 +167,16 @@ impl<'a> GraphBuilder<'a> {
                     alias: alias.asname.as_ref().map(std::string::ToString::to_string),
                 },
                 var_decls,
-                read_vars: FxHashSet::default(),
-                eventual_read_vars: FxHashSet::default(),
-                write_vars: FxHashSet::default(),
-                eventual_write_vars: FxHashSet::default(),
+                read_vars: FxIndexSet::default(),
+                eventual_read_vars: FxIndexSet::default(),
+                write_vars: FxIndexSet::default(),
+                eventual_write_vars: FxIndexSet::default(),
                 has_side_effects: crate::side_effects::import_has_side_effects(module_name),
                 imported_names,
-                reexported_names: FxHashSet::default(),
-                defined_symbols: FxHashSet::default(),
-                symbol_dependencies: FxHashMap::default(),
-                attribute_accesses: FxHashMap::default(),
+                reexported_names: FxIndexSet::default(),
+                defined_symbols: FxIndexSet::default(),
+                symbol_dependencies: FxIndexMap::default(),
+                attribute_accesses: FxIndexMap::default(),
                 is_normalized_import: is_normalized,
             };
 
@@ -213,9 +213,9 @@ impl<'a> GraphBuilder<'a> {
 
         let is_star = import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*";
 
-        let mut imported_names = FxHashSet::default();
+        let mut imported_names = FxIndexSet::default();
         let mut names = Vec::new();
-        let mut reexported_names = FxHashSet::default();
+        let mut reexported_names = FxIndexSet::default();
 
         if is_star {
             imported_names.insert("*".to_string());
@@ -261,20 +261,20 @@ impl<'a> GraphBuilder<'a> {
                 is_star,
             },
             var_decls: if is_star {
-                FxHashSet::default() // star-import declares nothing explicitly
+                FxIndexSet::default() // star-import declares nothing explicitly
             } else {
                 imported_names.clone() // FromImport declares the imported names as variables
             },
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            read_vars: FxIndexSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: crate::side_effects::from_import_has_side_effects(import_from),
             imported_names,
             reexported_names,
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
+            defined_symbols: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
             is_normalized_import: false,
         };
 
@@ -287,7 +287,7 @@ impl<'a> GraphBuilder<'a> {
         let func_name = func_def.name.to_string();
 
         // Collect variables from decorators and type annotations
-        let mut read_vars = FxHashSet::default();
+        let mut read_vars = FxIndexSet::default();
 
         // Process decorators
         for decorator in &func_def.decorator_list {
@@ -326,9 +326,9 @@ impl<'a> GraphBuilder<'a> {
         }
 
         // Collect variables that will be read within the function
-        let mut eventual_read_vars = FxHashSet::default();
-        let mut eventual_write_vars = FxHashSet::default();
-        let mut eventual_attribute_accesses = FxHashMap::default();
+        let mut eventual_read_vars = FxIndexSet::default();
+        let mut eventual_write_vars = FxIndexSet::default();
+        let mut eventual_attribute_accesses = FxIndexMap::default();
         self.collect_vars_in_body(
             &func_def.body,
             &mut eventual_read_vars,
@@ -337,8 +337,8 @@ impl<'a> GraphBuilder<'a> {
         );
 
         // Build symbol dependencies - the function depends on all variables it reads
-        let mut symbol_dependencies = FxHashMap::default();
-        let mut all_deps = FxHashSet::default();
+        let mut symbol_dependencies = FxIndexMap::default();
+        let mut all_deps = FxIndexSet::default();
         all_deps.extend(read_vars.clone());
         all_deps.extend(eventual_read_vars.clone());
         symbol_dependencies.insert(func_name.clone(), all_deps);
@@ -355,11 +355,11 @@ impl<'a> GraphBuilder<'a> {
             var_decls: [func_name.clone()].into_iter().collect(),
             read_vars,
             eventual_read_vars,
-            write_vars: FxHashSet::default(),
+            write_vars: FxIndexSet::default(),
             eventual_write_vars,
             has_side_effects: false,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
             defined_symbols: [func_name].into_iter().collect(),
             symbol_dependencies,
             attribute_accesses: eventual_attribute_accesses,
@@ -384,7 +384,7 @@ impl<'a> GraphBuilder<'a> {
         let class_name = class_def.name.to_string();
 
         // Collect variables from decorators
-        let mut read_vars = FxHashSet::default();
+        let mut read_vars = FxIndexSet::default();
         for decorator in &class_def.decorator_list {
             self.collect_vars_in_expr(&decorator.expression, &mut read_vars);
         }
@@ -395,7 +395,7 @@ impl<'a> GraphBuilder<'a> {
             // Note: This is for generic classes
         }
 
-        let mut attribute_accesses = FxHashMap::default();
+        let mut attribute_accesses = FxIndexMap::default();
         if let Some(arguments) = &class_def.arguments {
             for arg in &arguments.args {
                 self.collect_vars_in_expr_with_attrs(arg, &mut read_vars, &mut attribute_accesses);
@@ -411,13 +411,13 @@ impl<'a> GraphBuilder<'a> {
         }
 
         // Build symbol dependencies - the class depends on its base classes and decorators
-        let mut symbol_dependencies = FxHashMap::default();
+        let mut symbol_dependencies = FxIndexMap::default();
         symbol_dependencies.insert(class_name.clone(), read_vars.clone());
 
         // Collect all variables used in methods to add as eventual dependencies
-        let mut method_read_vars = FxHashSet::default();
-        let mut method_write_vars = FxHashSet::default();
-        let mut method_attribute_accesses = FxHashMap::default();
+        let mut method_read_vars = FxIndexSet::default();
+        let mut method_write_vars = FxIndexSet::default();
+        let mut method_attribute_accesses = FxIndexMap::default();
         for stmt in &class_def.body {
             if let Stmt::FunctionDef(method_def) = stmt {
                 // Collect variables from method parameter annotations and defaults
@@ -466,11 +466,11 @@ impl<'a> GraphBuilder<'a> {
             var_decls: [class_name.clone()].into_iter().collect(),
             read_vars,
             eventual_read_vars: method_read_vars, // Methods may use these variables
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: false,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
             defined_symbols: [class_name].into_iter().collect(),
             symbol_dependencies,
             attribute_accesses: method_attribute_accesses,
@@ -493,7 +493,7 @@ impl<'a> GraphBuilder<'a> {
     /// Process an assignment statement
     fn process_assign(&mut self, assign: &ast::StmtAssign) -> Result<()> {
         let mut targets = Vec::new();
-        let mut var_decls = FxHashSet::default();
+        let mut var_decls = FxIndexSet::default();
 
         for target in &assign.targets {
             if let Some(names) = self.extract_assignment_targets(target) {
@@ -503,8 +503,8 @@ impl<'a> GraphBuilder<'a> {
         }
 
         // Collect variables read in the value expression
-        let mut read_vars = FxHashSet::default();
-        let mut attribute_accesses = FxHashMap::default();
+        let mut read_vars = FxIndexSet::default();
+        let mut attribute_accesses = FxIndexMap::default();
         self.collect_vars_in_expr_with_attrs(
             &assign.value,
             &mut read_vars,
@@ -530,7 +530,7 @@ impl<'a> GraphBuilder<'a> {
 
             // Create an Import item for each target variable
             for target in &targets {
-                let mut imported_names = FxHashSet::default();
+                let mut imported_names = FxIndexSet::default();
                 imported_names.insert(module_name.clone());
 
                 let item_data = ItemData {
@@ -540,15 +540,15 @@ impl<'a> GraphBuilder<'a> {
                     },
                     var_decls: [target.clone()].into_iter().collect(),
                     read_vars: read_vars.clone(),
-                    eventual_read_vars: FxHashSet::default(),
-                    write_vars: FxHashSet::default(),
-                    eventual_write_vars: FxHashSet::default(),
+                    eventual_read_vars: FxIndexSet::default(),
+                    write_vars: FxIndexSet::default(),
+                    eventual_write_vars: FxIndexSet::default(),
                     has_side_effects: true, // Import always has side effects
                     imported_names,
-                    reexported_names: FxHashSet::default(),
+                    reexported_names: FxIndexSet::default(),
                     defined_symbols: [target.clone()].into_iter().collect(),
-                    symbol_dependencies: FxHashMap::default(),
-                    attribute_accesses: FxHashMap::default(),
+                    symbol_dependencies: FxIndexMap::default(),
+                    attribute_accesses: FxIndexMap::default(),
                     is_normalized_import: false,
                 };
 
@@ -560,7 +560,7 @@ impl<'a> GraphBuilder<'a> {
             // Regular assignment
             // Check if this is an __all__ assignment
             let is_all_assignment = targets.contains(&"__all__".to_string());
-            let mut reexported_names = FxHashSet::default();
+            let mut reexported_names = FxIndexSet::default();
 
             if is_all_assignment {
                 // Extract names from __all__ value
@@ -597,18 +597,18 @@ impl<'a> GraphBuilder<'a> {
                 read_vars,
                 eventual_read_vars: reexported_names.clone(), /* Names in __all__ are "eventually
                                                                * read" */
-                write_vars: FxHashSet::default(),
-                eventual_write_vars: FxHashSet::default(),
+                write_vars: FxIndexSet::default(),
+                eventual_write_vars: FxIndexSet::default(),
                 // Attribute access on safe stdlib modules doesn't have side effects
                 has_side_effects: if is_safe_stdlib_attribute_access {
                     false
                 } else {
                     Self::expression_has_side_effects(&assign.value)
                 },
-                imported_names: FxHashSet::default(),
+                imported_names: FxIndexSet::default(),
                 reexported_names,
                 defined_symbols: var_decls,
-                symbol_dependencies: FxHashMap::default(),
+                symbol_dependencies: FxIndexMap::default(),
                 attribute_accesses,
                 is_normalized_import: false,
             };
@@ -620,8 +620,8 @@ impl<'a> GraphBuilder<'a> {
 
     /// Process an annotated assignment statement
     fn process_ann_assign(&mut self, ann_assign: &ast::StmtAnnAssign) -> Result<()> {
-        let mut var_decls = FxHashSet::default();
-        let mut read_vars = FxHashSet::default();
+        let mut var_decls = FxIndexSet::default();
+        let mut read_vars = FxIndexSet::default();
 
         // Extract target variable name
         if let Some(names) = self.extract_assignment_targets(&ann_assign.target) {
@@ -642,18 +642,18 @@ impl<'a> GraphBuilder<'a> {
             },
             var_decls: var_decls.clone(),
             read_vars,
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: ann_assign
                 .value
                 .as_ref()
                 .is_some_and(|v| Self::expression_has_side_effects(v)),
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
             defined_symbols: var_decls,
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
             is_normalized_import: false,
         };
 
@@ -663,8 +663,8 @@ impl<'a> GraphBuilder<'a> {
 
     /// Process an expression statement
     fn process_expr_stmt(&mut self, expr: &Expr) -> Result<()> {
-        let mut read_vars = FxHashSet::default();
-        let mut attribute_accesses = FxHashMap::default();
+        let mut read_vars = FxIndexSet::default();
+        let mut attribute_accesses = FxIndexMap::default();
         self.collect_vars_in_expr_with_attrs(expr, &mut read_vars, &mut attribute_accesses);
 
         log::debug!(
@@ -687,16 +687,16 @@ impl<'a> GraphBuilder<'a> {
 
         let item_data = ItemData {
             item_type: ItemType::Expression,
-            var_decls: FxHashSet::default(),
+            var_decls: FxIndexSet::default(),
             read_vars,
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            defined_symbols: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
             attribute_accesses,
             is_normalized_import: false,
         };
@@ -707,8 +707,8 @@ impl<'a> GraphBuilder<'a> {
 
     /// Process assert statement
     fn process_assert_stmt(&mut self, assert_stmt: &ast::StmtAssert) -> Result<()> {
-        let mut read_vars = FxHashSet::default();
-        let mut attribute_accesses = FxHashMap::default();
+        let mut read_vars = FxIndexSet::default();
+        let mut attribute_accesses = FxIndexMap::default();
 
         // Collect variables from the test expression
         self.collect_vars_in_expr_with_attrs(
@@ -729,17 +729,17 @@ impl<'a> GraphBuilder<'a> {
 
         let item_data = ItemData {
             item_type: ItemType::Expression, // Assert is treated as an expression with side effects
-            var_decls: FxHashSet::default(),
+            var_decls: FxIndexSet::default(),
             read_vars,
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: true, /* Assert statements have side effects (can raise
                                      * AssertionError) */
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            defined_symbols: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
             attribute_accesses,
             is_normalized_import: false,
         };
@@ -751,24 +751,24 @@ impl<'a> GraphBuilder<'a> {
     /// Process if statement
     fn process_if_stmt(&mut self, if_stmt: &ast::StmtIf) -> Result<()> {
         // Process condition
-        let mut read_vars = FxHashSet::default();
+        let mut read_vars = FxIndexSet::default();
         self.collect_vars_in_expr(&if_stmt.test, &mut read_vars);
 
         let item_data = ItemData {
             item_type: ItemType::If {
                 condition: String::new(), // Could extract condition text if needed
             },
-            var_decls: FxHashSet::default(),
+            var_decls: FxIndexSet::default(),
             read_vars,
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: true,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            defined_symbols: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
             is_normalized_import: false,
         };
 
@@ -782,7 +782,7 @@ impl<'a> GraphBuilder<'a> {
         // Process elif/else branches
         for clause in &if_stmt.elif_else_clauses {
             if let Some(condition) = &clause.test {
-                let mut read_vars = FxHashSet::default();
+                let mut read_vars = FxIndexSet::default();
                 self.collect_vars_in_expr(condition, &mut read_vars);
                 // Could add as separate If item
             }
@@ -796,28 +796,28 @@ impl<'a> GraphBuilder<'a> {
 
     /// Process for loop
     fn process_for_stmt(&mut self, for_stmt: &ast::StmtFor) -> Result<()> {
-        let mut read_vars = FxHashSet::default();
+        let mut read_vars = FxIndexSet::default();
         self.collect_vars_in_expr(&for_stmt.iter, &mut read_vars);
 
         // Extract loop variables
-        let mut write_vars = FxHashSet::default();
+        let mut write_vars = FxIndexSet::default();
         if let Some(names) = self.extract_assignment_targets(&for_stmt.target) {
             write_vars.extend(names);
         }
 
         let item_data = ItemData {
             item_type: ItemType::Other,
-            var_decls: FxHashSet::default(),
+            var_decls: FxIndexSet::default(),
             read_vars,
-            eventual_read_vars: FxHashSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
             write_vars,
-            eventual_write_vars: FxHashSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: true,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            defined_symbols: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
             is_normalized_import: false,
         };
 
@@ -838,22 +838,22 @@ impl<'a> GraphBuilder<'a> {
 
     /// Process while loop
     fn process_while_stmt(&mut self, while_stmt: &ast::StmtWhile) -> Result<()> {
-        let mut read_vars = FxHashSet::default();
+        let mut read_vars = FxIndexSet::default();
         self.collect_vars_in_expr(&while_stmt.test, &mut read_vars);
 
         let item_data = ItemData {
             item_type: ItemType::Other,
-            var_decls: FxHashSet::default(),
+            var_decls: FxIndexSet::default(),
             read_vars,
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: true,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            defined_symbols: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
             is_normalized_import: false,
         };
 
@@ -874,7 +874,7 @@ impl<'a> GraphBuilder<'a> {
 
     /// Process with statement
     fn process_with_stmt(&mut self, with_stmt: &ast::StmtWith) -> Result<()> {
-        let mut read_vars = FxHashSet::default();
+        let mut read_vars = FxIndexSet::default();
 
         for item in &with_stmt.items {
             self.collect_vars_in_expr(&item.context_expr, &mut read_vars);
@@ -882,17 +882,17 @@ impl<'a> GraphBuilder<'a> {
 
         let item_data = ItemData {
             item_type: ItemType::Other,
-            var_decls: FxHashSet::default(),
+            var_decls: FxIndexSet::default(),
             read_vars,
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: true,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            defined_symbols: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
             is_normalized_import: false,
         };
 
@@ -910,8 +910,8 @@ impl<'a> GraphBuilder<'a> {
     fn process_raise_stmt(&mut self, raise_stmt: &ast::StmtRaise) -> Result<()> {
         log::debug!("Processing raise statement");
 
-        let mut read_vars = FxHashSet::default();
-        let mut attribute_accesses = FxHashMap::default();
+        let mut read_vars = FxIndexSet::default();
+        let mut attribute_accesses = FxIndexMap::default();
 
         // Collect variables from the exception expression
         if let Some(exc) = &raise_stmt.exc {
@@ -930,16 +930,16 @@ impl<'a> GraphBuilder<'a> {
 
         let item_data = ItemData {
             item_type: ItemType::Other,
-            var_decls: FxHashSet::default(),
+            var_decls: FxIndexSet::default(),
             read_vars,
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: true, // Raise statements have side effects
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            defined_symbols: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
             attribute_accesses,
             is_normalized_import: false,
         };
@@ -957,17 +957,17 @@ impl<'a> GraphBuilder<'a> {
 
         let item_data = ItemData {
             item_type: ItemType::Try,
-            var_decls: FxHashSet::default(),
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            var_decls: FxIndexSet::default(),
+            read_vars: FxIndexSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: true,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            defined_symbols: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            defined_symbols: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
             is_normalized_import: false,
         };
 
@@ -984,8 +984,8 @@ impl<'a> GraphBuilder<'a> {
 
             // Track exception type if specified
             if let Some(type_expr) = &handler.type_ {
-                let mut read_vars = FxHashSet::default();
-                let mut attribute_accesses = FxHashMap::default();
+                let mut read_vars = FxIndexSet::default();
+                let mut attribute_accesses = FxIndexMap::default();
                 self.collect_vars_in_expr_with_attrs(
                     type_expr,
                     &mut read_vars,
@@ -995,16 +995,16 @@ impl<'a> GraphBuilder<'a> {
                 // Create an item for the exception handler
                 let item_data = ItemData {
                     item_type: ItemType::Other,
-                    var_decls: FxHashSet::default(),
+                    var_decls: FxIndexSet::default(),
                     read_vars,
-                    eventual_read_vars: FxHashSet::default(),
-                    write_vars: FxHashSet::default(),
-                    eventual_write_vars: FxHashSet::default(),
+                    eventual_read_vars: FxIndexSet::default(),
+                    write_vars: FxIndexSet::default(),
+                    eventual_write_vars: FxIndexSet::default(),
                     has_side_effects: false,
-                    imported_names: FxHashSet::default(),
-                    reexported_names: FxHashSet::default(),
-                    defined_symbols: FxHashSet::default(),
-                    symbol_dependencies: FxHashMap::default(),
+                    imported_names: FxIndexSet::default(),
+                    reexported_names: FxIndexSet::default(),
+                    defined_symbols: FxIndexSet::default(),
+                    symbol_dependencies: FxIndexMap::default(),
                     attribute_accesses,
                     is_normalized_import: false,
                 };
@@ -1062,8 +1062,8 @@ impl<'a> GraphBuilder<'a> {
     fn collect_vars_in_expr_with_attrs(
         &self,
         expr: &Expr,
-        vars: &mut FxHashSet<String>,
-        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
+        vars: &mut FxIndexSet<String>,
+        attribute_accesses: &mut FxIndexMap<String, FxIndexSet<String>>,
     ) {
         match expr {
             Expr::Name(name) => {
@@ -1263,9 +1263,9 @@ impl<'a> GraphBuilder<'a> {
     }
 
     /// Collect variables used in an expression
-    fn collect_vars_in_expr(&self, expr: &Expr, vars: &mut FxHashSet<String>) {
+    fn collect_vars_in_expr(&self, expr: &Expr, vars: &mut FxIndexSet<String>) {
         // Use the new method but ignore attribute accesses for backward compatibility
-        let mut dummy_attrs = FxHashMap::default();
+        let mut dummy_attrs = FxIndexMap::default();
         self.collect_vars_in_expr_with_attrs(expr, vars, &mut dummy_attrs);
     }
 
@@ -1273,9 +1273,9 @@ impl<'a> GraphBuilder<'a> {
     fn collect_vars_in_body(
         &self,
         body: &[Stmt],
-        read_vars: &mut FxHashSet<String>,
-        write_vars: &mut FxHashSet<String>,
-        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
+        read_vars: &mut FxIndexSet<String>,
+        write_vars: &mut FxIndexSet<String>,
+        attribute_accesses: &mut FxIndexMap<String, FxIndexSet<String>>,
     ) {
         let mut stack: Vec<&[Stmt]> = vec![body];
 
@@ -1296,7 +1296,7 @@ impl<'a> GraphBuilder<'a> {
                             attribute_accesses,
                         );
                         // Handle assignment targets to collect reads from subscripts/attributes
-                        let mut dummy_write_vars = FxHashSet::default();
+                        let mut dummy_write_vars = FxIndexSet::default();
                         self.handle_assign_targets(
                             &assign.targets,
                             &mut dummy_write_vars,
@@ -1574,8 +1574,8 @@ impl<'a> GraphBuilder<'a> {
     fn handle_return_stmt(
         &self,
         ret: &ast::StmtReturn,
-        read_vars: &mut FxHashSet<String>,
-        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
+        read_vars: &mut FxIndexSet<String>,
+        attribute_accesses: &mut FxIndexMap<String, FxIndexSet<String>>,
     ) {
         if let Some(value) = &ret.value {
             self.collect_vars_in_expr_with_attrs(value, read_vars, attribute_accesses);
@@ -1586,8 +1586,8 @@ impl<'a> GraphBuilder<'a> {
     fn handle_assign_targets(
         &self,
         targets: &[Expr],
-        write_vars: &mut FxHashSet<String>,
-        read_vars: &mut FxHashSet<String>,
+        write_vars: &mut FxIndexSet<String>,
+        read_vars: &mut FxIndexSet<String>,
     ) {
         for target in targets {
             // First extract simple assignment targets (variable names)
@@ -1604,7 +1604,7 @@ impl<'a> GraphBuilder<'a> {
     fn collect_reads_from_assignment_target(
         &self,
         target: &Expr,
-        read_vars: &mut FxHashSet<String>,
+        read_vars: &mut FxIndexSet<String>,
     ) {
         match target {
             Expr::Subscript(subscript) => {
@@ -1638,9 +1638,9 @@ impl<'a> GraphBuilder<'a> {
     fn handle_if_stmt<'b>(
         &self,
         if_stmt: &'b ast::StmtIf,
-        read_vars: &mut FxHashSet<String>,
+        read_vars: &mut FxIndexSet<String>,
         stack: &mut Vec<&'b [Stmt]>,
-        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
+        attribute_accesses: &mut FxIndexMap<String, FxIndexSet<String>>,
     ) {
         self.collect_vars_in_expr_with_attrs(&if_stmt.test, read_vars, attribute_accesses);
         stack.push(&if_stmt.body);
@@ -1710,9 +1710,9 @@ impl<'a> GraphBuilder<'a> {
     fn handle_with_stmt<'b>(
         &self,
         with_stmt: &'b ast::StmtWith,
-        read_vars: &mut FxHashSet<String>,
+        read_vars: &mut FxIndexSet<String>,
         stack: &mut Vec<&'b [Stmt]>,
-        attribute_accesses: &mut FxHashMap<String, FxHashSet<String>>,
+        attribute_accesses: &mut FxIndexMap<String, FxIndexSet<String>>,
     ) {
         for item in &with_stmt.items {
             self.collect_vars_in_expr_with_attrs(&item.context_expr, read_vars, attribute_accesses);

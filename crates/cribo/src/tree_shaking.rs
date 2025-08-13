@@ -3,30 +3,31 @@
 use std::collections::VecDeque;
 
 use anyhow::Result;
-use indexmap::{IndexMap, IndexSet};
 use log::{debug, trace};
-use rustc_hash::FxHashSet;
 
-use crate::cribo_graph::{CriboGraph, ItemData, ItemType, ModuleId};
+use crate::{
+    cribo_graph::{CriboGraph, ItemData, ItemType, ModuleId},
+    types::{FxIndexMap, FxIndexSet},
+};
 
 /// Tree shaker that removes unused symbols from modules
 #[derive(Debug)]
 pub struct TreeShaker {
     /// Module items from semantic analysis (reused from `CriboGraph`)
-    module_items: IndexMap<String, Vec<ItemData>>,
+    module_items: FxIndexMap<String, Vec<ItemData>>,
     /// Track which symbols are used across module boundaries
-    cross_module_refs: IndexMap<(String, String), IndexSet<String>>,
+    cross_module_refs: FxIndexMap<(String, String), FxIndexSet<String>>,
     /// Final set of symbols to keep (`module_name`, `symbol_name`)
-    used_symbols: IndexSet<(String, String)>,
+    used_symbols: FxIndexSet<(String, String)>,
     /// Map from module ID to module name
-    _module_names: IndexMap<ModuleId, String>,
+    _module_names: FxIndexMap<ModuleId, String>,
 }
 
 impl TreeShaker {
     /// Create a tree shaker from an existing `CriboGraph`
     pub fn from_graph(graph: &CriboGraph) -> Self {
-        let mut module_items = IndexMap::new();
-        let mut module_names = IndexMap::new();
+        let mut module_items = FxIndexMap::default();
+        let mut module_names = FxIndexMap::default();
 
         // Extract module items from the graph
         for (module_id, module_dep_graph) in &graph.modules {
@@ -41,8 +42,8 @@ impl TreeShaker {
 
         Self {
             module_items,
-            cross_module_refs: IndexMap::new(),
-            used_symbols: IndexSet::new(),
+            cross_module_refs: FxIndexMap::default(),
+            used_symbols: FxIndexSet::default(),
             _module_names: module_names,
         }
     }
@@ -305,7 +306,7 @@ impl TreeShaker {
     /// Mark all symbols transitively used from entry module
     pub fn mark_used_symbols(&mut self, entry_module: &str) -> Result<()> {
         let mut worklist = VecDeque::new();
-        let mut directly_imported_modules = IndexSet::new();
+        let mut directly_imported_modules = FxIndexSet::default();
 
         // First pass: find all direct module imports across all modules
         for (module_name, items) in &self.module_items {
@@ -831,7 +832,7 @@ impl TreeShaker {
     fn find_attribute_in_namespace(
         &self,
         base_var: &str,
-        accessed_attrs: &FxHashSet<String>,
+        accessed_attrs: &FxIndexSet<String>,
         worklist: &mut VecDeque<(String, String)>,
         context: &str,
     ) {
@@ -925,7 +926,6 @@ impl TreeShaker {
 
 #[cfg(test)]
 mod tests {
-    use rustc_hash::{FxHashMap, FxHashSet};
 
     use super::*;
 
@@ -949,16 +949,16 @@ mod tests {
                 name: "used_func".to_string(),
             },
             defined_symbols: ["used_func".into()].into_iter().collect(),
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
+            read_vars: FxIndexSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
             var_decls: ["used_func".into()].into_iter().collect(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: false,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
             is_normalized_import: false,
         });
 
@@ -968,16 +968,16 @@ mod tests {
                 name: "unused_func".to_string(),
             },
             defined_symbols: ["unused_func".into()].into_iter().collect(),
-            read_vars: FxHashSet::default(),
-            eventual_read_vars: FxHashSet::default(),
+            read_vars: FxIndexSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
             var_decls: ["unused_func".into()].into_iter().collect(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: false,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
             is_normalized_import: false,
         });
 
@@ -991,17 +991,17 @@ mod tests {
 
         entry.add_item(ItemData {
             item_type: ItemType::Expression,
-            defined_symbols: FxHashSet::default(),
+            defined_symbols: FxIndexSet::default(),
             read_vars: ["used_func".into()].into_iter().collect(),
-            eventual_read_vars: FxHashSet::default(),
-            var_decls: FxHashSet::default(),
-            write_vars: FxHashSet::default(),
-            eventual_write_vars: FxHashSet::default(),
+            eventual_read_vars: FxIndexSet::default(),
+            var_decls: FxIndexSet::default(),
+            write_vars: FxIndexSet::default(),
+            eventual_write_vars: FxIndexSet::default(),
             has_side_effects: true,
-            imported_names: FxHashSet::default(),
-            reexported_names: FxHashSet::default(),
-            symbol_dependencies: FxHashMap::default(),
-            attribute_accesses: FxHashMap::default(),
+            imported_names: FxIndexSet::default(),
+            reexported_names: FxIndexSet::default(),
+            symbol_dependencies: FxIndexMap::default(),
+            attribute_accesses: FxIndexMap::default(),
             is_normalized_import: false,
         });
 
