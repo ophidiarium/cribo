@@ -2358,8 +2358,9 @@ impl<'a> Bundler<'a> {
                     }
 
                     if !imports_to_make.is_empty() {
-                        let import_list: Vec<(String, Option<String>)> =
+                        let mut import_list: Vec<(String, Option<String>)> =
                             imports_to_make.into_iter().collect();
+                        import_list.sort_by(|(a, _), (b, _)| a.cmp(b));
                         imports_to_generate.push((source_module, import_list, false));
                     }
                 }
