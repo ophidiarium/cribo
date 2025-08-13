@@ -352,13 +352,13 @@ impl SymbolDependencyGraph {
                 // Find all symbols involved in the cycle using SCC detection
                 let cycle_symbols = Self::find_cycle_symbols_with_scc_pairs(&graph, cycle_info);
 
-                panic!(
+                Err(anyhow::anyhow!(
                     "Cannot bundle due to circular symbol dependency: {:?}",
                     cycle_symbols
                         .iter()
                         .map(|(m, s)| format!("{m}.{s}"))
                         .collect::<Vec<_>>()
-                );
+                ))
             }
         }
     }
@@ -752,14 +752,12 @@ mod tests {
         circular_modules.insert("mod1".to_string());
 
         // This should fail due to circular dependency
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut local_graph = graph.clone();
-            local_graph.topological_sort_symbols(&circular_modules)
-        }));
+        let mut local_graph = graph.clone();
+        let result = local_graph.topological_sort_symbols(&circular_modules);
 
         // The current implementation might miss some symbols in the cycle
         // With our improved implementation, it should detect all 4 symbols in the cycle
-        assert!(result.is_err(), "Expected panic due to circular dependency");
+        assert!(result.is_err(), "Expected error due to circular dependency");
     }
 
     #[test]
@@ -797,13 +795,11 @@ mod tests {
             set
         };
 
-        // Capture the panic message to verify all symbols are detected
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut local_graph = graph.clone();
-            local_graph.topological_sort_symbols(&circular_modules).unwrap();
-        }));
+        // Test that topological sort fails due to circular dependency
+        let mut local_graph = graph.clone();
+        let result = local_graph.topological_sort_symbols(&circular_modules);
 
-        assert!(result.is_err(), "Expected panic due to circular dependency");
+        assert!(result.is_err(), "Expected error due to circular dependency");
 
         // Test the SCC detection directly with a simulated graph
         use petgraph::Graph;
@@ -826,7 +822,7 @@ mod tests {
         assert_eq!(cycle_symbols.len(), 4, "All 4 symbols should be detected in cycle");
         
         // Convert to set of symbol names for easier verification
-        let symbol_names: std::collections::HashSet<_> = cycle_symbols.iter().map(|(_, name)| name.as_str()).collect();
+        let symbol_names: indexmap::IndexSet<_> = cycle_symbols.iter().map(|(_, name)| name.as_str()).collect();
         assert!(symbol_names.contains("A"));
         assert!(symbol_names.contains("B"));
         assert!(symbol_names.contains("C"));
