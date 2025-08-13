@@ -2320,6 +2320,27 @@ impl<'a> Bundler<'a> {
                         true,
                     ));
                 } else {
+                    // Check if the source module is a stdlib module that has already been normalized
+                    if crate::resolver::is_stdlib_module(&source_module, python_version) {
+                        log::debug!(
+                            "Skipping hard dependency imports from stdlib module {source_module} - \
+                             already handled by stdlib normalization"
+                        );
+                        // Stdlib imports are already normalized and hoisted, skip them
+                        continue;
+                    }
+
+                    // Check if the source module is a bundled module (either inlined or wrapper)
+                    let is_bundled_module = self.bundled_modules.contains(&source_module);
+                    if is_bundled_module {
+                        log::debug!(
+                            "Skipping hard dependency imports from bundled module {source_module} - \
+                             symbols are defined locally"
+                        );
+                        // Bundled modules don't need imports, their symbols are defined locally
+                        continue;
+                    }
+
                     // Check if the source module is a bundled wrapper module
                     let is_bundled_wrapper = wrapper_modules_saved
                         .iter()

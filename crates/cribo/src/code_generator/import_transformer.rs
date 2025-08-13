@@ -328,15 +328,40 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     };
 
                                     if is_hard_dep_base {
-                                        log::debug!(
-                                            "Skipping transformation of hard dependency base \
-                                             class {} for class {class_name}",
-                                            if base_str.is_empty() {
-                                                "<complex expression>"
-                                            } else {
-                                                &base_str
-                                            }
-                                        );
+                                        // Check if the hard dependency is from a stdlib module
+                                        // If so, still transform it since stdlib normalization handles it
+                                        let is_stdlib_hard_dep =
+                                            self.bundler.hard_dependencies.iter().any(|dep| {
+                                                dep.module_name == self.module_name
+                                                    && dep.class_name == class_name
+                                                    && crate::resolver::is_stdlib_module(
+                                                        &dep.source_module,
+                                                        self.python_version,
+                                                    )
+                                            });
+
+                                        if is_stdlib_hard_dep {
+                                            log::debug!(
+                                                "Transforming stdlib hard dependency base class {} for \
+                                                 class {class_name} - stdlib normalization will handle it",
+                                                if base_str.is_empty() {
+                                                    "<complex expression>"
+                                                } else {
+                                                    &base_str
+                                                }
+                                            );
+                                            self.transform_expr(base);
+                                        } else {
+                                            log::debug!(
+                                                "Skipping transformation of hard dependency base \
+                                                 class {} for class {class_name}",
+                                                if base_str.is_empty() {
+                                                    "<complex expression>"
+                                                } else {
+                                                    &base_str
+                                                }
+                                            );
+                                        }
                                     } else {
                                         // Not a hard dependency base, transform normally
                                         self.transform_expr(base);
