@@ -3484,6 +3484,7 @@ impl<'a> Bundler<'a> {
                         is_entry_module: true,  // This is the entry module
                         is_wrapper_init: false, // Not a wrapper init
                         global_deferred_imports: Some(&self.global_deferred_imports), /* Pass global deferred imports for checking */
+                        python_version,
                     },
                 );
 

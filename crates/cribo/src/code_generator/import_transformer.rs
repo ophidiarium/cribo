@@ -30,6 +30,7 @@ pub struct RecursiveImportTransformerParams<'a> {
     pub is_entry_module: bool,
     pub is_wrapper_init: bool,
     pub global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
+    pub python_version: u8,
 }
 
 /// Transformer that recursively handles import statements and module references
@@ -67,6 +68,8 @@ pub struct RecursiveImportTransformer<'a> {
     populated_modules: FxIndexSet<String>,
     /// Cached set of stdlib names in scope to avoid repeated computation
     stdlib_names_in_scope: FxIndexSet<String>,
+    /// Python version for compatibility checks
+    python_version: u8,
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
@@ -93,6 +96,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             wrapper_module_imports: FxIndexMap::default(),
             populated_modules: FxIndexSet::default(),
             stdlib_names_in_scope,
+            python_version: params.python_version,
         }
     }
 
@@ -758,7 +762,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                         let namespace_var = sanitize_module_name_for_identifier(&full_module_path);
 
                         // Check if this would shadow a stdlib module
-                        let shadows_stdlib = crate::resolver::is_stdlib_module(local_name, 38);
+                        let shadows_stdlib =
+                            crate::resolver::is_stdlib_module(local_name, self.python_version);
 
                         // Only create the assignment if:
                         // 1. We're in the entry module (where user expects the shadowing), OR
@@ -1328,6 +1333,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             symbol_renames: &empty_renames,
             inside_wrapper_init: self.is_wrapper_init,
             stdlib_names: &self.stdlib_names_in_scope,
+            python_version: self.python_version,
         })
     }
 
@@ -2261,6 +2267,7 @@ struct RewriteImportFromParams<'a> {
     symbol_renames: &'a FxIndexMap<String, FxIndexMap<String, String>>,
     inside_wrapper_init: bool,
     stdlib_names: &'a FxIndexSet<String>,
+    python_version: u8,
 }
 
 /// Rewrite import from statement with proper handling for bundled modules
@@ -2273,6 +2280,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
         symbol_renames,
         inside_wrapper_init,
         stdlib_names,
+        python_version,
     } = params;
     // Resolve relative imports to absolute module names
     log::debug!(
@@ -2450,6 +2458,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 &bundler.inlined_modules,
                 &bundler.bundled_modules,
                 stdlib_names,
+                python_version,
             );
 
         // Check for unregistered namespaces - this indicates a bug in pre-detection
