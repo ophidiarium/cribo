@@ -4178,16 +4178,31 @@ impl<'a> Bundler<'a> {
 
             // First check if this is a stdlib import - if so, it's not a namespace module
             // This fixes the issue where `abc` stdlib module is confused with `complex_pkg.abc`
-            let is_stdlib_import = self.stdlib_import_statements.iter().any(|stmt| {
-                if let Stmt::Import(import_stmt) = stmt {
-                    import_stmt
-                        .names
-                        .iter()
-                        .any(|alias| alias.name.as_str() == base_name)
-                } else {
-                    false
-                }
-            });
+            let is_stdlib_import =
+                self.stdlib_import_statements.iter().any(|stmt| {
+                    let Stmt::Import(import_stmt) = stmt else {
+                        return false;
+                    };
+                    import_stmt.names.iter().any(|alias| {
+                        // Check if the import is aliased
+                        if let Some(asname) = &alias.asname {
+                            // If aliased, check if the alias matches base_name
+                            asname.as_str() == base_name
+                        } else {
+                            // For dotted imports like `import a.b.c`, check the top-level module
+                            alias.name.as_str().split('.').next() == Some(base_name)
+                        }
+                    })
+                }) || self.stdlib_import_from_map.iter().any(|(module, imports)| {
+                    // Check if base_name is the module being imported from
+                    if module.split('.').next() == Some(base_name) {
+                        return true;
+                    }
+                    // Check if base_name is an imported symbol (possibly aliased)
+                    imports.iter().any(|(_name, alias_opt)| {
+                        alias_opt.as_deref().unwrap_or(_name.as_str()) == base_name
+                    })
+                });
 
             if is_stdlib_import {
                 log::debug!("Assignment uses stdlib module '{base_name}', not deferring");
