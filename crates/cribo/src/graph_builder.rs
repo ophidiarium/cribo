@@ -295,30 +295,7 @@ impl<'a> GraphBuilder<'a> {
         }
 
         // Process parameter type annotations and defaults
-        for param in func_def
-            .parameters
-            .posonlyargs
-            .iter()
-            .chain(func_def.parameters.args.iter())
-            .chain(func_def.parameters.kwonlyargs.iter())
-        {
-            if let Some(annotation) = &param.parameter.annotation {
-                self.collect_vars_in_expr(annotation, &mut read_vars);
-            }
-            if let Some(default) = &param.default {
-                self.collect_vars_in_expr(default, &mut read_vars);
-            }
-        }
-        if let Some(vararg) = &func_def.parameters.vararg
-            && let Some(annotation) = &vararg.annotation
-        {
-            self.collect_vars_in_expr(annotation, &mut read_vars);
-        }
-        if let Some(kwarg) = &func_def.parameters.kwarg
-            && let Some(annotation) = &kwarg.annotation
-        {
-            self.collect_vars_in_expr(annotation, &mut read_vars);
-        }
+        self.collect_function_parameter_vars(&func_def.parameters, &mut read_vars);
 
         // Process return type annotation
         if let Some(returns) = &func_def.returns {
@@ -426,32 +403,7 @@ impl<'a> GraphBuilder<'a> {
                 }
 
                 // Collect variables from method parameter annotations and defaults
-                for param in method_def
-                    .parameters
-                    .posonlyargs
-                    .iter()
-                    .chain(method_def.parameters.args.iter())
-                    .chain(method_def.parameters.kwonlyargs.iter())
-                {
-                    if let Some(annotation) = &param.parameter.annotation {
-                        self.collect_vars_in_expr(annotation, &mut method_read_vars);
-                    }
-                    if let Some(default) = &param.default {
-                        self.collect_vars_in_expr(default, &mut method_read_vars);
-                    }
-                }
-
-                // Collect vararg/kwarg annotations for parity with function handling
-                if let Some(vararg) = &method_def.parameters.vararg
-                    && let Some(annotation) = &vararg.annotation
-                {
-                    self.collect_vars_in_expr(annotation, &mut method_read_vars);
-                }
-                if let Some(kwarg) = &method_def.parameters.kwarg
-                    && let Some(annotation) = &kwarg.annotation
-                {
-                    self.collect_vars_in_expr(annotation, &mut method_read_vars);
-                }
+                self.collect_function_parameter_vars(&method_def.parameters, &mut method_read_vars);
 
                 // Collect variables from return type annotation
                 if let Some(returns) = &method_def.returns {
@@ -1488,46 +1440,11 @@ impl<'a> GraphBuilder<'a> {
                         }
 
                         // Collect from parameter annotations and defaults
-                        for param in func_def
-                            .parameters
-                            .posonlyargs
-                            .iter()
-                            .chain(func_def.parameters.args.iter())
-                            .chain(func_def.parameters.kwonlyargs.iter())
-                        {
-                            if let Some(annotation) = &param.parameter.annotation {
-                                self.collect_vars_in_expr_with_attrs(
-                                    annotation,
-                                    read_vars,
-                                    attribute_accesses,
-                                );
-                            }
-                            if let Some(default) = &param.default {
-                                self.collect_vars_in_expr_with_attrs(
-                                    default,
-                                    read_vars,
-                                    attribute_accesses,
-                                );
-                            }
-                        }
-                        if let Some(vararg) = &func_def.parameters.vararg
-                            && let Some(annotation) = &vararg.annotation
-                        {
-                            self.collect_vars_in_expr_with_attrs(
-                                annotation,
-                                read_vars,
-                                attribute_accesses,
-                            );
-                        }
-                        if let Some(kwarg) = &func_def.parameters.kwarg
-                            && let Some(annotation) = &kwarg.annotation
-                        {
-                            self.collect_vars_in_expr_with_attrs(
-                                annotation,
-                                read_vars,
-                                attribute_accesses,
-                            );
-                        }
+                        self.collect_function_parameter_vars_with_attrs(
+                            &func_def.parameters,
+                            read_vars,
+                            attribute_accesses,
+                        );
 
                         // Collect from return type annotation
                         if let Some(returns) = &func_def.returns {
@@ -1735,5 +1652,80 @@ impl<'a> GraphBuilder<'a> {
             self.collect_vars_in_expr_with_attrs(&item.context_expr, read_vars, attribute_accesses);
         }
         stack.push(&with_stmt.body);
+    }
+
+    /// Collect variables from function parameters (annotations and defaults)
+    /// This helper reduces duplication between function, method, and nested function processing
+    fn collect_function_parameter_vars(
+        &self,
+        parameters: &ast::Parameters,
+        vars: &mut FxIndexSet<String>,
+    ) {
+        // Process parameter type annotations and defaults
+        for param in parameters
+            .posonlyargs
+            .iter()
+            .chain(parameters.args.iter())
+            .chain(parameters.kwonlyargs.iter())
+        {
+            if let Some(annotation) = &param.parameter.annotation {
+                self.collect_vars_in_expr(annotation, vars);
+            }
+            if let Some(default) = &param.default {
+                self.collect_vars_in_expr(default, vars);
+            }
+        }
+
+        // Process vararg annotation
+        if let Some(vararg) = &parameters.vararg
+            && let Some(annotation) = &vararg.annotation
+        {
+            self.collect_vars_in_expr(annotation, vars);
+        }
+
+        // Process kwarg annotation
+        if let Some(kwarg) = &parameters.kwarg
+            && let Some(annotation) = &kwarg.annotation
+        {
+            self.collect_vars_in_expr(annotation, vars);
+        }
+    }
+
+    /// Collect variables from function parameters with attribute tracking
+    /// This variant tracks attribute accesses for more detailed analysis
+    fn collect_function_parameter_vars_with_attrs(
+        &self,
+        parameters: &ast::Parameters,
+        vars: &mut FxIndexSet<String>,
+        attribute_accesses: &mut FxIndexMap<String, FxIndexSet<String>>,
+    ) {
+        // Process parameter type annotations and defaults
+        for param in parameters
+            .posonlyargs
+            .iter()
+            .chain(parameters.args.iter())
+            .chain(parameters.kwonlyargs.iter())
+        {
+            if let Some(annotation) = &param.parameter.annotation {
+                self.collect_vars_in_expr_with_attrs(annotation, vars, attribute_accesses);
+            }
+            if let Some(default) = &param.default {
+                self.collect_vars_in_expr_with_attrs(default, vars, attribute_accesses);
+            }
+        }
+
+        // Process vararg annotation
+        if let Some(vararg) = &parameters.vararg
+            && let Some(annotation) = &vararg.annotation
+        {
+            self.collect_vars_in_expr_with_attrs(annotation, vars, attribute_accesses);
+        }
+
+        // Process kwarg annotation
+        if let Some(kwarg) = &parameters.kwarg
+            && let Some(annotation) = &kwarg.annotation
+        {
+            self.collect_vars_in_expr_with_attrs(annotation, vars, attribute_accesses);
+        }
     }
 }
