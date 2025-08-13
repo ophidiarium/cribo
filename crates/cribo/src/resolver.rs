@@ -799,11 +799,11 @@ impl ModuleResolver {
             {
                 let reader = BufReader::new(file);
                 let mut matches_import = false;
-                for line in reader.lines().flatten() {
+                for line in reader.lines().map_while(Result::ok) {
                     // RECORD entries are CSV; the first field is the path
                     let path_part = line.split(',').next().unwrap_or("");
                     // Normalize separators to forward slash for matching
-                    let path_norm = path_part.replace('\\', "/");
+                    let path_norm = path_part.cow_replace('\\', "/").into_owned();
                     if path_norm == format!("{import_name}.py")
                         || path_norm.starts_with(&format!("{import_name}/"))
                         // Handle compiled extension modules (e.g., ujson.cpython-312-darwin.so)

@@ -75,16 +75,16 @@ def get_logger():
     if _logger is None:
         _logger = Logger()
     return _logger
-def get_config():
-    global _config
-    if _config is None:
-        _config = Config()
-    return _config
 def get_log_level():
     """Get log level from config - used by logger module"""
     if _config is None:
         return "INFO"
     return "DEBUG" if _config.debug_mode else "INFO"
+def get_config():
+    global _config
+    if _config is None:
+        _config = Config()
+    return _config
 def format_message(message):
     """Format a message with decorative borders"""
     return f">>> {message} <<<"

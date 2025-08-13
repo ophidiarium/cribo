@@ -330,8 +330,8 @@ def __cribo_init___cribo_df9c8d_core_database_connection():
         return conn
     module.create_connection = create_connection
     return module
-services.auth.manager = __cribo_init___cribo_0ecebd_services_auth_manager()
 models.base = __cribo_init___cribo_0a162a_models_base()
+services.auth.manager = __cribo_init___cribo_0ecebd_services_auth_manager()
 core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
 models.user = __cribo_init___cribo_1f9e6c_models_user()
 __cribo_init_result = __cribo_init___cribo_84bf42_services_auth()

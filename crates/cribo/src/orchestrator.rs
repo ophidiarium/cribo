@@ -815,7 +815,7 @@ impl BundleOrchestrator {
     /// Extract imports from module items
     fn extract_imports_from_module_items(
         &self,
-        items: &rustc_hash::FxHashMap<crate::cribo_graph::ItemId, crate::cribo_graph::ItemData>,
+        items: &crate::types::FxIndexMap<crate::cribo_graph::ItemId, crate::cribo_graph::ItemData>,
     ) -> Vec<String> {
         let mut imports = Vec::new();
         for item_data in items.values() {
