@@ -4176,6 +4176,39 @@ impl<'a> Bundler<'a> {
         {
             let base_name = name.id.as_str();
 
+            // First check if this is a stdlib import - if so, it's not a namespace module
+            // This fixes the issue where `abc` stdlib module is confused with `complex_pkg.abc`
+            let is_stdlib_import =
+                self.stdlib_import_statements.iter().any(|stmt| {
+                    let Stmt::Import(import_stmt) = stmt else {
+                        return false;
+                    };
+                    import_stmt.names.iter().any(|alias| {
+                        // Check if the import is aliased
+                        if let Some(asname) = &alias.asname {
+                            // If aliased, check if the alias matches base_name
+                            asname.as_str() == base_name
+                        } else {
+                            // For dotted imports like `import a.b.c`, check the top-level module
+                            alias.name.as_str().split('.').next() == Some(base_name)
+                        }
+                    })
+                }) || self.stdlib_import_from_map.iter().any(|(module, imports)| {
+                    // Check if base_name is the module being imported from
+                    if module.split('.').next() == Some(base_name) {
+                        return true;
+                    }
+                    // Check if base_name is an imported symbol (possibly aliased)
+                    imports.iter().any(|(_name, alias_opt)| {
+                        alias_opt.as_deref().unwrap_or(_name.as_str()) == base_name
+                    })
+                });
+
+            if is_stdlib_import {
+                log::debug!("Assignment uses stdlib module '{base_name}', not deferring");
+                return false;
+            }
+
             // For the specific case we're fixing: if the name "messages" is used
             // and there's a bundled module "greetings.messages", then this assignment
             // needs to be deferred
@@ -6587,12 +6620,9 @@ impl Bundler<'_> {
                             return true;
                         }
 
-                        // Also check if base class is a renamed class (ends with _<number>)
-                        // and is defined later
-                        if base_name.chars().any(|c| c == '_')
-                            && let Some(last_part) = base_name.split('_').next_back()
-                            && last_part.chars().all(|c| c.is_ascii_digit())
-                            && let Some(&base_pos) = class_positions.get(base_name)
+                        // Check if the base class itself is defined later as a class
+                        // This covers both regular and renamed classes
+                        if let Some(&base_pos) = class_positions.get(base_name)
                             && base_pos > class_pos
                         {
                             return true;

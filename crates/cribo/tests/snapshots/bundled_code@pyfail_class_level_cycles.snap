@@ -1,5 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 546
 input_file: crates/cribo/tests/fixtures/pyfail_class_level_cycles/main.py
 ---
 #!/usr/bin/env python3
@@ -10,16 +11,6 @@ import types
 admin_class = types.SimpleNamespace(__name__='admin_class')
 user_class = types.SimpleNamespace(__name__='user_class')
 User = None
-class Admin(User):
-    """Admin class that inherits from User."""
-
-    def __init__(self, name):
-        super().__init__(name)
-        self.is_admin = True
-
-    def demote_to_user(self):
-        """Demote admin to regular user."""
-        return User(self.name)
 class User:
     """User class that references Admin class."""
 
@@ -30,6 +21,16 @@ class User:
     def promote_to_admin(self):
         """Promote user to admin."""
         return self.admin_reference(self.name)
+class Admin(User):
+    """Admin class that inherits from User."""
+
+    def __init__(self, name):
+        super().__init__(name)
+        self.is_admin = True
+
+    def demote_to_user(self):
+        """Demote admin to regular user."""
+        return User(self.name)
 Admin.__module__ = 'admin_class'
 """Admin class module with circular dependency."""
 User.__module__ = 'user_class'
