@@ -2341,42 +2341,25 @@ impl<'a> Bundler<'a> {
                         continue;
                     }
 
-                    // Check if the source module is a bundled wrapper module
-                    let is_bundled_wrapper = wrapper_modules_saved
-                        .iter()
-                        .any(|(name, _, _, _)| name == &source_module);
-
-                    if is_bundled_wrapper && use_module_cache_for_wrappers {
-                        // The source module is a bundled wrapper module that will be initialized
-                        // later We can't use a regular import, so we'll
-                        // defer this until after module initialization
-                        log::debug!(
-                            "Deferring hard dependency imports from bundled wrapper module \
-                             {source_module}"
-                        );
-                        // We'll handle these later after all modules are initialized
-                    } else {
-                        // Regular external module - collect unique imports with their aliases
-                        let mut imports_to_make: FxIndexMap<String, Option<String>> =
-                            FxIndexMap::default();
-                        for dep in deps {
-                            // If this dependency has a mandatory alias, use it
-                            if dep.alias_is_mandatory && dep.alias.is_some() {
-                                imports_to_make
-                                    .insert(dep.imported_attr.clone(), dep.alias.clone());
-                            } else {
-                                // Only insert if we haven't already added this import
-                                imports_to_make
-                                    .entry(dep.imported_attr.clone())
-                                    .or_insert(None);
-                            }
+                    // Regular external module - collect unique imports with their aliases
+                    let mut imports_to_make: FxIndexMap<String, Option<String>> =
+                        FxIndexMap::default();
+                    for dep in deps {
+                        // If this dependency has a mandatory alias, use it
+                        if dep.alias_is_mandatory && dep.alias.is_some() {
+                            imports_to_make.insert(dep.imported_attr.clone(), dep.alias.clone());
+                        } else {
+                            // Only insert if we haven't already added this import
+                            imports_to_make
+                                .entry(dep.imported_attr.clone())
+                                .or_insert(None);
                         }
+                    }
 
-                        if !imports_to_make.is_empty() {
-                            let import_list: Vec<(String, Option<String>)> =
-                                imports_to_make.into_iter().collect();
-                            imports_to_generate.push((source_module, import_list, false));
-                        }
+                    if !imports_to_make.is_empty() {
+                        let import_list: Vec<(String, Option<String>)> =
+                            imports_to_make.into_iter().collect();
+                        imports_to_generate.push((source_module, import_list, false));
                     }
                 }
             }
