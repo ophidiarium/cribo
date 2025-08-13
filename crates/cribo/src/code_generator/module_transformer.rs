@@ -76,6 +76,7 @@ pub fn transform_module_to_init_function<'a>(
         is_entry_module: false,        // This is not the entry module
         is_wrapper_init: true,         // This IS a wrapper init function
         global_deferred_imports: None, // No need for global deferred imports in wrapper modules
+        python_version: ctx.python_version,
     });
 
     // Track imports from inlined modules before transformation

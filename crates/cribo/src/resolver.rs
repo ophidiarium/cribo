@@ -15,7 +15,7 @@ use ruff_python_stdlib::sys;
 use crate::config::Config;
 
 /// Check if a module is part of the Python standard library using `ruff_python_stdlib`
-fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
+pub fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
     // Check direct match using ruff_python_stdlib
     if sys::is_known_standard_library(python_version, module_name) {
         return true;
