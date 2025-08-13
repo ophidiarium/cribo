@@ -1,11 +1,10 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 549
 input_file: crates/cribo/tests/fixtures/pyfail_class_level_cycles/main.py
 ---
 ExecutionResults {
-    status: Failed(
-        1,
-    ),
-    stdout: "",
-    stderr: "Traceback (most recent call last):\n  File \"<stdin>\", line 9, in <module>",
+    status: Success,
+    stdout: "User: Alice\nAdmin: Bob",
+    stderr: "",
 }
