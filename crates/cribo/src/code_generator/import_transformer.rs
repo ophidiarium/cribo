@@ -320,20 +320,20 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     let base_str =
                                         Self::extract_base_class_name(base).unwrap_or_default();
 
+                                    // Closure to check if a dependency base matches
+                                    let base_matches_dep = |dep: &&crate::code_generator::context::HardDependency| -> bool {
+                                        dep.base_class == base_str
+                                            || base_str.starts_with(&format!("{}.", dep.imported_attr))
+                                            || dep.imported_attr == base_str
+                                    };
+
                                     // Check if this specific base is a hard dependency
                                     let is_hard_dep_base = if base_str.is_empty() {
                                         // If we can't extract the base class name, skip
                                         // transformation to be safe
                                         true
                                     } else {
-                                        class_hard_deps.iter().any(|dep| {
-                                            // Match fully-qualified base
-                                            dep.base_class == base_str
-                                                // Or if base starts with imported_attr followed by dot (e.g., "cookielib.CookieJar")
-                                                || (base_str.starts_with(&format!("{}.", dep.imported_attr)))
-                                                // Or if imported_attr matches the base directly
-                                                || dep.imported_attr == base_str
-                                        })
+                                        class_hard_deps.iter().any(base_matches_dep)
                                     };
 
                                     if is_hard_dep_base {
@@ -344,15 +344,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             false
                                         } else {
                                             class_hard_deps.iter().any(|dep| {
-                                                // Check if this dependency matches the base
-                                                let matches_base = dep.base_class == base_str
-                                                    || base_str.starts_with(&format!(
-                                                        "{}.",
-                                                        dep.imported_attr
-                                                    ))
-                                                    || dep.imported_attr == base_str;
-
-                                                matches_base
+                                                base_matches_dep(dep)
                                                     && crate::resolver::is_stdlib_module(
                                                         &dep.source_module,
                                                         self.python_version,
@@ -370,7 +362,6 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                     &base_str
                                                 }
                                             );
-                                            self.transform_expr(base);
                                         } else {
                                             // Even if it's not from stdlib, we still need to transform it
                                             // in case it's a wrapper module import that needs rewriting
@@ -383,8 +374,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                     &base_str
                                                 }
                                             );
-                                            self.transform_expr(base);
                                         }
+                                        // Transform the base expression (common to both branches)
+                                        self.transform_expr(base);
                                     } else {
                                         // Not a hard dependency base, transform normally
                                         self.transform_expr(base);
