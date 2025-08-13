@@ -6,6 +6,7 @@ import typing
 import enum
 import threading
 import ctypes
+import importlib.machinery  # Dotted import - only 'importlib' is bound
 
 # Also import our local abc module
 from . import abc as local_abc
@@ -21,5 +22,7 @@ def test_function():
         TestEnum = enum.Enum("TestEnum", ["A", "B"])
         # Use our local abc
         obj = local_abc.create_object()
-        return f"Success with {my_list} and {TestEnum.A}"
+        # Use importlib (bound by the dotted import)
+        loader = importlib.machinery.SourceFileLoader
+        return f"Success with {my_list} and {TestEnum.A} and {loader.__name__}"
     return "Failed"

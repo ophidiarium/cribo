@@ -8,6 +8,7 @@ input_file: crates/cribo/tests/fixtures/stdlib_module_name_collision/main.py
 
 import abc
 import enum
+import importlib.machinery
 import types
 mypkg = types.SimpleNamespace(__name__='mypkg')
 mypkg_abc = types.SimpleNamespace(__name__='mypkg.abc')
@@ -23,7 +24,8 @@ def test_function():
         my_list: typing.List[str] = ["test"]
         TestEnum = enum.Enum("TestEnum", ["A", "B"])
         obj = local_abc.create_object()
-        return f"Success with {my_list} and {TestEnum.A}"
+        loader = importlib.machinery.SourceFileLoader
+        return f"Success with {my_list} and {TestEnum.A} and {loader.__name__}"
     return "Failed"
 def create_object():
     """Create an object for testing."""

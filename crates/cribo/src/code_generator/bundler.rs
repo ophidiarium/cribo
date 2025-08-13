@@ -184,12 +184,19 @@ impl<'a> Bundler<'a> {
                 })
                 .flat_map(|import_stmt| &import_stmt.names)
                 .map(|alias| {
-                    alias
-                        .asname
-                        .as_ref()
-                        .unwrap_or(&alias.name)
-                        .as_str()
-                        .to_string()
+                    // Use the alias if present; otherwise the top-level module name
+                    // e.g., "import importlib.machinery" binds "importlib"
+                    if let Some(asname) = &alias.asname {
+                        asname.as_str().to_string()
+                    } else {
+                        alias
+                            .name
+                            .as_str()
+                            .split('.')
+                            .next()
+                            .unwrap_or_else(|| alias.name.as_str())
+                            .to_string()
+                    }
                 }),
         );
 
