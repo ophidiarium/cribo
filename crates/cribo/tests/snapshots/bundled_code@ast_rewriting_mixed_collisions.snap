@@ -35,6 +35,20 @@ result_6 = 0
 User_4 = "helper_user_string"
 result_8 = []
 connection_5 = None
+class Logger_1:
+    """Base Logger class - yet another Logger conflict"""
+
+    def __init__(self, source: str):
+        self.source = source
+        self.logs = []
+
+    def log(self, message: str) -> None:
+        self.logs.append(f"[BASE {self.source}] {message}")
+
+    def process(self, log_data: typing.Any) -> str:
+        """Logger process method - conflicts with global process"""
+        self.log(f"Processing: {log_data}")
+        return f"base_logger_process: {log_data}"
 class BaseModel:
     """Base model class with method name conflicts"""
 
@@ -63,20 +77,6 @@ class BaseModel:
         self.initialized = True
         result_2 = f"base_initialized_{self.model_type}"
         return result_2
-class Logger_1:
-    """Base Logger class - yet another Logger conflict"""
-
-    def __init__(self, source: str):
-        self.source = source
-        self.logs = []
-
-    def log(self, message: str) -> None:
-        self.logs.append(f"[BASE {self.source}] {message}")
-
-    def process(self, log_data: typing.Any) -> str:
-        """Logger process method - conflicts with global process"""
-        self.log(f"Processing: {log_data}")
-        return f"base_logger_process: {log_data}"
 class Logger_2:
     """Model Logger class - conflicts with other Logger classes"""
 
@@ -242,10 +242,10 @@ def process_7(data):
     processed = {"db_process": True, "data": validated, "user_processing": user_result, "timestamp": "2024-01-01"}
     result_8.append(processed)
     return f"db_processed: {data}"
-BaseModel.__module__ = 'models.base'
 Logger_1.__module__ = 'models.base'
 Logger_1.__name__ = 'Logger'
 Logger_1.__qualname__ = 'Logger'
+BaseModel.__module__ = 'models.base'
 """\nBase model functionality with relative import conflicts\n"""
 Logger_2.__module__ = 'models.user'
 Logger_2.__name__ = 'Logger'
@@ -405,9 +405,9 @@ UserLogger = Logger_2
 util_process = process_6
 UtilLogger = Logger_4
 helper_validate = validate_6
-models_base.BaseModel = BaseModel
-models_base.initialize = initialize
 models_base.Logger = Logger_1
+models_base.initialize = initialize
+models_base.BaseModel = BaseModel
 models_base.result = result_2
 models_user.result = result_3
 models_user.connection = connection_3

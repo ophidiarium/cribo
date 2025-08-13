@@ -45,8 +45,8 @@ sessions = mypkg_sessions
 session_ref = sessions
 mypkg_sessions.Session = Session
 mypkg_sessions.session = session
-mypkg_api.session_ref = session_ref
 mypkg_api.request = request
+mypkg_api.session_ref = session_ref
 """Test case for early module reference before initialization.\n\nThis reproduces the issue where a module tries to reference another module\nbefore it has been fully initialized through its init function.\n"""
 response = mypkg.api.request("GET", "https://example.com")
 print(f"Response: {response}")
