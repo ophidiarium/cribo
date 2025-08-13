@@ -175,32 +175,31 @@ impl<'a> Bundler<'a> {
         let mut stdlib_names = FxIndexSet::default();
 
         // Add names from `import <name>` and `import <name> as <alias>`
-        for stmt in &self.stdlib_import_statements {
-            if let Stmt::Import(import_stmt) = stmt {
-                for alias in &import_stmt.names {
-                    // Use the alias if present, otherwise the module name
-                    stdlib_names.insert(
-                        alias
-                            .asname
-                            .as_ref()
-                            .unwrap_or(&alias.name)
-                            .as_str()
-                            .to_string(),
-                    );
-                }
-            }
-        }
+        stdlib_names.extend(
+            self.stdlib_import_statements
+                .iter()
+                .filter_map(|stmt| match stmt {
+                    Stmt::Import(import_stmt) => Some(import_stmt),
+                    _ => None,
+                })
+                .flat_map(|import_stmt| &import_stmt.names)
+                .map(|alias| {
+                    alias
+                        .asname
+                        .as_ref()
+                        .unwrap_or(&alias.name)
+                        .as_str()
+                        .to_string()
+                }),
+        );
 
         // Add names from `from <mod> import <name>` and `from <mod> import <name> as <alias>`
-        for symbols in self.stdlib_import_from_map.values() {
-            for (name, alias_opt) in symbols {
-                if let Some(alias) = alias_opt {
-                    stdlib_names.insert(alias.clone());
-                } else {
-                    stdlib_names.insert(name.clone());
-                }
-            }
-        }
+        stdlib_names.extend(
+            self.stdlib_import_from_map
+                .values()
+                .flatten()
+                .map(|(name, alias_opt)| alias_opt.as_ref().unwrap_or(name).clone()),
+        );
 
         stdlib_names
     }
