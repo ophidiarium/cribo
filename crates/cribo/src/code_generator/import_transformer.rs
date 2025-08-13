@@ -327,24 +327,38 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         true
                                     } else {
                                         class_hard_deps.iter().any(|dep| {
-                                            dep.imported_attr == base_str
-                                                || dep.base_class.ends_with(&format!(".{base_str}"))
+                                            // Match fully-qualified base
+                                            dep.base_class == base_str
+                                                // Or if base starts with imported_attr followed by dot (e.g., "cookielib.CookieJar")
+                                                || (base_str.starts_with(&format!("{}.", dep.imported_attr)))
+                                                // Or if imported_attr matches the base directly
+                                                || dep.imported_attr == base_str
                                         })
                                     };
 
                                     if is_hard_dep_base {
                                         // Check if this specific hard dependency is from a stdlib module
                                         // If so, still transform it since stdlib normalization handles it
-                                        let is_from_stdlib = class_hard_deps.iter().any(|dep| {
-                                            (dep.imported_attr == base_str
-                                                || dep
-                                                    .base_class
-                                                    .ends_with(&format!(".{base_str}")))
-                                                && crate::resolver::is_stdlib_module(
-                                                    &dep.source_module,
-                                                    self.python_version,
-                                                )
-                                        });
+                                        let is_from_stdlib = if base_str.is_empty() {
+                                            // For complex/unknown base expressions, don't attempt transformation
+                                            false
+                                        } else {
+                                            class_hard_deps.iter().any(|dep| {
+                                                // Check if this dependency matches the base
+                                                let matches_base = dep.base_class == base_str
+                                                    || base_str.starts_with(&format!(
+                                                        "{}.",
+                                                        dep.imported_attr
+                                                    ))
+                                                    || dep.imported_attr == base_str;
+
+                                                matches_base
+                                                    && crate::resolver::is_stdlib_module(
+                                                        &dep.source_module,
+                                                        self.python_version,
+                                                    )
+                                            })
+                                        };
 
                                         if is_from_stdlib {
                                             log::debug!(
@@ -358,15 +372,18 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             );
                                             self.transform_expr(base);
                                         } else {
+                                            // Even if it's not from stdlib, we still need to transform it
+                                            // in case it's a wrapper module import that needs rewriting
                                             log::debug!(
-                                                "Skipping transformation of hard dependency base \
-                                                 class {} for class {class_name}",
+                                                "Transforming hard dependency base class {} for class {class_name} \
+                                                 - checking for wrapper module imports",
                                                 if base_str.is_empty() {
                                                     "<complex expression>"
                                                 } else {
                                                     &base_str
                                                 }
                                             );
+                                            self.transform_expr(base);
                                         }
                                     } else {
                                         // Not a hard dependency base, transform normally
@@ -1388,6 +1405,46 @@ impl<'a> RecursiveImportTransformer<'a> {
 
         match expr {
             Expr::Attribute(attr_expr) => {
+                // First check if the base of this attribute is a wrapper module import
+                if let Expr::Name(base_name) = &*attr_expr.value {
+                    let name = base_name.id.as_str();
+                    if let Some((wrapper_module, imported_name)) =
+                        self.wrapper_module_imports.get(name)
+                    {
+                        // The base is a wrapper module import, rewrite the entire attribute access
+                        // e.g., cookielib.CookieJar -> myrequests.compat.cookielib.CookieJar
+                        log::debug!(
+                            "Rewriting attribute '{}.{}' to '{}.{}.{}'",
+                            name,
+                            attr_expr.attr.as_str(),
+                            wrapper_module,
+                            imported_name,
+                            attr_expr.attr.as_str()
+                        );
+
+                        // Create wrapper_module.imported_name.attr
+                        *expr = Expr::Attribute(ExprAttribute {
+                            node_index: AtomicNodeIndex::dummy(),
+                            value: Box::new(Expr::Attribute(ExprAttribute {
+                                node_index: AtomicNodeIndex::dummy(),
+                                value: Box::new(Expr::Name(ExprName {
+                                    node_index: AtomicNodeIndex::dummy(),
+                                    id: wrapper_module.into(),
+                                    ctx: ExprContext::Load,
+                                    range: TextRange::default(),
+                                })),
+                                attr: Identifier::new(imported_name, TextRange::default()),
+                                ctx: ExprContext::Load,
+                                range: TextRange::default(),
+                            })),
+                            attr: attr_expr.attr.clone(),
+                            ctx: attr_expr.ctx,
+                            range: attr_expr.range,
+                        });
+                        return; // Don't process further
+                    }
+                }
+
                 // Handle nested attribute access using the pre-collected path
                 if let Some((base_name, attr_path)) = attribute_info {
                     if let Some(base) = base_name {
