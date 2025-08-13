@@ -250,6 +250,27 @@ pub struct NamespaceRequirement {
     pub var_name: String,
 }
 
+/// Helper function to create an assignment if it doesn't conflict with stdlib names
+fn create_assignment_if_no_stdlib_conflict(
+    local_name: &str,
+    value_name: &str,
+    stdlib_names: &FxIndexSet<String>,
+    assignments: &mut Vec<Stmt>,
+) {
+    if stdlib_names.contains(local_name) {
+        log::debug!(
+            "Skipping assignment '{local_name} = {value_name}' - would conflict \
+             with stdlib name '{local_name}'"
+        );
+    } else {
+        log::debug!("Creating assignment '{local_name} = {value_name}' - no stdlib conflict");
+        assignments.push(ast_builder::statements::simple_assign(
+            local_name,
+            ast_builder::expressions::name(value_name, ExprContext::Load),
+        ));
+    }
+}
+
 /// Create assignments for inlined imports
 /// Returns (statements, `namespace_requirements`)
 #[allow(clippy::too_many_arguments)]
@@ -299,24 +320,12 @@ pub fn create_assignments_for_inlined_imports(
             // If local name differs from sanitized name, create alias
             // But skip if it would conflict with a stdlib name in scope
             if local_name.as_str() != sanitized_name {
-                log::debug!(
-                    "Checking if '{local_name}' conflicts with stdlib: {}",
-                    stdlib_names.contains(local_name.as_str())
+                create_assignment_if_no_stdlib_conflict(
+                    local_name.as_str(),
+                    &sanitized_name,
+                    stdlib_names,
+                    &mut assignments,
                 );
-                if stdlib_names.contains(local_name.as_str()) {
-                    log::debug!(
-                        "Skipping assignment '{local_name} = {sanitized_name}' - would conflict \
-                         with stdlib name '{local_name}'"
-                    );
-                } else {
-                    log::debug!(
-                        "Creating assignment '{local_name} = {sanitized_name}' - no stdlib conflict"
-                    );
-                    assignments.push(ast_builder::statements::simple_assign(
-                        local_name.as_str(),
-                        ast_builder::expressions::name(&sanitized_name, ExprContext::Load),
-                    ));
-                }
             }
         } else {
             // Regular symbol import
@@ -332,23 +341,12 @@ pub fn create_assignments_for_inlined_imports(
             // Only create assignment if the names are different
             // But skip if it would conflict with a stdlib name in scope
             if local_name.as_str() != actual_name {
-                if stdlib_names.contains(local_name.as_str()) {
-                    log::debug!(
-                        "Skipping assignment '{local_name} = {actual_name}' - would conflict \
-                         with stdlib name '{local_name}'"
-                    );
-                } else {
-                    log::debug!(
-                        "Creating assignment: {local_name} = {actual_name} (from inlined module \
-                         '{module_name}')"
-                    );
-
-                    let assignment = ast_builder::statements::simple_assign(
-                        local_name.as_str(),
-                        ast_builder::expressions::name(actual_name, ExprContext::Load),
-                    );
-                    assignments.push(assignment);
-                }
+                create_assignment_if_no_stdlib_conflict(
+                    local_name.as_str(),
+                    actual_name,
+                    stdlib_names,
+                    &mut assignments,
+                );
             }
         }
     }
