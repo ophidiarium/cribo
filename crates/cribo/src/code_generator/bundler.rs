@@ -4176,6 +4176,24 @@ impl<'a> Bundler<'a> {
         {
             let base_name = name.id.as_str();
 
+            // First check if this is a stdlib import - if so, it's not a namespace module
+            // This fixes the issue where `abc` stdlib module is confused with `complex_pkg.abc`
+            let is_stdlib_import = self.stdlib_import_statements.iter().any(|stmt| {
+                if let Stmt::Import(import_stmt) = stmt {
+                    import_stmt
+                        .names
+                        .iter()
+                        .any(|alias| alias.name.as_str() == base_name)
+                } else {
+                    false
+                }
+            });
+
+            if is_stdlib_import {
+                log::debug!("Assignment uses stdlib module '{base_name}', not deferring");
+                return false;
+            }
+
             // For the specific case we're fixing: if the name "messages" is used
             // and there's a bundled module "greetings.messages", then this assignment
             // needs to be deferred
