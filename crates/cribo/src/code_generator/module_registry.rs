@@ -260,7 +260,7 @@ pub fn create_assignments_for_inlined_imports(
     module_registry: &FxIndexMap<String, String>,
     inlined_modules: &FxIndexSet<String>,
     bundled_modules: &FxIndexSet<String>,
-    stdlib_modules: &FxIndexSet<String>,
+    stdlib_names: &FxIndexSet<String>,
 ) -> (Vec<Stmt>, Vec<NamespaceRequirement>) {
     let mut assignments = Vec::new();
     let mut namespace_requirements = Vec::new();
@@ -297,16 +297,16 @@ pub fn create_assignments_for_inlined_imports(
             });
 
             // If local name differs from sanitized name, create alias
-            // But skip if it would conflict with a stdlib module
+            // But skip if it would conflict with a stdlib name in scope
             if local_name.as_str() != sanitized_name {
                 log::debug!(
                     "Checking if '{local_name}' conflicts with stdlib: {}",
-                    stdlib_modules.contains(local_name.as_str())
+                    stdlib_names.contains(local_name.as_str())
                 );
-                if stdlib_modules.contains(local_name.as_str()) {
+                if stdlib_names.contains(local_name.as_str()) {
                     log::debug!(
                         "Skipping assignment '{local_name} = {sanitized_name}' - would conflict \
-                         with stdlib module '{local_name}'"
+                         with stdlib name '{local_name}'"
                     );
                 } else {
                     log::debug!(
@@ -330,12 +330,12 @@ pub fn create_assignments_for_inlined_imports(
             };
 
             // Only create assignment if the names are different
-            // But skip if it would conflict with a stdlib module
+            // But skip if it would conflict with a stdlib name in scope
             if local_name.as_str() != actual_name {
-                if stdlib_modules.contains(local_name.as_str()) {
+                if stdlib_names.contains(local_name.as_str()) {
                     log::debug!(
                         "Skipping assignment '{local_name} = {actual_name}' - would conflict \
-                         with stdlib module '{local_name}'"
+                         with stdlib name '{local_name}'"
                     );
                 } else {
                     log::debug!(
