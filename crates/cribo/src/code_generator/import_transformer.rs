@@ -805,11 +805,37 @@ impl<'a> RecursiveImportTransformer<'a> {
                                 }
 
                                 // If local_name is different from namespace_var, create an alias
+                                // But skip if it would conflict with a stdlib module
                                 if local_name != namespace_var {
-                                    self.deferred_imports.push(statements::simple_assign(
-                                        local_name,
-                                        expressions::name(&namespace_var, ExprContext::Load),
-                                    ));
+                                    // Check if this would conflict with a stdlib module
+                                    // Check both import statements and import-from statements
+                                    let is_stdlib_import =
+                                        self.bundler.stdlib_import_statements.iter().any(|stmt| {
+                                            if let Stmt::Import(import_stmt) = stmt {
+                                                import_stmt
+                                                    .names
+                                                    .iter()
+                                                    .any(|alias| alias.name.as_str() == local_name)
+                                            } else {
+                                                false
+                                            }
+                                        });
+                                    let is_stdlib_from = self
+                                        .bundler
+                                        .stdlib_import_from_map
+                                        .contains_key(local_name);
+
+                                    if is_stdlib_import || is_stdlib_from {
+                                        log::debug!(
+                                            "  Skipping alias '{local_name} = {namespace_var}' - would \
+                                             conflict with stdlib module '{local_name}'"
+                                        );
+                                    } else {
+                                        self.deferred_imports.push(statements::simple_assign(
+                                            local_name,
+                                            expressions::name(&namespace_var, ExprContext::Load),
+                                        ));
+                                    }
                                 }
                                 self.created_namespace_objects = true;
 
@@ -2397,6 +2423,21 @@ fn rewrite_import_from(
         log::debug!(
             "Module '{module_name}' was inlined, creating assignments for imported symbols"
         );
+        // Collect stdlib module names
+        let mut stdlib_modules = FxIndexSet::default();
+        // Add modules from import statements
+        for stmt in &bundler.stdlib_import_statements {
+            if let Stmt::Import(import_stmt) = stmt {
+                for alias in &import_stmt.names {
+                    stdlib_modules.insert(alias.name.as_str().to_string());
+                }
+            }
+        }
+        // Add modules from import-from statements
+        for module_name in bundler.stdlib_import_from_map.keys() {
+            stdlib_modules.insert(module_name.clone());
+        }
+
         let (assignments, namespace_requirements) =
             crate::code_generator::module_registry::create_assignments_for_inlined_imports(
                 &import_from,
@@ -2405,6 +2446,7 @@ fn rewrite_import_from(
                 &bundler.module_registry,
                 &bundler.inlined_modules,
                 &bundler.bundled_modules,
+                &stdlib_modules,
             );
 
         // Check for unregistered namespaces - this indicates a bug in pre-detection

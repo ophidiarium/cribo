@@ -260,6 +260,7 @@ pub fn create_assignments_for_inlined_imports(
     module_registry: &FxIndexMap<String, String>,
     inlined_modules: &FxIndexSet<String>,
     bundled_modules: &FxIndexSet<String>,
+    stdlib_modules: &FxIndexSet<String>,
 ) -> (Vec<Stmt>, Vec<NamespaceRequirement>) {
     let mut assignments = Vec::new();
     let mut namespace_requirements = Vec::new();
@@ -296,11 +297,26 @@ pub fn create_assignments_for_inlined_imports(
             });
 
             // If local name differs from sanitized name, create alias
+            // But skip if it would conflict with a stdlib module
             if local_name.as_str() != sanitized_name {
-                assignments.push(ast_builder::statements::simple_assign(
-                    local_name.as_str(),
-                    ast_builder::expressions::name(&sanitized_name, ExprContext::Load),
-                ));
+                log::debug!(
+                    "Checking if '{local_name}' conflicts with stdlib: {}",
+                    stdlib_modules.contains(local_name.as_str())
+                );
+                if stdlib_modules.contains(local_name.as_str()) {
+                    log::debug!(
+                        "Skipping assignment '{local_name} = {sanitized_name}' - would conflict \
+                         with stdlib module '{local_name}'"
+                    );
+                } else {
+                    log::debug!(
+                        "Creating assignment '{local_name} = {sanitized_name}' - no stdlib conflict"
+                    );
+                    assignments.push(ast_builder::statements::simple_assign(
+                        local_name.as_str(),
+                        ast_builder::expressions::name(&sanitized_name, ExprContext::Load),
+                    ));
+                }
             }
         } else {
             // Regular symbol import
@@ -314,17 +330,25 @@ pub fn create_assignments_for_inlined_imports(
             };
 
             // Only create assignment if the names are different
+            // But skip if it would conflict with a stdlib module
             if local_name.as_str() != actual_name {
-                log::debug!(
-                    "Creating assignment: {local_name} = {actual_name} (from inlined module \
-                     '{module_name}')"
-                );
+                if stdlib_modules.contains(local_name.as_str()) {
+                    log::debug!(
+                        "Skipping assignment '{local_name} = {actual_name}' - would conflict \
+                         with stdlib module '{local_name}'"
+                    );
+                } else {
+                    log::debug!(
+                        "Creating assignment: {local_name} = {actual_name} (from inlined module \
+                         '{module_name}')"
+                    );
 
-                let assignment = ast_builder::statements::simple_assign(
-                    local_name.as_str(),
-                    ast_builder::expressions::name(actual_name, ExprContext::Load),
-                );
-                assignments.push(assignment);
+                    let assignment = ast_builder::statements::simple_assign(
+                        local_name.as_str(),
+                        ast_builder::expressions::name(actual_name, ExprContext::Load),
+                    );
+                    assignments.push(assignment);
+                }
             }
         }
     }
