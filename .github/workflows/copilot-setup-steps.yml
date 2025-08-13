@@ -69,7 +69,9 @@ jobs:
 
       - name: Install typos
         uses: crate-ci/typos@v1
-
+        uses: taiki-e/install-action@v2
+        with:
+          tool: typos-cli
       - name: Verify installation
         run: |
           echo "🦀 Rust toolchain:"
