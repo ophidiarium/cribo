@@ -1,0 +1,90 @@
+name: Copilot Development Setup
+
+on:
+  workflow_call:
+    inputs:
+      rust-toolchain:
+        description: 'Rust toolchain to use (stable, nightly, etc.)'
+        required: false
+        default: 'stable'
+        type: string
+      python-version:
+        description: 'Python version to install'
+        required: false
+        default: '3.12'
+        type: string
+      enable-cache:
+        description: 'Enable Rust and uv caching'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+          components: clippy, rustfmt
+
+      - name: Cache Rust dependencies
+        if: ${{ inputs.enable-cache }}
+        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2
+        with:
+          shared-key: "rust-cache-${{ hashFiles('**/Cargo.lock') }}"
+          cache-on-failure: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: ${{ inputs.enable-cache }}
+          activate-environment: true
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install Python dependencies
+        run: uv sync --all-groups
+
+      - name: Install cargo-insta
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-insta
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Install taplo
+        uses: taiki-e/install-action@v2
+        with:
+          tool: taplo
+
+      - name: Install typos
+        uses: crate-ci/typos@v1
+
+      - name: Verify installation
+        run: |
+          echo "🦀 Rust toolchain:"
+          rustc --version
+          cargo --version
+          
+          echo "🐍 Python environment:"
+          python --version
+          uv --version
+          
+          echo "🔧 Development tools:"
+          cargo insta --version
+          cargo nextest --version
+          taplo --version
+          typos --version
+          
+          echo "📦 Python packages:"
+          uv pip list
