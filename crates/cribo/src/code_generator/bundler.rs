@@ -6588,18 +6588,8 @@ impl Bundler<'_> {
                         }
 
                         // Check if the base class itself is defined later as a class
+                        // This covers both regular and renamed classes
                         if let Some(&base_pos) = class_positions.get(base_name)
-                            && base_pos > class_pos
-                        {
-                            return true;
-                        }
-
-                        // Also check if base class is a renamed class (ends with _<number>)
-                        // and is defined later
-                        if base_name.chars().any(|c| c == '_')
-                            && let Some(last_part) = base_name.split('_').next_back()
-                            && last_part.chars().all(|c| c.is_ascii_digit())
-                            && let Some(&base_pos) = class_positions.get(base_name)
                             && base_pos > class_pos
                         {
                             return true;
