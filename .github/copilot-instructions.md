@@ -156,6 +156,72 @@ cargo coverage-lcov
 
 ## ⚠️ Critical Rules & Patterns
 
+### Conventional Commits
+
+**ALL commits MUST follow Conventional Commits format:**
+
+```
+<type>(<optional scope>): <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+**Allowed types** (enforced by commitlint):
+- `feat`: New features
+- `fix`: Bug fixes  
+- `docs`: Documentation changes
+- `style`: Code style changes (formatting, missing semicolons, etc.)
+- `refactor`: Code changes that neither fix bugs nor add features
+- `perf`: Performance improvements
+- `test`: Adding missing tests or correcting existing tests
+- `build`: Changes to build system or dependencies
+- `ci`: Changes to CI configuration
+- `chore`: Other changes that don't modify src or test files
+- `revert`: Reverts a previous commit
+- `ai`: AI-generated changes or AI-related updates
+
+**Examples:**
+```bash
+feat: add support for circular dependency detection
+fix(parser): handle malformed import statements correctly
+docs: update installation instructions for npm package
+style: format code with cargo fmt
+refactor(analyzer): extract symbol tracking into separate module
+```
+
+**Breaking changes** use `!` or `BREAKING CHANGE:` footer:
+```bash
+feat!: remove deprecated bundling API
+feat(api): add new parser interface
+
+BREAKING CHANGE: The legacy parser interface has been removed.
+```
+
+### Code Formatting & Git Hooks
+
+**ALWAYS run `cargo fmt` on changed Rust files:**
+
+```bash
+# Format specific files
+cargo fmt -- path/to/file.rs
+
+# Format all files in workspace
+cargo fmt --all
+```
+
+**NEVER bypass git hooks** - they ensure code quality:
+- Pre-commit hooks run `cargo fmt`, `cargo clippy`, and other checks
+- Commit-msg hooks validate conventional commit format
+- Let hooks fix formatting automatically when possible
+
+**If hooks fail:**
+1. Fix the underlying issue (don't bypass with `--no-verify`)
+2. For formatting: run `cargo fmt` and re-commit
+3. For linting: fix clippy warnings with `cargo clippy --fix`
+4. For commit message: follow conventional commit format
+
 ### Deterministic Output
 
 - Use `IndexSet`/`IndexMap` instead of `HashSet`/`HashMap`
@@ -166,9 +232,16 @@ cargo coverage-lcov
 
 ```bash
 # MANDATORY before claiming any implementation complete:
-cargo nextest run --workspace
-cargo clippy --workspace --all-targets
+cargo fmt --all                           # Format code first
+cargo nextest run --workspace             # Run all tests
+cargo clippy --workspace --all-targets    # Check for linting issues
 ```
+
+**Git hooks automatically enforce:**
+- Code formatting with `cargo fmt`
+- Linting with `cargo clippy --fix`
+- Conventional commit message format
+- Various file format checks (Markdown, TOML, etc.)
 
 ### Circular Dependencies
 
@@ -190,6 +263,11 @@ cargo clippy --workspace --all-targets
 cargo build && cargo nextest run --workspace
 cargo run -- --entry test.py --stdout -vv  # Debug bundling
 
+# Code formatting and linting
+cargo fmt --all                            # Format all Rust code
+cargo clippy --workspace --all-targets     # Run linter
+cargo clippy --workspace --fix             # Auto-fix linting issues
+
 # Snapshot testing a specific fixture
 INSTA_GLOB_FILTER="**/my_test/main.py" cargo nextest run --test test_bundling_snapshots
 
@@ -199,8 +277,13 @@ INSTA_GLOB_FILTER="**/my_test/main.py" cargo nextest run --test test_bundling_sn
 # Coverage check
 cargo coverage-text
 
-# Full validation
+# Full validation (MANDATORY before completing any implementation)
 cargo nextest run --workspace && cargo clippy --workspace --all-targets
+
+# Git workflow with conventional commits
+git add .
+git commit -m "feat: add new bundling feature"    # Use conventional format
+git push                                          # Hooks will validate automatically
 ```
 
 ## 📝 Additional Resources
