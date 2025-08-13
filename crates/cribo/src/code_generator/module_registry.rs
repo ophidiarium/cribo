@@ -257,7 +257,9 @@ fn create_assignment_if_no_stdlib_conflict(
     stdlib_names: &FxIndexSet<String>,
     assignments: &mut Vec<Stmt>,
 ) {
-    if stdlib_names.contains(local_name) {
+    // Check both explicitly imported stdlib names and if the name itself is a stdlib module
+    // Default to Python 3.8 for stdlib checking - this is conservative
+    if stdlib_names.contains(local_name) || crate::resolver::is_stdlib_module(local_name, 38) {
         log::debug!(
             "Skipping assignment '{local_name} = {value_name}' - would conflict \
              with stdlib name '{local_name}'"

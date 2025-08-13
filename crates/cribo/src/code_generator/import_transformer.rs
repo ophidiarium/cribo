@@ -754,14 +754,28 @@ impl<'a> RecursiveImportTransformer<'a> {
                         .contains_key(&full_module_path)
                     {
                         // Create assignment: local_name = full_module_path_with_underscores
+                        // But be careful about stdlib conflicts - only create in entry module if there's a conflict
                         let namespace_var = sanitize_module_name_for_identifier(&full_module_path);
-                        log::debug!(
-                            "  Creating namespace assignment: {local_name} = {namespace_var}"
-                        );
-                        result_stmts.push(statements::simple_assign(
-                            local_name,
-                            expressions::name(&namespace_var, ExprContext::Load),
-                        ));
+
+                        // Check if this would shadow a stdlib module
+                        let shadows_stdlib = crate::resolver::is_stdlib_module(local_name, 38);
+
+                        // Only create the assignment if:
+                        // 1. We're in the entry module (where user expects the shadowing), OR
+                        // 2. The name doesn't conflict with stdlib
+                        if self.is_entry_module || !shadows_stdlib {
+                            log::debug!(
+                                "  Creating namespace assignment: {local_name} = {namespace_var}"
+                            );
+                            result_stmts.push(statements::simple_assign(
+                                local_name,
+                                expressions::name(&namespace_var, ExprContext::Load),
+                            ));
+                        } else {
+                            log::debug!(
+                                "  Skipping namespace assignment: {local_name} = {namespace_var} - would shadow stdlib in non-entry module"
+                            );
+                        }
                         handled_any = true;
                     } else {
                         // This is importing an inlined submodule
