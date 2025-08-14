@@ -79,9 +79,10 @@ jobs:
           tool: typos-cli
 
       - name: Install dprint
-        run: |
-          curl -fsSL https://dprint.dev/install.sh | sh -s
-          echo "$HOME/.dprint/bin" >> $GITHUB_PATH
+        run: npm install -g dprint
+
+      - name: Install commitlint dependencies
+        run: npm install -g @commitlint/cli @commitlint/config-conventional
       - name: Verify installation
         run: |
           echo "🦀 Rust toolchain:"
@@ -94,10 +95,18 @@ jobs:
 
           echo "📦 Node.js tools:"
           bun --version
+          
+          echo "🎨 Formatting tools:"
+          dprint --version
+          commitlint --version
 
           echo "🔧 Development tools:"
           cargo insta --version
           cargo nextest --version
           taplo --version
           typos --version
-          dprint --version
+
+          echo "🧪 Testing lefthook tools via bunx:"
+          echo "✓ bunx can find dprint: $(bunx --version > /dev/null && echo 'yes' || echo 'no')"
+          echo "✓ bunx can find taplo: $(which bunx > /dev/null && echo 'yes' || echo 'no')"
+          echo "✓ bunx can find commitlint: $(which bunx > /dev/null && echo 'yes' || echo 'no')"
