@@ -25,6 +25,15 @@ pub fn create_module_initialization_for_import(
     module_name: &str,
     module_registry: &FxIndexMap<String, String>,
 ) -> Vec<Stmt> {
+    create_module_initialization_for_import_with_context(module_name, module_registry, false)
+}
+
+/// Create module initialization statements for wrapper modules with context awareness
+pub fn create_module_initialization_for_import_with_context(
+    module_name: &str,
+    module_registry: &FxIndexMap<String, String>,
+    function_safe: bool,
+) -> Vec<Stmt> {
     let mut stmts = Vec::new();
 
     // Check if this is a wrapper module that needs initialization
@@ -39,11 +48,89 @@ pub fn create_module_initialization_for_import(
             vec![],
         );
 
-        // Create assignment statement: module_name = init_func()
-        stmts.push(ast_builder::statements::simple_assign(
-            module_name,
-            init_call,
-        ));
+        if function_safe {
+            // Create function-safe assignment using globals()
+            if module_name.contains('.') {
+                // For dotted modules like 'parent.child', we need to ensure the parent exists
+                let parts: Vec<&str> = module_name.split('.').collect();
+                let parent_parts = &parts[..parts.len() - 1];
+                let child_name = parts[parts.len() - 1];
+
+                // Create parent namespace in globals if it doesn't exist
+                for i in 1..=parent_parts.len() {
+                    let namespace_path = parent_parts[..i].join(".");
+                    let setdefault_call = ast_builder::expressions::call(
+                        ast_builder::expressions::attribute(
+                            ast_builder::expressions::call(
+                                ast_builder::expressions::name("globals", ExprContext::Load),
+                                vec![],
+                                vec![],
+                            ),
+                            "setdefault",
+                            ExprContext::Load,
+                        ),
+                        vec![
+                            ast_builder::expressions::string_literal(&namespace_path),
+                            ast_builder::expressions::call(
+                                ast_builder::expressions::attribute(
+                                    ast_builder::expressions::name("types", ExprContext::Load),
+                                    "SimpleNamespace",
+                                    ExprContext::Load,
+                                ),
+                                vec![],
+                                vec![],
+                            ),
+                        ],
+                        vec![],
+                    );
+                    stmts.push(ast_builder::statements::expr(setdefault_call));
+                }
+
+                // Set the child attribute on the parent using setattr
+                let parent_expr = ast_builder::expressions::subscript(
+                    ast_builder::expressions::call(
+                        ast_builder::expressions::name("globals", ExprContext::Load),
+                        vec![],
+                        vec![],
+                    ),
+                    ast_builder::expressions::string_literal(&parent_parts.join(".")),
+                    ExprContext::Load,
+                );
+
+                let setattr_call = ast_builder::expressions::call(
+                    ast_builder::expressions::name("setattr", ExprContext::Load),
+                    vec![
+                        parent_expr,
+                        ast_builder::expressions::string_literal(child_name),
+                        init_call,
+                    ],
+                    vec![],
+                );
+                stmts.push(ast_builder::statements::expr(setattr_call));
+            } else {
+                // For simple modules, use globals()["module"] = init_func()
+                let globals_call = ast_builder::expressions::call(
+                    ast_builder::expressions::name("globals", ExprContext::Load),
+                    vec![],
+                    vec![],
+                );
+                let subscript_target = ast_builder::expressions::subscript(
+                    globals_call,
+                    ast_builder::expressions::string_literal(module_name),
+                    ExprContext::Store,
+                );
+                stmts.push(ast_builder::statements::assign(
+                    vec![subscript_target],
+                    init_call,
+                ));
+            }
+        } else {
+            // Standard assignment: module_name = init_func()
+            stmts.push(ast_builder::statements::simple_assign(
+                module_name,
+                init_call,
+            ));
+        }
     }
 
     stmts
@@ -56,6 +143,25 @@ pub fn generate_module_init_call(
     init_func_name: Option<&str>,
     module_registry: &FxIndexMap<String, String>,
     generate_merge_module_attributes: impl Fn(&mut Vec<Stmt>, &str, &str),
+) -> Vec<Stmt> {
+    generate_module_init_call_with_context(
+        _synthetic_name,
+        module_name,
+        init_func_name,
+        module_registry,
+        generate_merge_module_attributes,
+        false,
+    )
+}
+
+/// Generate module init call with context awareness
+pub fn generate_module_init_call_with_context(
+    _synthetic_name: &str,
+    module_name: &str,
+    init_func_name: Option<&str>,
+    module_registry: &FxIndexMap<String, String>,
+    generate_merge_module_attributes: impl Fn(&mut Vec<Stmt>, &str, &str),
+    function_safe: bool,
 ) -> Vec<Stmt> {
     let mut statements = Vec::new();
 
@@ -74,44 +180,166 @@ pub fn generate_module_init_call(
             debug!("Module '{module_name}' is a parent namespace - generating merge code");
 
             // First, create a variable to hold the init result
-            statements.push(ast_builder::statements::simple_assign(
-                INIT_RESULT_VAR,
-                ast_builder::expressions::call(
-                    ast_builder::expressions::name(init_func_name, ExprContext::Load),
-                    vec![],
-                    vec![],
-                ),
-            ));
+            let init_call = ast_builder::expressions::call(
+                ast_builder::expressions::name(init_func_name, ExprContext::Load),
+                vec![],
+                vec![],
+            );
+
+            if function_safe {
+                // Use globals() for function-safe assignment
+                let globals_subscript = ast_builder::expressions::subscript(
+                    ast_builder::expressions::call(
+                        ast_builder::expressions::name("globals", ExprContext::Load),
+                        vec![],
+                        vec![],
+                    ),
+                    ast_builder::expressions::string_literal(INIT_RESULT_VAR),
+                    ExprContext::Store,
+                );
+                statements.push(ast_builder::statements::assign(
+                    vec![globals_subscript],
+                    init_call,
+                ));
+            } else {
+                statements.push(ast_builder::statements::simple_assign(
+                    INIT_RESULT_VAR,
+                    init_call,
+                ));
+            }
 
             // Generate the merge attributes code
             generate_merge_module_attributes(&mut statements, module_name, INIT_RESULT_VAR);
 
             // Assign the init result to the module variable
-            statements.push(ast_builder::statements::simple_assign(
-                module_name,
-                ast_builder::expressions::name(INIT_RESULT_VAR, ExprContext::Load),
-            ));
+            if function_safe {
+                let globals_subscript = ast_builder::expressions::subscript(
+                    ast_builder::expressions::call(
+                        ast_builder::expressions::name("globals", ExprContext::Load),
+                        vec![],
+                        vec![],
+                    ),
+                    ast_builder::expressions::string_literal(module_name),
+                    ExprContext::Store,
+                );
+                statements.push(ast_builder::statements::assign(
+                    vec![globals_subscript],
+                    ast_builder::expressions::subscript(
+                        ast_builder::expressions::call(
+                            ast_builder::expressions::name("globals", ExprContext::Load),
+                            vec![],
+                            vec![],
+                        ),
+                        ast_builder::expressions::string_literal(INIT_RESULT_VAR),
+                        ExprContext::Load,
+                    ),
+                ));
+            } else {
+                statements.push(ast_builder::statements::simple_assign(
+                    module_name,
+                    ast_builder::expressions::name(INIT_RESULT_VAR, ExprContext::Load),
+                ));
+            }
         } else {
             // Direct assignment for modules that aren't parent namespaces
-            let target_expr = if module_name.contains('.') {
-                // For dotted modules like models.base, create an attribute expression
-                let parts: Vec<&str> = module_name.split('.').collect();
-                ast_builder::expressions::dotted_name(&parts, ExprContext::Store)
-            } else {
-                // For simple modules, use direct name
-                ast_builder::expressions::name(module_name, ExprContext::Store)
-            };
+            let init_call = ast_builder::expressions::call(
+                ast_builder::expressions::name(init_func_name, ExprContext::Load),
+                vec![],
+                vec![],
+            );
 
-            // Generate: module_name = <cribo_init_prefix>synthetic_name()
-            // or: parent.child = <cribo_init_prefix>synthetic_name()
-            statements.push(ast_builder::statements::assign(
-                vec![target_expr],
-                ast_builder::expressions::call(
-                    ast_builder::expressions::name(init_func_name, ExprContext::Load),
-                    vec![],
-                    vec![],
-                ),
-            ));
+            if function_safe {
+                if module_name.contains('.') {
+                    // For dotted modules, use setattr approach similar to create_module_initialization_for_import_with_context
+                    let parts: Vec<&str> = module_name.split('.').collect();
+                    let parent_parts = &parts[..parts.len() - 1];
+                    let child_name = parts[parts.len() - 1];
+
+                    // Create parent namespace in globals if it doesn't exist
+                    for i in 1..=parent_parts.len() {
+                        let namespace_path = parent_parts[..i].join(".");
+                        let setdefault_call = ast_builder::expressions::call(
+                            ast_builder::expressions::attribute(
+                                ast_builder::expressions::call(
+                                    ast_builder::expressions::name("globals", ExprContext::Load),
+                                    vec![],
+                                    vec![],
+                                ),
+                                "setdefault",
+                                ExprContext::Load,
+                            ),
+                            vec![
+                                ast_builder::expressions::string_literal(&namespace_path),
+                                ast_builder::expressions::call(
+                                    ast_builder::expressions::attribute(
+                                        ast_builder::expressions::name("types", ExprContext::Load),
+                                        "SimpleNamespace",
+                                        ExprContext::Load,
+                                    ),
+                                    vec![],
+                                    vec![],
+                                ),
+                            ],
+                            vec![],
+                        );
+                        statements.push(ast_builder::statements::expr(setdefault_call));
+                    }
+
+                    // Set the child attribute on the parent using setattr
+                    let parent_expr = ast_builder::expressions::subscript(
+                        ast_builder::expressions::call(
+                            ast_builder::expressions::name("globals", ExprContext::Load),
+                            vec![],
+                            vec![],
+                        ),
+                        ast_builder::expressions::string_literal(&parent_parts.join(".")),
+                        ExprContext::Load,
+                    );
+
+                    let setattr_call = ast_builder::expressions::call(
+                        ast_builder::expressions::name("setattr", ExprContext::Load),
+                        vec![
+                            parent_expr,
+                            ast_builder::expressions::string_literal(child_name),
+                            init_call,
+                        ],
+                        vec![],
+                    );
+                    statements.push(ast_builder::statements::expr(setattr_call));
+                } else {
+                    // For simple modules, use globals()["module"] = init_func()
+                    let globals_subscript = ast_builder::expressions::subscript(
+                        ast_builder::expressions::call(
+                            ast_builder::expressions::name("globals", ExprContext::Load),
+                            vec![],
+                            vec![],
+                        ),
+                        ast_builder::expressions::string_literal(module_name),
+                        ExprContext::Store,
+                    );
+                    statements.push(ast_builder::statements::assign(
+                        vec![globals_subscript],
+                        init_call,
+                    ));
+                }
+            } else {
+                // Standard assignment approach
+                let target_expr = if module_name.contains('.') {
+                    // For dotted modules like models.base, create an attribute expression
+                    let parts: Vec<&str> = module_name.split('.').collect();
+                    ast_builder::expressions::dotted_name(&parts, ExprContext::Store)
+                } else {
+                    // For simple modules, use direct name
+                    ast_builder::expressions::name(module_name, ExprContext::Store)
+                };
+
+                // Generate: module_name = <cribo_init_prefix>synthetic_name()
+                // or: parent.child = <cribo_init_prefix>synthetic_name()
+                statements.push(ast_builder::statements::assign(
+                    vec![target_expr],
+                    init_call,
+                ));
+            }
         }
     } else {
         statements.push(ast_builder::statements::pass());

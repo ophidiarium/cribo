@@ -6279,6 +6279,15 @@ impl Bundler<'_> {
 
     /// Create module initialization statements for wrapper modules when they are imported
     pub(super) fn create_module_initialization_for_import(&self, module_name: &str) -> Vec<Stmt> {
+        self.create_module_initialization_for_import_with_context(module_name, false)
+    }
+
+    /// Create module initialization statements for wrapper modules with context awareness
+    pub(super) fn create_module_initialization_for_import_with_context(
+        &self,
+        module_name: &str,
+        function_safe: bool,
+    ) -> Vec<Stmt> {
         let mut stmts = Vec::new();
 
         // Check if this is a wrapper module that needs initialization
@@ -6294,8 +6303,19 @@ impl Bundler<'_> {
                 vec![],
             );
 
-            // Generate the appropriate assignment based on module type
-            stmts.extend(self.generate_module_assignment_from_init(module_name, init_call));
+            if function_safe {
+                // Use function-safe approach via globals()
+                stmts.extend(
+                    crate::code_generator::module_registry::create_module_initialization_for_import_with_context(
+                        module_name,
+                        &self.module_registry,
+                        true,
+                    ),
+                );
+            } else {
+                // Generate the appropriate assignment based on module type
+                stmts.extend(self.generate_module_assignment_from_init(module_name, init_call));
+            }
 
             // Log the initialization for debugging
             if module_name.contains('.') {

@@ -540,6 +540,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         import_stmt.clone(),
                         self.symbol_renames,
                         &mut self.populated_modules,
+                        self.is_wrapper_init,
                     );
                     log::debug!(
                         "rewrite_import_with_renames for module '{}': import {:?} -> {} statements",
@@ -2091,6 +2092,7 @@ fn rewrite_import_with_renames(
     import_stmt: StmtImport,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     populated_modules: &mut FxIndexSet<String>,
+    function_safe: bool,
 ) -> Vec<Stmt> {
     // Check each import individually
     let mut result_stmts = Vec::new();
@@ -2112,8 +2114,12 @@ fn rewrite_import_with_renames(
                     bundler.create_parent_namespaces(&parts, &mut result_stmts);
 
                     // Initialize the module at import time
-                    result_stmts
-                        .extend(bundler.create_module_initialization_for_import(module_name));
+                    result_stmts.extend(
+                        bundler.create_module_initialization_for_import_with_context(
+                            module_name,
+                            function_safe,
+                        ),
+                    );
 
                     let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
@@ -2229,7 +2235,12 @@ fn rewrite_import_with_renames(
                 let target_name = alias.asname.as_ref().unwrap_or(&alias.name);
 
                 // First, ensure the module is initialized
-                result_stmts.extend(bundler.create_module_initialization_for_import(module_name));
+                result_stmts.extend(
+                    bundler.create_module_initialization_for_import_with_context(
+                        module_name,
+                        function_safe,
+                    ),
+                );
 
                 // Then create assignment if needed (skip self-assignments)
                 if target_name.as_str() != module_name {

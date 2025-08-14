@@ -6,8 +6,8 @@
 
 use ruff_python_ast::{
     AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprList, ExprName,
-    ExprNoneLiteral, ExprStringLiteral, ExprUnaryOp, FStringFlags, FStringPart, FStringValue,
-    Keyword, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
+    ExprNoneLiteral, ExprStringLiteral, ExprSubscript, ExprUnaryOp, FStringFlags, FStringPart,
+    FStringValue, Keyword, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
 };
 use ruff_text_size::TextRange;
 
@@ -240,4 +240,28 @@ pub fn get_fstring_flags(value: &FStringValue) -> FStringFlags {
             }
         })
         .unwrap_or_else(FStringFlags::empty)
+}
+
+/// Creates a subscript expression node.
+///
+/// # Arguments
+/// * `value` - The object being subscripted
+/// * `slice` - The subscript slice expression
+/// * `ctx` - The expression context (Load, Store, Del)
+///
+/// # Example
+/// ```rust
+/// // Creates: `obj[key]`
+/// let obj = name("obj", ExprContext::Load);
+/// let key = string_literal("key");
+/// let expr = subscript(obj, key, ExprContext::Load);
+/// ```
+pub fn subscript(value: Expr, slice: Expr, ctx: ExprContext) -> Expr {
+    Expr::Subscript(ExprSubscript {
+        value: Box::new(value),
+        slice: Box::new(slice),
+        ctx,
+        range: TextRange::default(),
+        node_index: AtomicNodeIndex::dummy(),
+    })
 }
