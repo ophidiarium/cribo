@@ -2640,17 +2640,16 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         // Get symbol renames for this module
         let module_renames = symbol_renames.get(module_name);
 
+        // Cache explicit __all__ (if any) to avoid repeated lookups
+        let explicit_all = bundler
+            .module_exports
+            .get(module_name)
+            .and_then(|exports| exports.as_ref());
+
         for symbol_name in &module_exports {
             // Skip private symbols unless explicitly in __all__
             if symbol_name.starts_with('_')
-                && !bundler
-                    .module_exports
-                    .get(module_name)
-                    .is_some_and(|exports| {
-                        exports
-                            .as_ref()
-                            .is_some_and(|all| all.contains(symbol_name))
-                    })
+                && !explicit_all.is_some_and(|all| all.contains(symbol_name))
             {
                 continue;
             }
