@@ -579,7 +579,21 @@ impl TreeShaker {
             // Add symbol-specific dependencies if tracked
             if let Some(deps) = item.symbol_dependencies.get(symbol) {
                 for dep in deps {
-                    if let Some(dep_module) = self.find_defining_module(dep) {
+                    // First check if the dependency is defined in the current module
+                    // (for local references like metaclass=MyMetaclass in the same module)
+                    let dep_module = if let Some(items) = self.module_items.get(module) {
+                        let found_locally =
+                            items.iter().any(|item| item.defined_symbols.contains(dep));
+                        if found_locally {
+                            Some(module.to_string())
+                        } else {
+                            self.find_defining_module(dep)
+                        }
+                    } else {
+                        self.find_defining_module(dep)
+                    };
+
+                    if let Some(dep_module) = dep_module {
                         worklist.push_back((dep_module, dep.clone()));
                     }
                 }
