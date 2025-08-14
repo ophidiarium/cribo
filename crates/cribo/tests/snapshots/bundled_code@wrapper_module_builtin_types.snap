@@ -21,6 +21,7 @@ pkg_utils = types.SimpleNamespace(__name__='pkg.utils')
 pkg.utils = pkg_utils
 bytes = bytes
 str = str
+builtin_str = str
 def process_data(data):
     """Process data using compat.bytes attribute.\n\n    This will fail when bundled because the bundler skips 'bytes = bytes'\n    in compat's init function.\n    """
     if isinstance(data, compat.bytes):
@@ -41,6 +42,7 @@ pkg___version__ = types.SimpleNamespace(__name__='pkg.__version__')
 def __cribo_init___cribo_5a392a_pkg__internal_utils():
     module = types.SimpleNamespace()
     module.__name__ = 'pkg._internal_utils'
+    global builtin_str
     """Internal utils that depends on compat, creating circular dependency."""
     HEADER_VALIDATORS = {"str": lambda x: isinstance(x, builtin_str), "bytes": lambda x: isinstance(x, bytes)}
     module.HEADER_VALIDATORS = HEADER_VALIDATORS
@@ -51,11 +53,13 @@ def __cribo_init___cribo_5a392a_pkg__internal_utils():
             return value
         return str(value)
     module.to_native_string = to_native_string
+    module.builtin_str = builtin_str
     return module
 pkg._internal_utils = __cribo_init___cribo_5a392a_pkg__internal_utils()
 utils = pkg_utils
 compat = pkg_compat
 pkg_utils.process_data = process_data
+pkg_compat.builtin_str = builtin_str
 pkg_compat.bytes = bytes
 pkg_compat.str = str
 """Test wrapper module pattern that triggers init functions with builtin types bug.\n\nThis reproduces the exact pattern from requests where:\n1. Multiple modules form circular dependencies (wrapper modules)\n2. One wrapper module (compat) has self-referential builtin assignments\n3. Another wrapper module (utils) accesses these as attributes\n4. The bundler generates init functions for wrapper modules\n"""

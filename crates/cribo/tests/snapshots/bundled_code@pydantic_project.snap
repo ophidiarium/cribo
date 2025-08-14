@@ -63,10 +63,26 @@ def validate_email(email: str) -> bool:
     """Simple email validation."""
     pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
     return bool(re.match(pattern, email))
+def sanitize_input(text: str) -> str:
+    """Sanitize input text."""
+    dangerous_chars = ["<", ">", '"', "'", "&"]
+    sanitized = text
+    for char in dangerous_chars:
+        sanitized = sanitized.replace(char, "")
+    return sanitized.strip()
+def validate_age(age: typing.Union[int, str]) -> bool:
+    """Validate age value."""
+    try:
+        age_int = int(age)
+        return 0 <= age_int <= 150
+    except (ValueError, TypeError):
+        return False
 """Utils package initialization."""
 """Validation utilities."""
 """Schemas package initialization."""
 utils_validation.validate_email = validate_email
+utils_validation.sanitize_input = sanitize_input
+utils_validation.validate_age = validate_age
 """Pydantic test project entry point."""
 from pydantic import ValidationError
 UserSchema = schemas.user.UserSchema

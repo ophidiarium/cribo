@@ -142,6 +142,20 @@ class User_2:
         global connection_3
         connection_3 = f"user_model_connection_{self.name}"
         return connection_3
+class Connection_2:
+    """Model connection class - conflicts with other Connection classes"""
+
+    def __init__(self, User: "User"):
+        self.User = User_2
+        self.connected = False
+
+    def connect(self) -> str:
+        self.connected = True
+        return f"Model connection for user: {self.User.name}"
+
+    def process(self, action: str) -> str:
+        """Method with conflicted name"""
+        return f"connection_process: {action} for {self.User.name}"
 class Logger_4:
     """Utility logger class - conflicts with other Logger classes"""
 
@@ -159,6 +173,16 @@ class Logger_4:
     def process(self, data: typing.Any) -> str:
         """Method with same name as module functions"""
         return f"logger_process: {data}"
+class Connection_5:
+    """Utility connection class - name conflict with database Connection"""
+
+    def __init__(self, connection_type: str="utility"):
+        self.connection_type = connection_type
+        self.active = False
+
+    def connect(self) -> str:
+        self.active = True
+        return f"Utility connection: {self.connection_type}"
 class Connection_6:
     """Database connection class"""
 
@@ -177,6 +201,23 @@ class Connection_6:
         self.connected = True
         connection_5 = self
         return f"Connected to {self.host}:{self.port}"
+def shadow_test(validate: typing.Any=None, process: typing.Any=None, Logger: typing.Any=None, result: typing.Any=None, initialize: typing.Any=None) -> typing.Dict[str, typing.Any]:
+    """Function that shadows all major conflict names with parameters"""
+    shadows = {"validate_param": validate_2, "process_param": process_2, "Logger_param": Logger_1, "result_param": result_2, "initialize_param": initialize}
+    validate_2 = globals()["validate"]
+    process_2 = globals()["process"]
+    Logger_1 = globals()["Logger"]
+    validation_result = validate_2("test_data")
+    process_result = process_2("test_data")
+    logger = Logger_1("shadow_test")
+    shadows.update({"global_validate_result": validation_result, "global_process_result": process_result, "global_logger_source": logger.source})
+    return shadows
+def connect_1() -> str:
+    """Base connect function"""
+    return "base_connected"
+def validate_2(data: typing.Any) -> bool:
+    """Base validate function - conflicts everywhere"""
+    return core_validate(data) and data != "invalid"
 def initialize() -> str:
     """Module initialization function"""
     global result_2
@@ -186,6 +227,16 @@ def initialize() -> str:
     logger._log_process("Base module initialized")
     result_2 = f"module_init: {init_result}"
     return result_2
+def process_2(data: typing.Any) -> str:
+    """Base process function - conflicts everywhere"""
+    global result_2
+    validated = validate_2(data)
+    if validated:
+        processed = f"base_module_process: {data}"
+    else:
+        processed = "base_module_invalid"
+    result_2 = f"base_last_process: {processed}"
+    return processed
 def process_user(data: typing.Any) -> str:
     """Module function with naming conflicts"""
     global result_3
@@ -210,6 +261,20 @@ def process_4(data: typing.Any) -> str:
         return process_user(data)
     else:
         return f"model_process_generic: {data}"
+def connect_2(User: "User") -> Connection_2:
+    """Module connect function with parameter conflicts"""
+    return Connection_2(User_2)
+def complex_operation(User: typing.Any=None, Logger: typing.Any=None, process: typing.Any=None, validate: typing.Any=None, result: typing.Any=None, connection: typing.Any=None) -> typing.Dict[str, typing.Any]:
+    """Function with all parameter names conflicting with globals/classes"""
+    operation_result = {"user_param": User_2, "logger_param": Logger_2, "process_param": process_4, "validate_param": validate_4, "result_param": result_3, "connection_param": connection_3}
+    User_2 = globals()["User"]
+    Logger_2 = globals()["Logger"]
+    if operation_result["user_param"]:
+        user = User_2("complex_user")
+        logger = Logger_2("complex_operation")
+        operation_result["created_user"] = user.name
+        operation_result["created_logger"] = logger.context
+    return operation_result
 def process_6(data: typing.Any) -> str:
     """Utility process function - major conflict with other process functions"""
     global result_6
@@ -234,6 +299,15 @@ def validate_6(data: typing.Any) -> bool:
     elif isinstance(data, (int, float)):
         return data >= 0
     return True
+def connect_4() -> Connection_5:
+    """Utility connect function"""
+    return Connection_5("helper")
+def process_with_conflicts(data: typing.Any, User: str="param_user", result: int=100, Logger: typing.Any=None) -> typing.Dict[str, typing.Any]:
+    """Function with parameter names that conflict with globals and imports"""
+    connection = connect_4()
+    validate_result = validate_6(data)
+    local_result = {"data": data, "user_param": User_4, "result_param": result_6, "logger_param": Logger_4, "validation": validate_result, "connection_type": connection.connection_type}
+    return local_result
 def process_7(data):
     """Database process function - conflicts with other process functions"""
     global result_8
@@ -242,6 +316,17 @@ def process_7(data):
     processed = {"db_process": True, "data": validated, "user_processing": user_result, "timestamp": "2024-01-01"}
     result_8.append(processed)
     return f"db_processed: {data}"
+def validate_7(data):
+    """Database validate function - another conflict"""
+    if not data:
+        return False
+    return f"db_valid: {data}"
+def connect_5():
+    """Module-level connect function"""
+    global connection_5
+    if connection_5 is None:
+        connection_5 = Connection_6()
+    return connection_5.connect()
 Logger_1.__module__ = 'models.base'
 Logger_1.__name__ = 'Logger'
 Logger_1.__qualname__ = 'Logger'
@@ -253,10 +338,16 @@ Logger_2.__qualname__ = 'Logger'
 User_2.__module__ = 'models.user'
 User_2.__name__ = 'User'
 User_2.__qualname__ = 'User'
+Connection_2.__module__ = 'models.user'
+Connection_2.__name__ = 'Connection'
+Connection_2.__qualname__ = 'Connection'
 """\nUser model with extensive naming conflicts across the project\n"""
 Logger_4.__module__ = 'core.utils.helpers'
 Logger_4.__name__ = 'Logger'
 Logger_4.__qualname__ = 'Logger'
+Connection_5.__module__ = 'core.utils.helpers'
+Connection_5.__name__ = 'Connection'
+Connection_5.__qualname__ = 'Connection'
 """\nUtility helpers module with extensive naming conflicts\n"""
 Connection_6.__module__ = 'core.database.connection'
 Connection_6.__name__ = 'Connection'
@@ -405,26 +496,38 @@ UserLogger = Logger_2
 util_process = process_6
 UtilLogger = Logger_4
 helper_validate = validate_6
+models_base.shadow_test = shadow_test
+models_base.connect = connect_1
 models_base.Logger = Logger_1
+models_base.validate = validate_2
 models_base.initialize = initialize
 models_base.BaseModel = BaseModel
+models_base.process = process_2
 models_base.result = result_2
 models_user.result = result_3
 models_user.connection = connection_3
 models_user.Logger = Logger_2
 models_user.User = User_2
+models_user.Connection = Connection_2
 models_user.process_user = process_user
 models_user.validate = validate_4
 models_user.process = process_4
+models_user.connect = connect_2
+models_user.complex_operation = complex_operation
 core_utils_helpers.result = result_6
 core_utils_helpers.User = User_4
 core_utils_helpers.Logger = Logger_4
+core_utils_helpers.Connection = Connection_5
 core_utils_helpers.process = process_6
 core_utils_helpers.validate = validate_6
+core_utils_helpers.connect = connect_4
+core_utils_helpers.process_with_conflicts = process_with_conflicts
 core_database_connection.result = result_8
 core_database_connection.connection = connection_5
 core_database_connection.Connection = Connection_6
 core_database_connection.process = process_7
+core_database_connection.validate = validate_7
+core_database_connection.connect = connect_5
 """\nComprehensive AST rewriter test fixture - Main entry point\nThis module demonstrates complex naming conflicts and import scenarios\n"""
 db_process = process_7
 auth_process = services.auth.manager.process

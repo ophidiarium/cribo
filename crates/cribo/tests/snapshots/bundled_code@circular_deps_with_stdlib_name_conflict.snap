@@ -119,6 +119,21 @@ class Style:
     def get_color(self) -> Color:
         """Get associated color object."""
         return self._color_obj
+def format_with_pretty(console: Console, obj: typing.Any) -> str:
+    """Format object using pretty printer."""
+    return pkg.pretty.format_pretty(obj, console)
+def apply_color_to_console(console, color: Color) -> None:
+    """Apply color to console."""
+    pass
+def color_from_style(style) -> "Color":
+    """Create a color from a style."""
+    if style.color == "red":
+        return Color(255, 0, 0)
+    elif style.color == "green":
+        return Color(0, 255, 0)
+    elif style.color == "blue":
+        return Color(0, 0, 255)
+    return Color()
 RichRenderable.__module__ = 'pkg.abc'
 """Module with stdlib-conflicting name that imports from stdlib abc."""
 """Package with circular dependencies and stdlib-conflicting module names."""
@@ -132,8 +147,11 @@ Style.__module__ = 'pkg.style'
 pkg.pretty = __cribo_init___cribo_2353ad_pkg_pretty()
 pkg_abc.RichRenderable = RichRenderable
 pkg_abc.abstractmethod = abstractmethod
+pkg_console.format_with_pretty = format_with_pretty
 pkg_console.ConsoleBase = ConsoleBase
 pkg_console.Console = Console
+pkg_color.apply_color_to_console = apply_color_to_console
+pkg_color.color_from_style = color_from_style
 pkg_color.Color = Color
 pkg_style.Style = Style
 """Test circular dependencies with stdlib-conflicting module names.\n\nThis fixture tests the bundler's ability to handle:\n1. A local module named 'abc' that conflicts with stdlib 'abc'\n2. Circular dependencies that require wrapper functions\n3. Proper stdlib normalization when hard dependencies are involved\n4. Ensuring no incorrect imports are generated for stdlib or bundled modules\n"""

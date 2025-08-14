@@ -22,6 +22,7 @@ core_utils.helpers = core_utils_helpers
 process_count = 0
 validate_cache = {}
 Logger_6 = str
+Connection_6 = "not_a_class"
 class Logger_6:
     """Logger class in utils module"""
 
@@ -34,6 +35,14 @@ class Logger_6:
 
     def get_message(self):
         return f"utils_logger_{self.name}"
+class Connection_6:
+    """Connection class in utils - different from database Connection"""
+
+    def __init__(self):
+        self.type = "utility_connection"
+
+    def connect(self):
+        return "utils_connection_established"
 def process_7(data):
     """Process function in utils module"""
     global process_count
@@ -55,12 +64,17 @@ def format_result(result):
 Logger_6.__module__ = 'core.utils.helpers'
 Logger_6.__name__ = 'Logger'
 Logger_6.__qualname__ = 'Logger'
+Connection_6.__module__ = 'core.utils.helpers'
+Connection_6.__name__ = 'Connection'
+Connection_6.__qualname__ = 'Connection'
 """Core utility helpers module - NO external dependencies to avoid circular imports"""
 _cribo_models_base_Connection = None
 @functools.cache
 def __cribo_init___cribo_0a162a_models_base():
     module = types.SimpleNamespace()
     module.__name__ = 'models.base'
+    global validate
+    util_validate = validate_6
     """Base models module - imports only from core to avoid circular dependencies"""
     process = lambda x: f"base_process: {x}"
     module.process = process
@@ -211,6 +225,9 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
     core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
     DBConnection = core.database.connection.Connection
     module.DBConnection = DBConnection
+    models.base = __cribo_init___cribo_0a162a_models_base()
+    base_init = models.base.initialize
+    module.base_init = base_init
     process = [1, 2, 3]
     module.process = process
     validate = None
@@ -349,6 +366,7 @@ for attr in dir(__cribo_init_result):
 core_utils_helpers.process_count = process_count
 core_utils_helpers.validate_cache = validate_cache
 core_utils_helpers.Logger = Logger_6
+core_utils_helpers.Connection = Connection_6
 core_utils_helpers.process = process_7
 core_utils_helpers.validate = validate_6
 core_utils_helpers.sanitize = sanitize
