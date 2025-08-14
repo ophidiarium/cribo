@@ -1272,6 +1272,20 @@ impl<'a> Bundler<'a> {
             .any(|bundled| bundled.starts_with(&package_prefix))
     }
 
+    /// Check if a wrapper module should be included after tree-shaking
+    ///
+    /// A wrapper module is included if it either:
+    /// - Has symbols that survived tree-shaking
+    /// - Has side effects that need to be preserved
+    fn should_include_wrapper_module(
+        &self,
+        shaker: &crate::tree_shaking::TreeShaker,
+        module_name: &str,
+    ) -> bool {
+        !shaker.get_used_symbols_for_module(module_name).is_empty()
+            || shaker.module_has_side_effects(module_name)
+    }
+
     /// Extract attribute path from expression
     /// Process entry module statement
     fn process_entry_module_statement(
@@ -2940,9 +2954,7 @@ impl<'a> Bundler<'a> {
                 // Check if this module will actually be included
                 // Only collect imports from modules that will be initialized
                 let module_will_be_included = if let Some(shaker) = params.tree_shaker {
-                    // Check if the module has symbols that survived or has side effects
-                    !shaker.get_used_symbols_for_module(module_name).is_empty()
-                        || shaker.module_has_side_effects(module_name)
+                    self.should_include_wrapper_module(shaker, module_name)
                 } else {
                     // No tree-shaking, so all wrapper modules are included
                     true
@@ -3006,10 +3018,7 @@ impl<'a> Bundler<'a> {
 
                 for (module_name, ast, path, hash) in &wrapper_modules_saved {
                     // Include module if it has symbols that survived or has side effects
-                    let has_used_symbols =
-                        !shaker.get_used_symbols_for_module(module_name).is_empty();
-                    let has_side_effects = shaker.module_has_side_effects(module_name);
-                    let is_needed = has_used_symbols || has_side_effects;
+                    let is_needed = self.should_include_wrapper_module(shaker, module_name);
 
                     if is_needed {
                         filtered_modules.push((
