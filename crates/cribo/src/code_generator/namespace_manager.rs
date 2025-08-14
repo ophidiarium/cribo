@@ -436,6 +436,7 @@ pub(super) fn transform_namespace_package_imports(
     import_from: StmtImportFrom,
     module_name: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    function_safe: bool,
 ) -> Vec<Stmt> {
     let mut result_stmts = Vec::new();
 
@@ -450,17 +451,19 @@ pub(super) fn transform_namespace_package_imports(
                 // First ensure parent module is initialized if it's also a wrapper
                 if bundler.module_registry.contains_key(module_name) {
                     result_stmts.extend(
-                        crate::code_generator::module_registry::create_module_initialization_for_import(
+                        crate::code_generator::module_registry::create_module_initialization_for_import_with_context(
                             module_name,
                             &bundler.module_registry,
+                            function_safe,
                         ),
                     );
                 }
                 // Initialize the wrapper module if needed
                 result_stmts.extend(
-                    crate::code_generator::module_registry::create_module_initialization_for_import(
+                    crate::code_generator::module_registry::create_module_initialization_for_import_with_context(
                         &full_module_path,
                         &bundler.module_registry,
+                        function_safe,
                     ),
                 );
 

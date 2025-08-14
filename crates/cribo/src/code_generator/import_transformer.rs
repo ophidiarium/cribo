@@ -48,6 +48,8 @@ pub struct RecursiveImportTransformer<'a> {
     is_entry_module: bool,
     /// Flag indicating if we're inside a wrapper module's init function
     is_wrapper_init: bool,
+    /// Track function scope depth (0 = module level, >0 = inside function)
+    function_scope_depth: usize,
     /// Reference to global deferred imports registry
     global_deferred_imports: Option<&'a FxIndexMap<(String, String), String>>,
     /// Track local variable assignments to avoid treating them as module aliases
@@ -88,6 +90,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             deferred_imports: params.deferred_imports,
             is_entry_module: params.is_entry_module,
             is_wrapper_init: params.is_wrapper_init,
+            function_scope_depth: 0,
             global_deferred_imports: params.global_deferred_imports,
             local_variables: FxIndexSet::default(),
             importlib_transformed: false,
@@ -293,7 +296,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                             "RecursiveImportTransformer: Entering function '{}'",
                             func_def.name.as_str()
                         );
+                        self.function_scope_depth += 1;
                         self.transform_statements(&mut func_def.body);
+                        self.function_scope_depth -= 1;
                     }
                     Stmt::ClassDef(class_def) => {
                         // Check if this class has hard dependencies that should not be transformed
@@ -540,7 +545,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         import_stmt.clone(),
                         self.symbol_renames,
                         &mut self.populated_modules,
-                        self.is_wrapper_init,
+                        self.is_wrapper_init || self.function_scope_depth > 0,
                     );
                     log::debug!(
                         "rewrite_import_with_renames for module '{}': import {:?} -> {} statements",
@@ -1372,7 +1377,7 @@ impl<'a> RecursiveImportTransformer<'a> {
             current_module: self.module_name,
             module_path: self.module_path,
             symbol_renames: &empty_renames,
-            inside_wrapper_init: self.is_wrapper_init,
+            inside_wrapper_init: self.is_wrapper_init || self.function_scope_depth > 0,
             stdlib_names: &self.stdlib_names_in_scope,
             python_version: self.python_version,
         })
@@ -2455,6 +2460,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 import_from,
                 &module_name,
                 symbol_renames,
+                inside_wrapper_init,
             );
         }
 
@@ -2532,6 +2538,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 import_from,
                 &module_name,
                 symbol_renames,
+                inside_wrapper_init,
             );
         }
 

@@ -472,19 +472,19 @@ impl<'a> Bundler<'a> {
         &self,
         import_from: &StmtImportFrom,
         module_name: &str,
-        inside_wrapper_init: bool,
+        function_safe: bool,
         current_module: Option<&str>,
     ) -> Vec<Stmt> {
         log::debug!(
             "transform_bundled_import_from_multiple: module_name={}, imports={:?}, \
-             inside_wrapper_init={}",
+             function_safe={}",
             module_name,
             import_from
                 .names
                 .iter()
                 .map(|a| a.name.as_str())
                 .collect::<Vec<_>>(),
-            inside_wrapper_init
+            function_safe
         );
         let mut assignments = Vec::new();
         let mut initialized_modules = FxIndexSet::default();
@@ -585,16 +585,24 @@ impl<'a> Bundler<'a> {
 
                     // Now initialize parent module after submodule
                     if should_initialize_parent {
-                        assignments
-                            .extend(self.create_module_initialization_for_import(module_name));
+                        assignments.extend(
+                            self.create_module_initialization_for_import_with_context(
+                                module_name,
+                                function_safe,
+                            ),
+                        );
                         locally_initialized.insert(module_name.to_string());
                     }
                 } else {
                     // Normal order: parent first, then submodule
                     if should_initialize_parent {
                         // Initialize parent module first
-                        assignments
-                            .extend(self.create_module_initialization_for_import(module_name));
+                        assignments.extend(
+                            self.create_module_initialization_for_import_with_context(
+                                module_name,
+                                function_safe,
+                            ),
+                        );
                         locally_initialized.insert(module_name.to_string());
                     }
 
@@ -653,7 +661,7 @@ impl<'a> Bundler<'a> {
                 // Regular attribute import
                 // Special case: if we're inside the wrapper init of a module importing its own
                 // submodule
-                if inside_wrapper_init && current_module == Some(module_name) {
+                if function_safe && current_module == Some(module_name) {
                     // Check if this is actually a submodule
                     let full_submodule_path = format!("{module_name}.{imported_name}");
                     if self.bundled_modules.contains(&full_submodule_path)
@@ -667,7 +675,10 @@ impl<'a> Bundler<'a> {
 
                         // Initialize the submodule
                         assignments.extend(
-                            self.create_module_initialization_for_import(&full_submodule_path),
+                            self.create_module_initialization_for_import_with_context(
+                                &full_submodule_path,
+                                function_safe,
+                            ),
                         );
                         locally_initialized.insert(full_submodule_path.clone());
 
@@ -685,7 +696,7 @@ impl<'a> Bundler<'a> {
                 // Check if we're importing from an inlined module and the target is a wrapper
                 // submodule This happens when mypkg is inlined and does `from .
                 // import compat` where compat uses init function
-                if self.inlined_modules.contains(module_name) && !inside_wrapper_init {
+                if self.inlined_modules.contains(module_name) && !function_safe {
                     let full_submodule_path = format!("{module_name}.{imported_name}");
                     if self.module_registry.contains_key(&full_submodule_path) {
                         // This is importing a wrapper submodule from an inlined parent module
@@ -698,7 +709,10 @@ impl<'a> Bundler<'a> {
                         // Initialize the submodule if needed
                         if !locally_initialized.contains(&full_submodule_path) {
                             assignments.extend(
-                                self.create_module_initialization_for_import(&full_submodule_path),
+                                self.create_module_initialization_for_import_with_context(
+                                    &full_submodule_path,
+                                    function_safe,
+                                ),
                             );
                             locally_initialized.insert(full_submodule_path.clone());
                         }
@@ -752,8 +766,12 @@ impl<'a> Bundler<'a> {
 
                     if !module_init_exists {
                         // Initialize the module before accessing its attributes
-                        assignments
-                            .extend(self.create_module_initialization_for_import(module_name));
+                        assignments.extend(
+                            self.create_module_initialization_for_import_with_context(
+                                module_name,
+                                function_safe,
+                            ),
+                        );
                     }
                     locally_initialized.insert(module_name.to_string());
                 }
@@ -774,11 +792,11 @@ impl<'a> Bundler<'a> {
                 );
 
                 log::debug!(
-                    "Generating attribute assignment: {} = {}.{} (inside_wrapper_init: {})",
+                    "Generating attribute assignment: {} = {}.{} (function_safe: {})",
                     target_name.as_str(),
                     module_name,
                     imported_name,
-                    inside_wrapper_init
+                    function_safe
                 );
 
                 assignments.push(assignment);
