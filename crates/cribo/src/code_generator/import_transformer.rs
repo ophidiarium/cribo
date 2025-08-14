@@ -2673,20 +2673,19 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
                 symbol_name.clone()
             };
 
-            // For wildcard imports, always create an assignment from the original name
-            // to the (possibly renamed) symbol
+            // For wildcard imports, always create an assignment to ensure "last import wins"
+            // semantics are preserved. Even if the symbol wasn't renamed, we need to rebind
+            // it in case a previous wildcard import brought in a different version.
+            result_stmts.push(statements::simple_assign(
+                symbol_name,
+                expressions::name(&renamed_symbol, ExprContext::Load),
+            ));
+
             if renamed_symbol == *symbol_name {
-                // No renaming needed, but for wildcard imports from inlined modules,
-                // the symbol is already in scope, so no assignment needed
                 log::debug!(
-                    "Symbol '{symbol_name}' from wildcard import is already in scope (no rename)"
+                    "Created wildcard import assignment for non-renamed symbol: {symbol_name} = {renamed_symbol}"
                 );
             } else {
-                // Symbol was renamed, create alias: original_name = renamed_name
-                result_stmts.push(statements::simple_assign(
-                    symbol_name,
-                    expressions::name(&renamed_symbol, ExprContext::Load),
-                ));
                 log::debug!(
                     "Created wildcard import alias for renamed symbol: {symbol_name} = {renamed_symbol}"
                 );

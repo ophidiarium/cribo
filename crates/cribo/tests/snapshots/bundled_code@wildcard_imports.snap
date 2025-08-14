@@ -87,15 +87,20 @@ def __cribo_init___cribo_9a9871_with_side_effects():
         print(f"Module state initialized with {len(_module_state)} items")
     return module
 """Main module demonstrating various wildcard import patterns."""
+safe_function = safe_function
+SafeClass = SafeClass
+SAFE_CONSTANT = SAFE_CONSTANT
 with_side_effects = __cribo_init___cribo_9a9871_with_side_effects()
 EFFECT_CONSTANT = with_side_effects.EFFECT_CONSTANT
 EffectClass = with_side_effects.EffectClass
 effect_function = with_side_effects.effect_function
 register = with_side_effects.register
 registered_function = with_side_effects.registered_function
+unique_a_function = unique_a_function
 shared_function = shared_function_1
 SharedClass = SharedClass_1
 SHARED_CONSTANT = SHARED_CONSTANT_1
+unique_b_function = unique_b_function
 def main():
     """Test all imported symbols."""
     results = []
