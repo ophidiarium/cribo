@@ -3024,16 +3024,27 @@ impl<'a> Bundler<'a> {
                 }
 
                 // Remove filtered modules from all registries to prevent inconsistent state
-                for module_name in modules_to_remove_from_registry {
-                    // Get the synthetic name before removing
-                    if let Some(synthetic_name) = self.module_registry.get(&module_name) {
-                        self.init_functions.shift_remove(synthetic_name);
-                    }
-                    self.module_registry.shift_remove(&module_name);
-                    self.module_exports.shift_remove(&module_name);
-                    // Also remove from bundled_modules to ensure consistency
-                    self.bundled_modules.shift_remove(&module_name);
-                }
+                // Use retain for O(n) performance instead of O(n²) from repeated shift_remove
+                let modules_to_remove_set: FxIndexSet<_> =
+                    modules_to_remove_from_registry.into_iter().collect();
+
+                // Collect synthetic names before removing from module_registry
+                let synthetic_names_to_remove: FxIndexSet<_> = self
+                    .module_registry
+                    .iter()
+                    .filter(|(k, _)| modules_to_remove_set.contains(*k))
+                    .map(|(_, v)| v.clone())
+                    .collect();
+
+                // Efficiently remove from all registries using retain
+                self.module_registry
+                    .retain(|k, _| !modules_to_remove_set.contains(k));
+                self.module_exports
+                    .retain(|k, _| !modules_to_remove_set.contains(k));
+                self.bundled_modules
+                    .retain(|k| !modules_to_remove_set.contains(k));
+                self.init_functions
+                    .retain(|k, _| !synthetic_names_to_remove.contains(k));
 
                 filtered_modules
             } else {
