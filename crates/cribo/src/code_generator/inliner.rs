@@ -269,6 +269,44 @@ impl Bundler<'_> {
         Ok(Vec::new()) // Statements are accumulated in ctx.inlined_stmts
     }
 
+    /// Rewrite a class argument expression (base class or keyword value)
+    /// applying appropriate renames based on import sources and module context
+    fn rewrite_class_arg_expr(
+        &self,
+        expr: &mut Expr,
+        ctx: &InlineContext,
+        module_renames: &FxIndexMap<String, String>,
+        arg_kind: &str,
+    ) {
+        if let Expr::Name(name_expr) = expr {
+            let name = name_expr.id.as_str();
+
+            // Check if this value was imported from another module
+            if let Some(source_module) = ctx.import_sources.get(name) {
+                // This value was imported from another module
+                // Use that module's renames instead of the current module's
+                if let Some(source_renames) = ctx.module_renames.get(source_module)
+                    && let Some(renamed) = source_renames.get(name)
+                {
+                    log::debug!(
+                        "Applying cross-module rename for {arg_kind} '{name}' \
+                         from module '{source_module}': '{name}' -> '{renamed}'"
+                    );
+                    name_expr.id = renamed.clone().into();
+                    return;
+                }
+            }
+
+            // Not imported or no rename found in source module, apply local renames
+            if let Some(renamed) = module_renames.get(name) {
+                name_expr.id = renamed.clone().into();
+            }
+        } else {
+            // Complex expression, use standard rewriting
+            expression_handlers::rewrite_aliases_in_expr(expr, module_renames);
+        }
+    }
+
     /// Inline a class definition
     pub(crate) fn inline_class(
         &mut self,
@@ -293,74 +331,23 @@ impl Bundler<'_> {
         let mut class_def_clone = class_def.clone();
         class_def_clone.name = Identifier::new(renamed_name.clone(), TextRange::default());
 
-        // Apply renames to base classes
+        // Apply renames to base classes and keyword arguments
         // CRITICAL: For cross-module inheritance, we need to apply renames from the
         // source module of each base class, not just from the current module.
         if let Some(ref mut arguments) = class_def_clone.arguments {
+            // Apply renames to base classes
             for arg in &mut arguments.args {
-                // Try to determine the source module for base class names
-                if let Expr::Name(name_expr) = arg {
-                    let base_class_name = name_expr.id.as_str();
-
-                    // Check if this base class was imported from another module
-                    if let Some(source_module) = ctx.import_sources.get(base_class_name) {
-                        // This base class was imported from another module
-                        // Use that module's renames instead of the current module's
-                        if let Some(source_renames) = ctx.module_renames.get(source_module)
-                            && let Some(renamed) = source_renames.get(base_class_name)
-                        {
-                            log::debug!(
-                                "Applying cross-module rename for base class '{base_class_name}' \
-                                 from module '{source_module}': '{base_class_name}' -> '{renamed}'"
-                            );
-                            name_expr.id = renamed.clone().into();
-                            continue;
-                        }
-                    }
-
-                    // Not imported or no rename found in source module, apply local renames
-                    if let Some(renamed) = module_renames.get(base_class_name) {
-                        name_expr.id = renamed.clone().into();
-                    }
-                } else {
-                    // Complex base class expression, use standard rewriting
-                    expression_handlers::rewrite_aliases_in_expr(arg, module_renames);
-                }
+                self.rewrite_class_arg_expr(arg, ctx, module_renames, "base class");
             }
 
             // Also apply renames to keyword arguments (e.g., metaclass=SomeMetaclass)
             for keyword in &mut arguments.keywords {
-                // For keyword arguments like metaclass=YAMLObjectMetaclass, we need to rename the value
-                if let Expr::Name(name_expr) = &mut keyword.value {
-                    let keyword_value_name = name_expr.id.as_str();
-
-                    // Check if this value was imported from another module
-                    if let Some(source_module) = ctx.import_sources.get(keyword_value_name) {
-                        // This value was imported from another module
-                        // Use that module's renames instead of the current module's
-                        if let Some(source_renames) = ctx.module_renames.get(source_module)
-                            && let Some(renamed) = source_renames.get(keyword_value_name)
-                        {
-                            log::debug!(
-                                "Applying cross-module rename for keyword value '{keyword_value_name}' \
-                                 from module '{source_module}': '{keyword_value_name}' -> '{renamed}'"
-                            );
-                            name_expr.id = renamed.clone().into();
-                            continue;
-                        }
-                    }
-
-                    // Not imported or no rename found in source module, apply local renames
-                    if let Some(renamed) = module_renames.get(keyword_value_name) {
-                        name_expr.id = renamed.clone().into();
-                    }
-                } else {
-                    // Complex keyword value expression, use standard rewriting
-                    expression_handlers::rewrite_aliases_in_expr(
-                        &mut keyword.value,
-                        module_renames,
-                    );
-                }
+                self.rewrite_class_arg_expr(
+                    &mut keyword.value,
+                    ctx,
+                    module_renames,
+                    "keyword value",
+                );
             }
         }
 

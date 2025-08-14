@@ -11,7 +11,7 @@ class YAMLObjectMetaclass_1(type):
 
     def __init__(cls, name, bases, kwds):
         super(YAMLObjectMetaclass_1, cls).__init__(name, bases, kwds)
-        if 'yaml_tag' in kwds and kwds['yaml_tag'] is not None:
+        if "yaml_tag" in kwds and kwds["yaml_tag"] is not None:
             cls._registered_b = True
 class YAMLObject_1(metaclass=YAMLObjectMetaclass_1):
     """Another class with the same name but different metaclass."""
@@ -24,7 +24,7 @@ class YAMLObjectMetaclass_2(type):
 
     def __init__(cls, name, bases, kwds):
         super(YAMLObjectMetaclass_2, cls).__init__(name, bases, kwds)
-        if 'yaml_tag' in kwds and kwds['yaml_tag'] is not None:
+        if "yaml_tag" in kwds and kwds["yaml_tag"] is not None:
             cls._registered_a = True
 class YAMLObject_2(metaclass=YAMLObjectMetaclass_2):
     """An object with metaclass from module_a."""
@@ -53,22 +53,22 @@ def test_both_classes():
     """Test that both metaclass-based classes work."""
 
     class MyObjectA(YAMLObject):
-        yaml_tag = '!myobject_a'
+        yaml_tag = "!myobject_a"
 
         def __init__(self, value):
             self.value = value
     obj_a = MyObjectA(42)
     assert obj_a.value == 42
-    assert MyObjectA.yaml_tag == '!myobject_a'
+    assert MyObjectA.yaml_tag == "!myobject_a"
 
     class MyObjectB(YAMLObjectB):
-        yaml_tag = '!myobject_b'
+        yaml_tag = "!myobject_b"
 
         def __init__(self, value):
             self.value = value * 2
     obj_b = MyObjectB(21)
     assert obj_b.value == 42
-    assert MyObjectB.yaml_tag == '!myobject_b'
+    assert MyObjectB.yaml_tag == "!myobject_b"
     print("Both metaclass tests passed")
 if __name__ == "__main__":
     test_both_classes()
