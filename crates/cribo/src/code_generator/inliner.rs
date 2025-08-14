@@ -281,16 +281,24 @@ impl Bundler<'_> {
         if let Expr::Name(name_expr) = expr {
             let name = name_expr.id.as_str();
 
-            // Check if this value was imported from another module
+            // Check if this value was imported from another module.
+            // If it was imported under an alias (e.g. `from pkg import X as Y`),
+            // resolve the canonical symbol via ctx.import_aliases and use its last
+            // segment to query the source module's renames.
             if let Some(source_module) = ctx.import_sources.get(name) {
-                // This value was imported from another module
+                let lookup_key = if let Some(canonical) = ctx.import_aliases.get(name) {
+                    canonical.rsplit('.').next().unwrap_or(canonical.as_str())
+                } else {
+                    name
+                };
+
                 // Use that module's renames instead of the current module's
                 if let Some(source_renames) = ctx.module_renames.get(source_module)
-                    && let Some(renamed) = source_renames.get(name)
+                    && let Some(renamed) = source_renames.get(lookup_key)
                 {
                     log::debug!(
                         "Applying cross-module rename for {arg_kind} '{name}' \
-                         from module '{source_module}': '{name}' -> '{renamed}'"
+                         from module '{source_module}': '{lookup_key}' -> '{renamed}'"
                     );
                     name_expr.id = renamed.clone().into();
                     return;
@@ -302,7 +310,8 @@ impl Bundler<'_> {
                 name_expr.id = renamed.clone().into();
             }
         } else {
-            // Complex expression, use standard rewriting
+            // Complex expression: first resolve import aliases, then apply renames
+            expression_handlers::resolve_import_aliases_in_expr(expr, &ctx.import_aliases);
             expression_handlers::rewrite_aliases_in_expr(expr, module_renames);
         }
     }
