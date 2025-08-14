@@ -530,13 +530,9 @@ impl TreeShaker {
                             worklist.push_back((module_name.to_string(), symbol.clone()));
                         }
 
-                        // Process all eventual reads (variables used inside the function/class)
-                        self.add_vars_to_worklist(
-                            &item.eventual_read_vars,
-                            module_name,
-                            &mut worklist,
-                            "function/class in side-effect module",
-                        );
+                        // Dependencies from the function/class body (eventual reads/writes,
+                        // attribute accesses, base classes, decorators, etc.) will be discovered
+                        // when this symbol is processed in `process_symbol_definition`.
                     }
                 }
             }
