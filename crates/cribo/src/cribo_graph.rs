@@ -1,7 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use crate::types::{FxIndexMap, FxIndexSet};
-
 /// `CriboGraph`: Advanced dependency graph implementation for Python bundling
 ///
 /// This module provides a sophisticated dependency tracking system that combines:
@@ -20,6 +18,8 @@ use petgraph::{
     algo::{is_cyclic_directed, toposort},
     graph::{DiGraph, NodeIndex},
 };
+
+use crate::types::{FxIndexMap, FxIndexSet};
 
 /// Unique identifier for a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

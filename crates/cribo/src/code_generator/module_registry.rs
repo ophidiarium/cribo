@@ -263,8 +263,8 @@ fn create_assignment_if_no_stdlib_conflict(
         || crate::resolver::is_stdlib_module(local_name, python_version)
     {
         log::debug!(
-            "Skipping assignment '{local_name} = {value_name}' - would conflict \
-             with stdlib name '{local_name}'"
+            "Skipping assignment '{local_name} = {value_name}' - would conflict with stdlib name \
+             '{local_name}'"
         );
     } else {
         log::debug!("Creating assignment '{local_name} = {value_name}' - no stdlib conflict");

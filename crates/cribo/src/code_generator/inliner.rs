@@ -297,8 +297,8 @@ impl Bundler<'_> {
                     && let Some(renamed) = source_renames.get(lookup_key)
                 {
                     log::debug!(
-                        "Applying cross-module rename for {arg_kind} '{name}' \
-                         from module '{source_module}': '{lookup_key}' -> '{renamed}'"
+                        "Applying cross-module rename for {arg_kind} '{name}' from module \
+                         '{source_module}': '{lookup_key}' -> '{renamed}'"
                     );
                     name_expr.id = renamed.clone().into();
                     return;
@@ -367,7 +367,8 @@ impl Bundler<'_> {
                             .and_then(|renames| renames.get(metaclass_name))
                         {
                             log::debug!(
-                                "Applying semantic rename for metaclass '{metaclass_name}' -> '{renamed}' in module '{module_name}'"
+                                "Applying semantic rename for metaclass '{metaclass_name}' -> \
+                                 '{renamed}' in module '{module_name}'"
                             );
                             name_expr.id = renamed.clone().into();
                             continue;

@@ -458,8 +458,8 @@ impl TreeShaker {
             if self.module_has_side_effects(module_name) {
                 debug!("Processing side-effect module: {module_name}");
                 for item in items {
-                    // For side-effect modules, we need to process ALL items since they will all be included
-                    // This includes functions that might use imports
+                    // For side-effect modules, we need to process ALL items since they will all be
+                    // included This includes functions that might use imports
                     if matches!(
                         item.item_type,
                         ItemType::Expression | ItemType::Assignment { .. }
@@ -475,7 +475,8 @@ impl TreeShaker {
                             &mut worklist,
                             "side-effect module",
                         );
-                        // Also process attribute accesses for module-level items in side-effect modules
+                        // Also process attribute accesses for module-level items in side-effect
+                        // modules
                         self.add_attribute_accesses_to_worklist(
                             &item.attribute_accesses,
                             module_name,
@@ -485,10 +486,12 @@ impl TreeShaker {
                         item.item_type,
                         ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
                     ) {
-                        // For functions and classes in side-effect modules, we need to track their dependencies
-                        // since they will be included in the bundle
+                        // For functions and classes in side-effect modules, we need to track their
+                        // dependencies since they will be included in the
+                        // bundle
                         debug!(
-                            "Processing function/class '{}' in side-effect module {}: eventual_read_vars={:?}",
+                            "Processing function/class '{}' in side-effect module {}: \
+                             eventual_read_vars={:?}",
                             item.item_type.name().unwrap_or("<unknown>"),
                             module_name,
                             item.eventual_read_vars
@@ -763,7 +766,8 @@ impl TreeShaker {
                 self.resolve_import_alias(module_name, var)
             {
                 debug!(
-                    "Found import dependency in {context}: {var} -> {source_module}::{original_name}"
+                    "Found import dependency in {context}: {var} -> \
+                     {source_module}::{original_name}"
                 );
                 worklist.push_back((source_module, original_name));
             } else if let Some(module) = self.find_defining_module(var) {
@@ -816,8 +820,7 @@ impl TreeShaker {
             } else if self.module_items.contains_key(base_var) {
                 for attr in accessed_attrs {
                     debug!(
-                        "Found direct module attribute access in {module_name}: \
-                         {base_var}.{attr}"
+                        "Found direct module attribute access in {module_name}: {base_var}.{attr}"
                     );
                     worklist.push_back((base_var.clone(), attr.clone()));
                 }

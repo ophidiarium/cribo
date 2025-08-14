@@ -507,81 +507,83 @@ impl<'a> Bundler<'a> {
                 locally_initialized.insert(module_name.to_string());
             }
 
-            // For wildcard imports, we need to handle both wrapper modules and potential symbol renames
-            // Instead of dynamic copying, we'll generate static assignments for all known exports
+            // For wildcard imports, we need to handle both wrapper modules and potential symbol
+            // renames.
+            // Instead of dynamic copying, we'll generate static assignments for
+            // all known exports
 
             // Get the module's exports (either from __all__ or all non-private symbols)
-            let module_exports = if let Some(Some(export_list)) =
-                self.module_exports.get(module_name)
-            {
-                // Module has __all__ defined, use it
-                export_list.clone()
-            } else if let Some(semantic_exports) = self.semantic_exports.get(module_name) {
-                // Use semantic exports from analysis
-                semantic_exports.iter().cloned().collect()
-            } else {
-                // Fall back to dynamic copying if we don't have static information
-                log::debug!(
-                    "No static export information for module '{module_name}', using dynamic copying"
-                );
-
-                let module_expr = if module_name.contains('.') {
-                    let parts: Vec<&str> = module_name.split('.').collect();
-                    expressions::dotted_name(&parts, ExprContext::Load)
+            let module_exports =
+                if let Some(Some(export_list)) = self.module_exports.get(module_name) {
+                    // Module has __all__ defined, use it
+                    export_list.clone()
+                } else if let Some(semantic_exports) = self.semantic_exports.get(module_name) {
+                    // Use semantic exports from analysis
+                    semantic_exports.iter().cloned().collect()
                 } else {
-                    expressions::name(module_name, ExprContext::Load)
-                };
+                    // Fall back to dynamic copying if we don't have static information
+                    log::debug!(
+                        "No static export information for module '{module_name}', using dynamic \
+                         copying"
+                    );
 
-                // Create: for __cribo_attr in dir(module):
-                //             if not __cribo_attr.startswith('_'):
-                //                 globals()[__cribo_attr] = getattr(module, __cribo_attr)
-                let attr_var = "__cribo_attr";
-                let dir_call = expressions::call(
-                    expressions::name("dir", ExprContext::Load),
-                    vec![module_expr.clone()],
-                    vec![],
-                );
+                    let module_expr = if module_name.contains('.') {
+                        let parts: Vec<&str> = module_name.split('.').collect();
+                        expressions::dotted_name(&parts, ExprContext::Load)
+                    } else {
+                        expressions::name(module_name, ExprContext::Load)
+                    };
 
-                let for_loop = statements::for_loop(
-                    attr_var,
-                    dir_call,
-                    vec![statements::if_stmt(
-                        expressions::unary_op(
-                            ruff_python_ast::UnaryOp::Not,
-                            expressions::call(
-                                expressions::attribute(
-                                    expressions::name(attr_var, ExprContext::Load),
-                                    "startswith",
-                                    ExprContext::Load,
+                    // Create: for __cribo_attr in dir(module):
+                    //             if not __cribo_attr.startswith('_'):
+                    //                 globals()[__cribo_attr] = getattr(module, __cribo_attr)
+                    let attr_var = "__cribo_attr";
+                    let dir_call = expressions::call(
+                        expressions::name("dir", ExprContext::Load),
+                        vec![module_expr.clone()],
+                        vec![],
+                    );
+
+                    let for_loop = statements::for_loop(
+                        attr_var,
+                        dir_call,
+                        vec![statements::if_stmt(
+                            expressions::unary_op(
+                                ruff_python_ast::UnaryOp::Not,
+                                expressions::call(
+                                    expressions::attribute(
+                                        expressions::name(attr_var, ExprContext::Load),
+                                        "startswith",
+                                        ExprContext::Load,
+                                    ),
+                                    vec![expressions::string_literal("_")],
+                                    vec![],
                                 ),
-                                vec![expressions::string_literal("_")],
-                                vec![],
                             ),
-                        ),
-                        vec![statements::subscript_assign(
-                            expressions::call(
-                                expressions::name("globals", ExprContext::Load),
-                                vec![],
-                                vec![],
-                            ),
-                            expressions::name(attr_var, ExprContext::Load),
-                            expressions::call(
-                                expressions::name("getattr", ExprContext::Load),
-                                vec![
-                                    module_expr.clone(),
-                                    expressions::name(attr_var, ExprContext::Load),
-                                ],
-                                vec![],
-                            ),
+                            vec![statements::subscript_assign(
+                                expressions::call(
+                                    expressions::name("globals", ExprContext::Load),
+                                    vec![],
+                                    vec![],
+                                ),
+                                expressions::name(attr_var, ExprContext::Load),
+                                expressions::call(
+                                    expressions::name("getattr", ExprContext::Load),
+                                    vec![
+                                        module_expr.clone(),
+                                        expressions::name(attr_var, ExprContext::Load),
+                                    ],
+                                    vec![],
+                                ),
+                            )],
+                            vec![],
                         )],
                         vec![],
-                    )],
-                    vec![],
-                );
+                    );
 
-                assignments.push(for_loop);
-                return assignments;
-            };
+                    assignments.push(for_loop);
+                    return assignments;
+                };
 
             // Generate static assignments for each exported symbol
             log::debug!(
@@ -611,14 +613,16 @@ impl<'a> Bundler<'a> {
                     continue;
                 }
 
-                // For wrapper modules, symbols are always accessed as attributes on the module object.
-                // Renaming for conflict resolution applies to inlined modules, not wrapper modules.
+                // For wrapper modules, symbols are always accessed as attributes on the module
+                // object. Renaming for conflict resolution applies to inlined
+                // modules, not wrapper modules.
                 assignments.push(statements::simple_assign(
                     symbol_name,
                     expressions::attribute(module_expr.clone(), symbol_name, ExprContext::Load),
                 ));
                 log::debug!(
-                    "Created wildcard import assignment: {symbol_name} = {module_name}.{symbol_name}"
+                    "Created wildcard import assignment: {symbol_name} = \
+                     {module_name}.{symbol_name}"
                 );
             }
 
@@ -701,8 +705,8 @@ impl<'a> Bundler<'a> {
                     });
 
                 // Initialize modules in the correct order based on dependencies
-                // If parent imports submodule, initialize submodule first to avoid forward references
-                // Otherwise, use normal order (parent first)
+                // If parent imports submodule, initialize submodule first to avoid forward
+                // references Otherwise, use normal order (parent first)
                 if parent_imports_submodule {
                     // Initialize submodule first since parent depends on it
                     if should_initialize_submodule {
@@ -2501,22 +2505,24 @@ impl<'a> Bundler<'a> {
                     ));
                 } else {
                     // Check if the source module is a bundled module (either inlined or wrapper)
-                    // This must be checked before stdlib to handle first-party modules with stdlib names
+                    // This must be checked before stdlib to handle first-party modules with stdlib
+                    // names
                     let is_bundled_module = self.bundled_modules.contains(&source_module);
                     if is_bundled_module {
                         log::debug!(
-                            "Skipping hard dependency imports from bundled module {source_module} - \
-                             symbols are defined locally"
+                            "Skipping hard dependency imports from bundled module {source_module} \
+                             - symbols are defined locally"
                         );
                         // Bundled modules don't need imports, their symbols are defined locally
                         continue;
                     }
 
-                    // Check if the source module is a stdlib module that has already been normalized
+                    // Check if the source module is a stdlib module that has already been
+                    // normalized
                     if crate::resolver::is_stdlib_module(&source_module, python_version) {
                         log::debug!(
-                            "Skipping hard dependency imports from stdlib module {source_module} - \
-                             already handled by stdlib normalization"
+                            "Skipping hard dependency imports from stdlib module {source_module} \
+                             - already handled by stdlib normalization"
                         );
                         // Stdlib imports are already normalized and hoisted, skip them
                         continue;
@@ -3082,7 +3088,8 @@ impl<'a> Bundler<'a> {
 
                 if module_will_be_included {
                     log::debug!(
-                        "Collecting stdlib imports from wrapper module that will be included: {module_name}"
+                        "Collecting stdlib imports from wrapper module that will be included: \
+                         {module_name}"
                     );
 
                     // Find the original module AST (before import trimming) using HashMap lookup
@@ -3096,7 +3103,8 @@ impl<'a> Bundler<'a> {
                                         if crate::resolver::is_stdlib_module(module, python_version)
                                         {
                                             log::debug!(
-                                                "Found stdlib import in wrapper module {module_name}: {module}"
+                                                "Found stdlib import in wrapper module \
+                                                 {module_name}: {module}"
                                             );
                                             import_deduplicator::add_stdlib_import(self, module);
                                         }
@@ -3115,9 +3123,11 @@ impl<'a> Bundler<'a> {
                                             python_version,
                                         ) {
                                             log::debug!(
-                                                "Found stdlib from-import in wrapper module {module_name}: {module_str}"
+                                                "Found stdlib from-import in wrapper module \
+                                                 {module_name}: {module_str}"
                                             );
-                                            // For from imports, we need to add the base module import
+                                            // For from imports, we need to add the base module
+                                            // import
                                             import_deduplicator::add_stdlib_import(
                                                 self, module_str,
                                             );
@@ -3149,7 +3159,8 @@ impl<'a> Bundler<'a> {
                         ));
                     } else {
                         log::debug!(
-                            "Filtering out wrapper module '{module_name}' - no used symbols or side effects after tree-shaking"
+                            "Filtering out wrapper module '{module_name}' - no used symbols or \
+                             side effects after tree-shaking"
                         );
                         modules_to_remove_from_registry.push(module_name.clone());
                     }
