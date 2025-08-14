@@ -361,6 +361,7 @@ auth_validate = services.auth.manager.validate
 UserModel = models.user.User
 process_user = models.user.process_user
 Logger = models.user.Logger
+models.base = __cribo_init___cribo_0a162a_models_base()
 __cribo_init_result = __cribo_init___cribo_293a98_models()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

@@ -768,8 +768,7 @@ pub(super) fn trim_unused_imports_from_modules(
                                 // If this is a submodule import, check if the submodule has side effects
                                 // or is otherwise needed
                                 let submodule_needed = if is_submodule_import {
-                                    let submodule_name =
-                                        format!("{from_module}.{imported_name}");
+                                    let submodule_name = format!("{from_module}.{imported_name}");
                                     log::debug!(
                                         "Import '{local_name}' is a submodule import for '{submodule_name}'"
                                     );

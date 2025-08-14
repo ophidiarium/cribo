@@ -14,7 +14,6 @@ use ruff_text_size::TextRange;
 use crate::{
     analyzers::{ImportAnalyzer, SymbolAnalyzer, dependency_analyzer::DependencyAnalyzer},
     ast_builder::{expressions, other, statements},
-    cribo_graph::CriboGraph,
     code_generator::{
         circular_deps::SymbolDependencyGraph,
         context::{
@@ -27,6 +26,7 @@ use crate::{
         module_transformer, namespace_manager,
         namespace_manager::{NamespaceContext, NamespaceInfo},
     },
+    cribo_graph::CriboGraph,
     resolver::ModuleResolver,
     side_effects::{is_safe_stdlib_module, module_has_side_effects},
     transformation_context::TransformationContext,
@@ -563,7 +563,7 @@ impl<'a> Bundler<'a> {
                                 // Get module IDs from the graph
                                 let parent_module = graph.get_module_by_name(module_name);
                                 let child_module = graph.get_module_by_name(&full_module_path);
-                                
+
                                 if let (Some(parent), Some(child)) = (parent_module, child_module) {
                                     // Check if parent has child as a dependency
                                     let parent_deps = graph.get_dependencies(parent.module_id);
@@ -586,31 +586,13 @@ impl<'a> Bundler<'a> {
                 if parent_imports_submodule {
                     // Initialize submodule first since parent depends on it
                     if should_initialize_submodule {
-                        // Check if we already have this module initialization in assignments
-                        let already_initialized = assignments.iter().any(|stmt| {
-                            if let Stmt::Assign(assign) = stmt
-                                && assign.targets.len() == 1
-                                && let Expr::Attribute(attr) = &assign.targets[0]
-                                && let Expr::Call(call) = &assign.value.as_ref()
-                                && let Expr::Name(func_name) = &call.func.as_ref()
-                                && crate::code_generator::module_registry::is_init_function(
-                                    func_name.id.as_str(),
-                                )
-                            {
-                                let attr_path = expression_handlers::extract_attribute_path(attr);
-                                attr_path == full_module_path
-                            } else {
-                                false
-                            }
-                        });
-
-                        if !already_initialized {
-                            assignments.extend(
-                                self.create_module_initialization_for_import(&full_module_path),
-                            );
-                        }
-                        locally_initialized.insert(full_module_path.clone());
-                        initialized_modules.insert(full_module_path.clone());
+                        crate::code_generator::module_registry::initialize_submodule_if_needed(
+                            &full_module_path,
+                            &self.module_registry,
+                            &mut assignments,
+                            &mut locally_initialized,
+                            &mut initialized_modules,
+                        );
                     }
 
                     // Now initialize parent module after submodule
@@ -629,31 +611,13 @@ impl<'a> Bundler<'a> {
                     }
 
                     if should_initialize_submodule {
-                        // Check if we already have this module initialization in assignments
-                        let already_initialized = assignments.iter().any(|stmt| {
-                            if let Stmt::Assign(assign) = stmt
-                                && assign.targets.len() == 1
-                                && let Expr::Attribute(attr) = &assign.targets[0]
-                                && let Expr::Call(call) = &assign.value.as_ref()
-                                && let Expr::Name(func_name) = &call.func.as_ref()
-                                && crate::code_generator::module_registry::is_init_function(
-                                    func_name.id.as_str(),
-                                )
-                            {
-                                let attr_path = expression_handlers::extract_attribute_path(attr);
-                                attr_path == full_module_path
-                            } else {
-                                false
-                            }
-                        });
-
-                        if !already_initialized {
-                            assignments.extend(
-                                self.create_module_initialization_for_import(&full_module_path),
-                            );
-                        }
-                        locally_initialized.insert(full_module_path.clone());
-                        initialized_modules.insert(full_module_path.clone());
+                        crate::code_generator::module_registry::initialize_submodule_if_needed(
+                            &full_module_path,
+                            &self.module_registry,
+                            &mut assignments,
+                            &mut locally_initialized,
+                            &mut initialized_modules,
+                        );
                     }
                 }
 
