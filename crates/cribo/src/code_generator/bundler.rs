@@ -497,9 +497,7 @@ impl<'a> Bundler<'a> {
         // Check if this is a wildcard import
         if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*" {
             // Handle wildcard import specially
-            log::debug!(
-                "Handling wildcard import from wrapper module '{module_name}'"
-            );
+            log::debug!("Handling wildcard import from wrapper module '{module_name}'");
 
             // Ensure the module is initialized
             if self.module_registry.contains_key(module_name)
@@ -513,76 +511,77 @@ impl<'a> Bundler<'a> {
             // Instead of dynamic copying, we'll generate static assignments for all known exports
 
             // Get the module's exports (either from __all__ or all non-private symbols)
-            let module_exports =
-                if let Some(Some(export_list)) = self.module_exports.get(module_name) {
-                    // Module has __all__ defined, use it
-                    export_list.clone()
-                } else if let Some(semantic_exports) = self.semantic_exports.get(module_name) {
-                    // Use semantic exports from analysis
-                    semantic_exports.iter().cloned().collect()
+            let module_exports = if let Some(Some(export_list)) =
+                self.module_exports.get(module_name)
+            {
+                // Module has __all__ defined, use it
+                export_list.clone()
+            } else if let Some(semantic_exports) = self.semantic_exports.get(module_name) {
+                // Use semantic exports from analysis
+                semantic_exports.iter().cloned().collect()
+            } else {
+                // Fall back to dynamic copying if we don't have static information
+                log::debug!(
+                    "No static export information for module '{module_name}', using dynamic copying"
+                );
+
+                let module_expr = if module_name.contains('.') {
+                    let parts: Vec<&str> = module_name.split('.').collect();
+                    expressions::dotted_name(&parts, ExprContext::Load)
                 } else {
-                    // Fall back to dynamic copying if we don't have static information
-                    log::debug!(
-                        "No static export information for module '{module_name}', using dynamic copying"
-                    );
+                    expressions::name(module_name, ExprContext::Load)
+                };
 
-                    let module_expr = if module_name.contains('.') {
-                        let parts: Vec<&str> = module_name.split('.').collect();
-                        expressions::dotted_name(&parts, ExprContext::Load)
-                    } else {
-                        expressions::name(module_name, ExprContext::Load)
-                    };
+                // Create: for __cribo_attr in dir(module):
+                //             if not __cribo_attr.startswith('_'):
+                //                 globals()[__cribo_attr] = getattr(module, __cribo_attr)
+                let attr_var = "__cribo_attr";
+                let dir_call = expressions::call(
+                    expressions::name("dir", ExprContext::Load),
+                    vec![module_expr.clone()],
+                    vec![],
+                );
 
-                    // Create: for __cribo_attr in dir(module):
-                    //             if not __cribo_attr.startswith('_'):
-                    //                 globals()[__cribo_attr] = getattr(module, __cribo_attr)
-                    let attr_var = "__cribo_attr";
-                    let dir_call = expressions::call(
-                        expressions::name("dir", ExprContext::Load),
-                        vec![module_expr.clone()],
-                        vec![],
-                    );
-
-                    let for_loop = statements::for_loop(
-                        attr_var,
-                        dir_call,
-                        vec![statements::if_stmt(
-                            expressions::unary_op(
-                                ruff_python_ast::UnaryOp::Not,
-                                expressions::call(
-                                    expressions::attribute(
-                                        expressions::name(attr_var, ExprContext::Load),
-                                        "startswith",
-                                        ExprContext::Load,
-                                    ),
-                                    vec![expressions::string_literal("_")],
-                                    vec![],
+                let for_loop = statements::for_loop(
+                    attr_var,
+                    dir_call,
+                    vec![statements::if_stmt(
+                        expressions::unary_op(
+                            ruff_python_ast::UnaryOp::Not,
+                            expressions::call(
+                                expressions::attribute(
+                                    expressions::name(attr_var, ExprContext::Load),
+                                    "startswith",
+                                    ExprContext::Load,
                                 ),
+                                vec![expressions::string_literal("_")],
+                                vec![],
                             ),
-                            vec![statements::subscript_assign(
-                                expressions::call(
-                                    expressions::name("globals", ExprContext::Load),
-                                    vec![],
-                                    vec![],
-                                ),
-                                expressions::name(attr_var, ExprContext::Load),
-                                expressions::call(
-                                    expressions::name("getattr", ExprContext::Load),
-                                    vec![
-                                        module_expr.clone(),
-                                        expressions::name(attr_var, ExprContext::Load),
-                                    ],
-                                    vec![],
-                                ),
-                            )],
-                            vec![],
+                        ),
+                        vec![statements::subscript_assign(
+                            expressions::call(
+                                expressions::name("globals", ExprContext::Load),
+                                vec![],
+                                vec![],
+                            ),
+                            expressions::name(attr_var, ExprContext::Load),
+                            expressions::call(
+                                expressions::name("getattr", ExprContext::Load),
+                                vec![
+                                    module_expr.clone(),
+                                    expressions::name(attr_var, ExprContext::Load),
+                                ],
+                                vec![],
+                            ),
                         )],
                         vec![],
-                    );
+                    )],
+                    vec![],
+                );
 
-                    assignments.push(for_loop);
-                    return assignments;
-                };
+                assignments.push(for_loop);
+                return assignments;
+            };
 
             // Generate static assignments for each exported symbol
             log::debug!(

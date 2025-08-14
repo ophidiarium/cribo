@@ -2612,25 +2612,24 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
     // Check if this is a wildcard import
     if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*" {
         // Handle wildcard import from inlined module
-        log::debug!(
-            "Handling wildcard import from inlined module '{module_name}'"
-        );
+        log::debug!("Handling wildcard import from inlined module '{module_name}'");
 
         // Get the module's exports (either from __all__ or all non-private symbols)
-        let module_exports =
-            if let Some(Some(export_list)) = bundler.module_exports.get(module_name) {
-                // Module has __all__ defined, use it
-                export_list.clone()
-            } else if let Some(semantic_exports) = bundler.semantic_exports.get(module_name) {
-                // Use semantic exports from analysis
-                semantic_exports.iter().cloned().collect()
-            } else {
-                // No export information available
-                log::warn!(
-                    "No export information available for inlined module '{module_name}' with wildcard import"
-                );
-                return result_stmts;
-            };
+        let module_exports = if let Some(Some(export_list)) =
+            bundler.module_exports.get(module_name)
+        {
+            // Module has __all__ defined, use it
+            export_list.clone()
+        } else if let Some(semantic_exports) = bundler.semantic_exports.get(module_name) {
+            // Use semantic exports from analysis
+            semantic_exports.iter().cloned().collect()
+        } else {
+            // No export information available
+            log::warn!(
+                "No export information available for inlined module '{module_name}' with wildcard import"
+            );
+            return result_stmts;
+        };
 
         log::debug!(
             "Generating wildcard import assignments for {} symbols from inlined module '{}'",
