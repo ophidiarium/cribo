@@ -12,3 +12,5 @@
 [submodule "ecosystem/packages/pyyaml"]
 	path = ecosystem/packages/pyyaml
 	url = https://github.com/yaml/pyyaml
+	shallow = true
+
