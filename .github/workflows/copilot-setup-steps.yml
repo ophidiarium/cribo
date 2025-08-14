@@ -47,6 +47,11 @@ jobs:
           ignore-nothing-to-cache: true
           python-version: 3.12
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Install Python dependencies
         run: uv sync --all-groups
 
@@ -72,6 +77,11 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: typos-cli
+
+      - name: Install dprint
+        run: |
+          curl -fsSL https://dprint.dev/install.sh | sh -s
+          echo "$HOME/.dprint/bin" >> $GITHUB_PATH
       - name: Verify installation
         run: |
           echo "🦀 Rust toolchain:"
@@ -82,8 +92,12 @@ jobs:
           python --version
           uv --version
 
+          echo "📦 Node.js tools:"
+          bun --version
+
           echo "🔧 Development tools:"
           cargo insta --version
           cargo nextest --version
           taplo --version
           typos --version
+          dprint --version
