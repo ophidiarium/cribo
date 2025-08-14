@@ -597,14 +597,16 @@ impl<'a> Bundler<'a> {
                 expressions::name(module_name, ExprContext::Load)
             };
 
+            // Cache explicit __all__ (if any) to avoid repeated lookups
+            let explicit_all = self
+                .module_exports
+                .get(module_name)
+                .and_then(|exports| exports.as_ref());
+
             for symbol_name in &module_exports {
                 // Skip private symbols unless explicitly in __all__
                 if symbol_name.starts_with('_')
-                    && !self.module_exports.get(module_name).is_some_and(|exports| {
-                        exports
-                            .as_ref()
-                            .is_some_and(|all| all.contains(symbol_name))
-                    })
+                    && !explicit_all.is_some_and(|all| all.contains(symbol_name))
                 {
                     continue;
                 }
