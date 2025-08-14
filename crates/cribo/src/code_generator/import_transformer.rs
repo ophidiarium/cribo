@@ -1343,13 +1343,22 @@ impl<'a> RecursiveImportTransformer<'a> {
                     // This is crucial for lazy imports inside functions
                     let mut init_stmts = Vec::new();
 
-                    // Check if the parent needs initialization
-                    if let Some(parent) = resolved.rsplit_once('.').map(|(p, _)| p)
-                        && self.bundler.module_registry.contains_key(parent)
-                    {
-                        // Parent is also a wrapper module, initialize it first
-                        init_stmts
-                            .extend(self.bundler.create_module_initialization_for_import(parent));
+                    // Check if the parent module needs handling
+                    if let Some((parent, child)) = resolved.rsplit_once('.') {
+                        // If the parent is also a wrapper module, initialize it first
+                        if self.bundler.module_registry.contains_key(parent) {
+                            init_stmts.extend(
+                                self.bundler.create_module_initialization_for_import(parent),
+                            );
+                        }
+
+                        // If the parent is an inlined module, the submodule assignment is handled
+                        // by its own initialization, so we only need to log
+                        if self.bundler.inlined_modules.contains(parent) {
+                            log::debug!(
+                                "Parent '{parent}' is inlined, submodule '{child}' assignment already handled"
+                            );
+                        }
                     }
 
                     // Initialize the wrapper module itself
@@ -1358,23 +1367,6 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.bundler
                             .create_module_initialization_for_import(resolved),
                     );
-
-                    // Also ensure it's attached to its parent namespace if needed
-                    // Only do this if the parent is inlined AND the assignment isn't already
-                    // handled by create_module_initialization_for_import
-                    if let Some((parent, child)) = resolved.rsplit_once('.') {
-                        // Check if parent is an inlined module that needs the child attached
-                        // The module initialization already creates the full dotted assignment like
-                        // pkg.submodule = init_func(), so we don't need another assignment
-                        if self.bundler.inlined_modules.contains(parent) {
-                            // The assignment is already handled by create_module_initialization_for_import
-                            // which creates: pkg.submodule = __cribo_init_...()
-                            // So we don't need to add another assignment
-                            log::debug!(
-                                "Parent '{parent}' is inlined, submodule '{child}' assignment already handled"
-                            );
-                        }
-                    }
 
                     // Track each imported symbol for rewriting
                     for alias in &import_from.names {
