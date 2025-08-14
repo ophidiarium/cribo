@@ -6,10 +6,15 @@ is used as @contextlib.contextmanager decorator but not imported in the
 generated init function for wrapper modules with side effects.
 """
 
+import os
+import tempfile
+
 # Import from package to trigger processing
 from mypackage import utils
 
 # Use the context manager that requires contextlib
-with utils.atomic_open("/tmp/test.txt") as f:
+# Use platform-independent temporary file path
+test_file = os.path.join(tempfile.gettempdir(), "test.txt")
+with utils.atomic_open(test_file) as f:
     f.write(b"test")
 print("Success")
