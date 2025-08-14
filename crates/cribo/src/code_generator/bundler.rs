@@ -14,6 +14,7 @@ use ruff_text_size::TextRange;
 use crate::{
     analyzers::{ImportAnalyzer, SymbolAnalyzer, dependency_analyzer::DependencyAnalyzer},
     ast_builder::{expressions, other, statements},
+    cribo_graph::CriboGraph,
     code_generator::{
         circular_deps::SymbolDependencyGraph,
         context::{
@@ -117,6 +118,8 @@ pub struct Bundler<'a> {
     pub(crate) path_to_sanitized_name: FxIndexMap<String, String>,
     /// Runtime tracking of all created namespaces to prevent duplicates
     pub(crate) created_namespaces: FxIndexSet<String>,
+    /// Reference to the dependency graph for module relationship queries
+    pub(crate) graph: Option<&'a CriboGraph>,
     /// Modules that have explicit __all__ defined
     pub(crate) modules_with_explicit_all: FxIndexSet<String>,
     /// Transformation context for tracking node mappings
@@ -243,6 +246,7 @@ impl<'a> Bundler<'a> {
             namespace_registry: FxIndexMap::default(),
             path_to_sanitized_name: FxIndexMap::default(),
             created_namespaces: FxIndexSet::default(),
+            graph: None,
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
@@ -547,20 +551,32 @@ impl<'a> Bundler<'a> {
                         && !locally_initialized.contains(&full_module_path);
 
                 // Check if parent imports from this submodule (indicating dependency)
-                // This is a simple heuristic: if the parent module_name ends with "package"
-                // and contains "utils" in its submodules, check if it's the xfail_stdlib_decorator case
                 let parent_imports_submodule =
                     if should_initialize_parent && should_initialize_submodule {
-                        // Special case for modules where parent's __init__.py imports from its submodule
-                        // We detect this by checking if both are wrapper modules (have side effects)
-                        // and the parent module name matches certain patterns
+                        // Check if both are wrapper modules (have side effects)
                         let both_are_wrappers = self.module_registry.contains_key(module_name)
                             && self.module_registry.contains_key(&full_module_path);
 
-                        // For now, specifically handle the case where parent imports the child
-                        // This is detected by the presence of both as wrapper modules and
-                        // the specific pattern of mypackage importing utils
-                        both_are_wrappers && module_name == "mypackage" && imported_name == "utils"
+                        if both_are_wrappers {
+                            // Use the dependency graph to check if parent depends on child
+                            if let Some(graph) = self.graph {
+                                // Get module IDs from the graph
+                                let parent_module = graph.get_module_by_name(module_name);
+                                let child_module = graph.get_module_by_name(&full_module_path);
+                                
+                                if let (Some(parent), Some(child)) = (parent_module, child_module) {
+                                    // Check if parent has child as a dependency
+                                    let parent_deps = graph.get_dependencies(parent.module_id);
+                                    parent_deps.contains(&child.module_id)
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
                     } else {
                         false
                     };
@@ -1370,7 +1386,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Initialize the bundler with parameters and basic settings
-    fn initialize_bundler(&mut self, params: &BundleParams<'_>) {
+    fn initialize_bundler(&mut self, params: &BundleParams<'a>) {
         // Store tree shaking decisions if provided
         if let Some(shaker) = params.tree_shaker {
             // Extract all kept symbols from the tree shaker
@@ -1589,7 +1605,7 @@ impl<'a> Bundler<'a> {
     /// Prepare modules by trimming imports, indexing ASTs, and detecting circular dependencies
     fn prepare_modules(
         &mut self,
-        params: &BundleParams<'_>,
+        params: &BundleParams<'a>,
     ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
         // Trim unused imports from all modules
         // Note: stdlib import normalization now happens in the orchestrator
@@ -1680,11 +1696,14 @@ impl<'a> Bundler<'a> {
     }
 
     /// Bundle multiple modules using the hybrid approach
-    pub fn bundle_modules(&mut self, params: &BundleParams<'_>) -> Result<ModModule> {
+    pub fn bundle_modules(&mut self, params: &BundleParams<'a>) -> Result<ModModule> {
         let mut final_body = Vec::new();
 
         // Extract the Python version from params
         let python_version = params.python_version;
+
+        // Store the graph reference for use in transformation methods
+        self.graph = Some(params.graph);
 
         // Initialize bundler settings and collect preliminary data
         self.initialize_bundler(params);

@@ -13,7 +13,7 @@ import tempfile
 import types
 mypackage = types.SimpleNamespace(__name__='mypackage')
 @functools.cache
-def __cribo_init___cribo_bb0a52_mypackage_utils():
+def __cribo_init___cribo_7c69fc_mypackage_utils():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage.utils'
     """Utils module with contextlib decorator.\n\nThis module must have side effects to become a wrapper module,\nand uses contextlib as a decorator which should be preserved in\nthe init function but currently isn't.\n"""
@@ -34,15 +34,15 @@ def __cribo_init___cribo_bb0a52_mypackage_utils():
     module.atomic_open = atomic_open
     return module
 @functools.cache
-def __cribo_init___cribo_5e75a7_mypackage():
+def __cribo_init___cribo_41b947_mypackage():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage'
     """Package init file."""
     print("Loading mypackage")
     return module
-"""Test contextlib import missing in wrapper module init functions.\n\nThis test reproduces the bug found when bundling requests where contextlib \nis used as @contextlib.contextmanager decorator but not imported in the\ngenerated init function for wrapper modules with side effects.\n"""
-mypackage.utils = __cribo_init___cribo_bb0a52_mypackage_utils()
-__cribo_init_result = __cribo_init___cribo_5e75a7_mypackage()
+"""Test contextlib import missing in wrapper module init functions.\n\nThis test reproduces the bug found when bundling requests where contextlib\nis used as @contextlib.contextmanager decorator but not imported in the\ngenerated init function for wrapper modules with side effects.\n"""
+mypackage.utils = __cribo_init___cribo_7c69fc_mypackage_utils()
+__cribo_init_result = __cribo_init___cribo_41b947_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
