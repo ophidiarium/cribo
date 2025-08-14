@@ -6295,7 +6295,9 @@ impl Bundler<'_> {
         )
     }
 
-    /// Create module initialization statements for wrapper modules when they are imported
+    /// Create module initialization statements for wrapper modules when they are imported (deprecated)
+    /// Use `create_module_initialization_for_import_with_context` instead
+    #[deprecated(note = "Use create_module_initialization_for_import_with_context instead")]
     pub(super) fn create_module_initialization_for_import(&self, module_name: &str) -> Vec<Stmt> {
         self.create_module_initialization_for_import_with_context(module_name, false)
     }
