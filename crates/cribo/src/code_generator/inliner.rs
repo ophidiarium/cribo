@@ -15,7 +15,7 @@ use super::{
     context::InlineContext,
     expression_handlers, import_deduplicator,
     import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-    module_registry::generate_unique_name,
+    module_registry::{INIT_RESULT_VAR, generate_unique_name},
 };
 use crate::{
     ast_builder::statements,
@@ -226,6 +226,27 @@ impl Bundler<'_> {
                         log::warn!(
                             "Unexpected expression statement in side-effect-free module \
                              '{module_name}': {stmt:?}"
+                        );
+                    }
+                }
+                Stmt::For(for_stmt) => {
+                    // Check if this is a deferred import pattern (iterating over INIT_RESULT_VAR)
+                    if let Expr::Call(call) = &*for_stmt.iter
+                        && let Expr::Name(func_name) = &*call.func
+                        && func_name.id.as_str() == "dir"
+                        && call.arguments.args.len() == 1
+                        && let Expr::Name(arg_name) = &call.arguments.args[0]
+                        && arg_name.id.as_str() == INIT_RESULT_VAR
+                    {
+                        // This is a deferred import pattern for copying attributes
+                        // It should be in deferred_imports, not in the module body
+                        // Skip it silently as it will be handled separately
+                        log::debug!("Skipping deferred import For loop in module '{module_name}'");
+                    } else {
+                        // Other For loops shouldn't exist in side-effect-free modules
+                        log::warn!(
+                            "Unexpected For loop in side-effect-free module '{module_name}': \
+                             {for_stmt:?}"
                         );
                     }
                 }
