@@ -528,7 +528,7 @@ impl ModuleResolver {
                 if parent_classification == ImportType::FirstParty {
                     // Before assuming the submodule is first-party, try to resolve it
                     // If we can't find it as a source file, treat it as third-party
-                    // This handles cases like yaml._yaml which is a C extension
+                    // This handles cases where submodules are C extensions or otherwise not available as source files
                     let descriptor = ImportModuleDescriptor::from_module_name(module_name);
                     let mut found_as_source = false;
                     for search_dir in &search_dirs {
