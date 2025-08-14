@@ -414,7 +414,8 @@ impl ModuleResolver {
                 // For the last part, check in order:
                 // 1. Package (foo/__init__.py)
                 // 2. Module file (foo.py)
-                // 3. Namespace package (foo/ directory)
+                // 3. C extension (foo.so, foo.pyd, etc.)
+                // 4. Namespace package (foo/ directory)
 
                 // Check for package first
                 let package_init = current_path.join(part).join("__init__.py");
@@ -525,12 +526,37 @@ impl ModuleResolver {
                 // Recursively classify the parent module
                 let parent_classification = self.classify_import(parent_module);
                 if parent_classification == ImportType::FirstParty {
-                    // If the parent is first-party, the submodule is too
-                    let import_type = ImportType::FirstParty;
-                    self.classification_cache
-                        .borrow_mut()
-                        .insert(module_name.to_string(), import_type.clone());
-                    return import_type;
+                    // Before assuming the submodule is first-party, try to resolve it
+                    // If we can't find it as a source file, treat it as third-party
+                    // This handles cases where submodules are C extensions or otherwise not available as source files
+                    let descriptor = ImportModuleDescriptor::from_module_name(module_name);
+                    let mut found_as_source = false;
+                    for search_dir in &search_dirs {
+                        if let Ok(Some(_)) = self.resolve_in_directory(search_dir, &descriptor) {
+                            found_as_source = true;
+                            break;
+                        }
+                    }
+
+                    if found_as_source {
+                        // Found as source file, it's first-party
+                        let import_type = ImportType::FirstParty;
+                        self.classification_cache
+                            .borrow_mut()
+                            .insert(module_name.to_string(), import_type.clone());
+                        return import_type;
+                    } else {
+                        // Can't find source file, treat as third-party
+                        // This could be a C extension or dynamically available module
+                        debug!(
+                            "Module '{module_name}' has first-party parent '{parent_module}' but no source file found - treating as third-party"
+                        );
+                        let import_type = ImportType::ThirdParty;
+                        self.classification_cache
+                            .borrow_mut()
+                            .insert(module_name.to_string(), import_type.clone());
+                        return import_type;
+                    }
                 }
             }
         }

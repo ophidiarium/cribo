@@ -6,8 +6,8 @@
 
 use ruff_python_ast::{
     AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprList, ExprName,
-    ExprNoneLiteral, ExprStringLiteral, ExprUnaryOp, FStringFlags, FStringPart, FStringValue,
-    Keyword, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
+    ExprNoneLiteral, ExprStringLiteral, ExprSubscript, ExprUnaryOp, FStringFlags, FStringPart,
+    FStringValue, Keyword, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
 };
 use ruff_text_size::TextRange;
 
@@ -240,4 +240,15 @@ pub fn get_fstring_flags(value: &FStringValue) -> FStringFlags {
             }
         })
         .unwrap_or_else(FStringFlags::empty)
+}
+
+/// Create a subscript expression: obj[key]
+pub fn subscript(value: Expr, slice: Expr, ctx: ExprContext) -> Expr {
+    Expr::Subscript(ExprSubscript {
+        node_index: AtomicNodeIndex::dummy(),
+        value: Box::new(value),
+        slice: Box::new(slice),
+        ctx,
+        range: TextRange::default(),
+    })
 }

@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/wildcard_imports/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Loading with_side_effects module\nModule state initialized with 1 items\nTesting wildcard imports:\n----------------------------------------\nsafe_function: safe_function_result\nSafeClass: SafeClass.method_result\nSAFE_CONSTANT: SAFE_VALUE\n_private_function: correctly not imported\nPRIVATE_CONSTANT: correctly not imported\neffect_function: effect_function_result\nEffectClass: EffectClass.method_result\nEFFECT_CONSTANT: EFFECT_VALUE\nregistered_function: registered_result\nshared_function: shared_function_from_module_b\nSharedClass: SharedClass_from_module_b\nSHARED_CONSTANT: SHARED_FROM_B\nunique_a_function: unique_a_result\nunique_b_function: unique_b_result\n----------------------------------------\nAll tests completed!",
+    stderr: "",
+}
