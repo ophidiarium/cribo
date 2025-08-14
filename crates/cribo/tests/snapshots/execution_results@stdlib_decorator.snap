@@ -4,6 +4,6 @@ input_file: crates/cribo/tests/fixtures/stdlib_decorator/main.py
 ---
 ExecutionResults {
     status: Success,
-    stdout: "Loading utils module\nLoading mypackage\nOpening /tmp/test.txt\nSuccess",
+    stdout: "Loading utils module\nLoading mypackage\nOpening test.txt\nSuccess",
     stderr: "",
 }
