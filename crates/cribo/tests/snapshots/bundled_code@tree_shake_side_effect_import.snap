@@ -17,7 +17,7 @@ class CustomError(Exception):
     pass
 CustomError.__module__ = 'mypackage.exceptions'
 @functools.cache
-def __cribo_init___cribo_14e754_mypackage():
+def __cribo_init___cribo_ddd935_mypackage():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage'
     print("mypackage initialized")
@@ -26,7 +26,7 @@ def __cribo_init___cribo_14e754_mypackage():
     module.exceptions = mypackage_exceptions
     return module
 @functools.cache
-def __cribo_init___cribo_cb5bb9_mypackage_utils():
+def __cribo_init___cribo_09b9b3_mypackage_utils():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage.utils'
     global CustomError
@@ -41,8 +41,8 @@ def __cribo_init___cribo_cb5bb9_mypackage_utils():
     module.process_data = process_data
     module.CustomError = CustomError
     return module
-mypackage.utils = __cribo_init___cribo_cb5bb9_mypackage_utils()
-__cribo_init_result = __cribo_init___cribo_14e754_mypackage()
+mypackage.utils = __cribo_init___cribo_09b9b3_mypackage_utils()
+__cribo_init_result = __cribo_init___cribo_ddd935_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))

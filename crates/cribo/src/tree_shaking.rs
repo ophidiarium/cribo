@@ -506,24 +506,12 @@ impl TreeShaker {
                             "Processing module-level item in {}: read_vars={:?}",
                             module_name, item.read_vars
                         );
-                        for var in &item.read_vars {
-                            // Check if this var is an imported alias first
-                            if let Some((source_module, original_name)) =
-                                self.resolve_import_alias(module_name, var)
-                            {
-                                debug!(
-                                    "Found import alias in side-effect module: {var} -> \
-                                     {source_module}::{original_name}"
-                                );
-                                worklist.push_back((source_module, original_name));
-                            } else if let Some(module) = self.find_defining_module(var) {
-                                debug!(
-                                    "Found direct symbol usage in side-effect module: {var} in \
-                                     module {module}"
-                                );
-                                worklist.push_back((module, var.clone()));
-                            }
-                        }
+                        self.add_vars_to_worklist(
+                            &item.read_vars,
+                            module_name,
+                            &mut worklist,
+                            "side-effect module",
+                        );
                     } else if matches!(
                         item.item_type,
                         ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
@@ -543,22 +531,12 @@ impl TreeShaker {
                         }
 
                         // Process all eventual reads (variables used inside the function/class)
-                        for var in &item.eventual_read_vars {
-                            if let Some((source_module, original_name)) =
-                                self.resolve_import_alias(module_name, var)
-                            {
-                                debug!(
-                                    "Found import dependency in function: {var} -> \
-                                     {source_module}::{original_name}"
-                                );
-                                worklist.push_back((source_module, original_name));
-                            } else if let Some(module) = self.find_defining_module(var) {
-                                debug!(
-                                    "Found symbol dependency in function: {var} in module {module}"
-                                );
-                                worklist.push_back((module, var.clone()));
-                            }
-                        }
+                        self.add_vars_to_worklist(
+                            &item.eventual_read_vars,
+                            module_name,
+                            &mut worklist,
+                            "function/class in side-effect module",
+                        );
                     }
                 }
             }
@@ -862,6 +840,29 @@ impl TreeShaker {
             })
         } else {
             false
+        }
+    }
+
+    /// Helper method to add variables to the worklist, resolving imports and finding definitions
+    fn add_vars_to_worklist(
+        &self,
+        vars: &FxIndexSet<String>,
+        module_name: &str,
+        worklist: &mut VecDeque<(String, String)>,
+        context: &str,
+    ) {
+        for var in vars {
+            if let Some((source_module, original_name)) =
+                self.resolve_import_alias(module_name, var)
+            {
+                debug!(
+                    "Found import dependency in {context}: {var} -> {source_module}::{original_name}"
+                );
+                worklist.push_back((source_module, original_name));
+            } else if let Some(module) = self.find_defining_module(var) {
+                debug!("Found symbol dependency in {context}: {var} in module {module}");
+                worklist.push_back((module, var.clone()));
+            }
         }
     }
 
