@@ -47,6 +47,6 @@ for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
 utils = mypackage.utils
-with utils.atomic_open("/tmp/test.txt") as f:
+with utils.atomic_open("test.txt") as f:
     f.write(b"test")
 print("Success")
