@@ -10,6 +10,7 @@ generated init function for wrapper modules with side effects.
 from mypackage import utils
 
 # Use the context manager that requires contextlib
-with utils.atomic_open("/tmp/test.txt") as f:
+# Use simple relative path to avoid platform-dependent temp directories
+with utils.atomic_open("test.txt") as f:
     f.write(b"test")
 print("Success")
