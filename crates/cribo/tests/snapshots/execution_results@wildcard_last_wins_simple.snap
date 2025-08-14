@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/wildcard_last_wins_simple/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "All assertions passed!\nshared_value: from_second\nunique_first: unique_to_first\nunique_second: unique_to_second",
+    stderr: "",
+}

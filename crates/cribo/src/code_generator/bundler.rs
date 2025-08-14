@@ -474,6 +474,7 @@ impl<'a> Bundler<'a> {
         module_name: &str,
         inside_wrapper_init: bool,
         current_module: Option<&str>,
+        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
         log::debug!(
             "transform_bundled_import_from_multiple: module_name={}, imports={:?}, \
@@ -492,6 +493,137 @@ impl<'a> Bundler<'a> {
         // Track which modules we've already initialized in this import context
         // to avoid duplicate initialization calls
         let mut locally_initialized = FxIndexSet::default();
+
+        // Check if this is a wildcard import
+        if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*" {
+            // Handle wildcard import specially
+            log::debug!("Handling wildcard import from wrapper module '{module_name}'");
+
+            // Ensure the module is initialized
+            if self.module_registry.contains_key(module_name)
+                && !locally_initialized.contains(module_name)
+            {
+                assignments.extend(self.create_module_initialization_for_import(module_name));
+                locally_initialized.insert(module_name.to_string());
+            }
+
+            // For wildcard imports, we need to handle both wrapper modules and potential symbol renames
+            // Instead of dynamic copying, we'll generate static assignments for all known exports
+
+            // Get the module's exports (either from __all__ or all non-private symbols)
+            let module_exports = if let Some(Some(export_list)) =
+                self.module_exports.get(module_name)
+            {
+                // Module has __all__ defined, use it
+                export_list.clone()
+            } else if let Some(semantic_exports) = self.semantic_exports.get(module_name) {
+                // Use semantic exports from analysis
+                semantic_exports.iter().cloned().collect()
+            } else {
+                // Fall back to dynamic copying if we don't have static information
+                log::debug!(
+                    "No static export information for module '{module_name}', using dynamic copying"
+                );
+
+                let module_expr = if module_name.contains('.') {
+                    let parts: Vec<&str> = module_name.split('.').collect();
+                    expressions::dotted_name(&parts, ExprContext::Load)
+                } else {
+                    expressions::name(module_name, ExprContext::Load)
+                };
+
+                // Create: for __cribo_attr in dir(module):
+                //             if not __cribo_attr.startswith('_'):
+                //                 globals()[__cribo_attr] = getattr(module, __cribo_attr)
+                let attr_var = "__cribo_attr";
+                let dir_call = expressions::call(
+                    expressions::name("dir", ExprContext::Load),
+                    vec![module_expr.clone()],
+                    vec![],
+                );
+
+                let for_loop = statements::for_loop(
+                    attr_var,
+                    dir_call,
+                    vec![statements::if_stmt(
+                        expressions::unary_op(
+                            ruff_python_ast::UnaryOp::Not,
+                            expressions::call(
+                                expressions::attribute(
+                                    expressions::name(attr_var, ExprContext::Load),
+                                    "startswith",
+                                    ExprContext::Load,
+                                ),
+                                vec![expressions::string_literal("_")],
+                                vec![],
+                            ),
+                        ),
+                        vec![statements::subscript_assign(
+                            expressions::call(
+                                expressions::name("globals", ExprContext::Load),
+                                vec![],
+                                vec![],
+                            ),
+                            expressions::name(attr_var, ExprContext::Load),
+                            expressions::call(
+                                expressions::name("getattr", ExprContext::Load),
+                                vec![
+                                    module_expr.clone(),
+                                    expressions::name(attr_var, ExprContext::Load),
+                                ],
+                                vec![],
+                            ),
+                        )],
+                        vec![],
+                    )],
+                    vec![],
+                );
+
+                assignments.push(for_loop);
+                return assignments;
+            };
+
+            // Generate static assignments for each exported symbol
+            log::debug!(
+                "Generating static wildcard import assignments for {} symbols from '{}'",
+                module_exports.len(),
+                module_name
+            );
+
+            let module_expr = if module_name.contains('.') {
+                let parts: Vec<&str> = module_name.split('.').collect();
+                expressions::dotted_name(&parts, ExprContext::Load)
+            } else {
+                expressions::name(module_name, ExprContext::Load)
+            };
+
+            // Cache explicit __all__ (if any) to avoid repeated lookups
+            let explicit_all = self
+                .module_exports
+                .get(module_name)
+                .and_then(|exports| exports.as_ref());
+
+            for symbol_name in &module_exports {
+                // Skip private symbols unless explicitly in __all__
+                if symbol_name.starts_with('_')
+                    && !explicit_all.is_some_and(|all| all.contains(symbol_name))
+                {
+                    continue;
+                }
+
+                // For wrapper modules, symbols are always accessed as attributes on the module object.
+                // Renaming for conflict resolution applies to inlined modules, not wrapper modules.
+                assignments.push(statements::simple_assign(
+                    symbol_name,
+                    expressions::attribute(module_expr.clone(), symbol_name, ExprContext::Load),
+                ));
+                log::debug!(
+                    "Created wildcard import assignment: {symbol_name} = {module_name}.{symbol_name}"
+                );
+            }
+
+            return assignments;
+        }
 
         // For wrapper modules, we always need to ensure they're initialized before accessing
         // attributes Don't create the temporary variable approach - it causes issues with
