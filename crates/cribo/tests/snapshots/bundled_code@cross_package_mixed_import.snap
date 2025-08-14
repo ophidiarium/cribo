@@ -216,6 +216,7 @@ def __cribo_init___cribo_1f0c3d_core_database_connection():
 def __cribo_init___cribo_782908_core_database():
     module = types.SimpleNamespace()
     module.__name__ = 'core.database'
+    global validate
     """Database subpackage with import-time initialization and re-exports."""
     _registered_types = []
     module._registered_types = _registered_types

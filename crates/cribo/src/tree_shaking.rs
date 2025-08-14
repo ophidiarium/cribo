@@ -495,11 +495,13 @@ impl TreeShaker {
             if self.module_has_side_effects(module_name) {
                 debug!("Processing side-effect module: {module_name}");
                 for item in items {
-                    // Add all dependencies from module-level code
+                    // For side-effect modules, we need to process ALL items since they will all be included
+                    // This includes functions that might use imports
                     if matches!(
                         item.item_type,
                         ItemType::Expression | ItemType::Assignment { .. }
                     ) {
+                        // Process module-level expressions and assignments
                         debug!(
                             "Processing module-level item in {}: read_vars={:?}",
                             module_name, item.read_vars
@@ -518,6 +520,41 @@ impl TreeShaker {
                                 debug!(
                                     "Found direct symbol usage in side-effect module: {var} in \
                                      module {module}"
+                                );
+                                worklist.push_back((module, var.clone()));
+                            }
+                        }
+                    } else if matches!(
+                        item.item_type,
+                        ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
+                    ) {
+                        // For functions and classes in side-effect modules, we need to track their dependencies
+                        // since they will be included in the bundle
+                        debug!(
+                            "Processing function/class '{}' in side-effect module {}: eventual_read_vars={:?}",
+                            item.item_type.name().unwrap_or("<unknown>"),
+                            module_name,
+                            item.eventual_read_vars
+                        );
+
+                        // Mark the symbol itself as used (since the module will be included)
+                        for symbol in &item.defined_symbols {
+                            worklist.push_back((module_name.to_string(), symbol.clone()));
+                        }
+
+                        // Process all eventual reads (variables used inside the function/class)
+                        for var in &item.eventual_read_vars {
+                            if let Some((source_module, original_name)) =
+                                self.resolve_import_alias(module_name, var)
+                            {
+                                debug!(
+                                    "Found import dependency in function: {var} -> \
+                                     {source_module}::{original_name}"
+                                );
+                                worklist.push_back((source_module, original_name));
+                            } else if let Some(module) = self.find_defining_module(var) {
+                                debug!(
+                                    "Found symbol dependency in function: {var} in module {module}"
                                 );
                                 worklist.push_back((module, var.clone()));
                             }
