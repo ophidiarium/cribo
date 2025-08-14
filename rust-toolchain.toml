@@ -4,7 +4,6 @@ components = [
     'rustfmt',
     'clippy',
     'llvm-tools',
-    'miri',
     'rust-src',
     'rust-analyzer',
 ]
