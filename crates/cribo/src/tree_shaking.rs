@@ -129,6 +129,19 @@ impl TreeShaker {
         None
     }
 
+    /// Find which module defines a symbol, preferring the current module if it defines it
+    fn find_defining_module_preferring_local(
+        &self,
+        current_module: &str,
+        symbol: &str,
+    ) -> Option<String> {
+        if self.is_defined_in_module(current_module, symbol) {
+            Some(current_module.to_string())
+        } else {
+            self.find_defining_module(symbol)
+        }
+    }
+
     /// Resolve an import alias to its original module and name
     fn resolve_import_alias(&self, current_module: &str, alias: &str) -> Option<(String, String)> {
         if let Some(items) = self.module_items.get(current_module) {
@@ -581,11 +594,7 @@ impl TreeShaker {
                 for dep in deps {
                     // First check if the dependency is defined in the current module
                     // (for local references like metaclass=MyMetaclass in the same module)
-                    let dep_module = if self.is_defined_in_module(module, dep) {
-                        Some(module.to_string())
-                    } else {
-                        self.find_defining_module(dep)
-                    };
+                    let dep_module = self.find_defining_module_preferring_local(module, dep);
 
                     if let Some(dep_module) = dep_module {
                         worklist.push_back((dep_module, dep.clone()));
@@ -623,11 +632,8 @@ impl TreeShaker {
                 worklist.push_back((source_module, original_name));
             } else {
                 // For reads without global statement, prioritize current module
-                let defining_module = if self.is_defined_in_module(current_module, var) {
-                    Some(current_module.to_string())
-                } else {
-                    self.find_defining_module(var)
-                };
+                let defining_module =
+                    self.find_defining_module_preferring_local(current_module, var);
 
                 if let Some(module) = defining_module {
                     debug!(
@@ -644,11 +650,7 @@ impl TreeShaker {
         // Add all variables written by this item (for global statements)
         for var in &item.write_vars {
             // For global statements, first check if the variable is defined in the current module
-            let defining_module = if self.is_defined_in_module(current_module, var) {
-                Some(current_module.to_string())
-            } else {
-                self.find_defining_module(var)
-            };
+            let defining_module = self.find_defining_module_preferring_local(current_module, var);
 
             if let Some(module) = defining_module {
                 debug!(
@@ -670,11 +672,7 @@ impl TreeShaker {
         // Add eventual writes (from function bodies with global statements)
         for var in &item.eventual_write_vars {
             // For global statements, first check if the variable is defined in the current module
-            let defining_module = if self.is_defined_in_module(current_module, var) {
-                Some(current_module.to_string())
-            } else {
-                self.find_defining_module(var)
-            };
+            let defining_module = self.find_defining_module_preferring_local(current_module, var);
 
             if let Some(module) = defining_module {
                 debug!(
