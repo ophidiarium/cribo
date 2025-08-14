@@ -40,15 +40,15 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
 
-      - run: rustup component add clippy
       - run: cargo clippy --workspace --all-targets --all-features --locked
 
       # Generate clippy JSON report for SonarQube
       - name: Generate Clippy report for SonarQube
         run: cargo clippy --workspace --all-targets --all-features --locked --message-format=json > target/clippy.json || true
 
-      - run: rustup component add rustfmt
       - run: cargo fmt --all --check
 
       - name: Spell Check Repo

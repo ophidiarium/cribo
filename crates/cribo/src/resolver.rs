@@ -528,7 +528,8 @@ impl ModuleResolver {
                 if parent_classification == ImportType::FirstParty {
                     // Before assuming the submodule is first-party, try to resolve it
                     // If we can't find it as a source file, treat it as third-party
-                    // This handles cases where submodules are C extensions or otherwise not available as source files
+                    // This handles cases where submodules are C extensions or otherwise not
+                    // available as source files
                     let descriptor = ImportModuleDescriptor::from_module_name(module_name);
                     let mut found_as_source = false;
                     for search_dir in &search_dirs {
@@ -549,7 +550,8 @@ impl ModuleResolver {
                         // Can't find source file, treat as third-party
                         // This could be a C extension or dynamically available module
                         debug!(
-                            "Module '{module_name}' has first-party parent '{parent_module}' but no source file found - treating as third-party"
+                            "Module '{module_name}' has first-party parent '{parent_module}' but \
+                             no source file found - treating as third-party"
                         );
                         let import_type = ImportType::ThirdParty;
                         self.classification_cache
@@ -732,8 +734,8 @@ impl ModuleResolver {
         false
     }
 
-    /// Map an import name to its package name by checking dist-info metadata in the virtual environment
-    /// For example: "`markdown_it`" -> "markdown-it-py"
+    /// Map an import name to its package name by checking dist-info metadata in the virtual
+    /// environment For example: "`markdown_it`" -> "markdown-it-py"
     pub fn map_import_to_package_name(&self, import_name: &str) -> String {
         // Extract the root module name (e.g., "markdown_it" from "markdown_it.parser")
         let root_import = import_name.split('.').next().unwrap_or(import_name);

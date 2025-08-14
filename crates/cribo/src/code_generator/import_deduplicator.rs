@@ -757,7 +757,8 @@ pub(super) fn trim_unused_imports_from_modules(
                                 }
 
                                 // Check if this import is actually importing a submodule
-                                // For example, "from mypackage import utils" where utils is mypackage.utils
+                                // For example, "from mypackage import utils" where utils is
+                                // mypackage.utils
                                 let is_submodule_import = {
                                     let potential_submodule =
                                         format!("{from_module}.{imported_name}");
@@ -765,15 +766,17 @@ pub(super) fn trim_unused_imports_from_modules(
                                     graph.get_module_by_name(&potential_submodule).is_some()
                                 };
 
-                                // If this is a submodule import, check if the submodule has side effects
-                                // or is otherwise needed
+                                // If this is a submodule import, check if the submodule has side
+                                // effects or is otherwise needed
                                 let submodule_needed = if is_submodule_import {
                                     let submodule_name = format!("{from_module}.{imported_name}");
                                     log::debug!(
-                                        "Import '{local_name}' is a submodule import for '{submodule_name}'"
+                                        "Import '{local_name}' is a submodule import for \
+                                         '{submodule_name}'"
                                     );
-                                    // Check if the submodule has side effects or symbols that survived
-                                    // Even if no symbols survived, if it has side effects, we need to keep it
+                                    // Check if the submodule has side effects or symbols that
+                                    // survived Even if no
+                                    // symbols survived, if it has side effects, we need to keep it
                                     let has_side_effects =
                                         shaker.module_has_side_effects(&submodule_name);
                                     let has_used_symbols = !shaker
@@ -781,7 +784,8 @@ pub(super) fn trim_unused_imports_from_modules(
                                         .is_empty();
 
                                     log::debug!(
-                                        "Submodule '{submodule_name}' - has_side_effects: {has_side_effects}, has_used_symbols: {has_used_symbols}"
+                                        "Submodule '{submodule_name}' - has_side_effects: \
+                                         {has_side_effects}, has_used_symbols: {has_used_symbols}"
                                     );
 
                                     has_side_effects || has_used_symbols

@@ -299,7 +299,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // Check if this class has hard dependencies that should not be transformed
                         let class_name = class_def.name.as_str();
 
-                        // Pre-filter hard dependencies for this specific class to avoid repeated scans
+                        // Pre-filter hard dependencies for this specific class to avoid repeated
+                        // scans
                         let class_hard_deps: Vec<_> = self
                             .bundler
                             .hard_dependencies
@@ -337,10 +338,13 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     };
 
                                     if is_hard_dep_base {
-                                        // Check if this specific hard dependency is from a stdlib module
-                                        // If so, still transform it since stdlib normalization handles it
+                                        // Check if this specific hard dependency is from a stdlib
+                                        // module
+                                        // If so, still transform it since stdlib normalization
+                                        // handles it
                                         let is_from_stdlib = if base_str.is_empty() {
-                                            // For complex/unknown base expressions, don't attempt transformation
+                                            // For complex/unknown base expressions, don't attempt
+                                            // transformation
                                             false
                                         } else {
                                             class_hard_deps.iter().any(|dep| {
@@ -354,8 +358,9 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                                         if is_from_stdlib {
                                             log::debug!(
-                                                "Transforming stdlib hard dependency base class {} for \
-                                                 class {class_name} - stdlib normalization will handle it",
+                                                "Transforming stdlib hard dependency base class \
+                                                 {} for class {class_name} - stdlib normalization \
+                                                 will handle it",
                                                 if base_str.is_empty() {
                                                     "<complex expression>"
                                                 } else {
@@ -363,11 +368,14 @@ impl<'a> RecursiveImportTransformer<'a> {
                                                 }
                                             );
                                         } else {
-                                            // Even if it's not from stdlib, we still need to transform it
-                                            // in case it's a wrapper module import that needs rewriting
+                                            // Even if it's not from stdlib, we still need to
+                                            // transform it
+                                            // in case it's a wrapper module import that needs
+                                            // rewriting
                                             log::debug!(
-                                                "Transforming hard dependency base class {} for class {class_name} \
-                                                 - checking for wrapper module imports",
+                                                "Transforming hard dependency base class {} for \
+                                                 class {class_name} - checking for wrapper module \
+                                                 imports",
                                                 if base_str.is_empty() {
                                                     "<complex expression>"
                                                 } else {
@@ -798,7 +806,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                         .contains_key(&full_module_path)
                     {
                         // Create assignment: local_name = full_module_path_with_underscores
-                        // But be careful about stdlib conflicts - only create in entry module if there's a conflict
+                        // But be careful about stdlib conflicts - only create in entry module if
+                        // there's a conflict
                         let namespace_var = sanitize_module_name_for_identifier(&full_module_path);
 
                         // Check if this would shadow a stdlib module
@@ -818,7 +827,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                             ));
                         } else {
                             log::debug!(
-                                "  Skipping namespace assignment: {local_name} = {namespace_var} - would shadow stdlib in non-entry module"
+                                "  Skipping namespace assignment: {local_name} = {namespace_var} \
+                                 - would shadow stdlib in non-entry module"
                             );
                         }
                         handled_any = true;
@@ -875,8 +885,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     // Check if this would conflict with a stdlib name in scope
                                     if self.stdlib_names_in_scope.contains(local_name) {
                                         log::debug!(
-                                            "  Skipping alias '{local_name} = {namespace_var}' - would \
-                                             conflict with stdlib name '{local_name}'"
+                                            "  Skipping alias '{local_name} = {namespace_var}' - \
+                                             would conflict with stdlib name '{local_name}'"
                                         );
                                     } else {
                                         self.deferred_imports.push(statements::simple_assign(
@@ -1356,7 +1366,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // by its own initialization, so we only need to log
                         if self.bundler.inlined_modules.contains(parent) {
                             log::debug!(
-                                "Parent '{parent}' is inlined, submodule '{child}' assignment already handled"
+                                "Parent '{parent}' is inlined, submodule '{child}' assignment \
+                                 already handled"
                             );
                         }
                     }
@@ -2615,21 +2626,21 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         log::debug!("Handling wildcard import from inlined module '{module_name}'");
 
         // Get the module's exports (either from __all__ or all non-private symbols)
-        let module_exports = if let Some(Some(export_list)) =
-            bundler.module_exports.get(module_name)
-        {
-            // Module has __all__ defined, use it
-            export_list.clone()
-        } else if let Some(semantic_exports) = bundler.semantic_exports.get(module_name) {
-            // Use semantic exports from analysis
-            semantic_exports.iter().cloned().collect()
-        } else {
-            // No export information available
-            log::warn!(
-                "No export information available for inlined module '{module_name}' with wildcard import"
-            );
-            return result_stmts;
-        };
+        let module_exports =
+            if let Some(Some(export_list)) = bundler.module_exports.get(module_name) {
+                // Module has __all__ defined, use it
+                export_list.clone()
+            } else if let Some(semantic_exports) = bundler.semantic_exports.get(module_name) {
+                // Use semantic exports from analysis
+                semantic_exports.iter().cloned().collect()
+            } else {
+                // No export information available
+                log::warn!(
+                    "No export information available for inlined module '{module_name}' with \
+                     wildcard import"
+                );
+                return result_stmts;
+            };
 
         log::debug!(
             "Generating wildcard import assignments for {} symbols from inlined module '{}'",
@@ -2657,7 +2668,8 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
             // Check if the source symbol was tree-shaken
             if !bundler.is_symbol_kept_by_tree_shaking(module_name, symbol_name) {
                 log::debug!(
-                    "Skipping wildcard import for tree-shaken symbol '{symbol_name}' from module '{module_name}'"
+                    "Skipping wildcard import for tree-shaken symbol '{symbol_name}' from module \
+                     '{module_name}'"
                 );
                 continue;
             }
@@ -2682,11 +2694,13 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
 
             if renamed_symbol == *symbol_name {
                 log::debug!(
-                    "Created wildcard import assignment for non-renamed symbol: {symbol_name} = {renamed_symbol}"
+                    "Created wildcard import assignment for non-renamed symbol: {symbol_name} = \
+                     {renamed_symbol}"
                 );
             } else {
                 log::debug!(
-                    "Created wildcard import alias for renamed symbol: {symbol_name} = {renamed_symbol}"
+                    "Created wildcard import alias for renamed symbol: {symbol_name} = \
+                     {renamed_symbol}"
                 );
             }
         }
