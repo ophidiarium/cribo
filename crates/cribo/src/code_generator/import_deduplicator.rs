@@ -756,13 +756,47 @@ pub(super) fn trim_unused_imports_from_modules(
                                     continue;
                                 }
 
+                                // Check if this import is actually importing a submodule
+                                // For example, "from mypackage import utils" where utils is mypackage.utils
+                                let is_submodule_import = {
+                                    let potential_submodule =
+                                        format!("{from_module}.{imported_name}");
+                                    // Check if this module exists in the graph
+                                    graph.get_module_by_name(&potential_submodule).is_some()
+                                };
+
+                                // If this is a submodule import, check if the submodule has side effects
+                                // or is otherwise needed
+                                let submodule_needed = if is_submodule_import {
+                                    let submodule_name = format!("{from_module}.{imported_name}");
+                                    log::debug!(
+                                        "Import '{local_name}' is a submodule import for '{submodule_name}'"
+                                    );
+                                    // Check if the submodule has side effects or symbols that survived
+                                    // Even if no symbols survived, if it has side effects, we need to keep it
+                                    let has_side_effects =
+                                        shaker.module_has_side_effects(&submodule_name);
+                                    let has_used_symbols = !shaker
+                                        .get_used_symbols_for_module(&submodule_name)
+                                        .is_empty();
+
+                                    log::debug!(
+                                        "Submodule '{submodule_name}' - has_side_effects: {has_side_effects}, has_used_symbols: {has_used_symbols}"
+                                    );
+
+                                    has_side_effects || has_used_symbols
+                                } else {
+                                    false
+                                };
+
                                 // Check if this import is only used by symbols that were
                                 // tree-shaken
-                                let used_by_surviving_code = is_import_used_by_surviving_symbols(
-                                    &used_symbols,
-                                    module_dep_graph,
-                                    local_name,
-                                )
+                                let used_by_surviving_code = submodule_needed
+                                    || is_import_used_by_surviving_symbols(
+                                        &used_symbols,
+                                        module_dep_graph,
+                                        local_name,
+                                    )
                                     || is_import_used_by_side_effect_code(
                                         shaker,
                                         module_name,

@@ -1,0 +1,7 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 555
+input_file: crates/cribo/tests/fixtures/stdlib_decorator/main.py
+---
+packages: []
+count: 0
