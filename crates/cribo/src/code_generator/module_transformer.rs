@@ -112,6 +112,11 @@ pub fn transform_module_to_init_function<'a>(
                     // Track all imported names from this inlined module
                     for alias in &import_from.names {
                         let imported_name = alias.name.as_str();
+                        // Skip wildcard imports - they don't create individual global names
+                        if imported_name == "*" {
+                            debug!("Skipping wildcard import from inlined module '{module}'");
+                            continue;
+                        }
                         debug!(
                             "Tracking imported name '{imported_name}' from inlined module \
                              '{module}'"
