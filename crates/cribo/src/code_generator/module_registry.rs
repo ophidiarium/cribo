@@ -275,6 +275,45 @@ fn create_assignment_if_no_stdlib_conflict(
     }
 }
 
+/// Initialize a submodule if it hasn't been initialized yet
+///
+/// This helper function checks if a module initialization already exists in the assignments
+/// and adds it if needed, updating the tracking sets accordingly.
+pub fn initialize_submodule_if_needed(
+    module_path: &str,
+    module_registry: &FxIndexMap<String, String>,
+    assignments: &mut Vec<Stmt>,
+    locally_initialized: &mut FxIndexSet<String>,
+    initialized_modules: &mut FxIndexSet<String>,
+) {
+    use crate::code_generator::expression_handlers;
+
+    // Check if we already have this module initialization in assignments
+    let already_initialized = assignments.iter().any(|stmt| {
+        if let Stmt::Assign(assign) = stmt
+            && assign.targets.len() == 1
+            && let Expr::Attribute(attr) = &assign.targets[0]
+            && let Expr::Call(call) = &assign.value.as_ref()
+            && let Expr::Name(func_name) = &call.func.as_ref()
+            && is_init_function(func_name.id.as_str())
+        {
+            let attr_path = expression_handlers::extract_attribute_path(attr);
+            attr_path == module_path
+        } else {
+            false
+        }
+    });
+
+    if !already_initialized {
+        assignments.extend(create_module_initialization_for_import(
+            module_path,
+            module_registry,
+        ));
+    }
+    locally_initialized.insert(module_path.to_string());
+    initialized_modules.insert(module_path.to_string());
+}
+
 /// Create assignments for inlined imports
 /// Returns (statements, `namespace_requirements`)
 #[allow(clippy::too_many_arguments)]

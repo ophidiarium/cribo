@@ -26,6 +26,7 @@ use crate::{
         module_transformer, namespace_manager,
         namespace_manager::{NamespaceContext, NamespaceInfo},
     },
+    cribo_graph::CriboGraph,
     resolver::ModuleResolver,
     side_effects::{is_safe_stdlib_module, module_has_side_effects},
     transformation_context::TransformationContext,
@@ -117,6 +118,8 @@ pub struct Bundler<'a> {
     pub(crate) path_to_sanitized_name: FxIndexMap<String, String>,
     /// Runtime tracking of all created namespaces to prevent duplicates
     pub(crate) created_namespaces: FxIndexSet<String>,
+    /// Reference to the dependency graph for module relationship queries
+    pub(crate) graph: Option<&'a CriboGraph>,
     /// Modules that have explicit __all__ defined
     pub(crate) modules_with_explicit_all: FxIndexSet<String>,
     /// Transformation context for tracking node mappings
@@ -243,6 +246,7 @@ impl<'a> Bundler<'a> {
             namespace_registry: FxIndexMap::default(),
             path_to_sanitized_name: FxIndexMap::default(),
             created_namespaces: FxIndexSet::default(),
+            graph: None,
             modules_with_explicit_all: FxIndexSet::default(),
             transformation_context: TransformationContext::new(),
             tree_shaking_keep_symbols: None,
@@ -541,41 +545,68 @@ impl<'a> Bundler<'a> {
                     && current_module != Some(module_name) // Prevent self-initialization
                     && !is_submodule_of_target; // Prevent parent initialization from submodule
 
-                if should_initialize_parent {
-                    // Initialize parent module
-                    assignments.extend(self.create_module_initialization_for_import(module_name));
-                    locally_initialized.insert(module_name.to_string());
-                }
-
                 // Check if submodule should be initialized
-                if self.module_registry.contains_key(&full_module_path)
-                    && !locally_initialized.contains(&full_module_path)
-                {
-                    // Check if we already have this module initialization in assignments
-                    let already_initialized = assignments.iter().any(|stmt| {
-                        if let Stmt::Assign(assign) = stmt
-                            && assign.targets.len() == 1
-                            && let Expr::Attribute(attr) = &assign.targets[0]
-                            && let Expr::Call(call) = &assign.value.as_ref()
-                            && let Expr::Name(func_name) = &call.func.as_ref()
-                            && crate::code_generator::module_registry::is_init_function(
-                                func_name.id.as_str(),
-                            )
-                        {
-                            let attr_path = expression_handlers::extract_attribute_path(attr);
-                            attr_path == full_module_path
+                let should_initialize_submodule =
+                    self.module_registry.contains_key(&full_module_path)
+                        && !locally_initialized.contains(&full_module_path);
+
+                // Check if parent imports from this submodule (indicating dependency)
+                // This determines initialization order to avoid forward references
+                let parent_imports_submodule = should_initialize_parent
+                    && should_initialize_submodule
+                    && self.module_registry.contains_key(module_name)
+                    && self.module_registry.contains_key(&full_module_path)
+                    && self.graph.is_some_and(|graph| {
+                        let parent_module = graph.get_module_by_name(module_name);
+                        let child_module = graph.get_module_by_name(&full_module_path);
+                        if let (Some(parent), Some(child)) = (parent_module, child_module) {
+                            // Check if parent has child as a dependency
+                            let parent_deps = graph.get_dependencies(parent.module_id);
+                            parent_deps.contains(&child.module_id)
                         } else {
                             false
                         }
                     });
 
-                    if !already_initialized {
-                        assignments.extend(
-                            self.create_module_initialization_for_import(&full_module_path),
+                // Initialize modules in the correct order based on dependencies
+                // If parent imports submodule, initialize submodule first to avoid forward references
+                // Otherwise, use normal order (parent first)
+                if parent_imports_submodule {
+                    // Initialize submodule first since parent depends on it
+                    if should_initialize_submodule {
+                        crate::code_generator::module_registry::initialize_submodule_if_needed(
+                            &full_module_path,
+                            &self.module_registry,
+                            &mut assignments,
+                            &mut locally_initialized,
+                            &mut initialized_modules,
                         );
                     }
-                    locally_initialized.insert(full_module_path.clone());
-                    initialized_modules.insert(full_module_path.clone());
+
+                    // Now initialize parent module after submodule
+                    if should_initialize_parent {
+                        assignments
+                            .extend(self.create_module_initialization_for_import(module_name));
+                        locally_initialized.insert(module_name.to_string());
+                    }
+                } else {
+                    // Normal order: parent first, then submodule
+                    if should_initialize_parent {
+                        // Initialize parent module first
+                        assignments
+                            .extend(self.create_module_initialization_for_import(module_name));
+                        locally_initialized.insert(module_name.to_string());
+                    }
+
+                    if should_initialize_submodule {
+                        crate::code_generator::module_registry::initialize_submodule_if_needed(
+                            &full_module_path,
+                            &self.module_registry,
+                            &mut assignments,
+                            &mut locally_initialized,
+                            &mut initialized_modules,
+                        );
+                    }
                 }
 
                 // Build the direct namespace reference
@@ -1229,6 +1260,20 @@ impl<'a> Bundler<'a> {
             .any(|bundled| bundled.starts_with(&package_prefix))
     }
 
+    /// Check if a wrapper module should be included after tree-shaking
+    ///
+    /// A wrapper module is included if it either:
+    /// - Has symbols that survived tree-shaking
+    /// - Has side effects that need to be preserved
+    fn should_include_wrapper_module(
+        &self,
+        shaker: &crate::tree_shaking::TreeShaker,
+        module_name: &str,
+    ) -> bool {
+        !shaker.get_used_symbols_for_module(module_name).is_empty()
+            || shaker.module_has_side_effects(module_name)
+    }
+
     /// Extract attribute path from expression
     /// Process entry module statement
     fn process_entry_module_statement(
@@ -1307,7 +1352,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Initialize the bundler with parameters and basic settings
-    fn initialize_bundler(&mut self, params: &BundleParams<'_>) {
+    fn initialize_bundler(&mut self, params: &BundleParams<'a>) {
         // Store tree shaking decisions if provided
         if let Some(shaker) = params.tree_shaker {
             // Extract all kept symbols from the tree shaker
@@ -1526,7 +1571,7 @@ impl<'a> Bundler<'a> {
     /// Prepare modules by trimming imports, indexing ASTs, and detecting circular dependencies
     fn prepare_modules(
         &mut self,
-        params: &BundleParams<'_>,
+        params: &BundleParams<'a>,
     ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
         // Trim unused imports from all modules
         // Note: stdlib import normalization now happens in the orchestrator
@@ -1617,11 +1662,14 @@ impl<'a> Bundler<'a> {
     }
 
     /// Bundle multiple modules using the hybrid approach
-    pub fn bundle_modules(&mut self, params: &BundleParams<'_>) -> Result<ModModule> {
+    pub fn bundle_modules(&mut self, params: &BundleParams<'a>) -> Result<ModModule> {
         let mut final_body = Vec::new();
 
         // Extract the Python version from params
         let python_version = params.python_version;
+
+        // Store the graph reference for use in transformation methods
+        self.graph = Some(params.graph);
 
         // Initialize bundler settings and collect preliminary data
         self.initialize_bundler(params);
@@ -2879,9 +2927,133 @@ impl<'a> Bundler<'a> {
         // Now transform wrapper modules into init functions AFTER inlining
         // This way we have access to symbol_renames for proper import resolution
         if has_wrapper_modules {
+            // Before processing wrapper modules, collect their stdlib imports
+            // These will be needed inside the generated init functions
+
+            // Create a HashMap for O(1) lookups of original module ASTs
+            // This avoids O(n²) complexity from nested loops
+            let original_modules_map: FxIndexMap<&str, &ModModule> = params
+                .modules
+                .iter()
+                .map(|(name, ast, _, _)| (name.as_str(), ast))
+                .collect();
+
+            for (module_name, _original_ast, _, _) in &wrapper_modules_saved {
+                // Check if this module will actually be included
+                // Only collect imports from modules that will be initialized
+                let module_will_be_included = if let Some(shaker) = params.tree_shaker {
+                    self.should_include_wrapper_module(shaker, module_name)
+                } else {
+                    // No tree-shaking, so all wrapper modules are included
+                    true
+                };
+
+                if module_will_be_included {
+                    log::debug!(
+                        "Collecting stdlib imports from wrapper module that will be included: {module_name}"
+                    );
+
+                    // Find the original module AST (before import trimming) using HashMap lookup
+                    if let Some(original_ast) = original_modules_map.get(module_name.as_str()) {
+                        // Walk through the original AST to find stdlib imports
+                        for stmt in &original_ast.body {
+                            match stmt {
+                                Stmt::Import(import_stmt) => {
+                                    for alias in &import_stmt.names {
+                                        let module = alias.name.as_str();
+                                        if crate::resolver::is_stdlib_module(module, python_version)
+                                        {
+                                            log::debug!(
+                                                "Found stdlib import in wrapper module {module_name}: {module}"
+                                            );
+                                            import_deduplicator::add_stdlib_import(self, module);
+                                        }
+                                    }
+                                }
+                                Stmt::ImportFrom(import_from) => {
+                                    // Skip relative imports
+                                    if import_from.level > 0 {
+                                        continue;
+                                    }
+
+                                    if let Some(module) = &import_from.module {
+                                        let module_str = module.as_str();
+                                        if crate::resolver::is_stdlib_module(
+                                            module_str,
+                                            python_version,
+                                        ) {
+                                            log::debug!(
+                                                "Found stdlib from-import in wrapper module {module_name}: {module_str}"
+                                            );
+                                            // For from imports, we need to add the base module import
+                                            import_deduplicator::add_stdlib_import(
+                                                self, module_str,
+                                            );
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Filter wrapper modules based on tree-shaking if enabled
+            let wrapper_modules_to_process = if let Some(shaker) = params.tree_shaker {
+                let mut filtered_modules = Vec::new();
+                let mut modules_to_remove_from_registry = Vec::new();
+
+                for (module_name, ast, path, hash) in &wrapper_modules_saved {
+                    // Include module if it has symbols that survived or has side effects
+                    let is_needed = self.should_include_wrapper_module(shaker, module_name);
+
+                    if is_needed {
+                        filtered_modules.push((
+                            module_name.clone(),
+                            ast.clone(),
+                            path.clone(),
+                            hash.clone(),
+                        ));
+                    } else {
+                        log::debug!(
+                            "Filtering out wrapper module '{module_name}' - no used symbols or side effects after tree-shaking"
+                        );
+                        modules_to_remove_from_registry.push(module_name.clone());
+                    }
+                }
+
+                // Remove filtered modules from all registries to prevent inconsistent state
+                // Use retain for O(n) performance instead of O(n²) from repeated shift_remove
+                let modules_to_remove_set: FxIndexSet<_> =
+                    modules_to_remove_from_registry.into_iter().collect();
+
+                // Collect synthetic names before removing from module_registry
+                let synthetic_names_to_remove: FxIndexSet<_> = self
+                    .module_registry
+                    .iter()
+                    .filter(|(k, _)| modules_to_remove_set.contains(*k))
+                    .map(|(_, v)| v.clone())
+                    .collect();
+
+                // Efficiently remove from all registries using retain
+                self.module_registry
+                    .retain(|k, _| !modules_to_remove_set.contains(k));
+                self.module_exports
+                    .retain(|k, _| !modules_to_remove_set.contains(k));
+                self.bundled_modules
+                    .retain(|k| !modules_to_remove_set.contains(k));
+                self.init_functions
+                    .retain(|k, _| !synthetic_names_to_remove.contains(k));
+
+                filtered_modules
+            } else {
+                wrapper_modules_saved.clone()
+            };
+
             let wrapper_stmts = module_transformer::process_wrapper_modules(
                 self,
-                &wrapper_modules_saved,
+                &wrapper_modules_to_process,
                 &wrapper_modules_needed_by_inlined,
                 &symbol_renames,
                 &semantic_ctx,

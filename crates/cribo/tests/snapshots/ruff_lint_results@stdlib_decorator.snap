@@ -1,0 +1,11 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 552
+input_file: crates/cribo/tests/fixtures/stdlib_decorator/main.py
+---
+RuffLintResults {
+    f401_violations: [],
+    f404_violations: [],
+    other_violations: [],
+    total_violations: 0,
+}
