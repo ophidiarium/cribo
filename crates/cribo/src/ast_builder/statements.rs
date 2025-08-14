@@ -283,3 +283,46 @@ pub fn set_list_attribute(obj_name: &str, attr_name: &str, values: &[&str]) -> S
         expressions::list(list_elements, ruff_python_ast::ExprContext::Load),
     )
 }
+
+/// Create a for loop statement
+pub fn for_loop(target: &str, iter: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> Stmt {
+    Stmt::For(ruff_python_ast::StmtFor {
+        node_index: AtomicNodeIndex::dummy(),
+        target: Box::new(expressions::name(target, ExprContext::Store)),
+        iter: Box::new(iter),
+        body,
+        orelse,
+        is_async: false,
+        range: TextRange::default(),
+    })
+}
+
+/// Create an if statement
+pub fn if_stmt(condition: Expr, body: Vec<Stmt>, orelse: Vec<Stmt>) -> Stmt {
+    Stmt::If(ruff_python_ast::StmtIf {
+        node_index: AtomicNodeIndex::dummy(),
+        test: Box::new(condition),
+        body,
+        elif_else_clauses: if orelse.is_empty() {
+            vec![]
+        } else {
+            vec![ruff_python_ast::ElifElseClause {
+                node_index: AtomicNodeIndex::dummy(),
+                test: None,
+                body: orelse,
+                range: TextRange::default(),
+            }]
+        },
+        range: TextRange::default(),
+    })
+}
+
+/// Create a subscript assignment statement: target[key] = value
+pub fn subscript_assign(target: Expr, key: Expr, value: Expr) -> Stmt {
+    Stmt::Assign(ruff_python_ast::StmtAssign {
+        node_index: AtomicNodeIndex::dummy(),
+        targets: vec![expressions::subscript(target, key, ExprContext::Store)],
+        value: Box::new(value),
+        range: TextRange::default(),
+    })
+}

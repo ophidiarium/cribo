@@ -2501,6 +2501,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 &module_name,
                 inside_wrapper_init,
                 Some(current_module),
+                symbol_renames,
             );
         }
 
@@ -2536,6 +2537,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
             &module_name,
             inside_wrapper_init,
             Some(current_module),
+            symbol_renames,
         )
     } else {
         // Module was inlined - but first check if we're importing bundled submodules
@@ -2606,6 +2608,94 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
 ) -> Vec<Stmt> {
     let mut result_stmts = Vec::new();
+
+    // Check if this is a wildcard import
+    if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*" {
+        // Handle wildcard import from inlined module
+        log::debug!(
+            "Handling wildcard import from inlined module '{module_name}'"
+        );
+
+        // Get the module's exports (either from __all__ or all non-private symbols)
+        let module_exports =
+            if let Some(Some(export_list)) = bundler.module_exports.get(module_name) {
+                // Module has __all__ defined, use it
+                export_list.clone()
+            } else if let Some(semantic_exports) = bundler.semantic_exports.get(module_name) {
+                // Use semantic exports from analysis
+                semantic_exports.iter().cloned().collect()
+            } else {
+                // No export information available
+                log::warn!(
+                    "No export information available for inlined module '{module_name}' with wildcard import"
+                );
+                return result_stmts;
+            };
+
+        log::debug!(
+            "Generating wildcard import assignments for {} symbols from inlined module '{}'",
+            module_exports.len(),
+            module_name
+        );
+
+        // Get symbol renames for this module
+        let module_renames = symbol_renames.get(module_name);
+
+        for symbol_name in &module_exports {
+            // Skip private symbols unless explicitly in __all__
+            if symbol_name.starts_with('_')
+                && !bundler
+                    .module_exports
+                    .get(module_name)
+                    .is_some_and(|exports| {
+                        exports
+                            .as_ref()
+                            .is_some_and(|all| all.contains(symbol_name))
+                    })
+            {
+                continue;
+            }
+
+            // Check if the source symbol was tree-shaken
+            if !bundler.is_symbol_kept_by_tree_shaking(module_name, symbol_name) {
+                log::debug!(
+                    "Skipping wildcard import for tree-shaken symbol '{symbol_name}' from module '{module_name}'"
+                );
+                continue;
+            }
+
+            // Get the renamed symbol name if it was renamed
+            let renamed_symbol = if let Some(renames) = module_renames {
+                renames
+                    .get(symbol_name)
+                    .cloned()
+                    .unwrap_or_else(|| symbol_name.clone())
+            } else {
+                symbol_name.clone()
+            };
+
+            // For wildcard imports, always create an assignment from the original name
+            // to the (possibly renamed) symbol
+            if renamed_symbol == *symbol_name {
+                // No renaming needed, but for wildcard imports from inlined modules,
+                // the symbol is already in scope, so no assignment needed
+                log::debug!(
+                    "Symbol '{symbol_name}' from wildcard import is already in scope (no rename)"
+                );
+            } else {
+                // Symbol was renamed, create alias: original_name = renamed_name
+                result_stmts.push(statements::simple_assign(
+                    symbol_name,
+                    expressions::name(&renamed_symbol, ExprContext::Load),
+                ));
+                log::debug!(
+                    "Created wildcard import alias for renamed symbol: {symbol_name} = {renamed_symbol}"
+                );
+            }
+        }
+
+        return result_stmts;
+    }
 
     for alias in &import_from.names {
         let imported_name = alias.name.as_str();
