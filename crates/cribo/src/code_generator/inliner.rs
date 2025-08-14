@@ -327,6 +327,41 @@ impl Bundler<'_> {
                     expression_handlers::rewrite_aliases_in_expr(arg, module_renames);
                 }
             }
+
+            // Also apply renames to keyword arguments (e.g., metaclass=SomeMetaclass)
+            for keyword in &mut arguments.keywords {
+                // For keyword arguments like metaclass=YAMLObjectMetaclass, we need to rename the value
+                if let Expr::Name(name_expr) = &mut keyword.value {
+                    let keyword_value_name = name_expr.id.as_str();
+
+                    // Check if this value was imported from another module
+                    if let Some(source_module) = ctx.import_sources.get(keyword_value_name) {
+                        // This value was imported from another module
+                        // Use that module's renames instead of the current module's
+                        if let Some(source_renames) = ctx.module_renames.get(source_module)
+                            && let Some(renamed) = source_renames.get(keyword_value_name)
+                        {
+                            log::debug!(
+                                "Applying cross-module rename for keyword value '{keyword_value_name}' \
+                                 from module '{source_module}': '{keyword_value_name}' -> '{renamed}'"
+                            );
+                            name_expr.id = renamed.clone().into();
+                            continue;
+                        }
+                    }
+
+                    // Not imported or no rename found in source module, apply local renames
+                    if let Some(renamed) = module_renames.get(keyword_value_name) {
+                        name_expr.id = renamed.clone().into();
+                    }
+                } else {
+                    // Complex keyword value expression, use standard rewriting
+                    expression_handlers::rewrite_aliases_in_expr(
+                        &mut keyword.value,
+                        module_renames,
+                    );
+                }
+            }
         }
 
         // Apply renames and resolve import aliases in class body
