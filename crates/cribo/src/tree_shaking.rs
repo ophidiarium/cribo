@@ -432,61 +432,11 @@ impl TreeShaker {
 
                 // Process attribute accesses - if we access `greetings.message`,
                 // we need the `message` symbol from the `greetings` module
-                for (base_var, accessed_attrs) in &item.attribute_accesses {
-                    debug!(
-                        "Processing attribute access: base_var={base_var}, \
-                         attrs={accessed_attrs:?}"
-                    );
-
-                    // First, check if base_var is an imported module alias (e.g., import x.y as z)
-                    if let Some(source_module) =
-                        self.resolve_module_import_alias(entry_module, base_var)
-                    {
-                        // This is a module import alias with attribute access
-                        for attr in accessed_attrs {
-                            debug!(
-                                "Found attribute access on module alias: {base_var}.{attr} -> \
-                                 marking {source_module}::{attr} as used"
-                            );
-                            worklist.push_back((source_module.clone(), attr.clone()));
-                        }
-                    } else if let Some(source_module) =
-                        self.resolve_from_module_import(entry_module, base_var)
-                    {
-                        // This is a from import of a module (e.g., from utils import calculator)
-                        for attr in accessed_attrs {
-                            debug!(
-                                "Found attribute access on from-imported module: \
-                                 {base_var}.{attr} -> marking {source_module}::{attr} as used"
-                            );
-                            worklist.push_back((source_module.clone(), attr.clone()));
-                        }
-                    } else if let Some((source_module, _)) =
-                        self.resolve_import_alias(entry_module, base_var)
-                    {
-                        // This is an imported symbol with attribute access
-                        for attr in accessed_attrs {
-                            debug!(
-                                "Found attribute access: {base_var}.{attr} -> marking \
-                                 {source_module}::{attr} as used"
-                            );
-                            worklist.push_back((source_module.clone(), attr.clone()));
-                        }
-                    } else if self.module_items.contains_key(base_var) {
-                        // Direct module import like `import greetings`
-                        for attr in accessed_attrs {
-                            debug!("Found direct module attribute access: {base_var}.{attr}");
-                            worklist.push_back((base_var.clone(), attr.clone()));
-                        }
-                    } else {
-                        self.find_attribute_in_namespace(
-                            base_var,
-                            accessed_attrs,
-                            &mut worklist,
-                            entry_module,
-                        );
-                    }
-                }
+                self.add_attribute_accesses_to_worklist(
+                    &item.attribute_accesses,
+                    entry_module,
+                    &mut worklist,
+                );
             }
         }
 
@@ -511,6 +461,12 @@ impl TreeShaker {
                             module_name,
                             &mut worklist,
                             "side-effect module",
+                        );
+                        // Also process attribute accesses for module-level items in side-effect modules
+                        self.add_attribute_accesses_to_worklist(
+                            &item.attribute_accesses,
+                            module_name,
+                            &mut worklist,
                         );
                     } else if matches!(
                         item.item_type,
@@ -734,58 +690,7 @@ impl TreeShaker {
         }
 
         // Process attribute accesses
-        for (base_var, accessed_attrs) in &item.attribute_accesses {
-            // First, check if base_var is an imported module alias (e.g., import x.y as z)
-            if let Some(source_module) = self.resolve_module_import_alias(current_module, base_var)
-            {
-                // This is a module import alias with attribute access
-                for attr in accessed_attrs {
-                    debug!(
-                        "Found attribute access on module alias in {current_module}: \
-                         {base_var}.{attr} -> marking {source_module}::{attr} as used"
-                    );
-                    worklist.push_back((source_module.clone(), attr.clone()));
-                }
-            } else if let Some(source_module) =
-                self.resolve_from_module_import(current_module, base_var)
-            {
-                // This is a from import of a module (e.g., from utils import calculator)
-                for attr in accessed_attrs {
-                    debug!(
-                        "Found attribute access on from-imported module in {current_module}: \
-                         {base_var}.{attr} -> marking {source_module}::{attr} as used"
-                    );
-                    worklist.push_back((source_module.clone(), attr.clone()));
-                }
-            } else if let Some((source_module, _)) =
-                self.resolve_import_alias(current_module, base_var)
-            {
-                // This is an imported symbol with attribute access
-                for attr in accessed_attrs {
-                    debug!(
-                        "Found attribute access in {current_module}: {base_var}.{attr} -> marking \
-                         {source_module}::{attr} as used"
-                    );
-                    worklist.push_back((source_module.clone(), attr.clone()));
-                }
-            } else if self.module_items.contains_key(base_var) {
-                // Direct module reference
-                for attr in accessed_attrs {
-                    debug!(
-                        "Found direct module attribute access in {current_module}: \
-                         {base_var}.{attr}"
-                    );
-                    worklist.push_back((base_var.clone(), attr.clone()));
-                }
-            } else {
-                self.find_attribute_in_namespace(
-                    base_var,
-                    accessed_attrs,
-                    worklist,
-                    current_module,
-                );
-            }
-        }
+        self.add_attribute_accesses_to_worklist(&item.attribute_accesses, current_module, worklist);
     }
 
     /// Get symbols that survive tree-shaking for a module
@@ -858,6 +763,61 @@ impl TreeShaker {
             } else if let Some(module) = self.find_defining_module(var) {
                 debug!("Found symbol dependency in {context}: {var} in module {module}");
                 worklist.push_back((module, var.clone()));
+            }
+        }
+    }
+
+    /// Helper method to process attribute accesses and add them to the worklist
+    fn add_attribute_accesses_to_worklist(
+        &self,
+        attribute_accesses: &FxIndexMap<String, FxIndexSet<String>>,
+        module_name: &str,
+        worklist: &mut VecDeque<(String, String)>,
+    ) {
+        for (base_var, accessed_attrs) in attribute_accesses {
+            // 1) Module alias via `import x.y as z`
+            if let Some(source_module) = self.resolve_module_import_alias(module_name, base_var) {
+                for attr in accessed_attrs {
+                    debug!(
+                        "Found attribute access on module alias in {module_name}: \
+                         {base_var}.{attr} -> marking {source_module}::{attr} as used"
+                    );
+                    worklist.push_back((source_module.clone(), attr.clone()));
+                }
+            // 2) From-imported module via `from utils import calculator`
+            } else if let Some(source_module) =
+                self.resolve_from_module_import(module_name, base_var)
+            {
+                for attr in accessed_attrs {
+                    debug!(
+                        "Found attribute access on from-imported module in {module_name}: \
+                         {base_var}.{attr} -> marking {source_module}::{attr} as used"
+                    );
+                    worklist.push_back((source_module.clone(), attr.clone()));
+                }
+            // 3) Imported symbol with attribute access
+            } else if let Some((source_module, _)) =
+                self.resolve_import_alias(module_name, base_var)
+            {
+                for attr in accessed_attrs {
+                    debug!(
+                        "Found attribute access in {module_name}: {base_var}.{attr} -> marking \
+                         {source_module}::{attr} as used"
+                    );
+                    worklist.push_back((source_module.clone(), attr.clone()));
+                }
+            // 4) Direct module reference like `import greetings`
+            } else if self.module_items.contains_key(base_var) {
+                for attr in accessed_attrs {
+                    debug!(
+                        "Found direct module attribute access in {module_name}: \
+                         {base_var}.{attr}"
+                    );
+                    worklist.push_back((base_var.clone(), attr.clone()));
+                }
+            // 5) Namespace package lookup
+            } else {
+                self.find_attribute_in_namespace(base_var, accessed_attrs, worklist, module_name);
             }
         }
     }
