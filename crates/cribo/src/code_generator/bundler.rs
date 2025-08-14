@@ -3035,7 +3035,7 @@ impl<'a> Bundler<'a> {
                     }
                 }
 
-                // Remove filtered modules from the registry
+                // Remove filtered modules from all registries to prevent inconsistent state
                 for module_name in modules_to_remove_from_registry {
                     // Get the synthetic name before removing
                     if let Some(synthetic_name) = self.module_registry.get(&module_name) {
@@ -3043,6 +3043,8 @@ impl<'a> Bundler<'a> {
                     }
                     self.module_registry.shift_remove(&module_name);
                     self.module_exports.shift_remove(&module_name);
+                    // Also remove from bundled_modules to ensure consistency
+                    self.bundled_modules.shift_remove(&module_name);
                 }
 
                 filtered_modules
