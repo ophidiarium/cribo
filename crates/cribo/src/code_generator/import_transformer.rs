@@ -1339,6 +1339,35 @@ impl<'a> RecursiveImportTransformer<'a> {
                         current_module_is_inlined
                     );
 
+                    // First, ensure the wrapper module is initialized
+                    // This is crucial for lazy imports inside functions
+                    let mut init_stmts = Vec::new();
+
+                    // Check if the parent module needs handling
+                    if let Some((parent, child)) = resolved.rsplit_once('.') {
+                        // If the parent is also a wrapper module, initialize it first
+                        if self.bundler.module_registry.contains_key(parent) {
+                            init_stmts.extend(
+                                self.bundler.create_module_initialization_for_import(parent),
+                            );
+                        }
+
+                        // If the parent is an inlined module, the submodule assignment is handled
+                        // by its own initialization, so we only need to log
+                        if self.bundler.inlined_modules.contains(parent) {
+                            log::debug!(
+                                "Parent '{parent}' is inlined, submodule '{child}' assignment already handled"
+                            );
+                        }
+                    }
+
+                    // Initialize the wrapper module itself
+                    // This will create the assignment: module_name = init_func()
+                    init_stmts.extend(
+                        self.bundler
+                            .create_module_initialization_for_import(resolved),
+                    );
+
                     // Track each imported symbol for rewriting
                     for alias in &import_from.names {
                         let imported_name = alias.name.as_str();
@@ -1355,8 +1384,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                         );
                     }
 
-                    // Return empty - we'll rewrite all usages instead of creating imports
-                    return vec![];
+                    // Return the initialization statements
+                    // All usages will be rewritten to use the fully qualified name
+                    return init_stmts;
                 }
                 // For wrapper modules importing from other wrapper modules,
                 // let it fall through to standard transformation
