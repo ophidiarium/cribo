@@ -551,37 +551,25 @@ impl<'a> Bundler<'a> {
                         && !locally_initialized.contains(&full_module_path);
 
                 // Check if parent imports from this submodule (indicating dependency)
-                let parent_imports_submodule =
-                    if should_initialize_parent && should_initialize_submodule {
-                        // Check if both are wrapper modules (have side effects)
-                        let both_are_wrappers = self.module_registry.contains_key(module_name)
-                            && self.module_registry.contains_key(&full_module_path);
-
-                        if both_are_wrappers {
-                            // Use the dependency graph to check if parent depends on child
-                            if let Some(graph) = self.graph {
-                                // Get module IDs from the graph
-                                let parent_module = graph.get_module_by_name(module_name);
-                                let child_module = graph.get_module_by_name(&full_module_path);
-
-                                if let (Some(parent), Some(child)) = (parent_module, child_module) {
-                                    // Check if parent has child as a dependency
-                                    let parent_deps = graph.get_dependencies(parent.module_id);
-                                    parent_deps.contains(&child.module_id)
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
+                // This determines initialization order to avoid forward references
+                let parent_imports_submodule = should_initialize_parent
+                    && should_initialize_submodule
+                    && self.module_registry.contains_key(module_name)
+                    && self.module_registry.contains_key(&full_module_path)
+                    && self.graph.is_some_and(|graph| {
+                        let parent_module = graph.get_module_by_name(module_name);
+                        let child_module = graph.get_module_by_name(&full_module_path);
+                        if let (Some(parent), Some(child)) = (parent_module, child_module) {
+                            // Check if parent has child as a dependency
+                            let parent_deps = graph.get_dependencies(parent.module_id);
+                            parent_deps.contains(&child.module_id)
                         } else {
                             false
                         }
-                    } else {
-                        false
-                    };
+                    });
 
-                // If parent imports submodule, initialize submodule first
+                // Initialize modules in the correct order based on dependencies
+                // If parent imports submodule, initialize submodule first to avoid forward references
                 // Otherwise, use normal order (parent first)
                 if parent_imports_submodule {
                     // Initialize submodule first since parent depends on it
