@@ -47,6 +47,11 @@ jobs:
           ignore-nothing-to-cache: true
           python-version: 3.12
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Install Python dependencies
         run: uv sync --all-groups
 
@@ -82,8 +87,15 @@ jobs:
           python --version
           uv --version
 
+          echo "📦 Node.js tools:"
+          bun --version
+
           echo "🔧 Development tools:"
           cargo insta --version
           cargo nextest --version
           taplo --version
           typos --version
+
+          echo "🧪 Testing lefthook tools via bunx:"
+          echo "✓ bunx can access dprint: $(bunx dprint --version > /dev/null 2>&1 && echo 'yes' || echo 'no')"
+          echo "✓ bunx can access commitlint: $(bunx commitlint --version > /dev/null 2>&1 && echo 'yes' || echo 'no')"
