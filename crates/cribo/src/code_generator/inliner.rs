@@ -355,22 +355,25 @@ impl Bundler<'_> {
                 // to classes in the same module that haven't been processed yet
                 if let Some(ident) = &keyword.arg
                     && ident.as_str() == "metaclass"
-                        && let Expr::Name(name_expr) = &mut keyword.value {
-                            let metaclass_name = name_expr.id.as_str();
-                            // Check if this metaclass is from the same module and has a semantic rename
-                            if !ctx.import_sources.contains_key(metaclass_name) {
-                                // Not imported, so it's from the current module
-                                if let Some(semantic_renames) = ctx.module_renames.get(module_name)
-                                    && let Some(renamed) = semantic_renames.get(metaclass_name)
-                                {
-                                    log::debug!(
-                                        "Applying semantic rename for metaclass '{metaclass_name}' -> '{renamed}' in module '{module_name}'"
-                                    );
-                                    name_expr.id = renamed.clone().into();
-                                    continue;
-                                }
-                            }
+                    && let Expr::Name(name_expr) = &mut keyword.value
+                {
+                    let metaclass_name = name_expr.id.as_str();
+                    // Check if this metaclass is from the same module and has a semantic rename
+                    if !ctx.import_sources.contains_key(metaclass_name) {
+                        // Not imported, so it's from the current module
+                        if let Some(renamed) = ctx
+                            .module_renames
+                            .get(module_name)
+                            .and_then(|renames| renames.get(metaclass_name))
+                        {
+                            log::debug!(
+                                "Applying semantic rename for metaclass '{metaclass_name}' -> '{renamed}' in module '{module_name}'"
+                            );
+                            name_expr.id = renamed.clone().into();
+                            continue;
                         }
+                    }
+                }
 
                 self.rewrite_class_arg_expr(
                     &mut keyword.value,
