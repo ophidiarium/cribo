@@ -474,7 +474,7 @@ impl<'a> Bundler<'a> {
         module_name: &str,
         inside_wrapper_init: bool,
         current_module: Option<&str>,
-        symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+        _symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     ) -> Vec<Stmt> {
         log::debug!(
             "transform_bundled_import_from_multiple: module_name={}, imports={:?}, \
@@ -597,9 +597,6 @@ impl<'a> Bundler<'a> {
                 expressions::name(module_name, ExprContext::Load)
             };
 
-            // Check if we have symbol renames for this module
-            let module_symbol_renames = symbol_renames.get(module_name);
-
             for symbol_name in &module_exports {
                 // Skip private symbols unless explicitly in __all__
                 if symbol_name.starts_with('_')
@@ -612,39 +609,15 @@ impl<'a> Bundler<'a> {
                     continue;
                 }
 
-                // For wrapper modules, the symbol is accessed as module.symbol
-                // But if the symbol was renamed due to conflicts, we need to use the renamed name locally
-                let local_name = if let Some(renames) = module_symbol_renames {
-                    renames
-                        .get(symbol_name)
-                        .cloned()
-                        .unwrap_or_else(|| symbol_name.clone())
-                } else {
-                    symbol_name.clone()
-                };
-
-                // Generate: local_name = module.symbol_name
-                // For wildcard imports, the user expects the original name, not the renamed one
-                // So we create an alias from the original name to the renamed symbol if needed
-                if local_name == *symbol_name {
-                    // No renaming, direct import from module
-                    assignments.push(statements::simple_assign(
-                        symbol_name,
-                        expressions::attribute(module_expr.clone(), symbol_name, ExprContext::Load),
-                    ));
-                    log::debug!(
-                        "Created wildcard import assignment: {symbol_name} = {module_name}.{symbol_name}"
-                    );
-                } else {
-                    // Symbol was renamed, create alias: original_name = renamed_name
-                    assignments.push(statements::simple_assign(
-                        symbol_name,
-                        expressions::name(&local_name, ExprContext::Load),
-                    ));
-                    log::debug!(
-                        "Created wildcard import alias: {symbol_name} = {local_name} (renamed symbol)"
-                    );
-                }
+                // For wrapper modules, symbols are always accessed as attributes on the module object.
+                // Renaming for conflict resolution applies to inlined modules, not wrapper modules.
+                assignments.push(statements::simple_assign(
+                    symbol_name,
+                    expressions::attribute(module_expr.clone(), symbol_name, ExprContext::Load),
+                ));
+                log::debug!(
+                    "Created wildcard import assignment: {symbol_name} = {module_name}.{symbol_name}"
+                );
             }
 
             return assignments;

@@ -9,3 +9,6 @@
 	path = ecosystem/packages/rich
 	url = https://github.com/Textualize/rich.git
 	shallow = true
+[submodule "ecosystem/packages/pyyaml"]
+	path = ecosystem/packages/pyyaml
+	url = https://github.com/yaml/pyyaml

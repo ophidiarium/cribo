@@ -40,7 +40,7 @@ SharedClass_1.__qualname__ = 'SharedClass'
 SafeClass.__module__ = 'explicit_all'
 """Module with no side-effects and explicit __all__."""
 @functools.cache
-def __cribo_init___cribo_1a0559_with_side_effects():
+def __cribo_init___cribo_9a9871_with_side_effects():
     module = types.SimpleNamespace()
     module.__name__ = 'with_side_effects'
     """Module with side-effects and no explicit __all__."""
@@ -87,7 +87,7 @@ def __cribo_init___cribo_1a0559_with_side_effects():
         print(f"Module state initialized with {len(_module_state)} items")
     return module
 """Main module demonstrating various wildcard import patterns."""
-with_side_effects = __cribo_init___cribo_1a0559_with_side_effects()
+with_side_effects = __cribo_init___cribo_9a9871_with_side_effects()
 EFFECT_CONSTANT = with_side_effects.EFFECT_CONSTANT
 EffectClass = with_side_effects.EffectClass
 effect_function = with_side_effects.effect_function
