@@ -31,6 +31,10 @@
     },
     "env": {
         "DISABLE_TELEMETRY": "1",
+        "CARGO_TERM_COLOR": "always",
+        "CLICOLOR": "1",
+        "CLICOLOR_FORCE": "1",
+        "NEXTEST_COLOR": "1",
         "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1"
     }
 }
