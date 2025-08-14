@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.14](https://github.com/ophidiarium/cribo/compare/v0.5.13...v0.5.14) (2025-08-14)
+
+
+### Features
+
+* add bun and dprint installation to copilot setup workflow ([#287](https://github.com/ophidiarium/cribo/issues/287)) ([150ca4c](https://github.com/ophidiarium/cribo/commit/150ca4cc25f8278daffeb1f97b1cd9c59d1a6586))
+
+
+### Bug Fixes
+
+* copilot setup steps ([9cc2c73](https://github.com/ophidiarium/cribo/commit/9cc2c7361038230e762742a466dc90f6cea11106))
+* handle circular dependencies with stdlib-conflicting module names ([#281](https://github.com/ophidiarium/cribo/issues/281)) ([bf65109](https://github.com/ophidiarium/cribo/commit/bf6510908d48aea1e609f4b080a898948a7d7db8))
+* preserve stdlib imports and fix module initialization order for wrapper modules ([#283](https://github.com/ophidiarium/cribo/issues/283)) ([0f429ef](https://github.com/ophidiarium/cribo/commit/0f429ef91ba410267559e75579d364a7df483666))
+* track all dependencies in side-effect modules during tree-shaking ([#288](https://github.com/ophidiarium/cribo/issues/288)) ([fc3d2a7](https://github.com/ophidiarium/cribo/commit/fc3d2a7e3917c8dae2f44ddba92c363d25f77eff))
+
 ## [0.5.13](https://github.com/ophidiarium/cribo/compare/v0.5.12...v0.5.13) (2025-08-13)
 
 
