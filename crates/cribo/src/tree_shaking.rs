@@ -129,6 +129,19 @@ impl TreeShaker {
         None
     }
 
+    /// Find which module defines a symbol, preferring the current module if it defines it
+    fn find_defining_module_preferring_local(
+        &self,
+        current_module: &str,
+        symbol: &str,
+    ) -> Option<String> {
+        if self.is_defined_in_module(current_module, symbol) {
+            Some(current_module.to_string())
+        } else {
+            self.find_defining_module(symbol)
+        }
+    }
+
     /// Resolve an import alias to its original module and name
     fn resolve_import_alias(&self, current_module: &str, alias: &str) -> Option<(String, String)> {
         if let Some(items) = self.module_items.get(current_module) {
@@ -445,8 +458,8 @@ impl TreeShaker {
             if self.module_has_side_effects(module_name) {
                 debug!("Processing side-effect module: {module_name}");
                 for item in items {
-                    // For side-effect modules, we need to process ALL items since they will all be included
-                    // This includes functions that might use imports
+                    // For side-effect modules, we need to process ALL items since they will all be
+                    // included This includes functions that might use imports
                     if matches!(
                         item.item_type,
                         ItemType::Expression | ItemType::Assignment { .. }
@@ -462,7 +475,8 @@ impl TreeShaker {
                             &mut worklist,
                             "side-effect module",
                         );
-                        // Also process attribute accesses for module-level items in side-effect modules
+                        // Also process attribute accesses for module-level items in side-effect
+                        // modules
                         self.add_attribute_accesses_to_worklist(
                             &item.attribute_accesses,
                             module_name,
@@ -472,10 +486,12 @@ impl TreeShaker {
                         item.item_type,
                         ItemType::FunctionDef { .. } | ItemType::ClassDef { .. }
                     ) {
-                        // For functions and classes in side-effect modules, we need to track their dependencies
-                        // since they will be included in the bundle
+                        // For functions and classes in side-effect modules, we need to track their
+                        // dependencies since they will be included in the
+                        // bundle
                         debug!(
-                            "Processing function/class '{}' in side-effect module {}: eventual_read_vars={:?}",
+                            "Processing function/class '{}' in side-effect module {}: \
+                             eventual_read_vars={:?}",
                             item.item_type.name().unwrap_or("<unknown>"),
                             module_name,
                             item.eventual_read_vars
@@ -579,7 +595,11 @@ impl TreeShaker {
             // Add symbol-specific dependencies if tracked
             if let Some(deps) = item.symbol_dependencies.get(symbol) {
                 for dep in deps {
-                    if let Some(dep_module) = self.find_defining_module(dep) {
+                    // First check if the dependency is defined in the current module
+                    // (for local references like metaclass=MyMetaclass in the same module)
+                    let dep_module = self.find_defining_module_preferring_local(module, dep);
+
+                    if let Some(dep_module) = dep_module {
                         worklist.push_back((dep_module, dep.clone()));
                     }
                 }
@@ -615,11 +635,8 @@ impl TreeShaker {
                 worklist.push_back((source_module, original_name));
             } else {
                 // For reads without global statement, prioritize current module
-                let defining_module = if self.is_defined_in_module(current_module, var) {
-                    Some(current_module.to_string())
-                } else {
-                    self.find_defining_module(var)
-                };
+                let defining_module =
+                    self.find_defining_module_preferring_local(current_module, var);
 
                 if let Some(module) = defining_module {
                     debug!(
@@ -636,11 +653,7 @@ impl TreeShaker {
         // Add all variables written by this item (for global statements)
         for var in &item.write_vars {
             // For global statements, first check if the variable is defined in the current module
-            let defining_module = if self.is_defined_in_module(current_module, var) {
-                Some(current_module.to_string())
-            } else {
-                self.find_defining_module(var)
-            };
+            let defining_module = self.find_defining_module_preferring_local(current_module, var);
 
             if let Some(module) = defining_module {
                 debug!(
@@ -662,11 +675,7 @@ impl TreeShaker {
         // Add eventual writes (from function bodies with global statements)
         for var in &item.eventual_write_vars {
             // For global statements, first check if the variable is defined in the current module
-            let defining_module = if self.is_defined_in_module(current_module, var) {
-                Some(current_module.to_string())
-            } else {
-                self.find_defining_module(var)
-            };
+            let defining_module = self.find_defining_module_preferring_local(current_module, var);
 
             if let Some(module) = defining_module {
                 debug!(
@@ -757,7 +766,8 @@ impl TreeShaker {
                 self.resolve_import_alias(module_name, var)
             {
                 debug!(
-                    "Found import dependency in {context}: {var} -> {source_module}::{original_name}"
+                    "Found import dependency in {context}: {var} -> \
+                     {source_module}::{original_name}"
                 );
                 worklist.push_back((source_module, original_name));
             } else if let Some(module) = self.find_defining_module(var) {
@@ -810,8 +820,7 @@ impl TreeShaker {
             } else if self.module_items.contains_key(base_var) {
                 for attr in accessed_attrs {
                     debug!(
-                        "Found direct module attribute access in {module_name}: \
-                         {base_var}.{attr}"
+                        "Found direct module attribute access in {module_name}: {base_var}.{attr}"
                     );
                     worklist.push_back((base_var.clone(), attr.clone()));
                 }

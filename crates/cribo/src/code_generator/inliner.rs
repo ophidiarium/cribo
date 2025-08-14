@@ -297,8 +297,8 @@ impl Bundler<'_> {
                     && let Some(renamed) = source_renames.get(lookup_key)
                 {
                     log::debug!(
-                        "Applying cross-module rename for {arg_kind} '{name}' \
-                         from module '{source_module}': '{lookup_key}' -> '{renamed}'"
+                        "Applying cross-module rename for {arg_kind} '{name}' from module \
+                         '{source_module}': '{lookup_key}' -> '{renamed}'"
                     );
                     name_expr.id = renamed.clone().into();
                     return;
@@ -351,6 +351,31 @@ impl Bundler<'_> {
 
             // Also apply renames to keyword arguments (e.g., metaclass=SomeMetaclass)
             for keyword in &mut arguments.keywords {
+                // For metaclass keyword arguments, we need to handle forward references
+                // to classes in the same module that haven't been processed yet
+                if let Some(ident) = &keyword.arg
+                    && ident.as_str() == "metaclass"
+                    && let Expr::Name(name_expr) = &mut keyword.value
+                {
+                    let metaclass_name = name_expr.id.as_str();
+                    // Check if this metaclass is from the same module and has a semantic rename
+                    if !ctx.import_sources.contains_key(metaclass_name) {
+                        // Not imported, so it's from the current module
+                        if let Some(renamed) = ctx
+                            .module_renames
+                            .get(module_name)
+                            .and_then(|renames| renames.get(metaclass_name))
+                        {
+                            log::debug!(
+                                "Applying semantic rename for metaclass '{metaclass_name}' -> \
+                                 '{renamed}' in module '{module_name}'"
+                            );
+                            name_expr.id = renamed.clone().into();
+                            continue;
+                        }
+                    }
+                }
+
                 self.rewrite_class_arg_expr(
                     &mut keyword.value,
                     ctx,
