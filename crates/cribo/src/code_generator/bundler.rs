@@ -2927,6 +2927,15 @@ impl<'a> Bundler<'a> {
         if has_wrapper_modules {
             // Before processing wrapper modules, collect their stdlib imports
             // These will be needed inside the generated init functions
+
+            // Create a HashMap for O(1) lookups of original module ASTs
+            // This avoids O(n²) complexity from nested loops
+            let original_modules_map: FxIndexMap<&str, &ModModule> = params
+                .modules
+                .iter()
+                .map(|(name, ast, _, _)| (name.as_str(), ast))
+                .collect();
+
             for (module_name, _original_ast, _, _) in &wrapper_modules_saved {
                 // Check if this module will actually be included
                 // Only collect imports from modules that will be initialized
@@ -2944,13 +2953,8 @@ impl<'a> Bundler<'a> {
                         "Collecting stdlib imports from wrapper module that will be included: {module_name}"
                     );
 
-                    // Find the original module AST (before import trimming)
-                    // We need to look at the original modules from params
-                    if let Some((_, original_ast, _, _)) = params
-                        .modules
-                        .iter()
-                        .find(|(name, _, _, _)| name == module_name)
-                    {
+                    // Find the original module AST (before import trimming) using HashMap lookup
+                    if let Some(original_ast) = original_modules_map.get(module_name.as_str()) {
                         // Walk through the original AST to find stdlib imports
                         for stmt in &original_ast.body {
                             match stmt {
