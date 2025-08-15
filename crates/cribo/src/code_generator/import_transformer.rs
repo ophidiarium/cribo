@@ -1372,12 +1372,107 @@ impl<'a> RecursiveImportTransformer<'a> {
                         }
                     }
 
-                    // Initialize the wrapper module itself
-                    // This will create the assignment: module_name = init_func()
-                    init_stmts.extend(
-                        self.bundler
-                            .create_module_initialization_for_import(resolved),
-                    );
+                    // Check if this is a wildcard import
+                    let is_wildcard =
+                        import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*";
+
+                    // Initialize the wrapper module
+                    // For wildcard imports, we'll handle this specially to ensure proper ordering
+                    if !is_wildcard {
+                        init_stmts.extend(
+                            self.bundler
+                                .create_module_initialization_for_import(resolved),
+                        );
+                    }
+
+                    // Handle wildcard import export assignments
+                    if is_wildcard {
+                        log::debug!("  Handling wildcard import from wrapper module '{resolved}'");
+
+                        // For wildcard imports from wrapper modules in inlined modules,
+                        // we need to:
+                        // 1. Initialize the wrapper module
+                        // 2. Import all exports from that module into the current namespace
+
+                        // Remember insertion point for newly appended assignments
+                        let start_idx = self.deferred_imports.len();
+
+                        // Get the exports from the wrapper module
+                        if let Some(exports) = self.bundler.module_exports.get(resolved) {
+                            if let Some(export_list) = exports {
+                                log::debug!(
+                                    "  Wrapper module '{resolved}' exports: {export_list:?}"
+                                );
+
+                                // Create assignment statements for each export
+                                // These should be simple references since we're in an inlined module
+                                for export in export_list {
+                                    if export != "*" {
+                                        // In an inlined module doing wildcard import, we just need to
+                                        // make the symbols available at the current scope level
+                                        // The actual assignment will happen when the wrapper is initialized
+
+                                        // Create: export_name = module.path.export_name
+                                        // We reference the module through its dotted path
+                                        let module_ref = if resolved.contains('.') {
+                                            // Use dotted attribute access for submodules
+                                            let parts: Vec<&str> = resolved.split('.').collect();
+                                            expressions::dotted_name(&parts, ExprContext::Load)
+                                        } else {
+                                            // Simple module name
+                                            expressions::name(resolved, ExprContext::Load)
+                                        };
+
+                                        // Use ast_builder to create the assignment
+                                        let target = expressions::name(export, ExprContext::Store);
+                                        let value = expressions::attribute(
+                                            module_ref,
+                                            export,
+                                            ExprContext::Load,
+                                        );
+                                        let assign_stmt = statements::assign(vec![target], value);
+
+                                        // Defer the assignment
+                                        self.deferred_imports.push(assign_stmt);
+                                    }
+                                }
+                            } else {
+                                // No explicit __all__, import all public symbols
+                                log::debug!(
+                                    "  Wrapper module '{resolved}' has no explicit exports, importing all public symbols"
+                                );
+
+                                // We can't determine all symbols at compile time for wrapper modules
+                                // So we'll need to use a different approach - perhaps iterate over the namespace
+                                // For now, we'll just initialize the module
+                                log::warn!(
+                                    "  Warning: Wildcard import from wrapper module without explicit __all__ may not import all symbols correctly"
+                                );
+                            }
+                        } else {
+                            log::warn!(
+                                "  Warning: Could not find exports for wrapper module '{resolved}'"
+                            );
+                        }
+
+                        // Add the initialization to deferred imports BEFORE the assignments
+                        // We need to prepend it
+                        let init_statements = self
+                            .bundler
+                            .create_module_initialization_for_import(resolved);
+
+                        // Interleave init statements ONLY before the assignments added by this wildcard
+                        // without disturbing previously deferred imports.
+                        let new_assignments = self.deferred_imports.split_off(start_idx);
+                        self.deferred_imports.extend(init_statements);
+                        self.deferred_imports.extend(new_assignments);
+
+                        log::debug!(
+                            "  Returning {} parent-init statements for wildcard import; wrapper init + assignments were deferred",
+                            init_stmts.len()
+                        );
+                        return init_stmts;
+                    }
 
                     // Track each imported symbol for rewriting
                     for alias in &import_from.names {
