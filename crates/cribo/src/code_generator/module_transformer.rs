@@ -114,53 +114,12 @@ pub fn transform_module_to_init_function<'a>(
                         let imported_name = alias.name.as_str();
                         // For wildcard imports, we need to track all symbols that will be imported
                         if imported_name == "*" {
-                            debug!("Processing wildcard import from inlined module '{module}'");
-                            // Get all exported symbols from this module
-                            if let Some(exports) = bundler.module_exports.get(module) {
-                                if let Some(export_list) = exports {
-                                    // Module has explicit __all__, use it
-                                    for symbol in export_list {
-                                        if symbol != "*" {
-                                            debug!(
-                                                "Tracking wildcard-imported symbol '{symbol}' from inlined module '{module}'"
-                                            );
-                                            imports_from_inlined.push(symbol.clone());
-                                        }
-                                    }
-                                } else {
-                                    // No explicit __all__, we need to track all symbols that are imported
-                                    // Look at the symbol renames which contains all symbols from the module
-                                    if let Some(renames) = symbol_renames.get(module) {
-                                        for (original_name, renamed_name) in renames {
-                                            // Track the renamed symbol (which is what will be in the global scope)
-                                            if !renamed_name.starts_with('_') {
-                                                debug!(
-                                                    "Tracking wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}'"
-                                                );
-                                                imports_from_inlined.push(renamed_name.clone());
-                                            }
-                                        }
-                                    } else if let Some(semantic) =
-                                        bundler.semantic_exports.get(module)
-                                    {
-                                        // Fallback to semantic exports when no renames are available
-                                        for symbol in semantic {
-                                            if !symbol.starts_with('_') {
-                                                debug!(
-                                                    "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}'"
-                                                );
-                                                imports_from_inlined.push(symbol.clone());
-                                            }
-                                        }
-                                    } else {
-                                        log::warn!(
-                                            "No symbol renames or semantic exports found for inlined module '{module}' — wildcard import may miss symbols"
-                                        );
-                                    }
-                                }
-                            } else {
-                                log::warn!("Could not find exports for inlined module '{module}'");
-                            }
+                            process_wildcard_import(
+                                bundler,
+                                module,
+                                symbol_renames,
+                                &mut imports_from_inlined,
+                            );
                         } else {
                             debug!(
                                 "Tracking imported name '{imported_name}' from inlined module \
@@ -2000,6 +1959,68 @@ fn renamed_symbol_exists(
     }
 
     false
+}
+
+/// Process wildcard import from an inlined module
+fn process_wildcard_import(
+    bundler: &Bundler,
+    module: &str,
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    imports_from_inlined: &mut Vec<String>,
+) {
+    debug!("Processing wildcard import from inlined module '{module}'");
+
+    // Get all exported symbols from this module
+    let exports = bundler.module_exports.get(module);
+
+    if let Some(Some(export_list)) = exports {
+        // Module has explicit __all__, use it
+        for symbol in export_list {
+            if symbol != "*" {
+                debug!(
+                    "Tracking wildcard-imported symbol '{symbol}' from inlined module '{module}'"
+                );
+                imports_from_inlined.push(symbol.clone());
+            }
+        }
+        return;
+    }
+
+    if exports.is_some() {
+        // Module exists but has no explicit __all__
+        // Look at the symbol renames which contains all symbols from the module
+        if let Some(renames) = symbol_renames.get(module) {
+            for (original_name, renamed_name) in renames {
+                // Track the renamed symbol (which is what will be in the global scope)
+                if !renamed_name.starts_with('_') {
+                    debug!(
+                        "Tracking wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}'"
+                    );
+                    imports_from_inlined.push(renamed_name.clone());
+                }
+            }
+            return;
+        }
+
+        // Fallback to semantic exports when no renames are available
+        if let Some(semantic) = bundler.semantic_exports.get(module) {
+            for symbol in semantic {
+                if !symbol.starts_with('_') {
+                    debug!(
+                        "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}'"
+                    );
+                    imports_from_inlined.push(symbol.clone());
+                }
+            }
+            return;
+        }
+
+        log::warn!(
+            "No symbol renames or semantic exports found for inlined module '{module}' — wildcard import may miss symbols"
+        );
+    } else {
+        log::warn!("Could not find exports for inlined module '{module}'");
+    }
 }
 
 /// Transform module to cache init function by adding @functools.cache decorator
