@@ -47,6 +47,13 @@ pub fn find_symbol_source_from_wrapper_module(
 
         // Check if our symbol is in this import
         for alias in &import_from.names {
+            // Skip wildcard imports ("from ... import *"): wildcard expansion is
+            // handled in the bundler's second pass (see bundler.rs) and should not
+            // be matched here.
+            if alias.name.as_str() == "*" {
+                continue;
+            }
+
             // Check if this alias matches our symbol_name
             // alias.asname is the local name (if aliased), alias.name is the original
             let local_name = alias
