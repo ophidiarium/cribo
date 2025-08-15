@@ -1488,20 +1488,44 @@ pub fn populate_namespace_with_module_symbols(
                 continue;
             }
 
-            info!(
-                "Creating namespace assignment: {target_name}.{symbol_name} = \
-                 {actual_symbol_name} (in populate_namespace_with_module_symbols)"
-            );
+            // Check if this symbol is re-exported from a wrapper module
+            // If so, we need to reference it from that module's namespace
+            let symbol_expr = if let Some(source_module) =
+                find_symbol_source_module(ctx, module_name, symbol_name)
+            {
+                // Symbol is imported from a wrapper module
+                // After the wrapper module's init function runs, the symbol will be available
+                // as source_module.symbol_name
+                info!(
+                    "Creating namespace assignment: {target_name}.{symbol_name} = \
+                     {source_module}.{symbol_name} (re-exported from wrapper module)"
+                );
 
-            // Now add the symbol as an attribute (e.g., greetings.greeting.get_greeting =
-            // get_greeting_greetings_greeting)
+                // Create a reference to the symbol from the source module
+                let source_parts: Vec<&str> = source_module.split('.').collect();
+                let source_expr = if source_parts.len() > 1 {
+                    expressions::dotted_name(&source_parts, ExprContext::Load)
+                } else {
+                    expressions::name(&source_module, ExprContext::Load)
+                };
+                expressions::attribute(source_expr, symbol_name, ExprContext::Load)
+            } else {
+                // Symbol is defined in this module or renamed
+                info!(
+                    "Creating namespace assignment: {target_name}.{symbol_name} = \
+                     {actual_symbol_name} (in populate_namespace_with_module_symbols)"
+                );
+                expressions::name(&actual_symbol_name, ExprContext::Load)
+            };
+
+            // Now add the symbol as an attribute
             result_stmts.push(statements::assign(
                 vec![expressions::attribute(
                     target,
                     symbol_name,
                     ExprContext::Store,
                 )],
-                expressions::name(&actual_symbol_name, ExprContext::Load),
+                symbol_expr,
             ));
 
             // Track that we've made this assignment
@@ -1567,6 +1591,49 @@ fn is_symbol_from_inlined_submodule(
     }
 
     false
+}
+
+/// Find the source module for a re-exported symbol.
+///
+/// This helper function checks if a symbol is imported from another module
+/// and returns the source module name if it's a wrapper module.
+fn find_symbol_source_module(
+    ctx: &NamespacePopulationContext,
+    module_name: &str,
+    symbol_name: &str,
+) -> Option<String> {
+    let module_asts = ctx.module_asts.as_ref()?;
+
+    // Find the module's AST to check its imports
+    let (_, ast, module_path, _) = module_asts
+        .iter()
+        .find(|(name, _, _, _)| name == module_name)?;
+
+    // Check if this symbol is imported from another module
+    for stmt in &ast.body {
+        let Stmt::ImportFrom(import_from) = stmt else {
+            continue;
+        };
+
+        let resolved_module = resolve_import_module(ctx, import_from, module_path)?;
+
+        // Check if our symbol is in this import
+        for alias in &import_from.names {
+            if alias.name.as_str() == symbol_name {
+                // Check if the source module is a wrapper module
+                if ctx.module_registry.contains_key(&resolved_module) {
+                    debug!(
+                        "Symbol '{symbol_name}' in module '{module_name}' is imported from wrapper \
+                         module '{resolved_module}'"
+                    );
+                    return Some(resolved_module);
+                }
+                break;
+            }
+        }
+    }
+
+    None
 }
 
 /// Resolve the module name from an import statement.
