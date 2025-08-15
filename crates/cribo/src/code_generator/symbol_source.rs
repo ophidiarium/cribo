@@ -12,15 +12,16 @@ use crate::{resolver::ModuleResolver, types::FxIndexMap};
 /// of a symbol, handling both direct imports and aliased imports.
 ///
 /// # Arguments
-/// * `module_asts` - Map of module names to their ASTs and paths
+/// * `module_asts` - Slice of tuples containing (`module_name`, ast, `module_path`, `content_hash`)
 /// * `resolver` - Module resolver for handling relative imports
-/// * `module_registry` - Registry of wrapper modules
+/// * `module_registry` - Registry mapping wrapper module names to their synthetic function names;
+///   used here only to check if a resolved import source is a known wrapper module
 /// * `module_name` - The module to search in
 /// * `symbol_name` - The symbol to find the source of
 ///
 /// # Returns
-/// * `Some((source_module, original_name))` if the symbol is imported
-/// * `None` if the symbol is not found or is defined locally
+/// * `Some((source_module, original_name))` if the symbol is imported from a wrapper module
+/// * `None` if the symbol is not found, is defined locally, or is imported from a non-wrapper module
 pub fn find_symbol_source_from_wrapper_module(
     module_asts: &[(String, ModModule, std::path::PathBuf, String)],
     resolver: &ModuleResolver,
