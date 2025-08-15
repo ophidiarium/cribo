@@ -1508,7 +1508,7 @@ pub fn populate_namespace_with_module_symbols(
                 // Symbol is defined in this module or renamed
                 debug!(
                     "Creating namespace assignment: {target_name}.{symbol_name} = \
-                     {actual_symbol_name} (in populate_namespace_with_module_symbols)"
+                     {actual_symbol_name} (local symbol)"
                 );
                 expressions::name(&actual_symbol_name, ExprContext::Load)
             };
