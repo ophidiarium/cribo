@@ -3839,18 +3839,39 @@ impl<'a> Bundler<'a> {
                             continue;
                         }
 
-                        // Create assignment: namespace.original_name = renamed_name
-                        log::debug!(
-                            "Creating namespace assignment in empty namespace population: \
-                             {namespace_var}.{original_name} = {renamed_name}"
-                        );
+                        // Check if this symbol is re-exported from a wrapper module
+                        // If so, we need to reference it from that module's namespace
+                        let value_expr = if let Some((source_module, source_name)) =
+                            self.find_symbol_source_from_wrapper_module(module_name, original_name)
+                        {
+                            // Symbol is imported from a wrapper module
+                            log::debug!(
+                                "Creating namespace assignment in empty namespace population: \
+                                 {namespace_var}.{original_name} = {source_module}.{source_name} \
+                                 (re-exported from wrapper module)"
+                            );
+
+                            // Create a reference to the symbol from the source module
+                            let source_parts: Vec<&str> = source_module.split('.').collect();
+                            let source_expr =
+                                expressions::dotted_name(&source_parts, ExprContext::Load);
+                            expressions::attribute(source_expr, &source_name, ExprContext::Load)
+                        } else {
+                            // Symbol is defined in this module or renamed
+                            log::debug!(
+                                "Creating namespace assignment in empty namespace population: \
+                                 {namespace_var}.{original_name} = {renamed_name}"
+                            );
+                            expressions::name(renamed_name, ExprContext::Load)
+                        };
+
                         let assign_stmt = statements::assign(
                             vec![expressions::attribute(
                                 expressions::name(&namespace_var, ExprContext::Load),
                                 original_name,
                                 ExprContext::Store,
                             )],
-                            expressions::name(renamed_name, ExprContext::Load),
+                            value_expr,
                         );
 
                         final_body.push(assign_stmt);
@@ -6479,6 +6500,66 @@ impl Bundler<'_> {
 
         log::debug!("  Symbol '{symbol_name}' is re-export from child modules: {result}");
         result
+    }
+
+    /// Find the source module and original name for a symbol re-exported from a wrapper module.
+    ///
+    /// This checks if a symbol is imported from a wrapper module and returns the source
+    /// module name and original symbol name to properly reference it.
+    fn find_symbol_source_from_wrapper_module(
+        &self,
+        module_name: &str,
+        symbol_name: &str,
+    ) -> Option<(String, String)> {
+        let module_asts = self.module_asts.as_ref()?;
+
+        // Find the module's AST to check its imports
+        let (_, ast, module_path, _) = module_asts
+            .iter()
+            .find(|(name, _, _, _)| name == module_name)?;
+
+        // Check if this symbol is imported from another module
+        for stmt in &ast.body {
+            let Stmt::ImportFrom(import_from) = stmt else {
+                continue;
+            };
+
+            let resolved_module = if import_from.level > 0 {
+                self.resolver.resolve_relative_to_absolute_module_name(
+                    import_from.level,
+                    import_from.module.as_ref().map(ruff_python_ast::Identifier::as_str),
+                    module_path,
+                )
+            } else {
+                import_from.module.as_ref().map(|m| m.as_str().to_string())
+            };
+
+            if let Some(resolved) = resolved_module {
+                // Check if our symbol is in this import
+                for alias in &import_from.names {
+                    // Check if this alias matches our symbol_name
+                    // alias.asname is the local name (if aliased), alias.name is the original
+                    let local_name = alias
+                        .asname
+                        .as_ref().map_or_else(|| alias.name.as_str(), ruff_python_ast::Identifier::as_str);
+
+                    if local_name == symbol_name {
+                        // Check if the source module is a wrapper module
+                        if self.module_registry.contains_key(&resolved) {
+                            let original_name = alias.name.as_str();
+                            log::debug!(
+                                "Symbol '{symbol_name}' in module '{module_name}' is imported from \
+                                 wrapper module '{resolved}' as '{original_name}'"
+                            );
+                            return Some((resolved, original_name.to_string()));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Check if a self-referential assignment should be filtered out
