@@ -1937,6 +1937,14 @@ impl<'a> Bundler<'a> {
 
         // Now expand wildcard imports in module_exports_map
         for (module_name, wildcard_sources) in wildcard_imports {
+            // Respect explicit __all__: don't auto-expand wildcard imports
+            if self.modules_with_explicit_all.contains(&module_name) {
+                log::debug!(
+                    "Skipping wildcard expansion for module '{module_name}' due to explicit __all__"
+                );
+                continue;
+            }
+
             log::debug!("Module '{module_name}' has wildcard imports from: {wildcard_sources:?}");
 
             // Collect exports from all source modules first to avoid double borrow
@@ -1963,14 +1971,16 @@ impl<'a> Bundler<'a> {
                 && let Some(exports) = module_exports_map.get_mut(&module_name)
             {
                 if let Some(export_list) = exports {
-                    for export in exports_to_add {
-                        if !export_list.contains(&export) {
-                            export_list.push(export);
-                        }
-                    }
+                    // Merge, then sort + dedup for deterministic output
+                    export_list.extend(exports_to_add);
+                    export_list.sort();
+                    export_list.dedup();
                 } else {
-                    // Module has no exports yet, create a new list
-                    *exports = Some(exports_to_add);
+                    // Module has no exports yet, create sorted, deduped list
+                    let mut list = exports_to_add;
+                    list.sort();
+                    list.dedup();
+                    *exports = Some(list);
                 }
             }
         }

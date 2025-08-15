@@ -38,8 +38,8 @@ wildcard_pkg.base = __cribo_init___cribo_5d409b_wildcard_pkg_base()
 WildcardObject = wildcard_pkg.base.WildcardObject
 WildcardMetaclass = wildcard_pkg.base.WildcardMetaclass
 wildcard_pkg_meta.WildcardMetaclass = WildcardMetaclass
-wildcard_pkg.WildcardObject = WildcardObject
 wildcard_pkg.WildcardMetaclass = WildcardMetaclass
+wildcard_pkg.WildcardObject = WildcardObject
 obj = wildcard_pkg.WildcardObject()
 print(f"WildcardObject: {obj}")
 print(f"Tag: {obj.yaml_tag}")
