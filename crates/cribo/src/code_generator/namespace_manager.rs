@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use log::debug;
+use log::{debug, warn};
 use ruff_python_ast::{
     AtomicNodeIndex, Expr, ExprContext, Identifier, Keyword, ModModule, Stmt, StmtImportFrom,
 };
@@ -475,7 +475,7 @@ pub(super) fn transform_namespace_package_imports(
                 result_stmts.push(statements::simple_assign(local_name, module_expr));
             } else {
                 // Inlined module - create a namespace object for it
-                log::debug!(
+                debug!(
                     "Submodule '{imported_name}' from namespace package '{module_name}' was \
                      inlined, creating namespace"
                 );
@@ -520,7 +520,7 @@ pub(super) fn transform_namespace_package_imports(
                     }
                 } else {
                     // Fallback: try to guess the renamed symbols based on module suffix
-                    log::warn!(
+                    warn!(
                         "No symbol renames found for inlined module '{full_module_path}', \
                          namespace will be empty"
                     );
@@ -530,7 +530,7 @@ pub(super) fn transform_namespace_package_imports(
             // Not a bundled submodule, keep as attribute access
             // This might be importing a symbol from the namespace package's __init__.py
             // But since we're here, the namespace package has no __init__.py
-            log::warn!(
+            warn!(
                 "Import '{imported_name}' from namespace package '{module_name}' is not a bundled \
                  module"
             );
@@ -676,18 +676,17 @@ pub fn require_namespace(
 
     // If immediate generation is requested and namespace hasn't been created yet
     if params.immediate {
-        log::debug!(
+        debug!(
             "Immediate generation requested for namespace '{sanitized_name}', checking if already \
              created"
         );
         if let Some(info) = bundler.namespace_registry.get_mut(&sanitized_name) {
-            log::debug!(
+            debug!(
                 "Namespace '{}' found in registry, is_created: {}",
-                sanitized_name,
-                info.is_created
+                sanitized_name, info.is_created
             );
             if info.is_created {
-                log::debug!("Namespace '{sanitized_name}' already created, skipping");
+                debug!("Namespace '{sanitized_name}' already created, skipping");
             } else {
                 // Build keywords for the namespace constructor
                 let mut keywords = Vec::new();
@@ -734,10 +733,10 @@ pub fn require_namespace(
                 info.is_created = true;
                 bundler.created_namespaces.insert(sanitized_name.clone());
 
-                log::debug!("Generated namespace '{sanitized_name}' with {keyword_count} keywords");
+                debug!("Generated namespace '{sanitized_name}' with {keyword_count} keywords");
             }
         } else {
-            log::debug!("Namespace '{sanitized_name}' not found in registry");
+            debug!("Namespace '{sanitized_name}' not found in registry");
         }
     }
 
@@ -777,7 +776,7 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         // Skip if this is an inlined module that already has a populated namespace
         // Note: Not all inlined modules get populated namespaces - only check if already created
         if bundler.inlined_modules.contains(&info.original_path) && info.is_created {
-            log::debug!(
+            debug!(
                 "Skipping namespace generation for '{}' - already created as populated namespace",
                 info.original_path
             );
@@ -887,7 +886,7 @@ pub fn detect_namespace_requirements_from_imports(
 ) {
     use ruff_python_ast::Stmt;
 
-    log::debug!("Detecting namespace requirements from imports");
+    debug!("Detecting namespace requirements from imports");
 
     // Scan all modules for `from X import Y` statements
     for (module_name, ast, module_path, _) in modules {
@@ -916,7 +915,7 @@ pub fn detect_namespace_requirements_from_imports(
 
                         // Check if this is importing an inlined submodule
                         if bundler.inlined_modules.contains(&full_module_path) {
-                            log::debug!(
+                            debug!(
                                 "Found import of inlined submodule '{full_module_path}' in module \
                                  '{module_name}', pre-registering namespace"
                             );
@@ -940,7 +939,7 @@ pub fn detect_namespace_requirements_from_imports(
         }
     }
 
-    log::debug!(
+    debug!(
         "Pre-registered {} namespace requirements",
         bundler.namespace_registry.len()
     );
@@ -960,7 +959,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
     // variable
     let sanitized = sanitize_module_name_for_identifier(module_name);
     if bundler.namespace_registry.contains_key(&sanitized) {
-        log::debug!("Module '{module_name}' namespace already created directly, skipping");
+        debug!("Module '{module_name}' namespace already created directly, skipping");
         return Vec::new();
     }
 
@@ -971,7 +970,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
         bundler.check_module_has_forward_references(module_name, module_renames);
 
     if has_forward_references {
-        log::debug!("Module '{module_name}' has forward references, creating empty namespace");
+        debug!("Module '{module_name}' has forward references, creating empty namespace");
 
         // Use centralized namespace management with immediate generation
         let stmts = require_namespace(
@@ -990,7 +989,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
     for (original_name, renamed_name) in module_renames {
         // Skip if we've already added this argument name
         if seen_args.contains(original_name) {
-            log::debug!(
+            debug!(
                 "[create_namespace_for_inlined_module_static] Skipping duplicate namespace \
                  argument '{original_name}' for module '{module_name}'"
             );
@@ -999,7 +998,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
 
         // Check if this symbol survived tree-shaking
         if !bundler.is_symbol_kept_by_tree_shaking(module_name, original_name) {
-            log::debug!(
+            debug!(
                 "Skipping tree-shaken symbol '{original_name}' from namespace for module \
                  '{module_name}'"
             );
@@ -1025,7 +1024,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
             if !module_renames.contains_key(export) && !seen_args.contains(export) {
                 // Check if this symbol survived tree-shaking
                 if !bundler.is_symbol_kept_by_tree_shaking(module_name, export) {
-                    log::debug!(
+                    debug!(
                         "Skipping tree-shaken export '{export}' from namespace for module \
                          '{module_name}'"
                     );
@@ -1049,7 +1048,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
 
     // Check if namespace was already created through other means
     if bundler.created_namespaces.contains(&namespace_var) {
-        log::debug!("Namespace '{namespace_var}' already created, skipping populated creation");
+        debug!("Namespace '{namespace_var}' already created, skipping populated creation");
         return Vec::new();
     }
 
@@ -1059,7 +1058,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
         .filter_map(|kw| kw.arg.map(|arg| (arg.as_str().to_string(), kw.value)))
         .collect();
 
-    log::debug!(
+    debug!(
         "Creating populated namespace for '{}' with {} attributes",
         module_name,
         attributes.len()
