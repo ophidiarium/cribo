@@ -48,7 +48,7 @@ BaseLoader.__module__ = 'yaml_pkg.loader'
 Loader.__module__ = 'yaml_pkg.loader'
 FullLoader.__module__ = 'yaml_pkg.loader'
 @functools.cache
-def __cribo_init___cribo_3cba84_yaml_pkg():
+def __cribo_init___cribo_5b2acd_yaml_pkg():
     module = types.SimpleNamespace()
     module.__name__ = 'yaml_pkg'
     global BaseLoader, Dumper, FullLoader, Loader
@@ -58,7 +58,7 @@ def __cribo_init___cribo_3cba84_yaml_pkg():
 
         def __init__(cls, name, bases, kwds):
             super(YAMLObjectMetaclass, cls).__init__(name, bases, kwds)
-            if 'yaml_tag' in kwds and kwds.get('yaml_tag') is not None:
+            if "yaml_tag" in kwds and kwds.get("yaml_tag") is not None:
                 if isinstance(cls.yaml_loader, list):
                     for loader in cls.yaml_loader:
                         print(f"Registering {name} with {loader.__name__}")
@@ -91,7 +91,7 @@ def __cribo_init___cribo_3cba84_yaml_pkg():
     module.Dumper = Dumper
     return module
 """\nTest case for metaclass forward reference issue with wildcard imports.\n\nThis reproduces the PyYAML bundling issue where:\n1. A class uses a metaclass that's defined later in the same module\n2. The class body references symbols imported via wildcard imports\n3. When bundled, the metaclass definition gets placed after its usage\n"""
-yaml_pkg = __cribo_init___cribo_3cba84_yaml_pkg()
+yaml_pkg = __cribo_init___cribo_5b2acd_yaml_pkg()
 print("Module loaded successfully")
 print(f"YAMLObject name: {yaml_pkg.YAMLObject.__name__}")
 print(f"YAMLObjectMetaclass name: {yaml_pkg.YAMLObjectMetaclass.__name__}")
