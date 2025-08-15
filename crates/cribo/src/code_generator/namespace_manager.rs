@@ -1601,44 +1601,13 @@ fn find_symbol_source_module(
 ) -> Option<(String, String)> {
     let module_asts = ctx.module_asts.as_ref()?;
 
-    // Find the module's AST to check its imports
-    let (_, ast, module_path, _) = module_asts
-        .iter()
-        .find(|(name, _, _, _)| name == module_name)?;
-
-    // Check if this symbol is imported from another module
-    for stmt in &ast.body {
-        let Stmt::ImportFrom(import_from) = stmt else {
-            continue;
-        };
-
-        if let Some(resolved_module) = resolve_import_module(ctx, import_from, module_path) {
-            // Check if our symbol is in this import
-            for alias in &import_from.names {
-                // Check if this alias matches our symbol_name
-                // alias.asname is the local name (if aliased), alias.name is the original
-                let local_name = alias
-                    .asname
-                    .as_ref()
-                    .map_or_else(|| alias.name.as_str(), ruff_python_ast::Identifier::as_str);
-
-                if local_name == symbol_name {
-                    // Check if the source module is a wrapper module
-                    if ctx.module_registry.contains_key(&resolved_module) {
-                        let original_name = alias.name.as_str();
-                        debug!(
-                            "Symbol '{symbol_name}' in module '{module_name}' is imported from wrapper \
-                             module '{resolved_module}' as '{original_name}'"
-                        );
-                        return Some((resolved_module, original_name.to_string()));
-                    }
-                    break;
-                }
-            }
-        }
-    }
-
-    None
+    crate::code_generator::symbol_source::find_symbol_source_from_wrapper_module(
+        module_asts,
+        ctx.resolver,
+        ctx.module_registry,
+        module_name,
+        symbol_name,
+    )
 }
 
 /// Resolve the module name from an import statement.

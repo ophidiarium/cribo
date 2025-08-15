@@ -6688,57 +6688,13 @@ impl Bundler<'_> {
     ) -> Option<(String, String)> {
         let module_asts = self.module_asts.as_ref()?;
 
-        // Find the module's AST to check its imports
-        let (_, ast, module_path, _) = module_asts
-            .iter()
-            .find(|(name, _, _, _)| name == module_name)?;
-
-        // Check if this symbol is imported from another module
-        for stmt in &ast.body {
-            let Stmt::ImportFrom(import_from) = stmt else {
-                continue;
-            };
-
-            let resolved_module = if import_from.level > 0 {
-                self.resolver.resolve_relative_to_absolute_module_name(
-                    import_from.level,
-                    import_from
-                        .module
-                        .as_ref()
-                        .map(ruff_python_ast::Identifier::as_str),
-                    module_path,
-                )
-            } else {
-                import_from.module.as_ref().map(|m| m.as_str().to_string())
-            };
-
-            if let Some(resolved) = resolved_module {
-                // Check if our symbol is in this import
-                for alias in &import_from.names {
-                    // Check if this alias matches our symbol_name
-                    // alias.asname is the local name (if aliased), alias.name is the original
-                    let local_name = alias
-                        .asname
-                        .as_ref()
-                        .map_or_else(|| alias.name.as_str(), ruff_python_ast::Identifier::as_str);
-
-                    if local_name == symbol_name {
-                        // Check if the source module is a wrapper module
-                        if self.module_registry.contains_key(&resolved) {
-                            let original_name = alias.name.as_str();
-                            log::debug!(
-                                "Symbol '{symbol_name}' in module '{module_name}' is imported from \
-                                 wrapper module '{resolved}' as '{original_name}'"
-                            );
-                            return Some((resolved, original_name.to_string()));
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        None
+        crate::code_generator::symbol_source::find_symbol_source_from_wrapper_module(
+            module_asts,
+            self.resolver,
+            &self.module_registry,
+            module_name,
+            symbol_name,
+        )
     }
 
     /// Check if a self-referential assignment should be filtered out
