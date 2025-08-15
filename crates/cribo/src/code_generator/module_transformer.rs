@@ -140,16 +140,26 @@ pub fn transform_module_to_init_function<'a>(
                                                 imports_from_inlined.push(renamed_name.clone());
                                             }
                                         }
+                                    } else if let Some(semantic) =
+                                        bundler.semantic_exports.get(module)
+                                    {
+                                        // Fallback to semantic exports when no renames are available
+                                        for symbol in semantic {
+                                            if !symbol.starts_with('_') {
+                                                debug!(
+                                                    "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}'"
+                                                );
+                                                imports_from_inlined.push(symbol.clone());
+                                            }
+                                        }
                                     } else {
-                                        debug!(
-                                            "Warning: No symbol renames found for inlined module '{module}', wildcard import may not work correctly"
+                                        log::warn!(
+                                            "No symbol renames or semantic exports found for inlined module '{module}' — wildcard import may miss symbols"
                                         );
                                     }
                                 }
                             } else {
-                                debug!(
-                                    "Warning: Could not find exports for inlined module '{module}'"
-                                );
+                                log::warn!("Could not find exports for inlined module '{module}'");
                             }
                         } else {
                             debug!(
