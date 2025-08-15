@@ -39,7 +39,11 @@ pub fn find_symbol_source_from_wrapper_module(
             continue;
         };
 
-        let resolved_module = resolve_import_module(resolver, import_from, module_path)?;
+        let Some(resolved_module) = resolve_import_module(resolver, import_from, module_path)
+        else {
+            // Unresolvable import — skip and continue scanning remaining imports.
+            continue;
+        };
 
         // Check if our symbol is in this import
         for alias in &import_from.names {
