@@ -1394,6 +1394,9 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // 1. Initialize the wrapper module
                         // 2. Import all exports from that module into the current namespace
 
+                        // Remember insertion point for newly appended assignments
+                        let start_idx = self.deferred_imports.len();
+
                         // Get the exports from the wrapper module
                         if let Some(exports) = self.bundler.module_exports.get(resolved) {
                             if let Some(export_list) = exports {
@@ -1458,13 +1461,11 @@ impl<'a> RecursiveImportTransformer<'a> {
                             .bundler
                             .create_module_initialization_for_import(resolved);
 
-                        // Get the assignments we just added
-                        let assignments = self.deferred_imports.clone();
-                        self.deferred_imports.clear();
-
-                        // Add initialization first, then assignments
+                        // Interleave init statements ONLY before the assignments added by this wildcard
+                        // without disturbing previously deferred imports.
+                        let new_assignments = self.deferred_imports.split_off(start_idx);
                         self.deferred_imports.extend(init_statements);
-                        self.deferred_imports.extend(assignments);
+                        self.deferred_imports.extend(new_assignments);
 
                         log::debug!(
                             "  Returning {} statements for wildcard import",
