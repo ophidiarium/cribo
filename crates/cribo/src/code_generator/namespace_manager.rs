@@ -3,9 +3,9 @@
 //! This module provides functions for creating and managing Python namespace objects
 //! that simulate module structures in bundled code.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use log::{debug, info};
+use log::{debug, warn};
 use ruff_python_ast::{
     AtomicNodeIndex, Expr, ExprContext, Identifier, Keyword, ModModule, Stmt, StmtImportFrom,
 };
@@ -475,7 +475,7 @@ pub(super) fn transform_namespace_package_imports(
                 result_stmts.push(statements::simple_assign(local_name, module_expr));
             } else {
                 // Inlined module - create a namespace object for it
-                log::debug!(
+                debug!(
                     "Submodule '{imported_name}' from namespace package '{module_name}' was \
                      inlined, creating namespace"
                 );
@@ -520,7 +520,7 @@ pub(super) fn transform_namespace_package_imports(
                     }
                 } else {
                     // Fallback: try to guess the renamed symbols based on module suffix
-                    log::warn!(
+                    warn!(
                         "No symbol renames found for inlined module '{full_module_path}', \
                          namespace will be empty"
                     );
@@ -530,7 +530,7 @@ pub(super) fn transform_namespace_package_imports(
             // Not a bundled submodule, keep as attribute access
             // This might be importing a symbol from the namespace package's __init__.py
             // But since we're here, the namespace package has no __init__.py
-            log::warn!(
+            warn!(
                 "Import '{imported_name}' from namespace package '{module_name}' is not a bundled \
                  module"
             );
@@ -676,18 +676,17 @@ pub fn require_namespace(
 
     // If immediate generation is requested and namespace hasn't been created yet
     if params.immediate {
-        log::debug!(
+        debug!(
             "Immediate generation requested for namespace '{sanitized_name}', checking if already \
              created"
         );
         if let Some(info) = bundler.namespace_registry.get_mut(&sanitized_name) {
-            log::debug!(
+            debug!(
                 "Namespace '{}' found in registry, is_created: {}",
-                sanitized_name,
-                info.is_created
+                sanitized_name, info.is_created
             );
             if info.is_created {
-                log::debug!("Namespace '{sanitized_name}' already created, skipping");
+                debug!("Namespace '{sanitized_name}' already created, skipping");
             } else {
                 // Build keywords for the namespace constructor
                 let mut keywords = Vec::new();
@@ -734,10 +733,10 @@ pub fn require_namespace(
                 info.is_created = true;
                 bundler.created_namespaces.insert(sanitized_name.clone());
 
-                log::debug!("Generated namespace '{sanitized_name}' with {keyword_count} keywords");
+                debug!("Generated namespace '{sanitized_name}' with {keyword_count} keywords");
             }
         } else {
-            log::debug!("Namespace '{sanitized_name}' not found in registry");
+            debug!("Namespace '{sanitized_name}' not found in registry");
         }
     }
 
@@ -777,7 +776,7 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         // Skip if this is an inlined module that already has a populated namespace
         // Note: Not all inlined modules get populated namespaces - only check if already created
         if bundler.inlined_modules.contains(&info.original_path) && info.is_created {
-            log::debug!(
+            debug!(
                 "Skipping namespace generation for '{}' - already created as populated namespace",
                 info.original_path
             );
@@ -887,7 +886,7 @@ pub fn detect_namespace_requirements_from_imports(
 ) {
     use ruff_python_ast::Stmt;
 
-    log::debug!("Detecting namespace requirements from imports");
+    debug!("Detecting namespace requirements from imports");
 
     // Scan all modules for `from X import Y` statements
     for (module_name, ast, module_path, _) in modules {
@@ -916,7 +915,7 @@ pub fn detect_namespace_requirements_from_imports(
 
                         // Check if this is importing an inlined submodule
                         if bundler.inlined_modules.contains(&full_module_path) {
-                            log::debug!(
+                            debug!(
                                 "Found import of inlined submodule '{full_module_path}' in module \
                                  '{module_name}', pre-registering namespace"
                             );
@@ -940,7 +939,7 @@ pub fn detect_namespace_requirements_from_imports(
         }
     }
 
-    log::debug!(
+    debug!(
         "Pre-registered {} namespace requirements",
         bundler.namespace_registry.len()
     );
@@ -960,7 +959,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
     // variable
     let sanitized = sanitize_module_name_for_identifier(module_name);
     if bundler.namespace_registry.contains_key(&sanitized) {
-        log::debug!("Module '{module_name}' namespace already created directly, skipping");
+        debug!("Module '{module_name}' namespace already created directly, skipping");
         return Vec::new();
     }
 
@@ -971,7 +970,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
         bundler.check_module_has_forward_references(module_name, module_renames);
 
     if has_forward_references {
-        log::debug!("Module '{module_name}' has forward references, creating empty namespace");
+        debug!("Module '{module_name}' has forward references, creating empty namespace");
 
         // Use centralized namespace management with immediate generation
         let stmts = require_namespace(
@@ -990,7 +989,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
     for (original_name, renamed_name) in module_renames {
         // Skip if we've already added this argument name
         if seen_args.contains(original_name) {
-            log::debug!(
+            debug!(
                 "[create_namespace_for_inlined_module_static] Skipping duplicate namespace \
                  argument '{original_name}' for module '{module_name}'"
             );
@@ -999,7 +998,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
 
         // Check if this symbol survived tree-shaking
         if !bundler.is_symbol_kept_by_tree_shaking(module_name, original_name) {
-            log::debug!(
+            debug!(
                 "Skipping tree-shaken symbol '{original_name}' from namespace for module \
                  '{module_name}'"
             );
@@ -1025,7 +1024,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
             if !module_renames.contains_key(export) && !seen_args.contains(export) {
                 // Check if this symbol survived tree-shaking
                 if !bundler.is_symbol_kept_by_tree_shaking(module_name, export) {
-                    log::debug!(
+                    debug!(
                         "Skipping tree-shaken export '{export}' from namespace for module \
                          '{module_name}'"
                     );
@@ -1049,7 +1048,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
 
     // Check if namespace was already created through other means
     if bundler.created_namespaces.contains(&namespace_var) {
-        log::debug!("Namespace '{namespace_var}' already created, skipping populated creation");
+        debug!("Namespace '{namespace_var}' already created, skipping populated creation");
         return Vec::new();
     }
 
@@ -1059,7 +1058,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
         .filter_map(|kw| kw.arg.map(|arg| (arg.as_str().to_string(), kw.value)))
         .collect();
 
-    log::debug!(
+    debug!(
         "Creating populated namespace for '{}' with {} attributes",
         module_name,
         attributes.len()
@@ -1195,7 +1194,7 @@ pub fn populate_namespace_with_module_symbols(
                 all_list,
             ));
 
-            info!(
+            debug!(
                 "Created __all__ assignment for namespace '{target_name}' with exports: \
                  {filtered_exports:?} (accessed in code)"
             );
@@ -1292,7 +1291,7 @@ pub fn populate_namespace_with_module_symbols(
                         if let Some(submodule_renames) = symbol_renames.get(&full_submodule_path)
                             && let Some(renamed) = submodule_renames.get(symbol_name)
                         {
-                            info!(
+                            debug!(
                                 "Creating namespace assignment: {target_name}.{symbol_name} = \
                                  {renamed} (re-exported from submodule)"
                             );
@@ -1488,20 +1487,40 @@ pub fn populate_namespace_with_module_symbols(
                 continue;
             }
 
-            info!(
-                "Creating namespace assignment: {target_name}.{symbol_name} = \
-                 {actual_symbol_name} (in populate_namespace_with_module_symbols)"
-            );
+            // Check if this symbol is re-exported from a wrapper module
+            // If so, we need to reference it from that module's namespace
+            let symbol_expr = if let Some((source_module, original_name)) =
+                find_symbol_source_module(ctx, module_name, symbol_name)
+            {
+                // Symbol is imported from a wrapper module
+                // After the wrapper module's init function runs, the symbol will be available
+                // as source_module.original_name (handles aliases correctly)
+                debug!(
+                    "Creating namespace assignment: {target_name}.{symbol_name} = \
+                     {source_module}.{original_name} (re-exported from wrapper module)"
+                );
 
-            // Now add the symbol as an attribute (e.g., greetings.greeting.get_greeting =
-            // get_greeting_greetings_greeting)
+                // Create a reference to the symbol from the source module
+                let source_parts: Vec<&str> = source_module.split('.').collect();
+                let source_expr = expressions::dotted_name(&source_parts, ExprContext::Load);
+                expressions::attribute(source_expr, &original_name, ExprContext::Load)
+            } else {
+                // Symbol is defined in this module or renamed
+                debug!(
+                    "Creating namespace assignment: {target_name}.{symbol_name} = \
+                     {actual_symbol_name} (local symbol)"
+                );
+                expressions::name(&actual_symbol_name, ExprContext::Load)
+            };
+
+            // Now add the symbol as an attribute
             result_stmts.push(statements::assign(
                 vec![expressions::attribute(
                     target,
                     symbol_name,
                     ExprContext::Store,
                 )],
-                expressions::name(&actual_symbol_name, ExprContext::Load),
+                symbol_expr,
             ));
 
             // Track that we've made this assignment
@@ -1546,7 +1565,11 @@ fn is_symbol_from_inlined_submodule(
             continue;
         };
 
-        let resolved_module = resolve_import_module(ctx, import_from, module_path);
+        let resolved_module = crate::code_generator::symbol_source::resolve_import_module(
+            ctx.resolver,
+            import_from,
+            module_path,
+        );
 
         if let Some(ref resolved) = resolved_module {
             // Check if the resolved module is inlined
@@ -1569,24 +1592,23 @@ fn is_symbol_from_inlined_submodule(
     false
 }
 
-/// Resolve the module name from an import statement.
+/// Find the source module and original name for a re-exported symbol.
 ///
-/// This helper function reduces nesting by extracting the module resolution logic.
-fn resolve_import_module(
+/// This helper function checks if a symbol is imported from another module
+/// and returns the source module name and original symbol name if it's a wrapper module.
+/// This handles import aliases correctly (e.g., `from .base import YAMLObject as YO`).
+fn find_symbol_source_module(
     ctx: &NamespacePopulationContext,
-    import_from: &StmtImportFrom,
-    module_path: &Path,
-) -> Option<String> {
-    if import_from.level > 0 {
-        ctx.resolver.resolve_relative_to_absolute_module_name(
-            import_from.level,
-            import_from
-                .module
-                .as_ref()
-                .map(ruff_python_ast::Identifier::as_str),
-            module_path,
-        )
-    } else {
-        import_from.module.as_ref().map(|m| m.as_str().to_string())
-    }
+    module_name: &str,
+    symbol_name: &str,
+) -> Option<(String, String)> {
+    let module_asts = ctx.module_asts.as_ref()?;
+
+    crate::code_generator::symbol_source::find_symbol_source_from_wrapper_module(
+        module_asts,
+        ctx.resolver,
+        ctx.module_registry,
+        module_name,
+        symbol_name,
+    )
 }

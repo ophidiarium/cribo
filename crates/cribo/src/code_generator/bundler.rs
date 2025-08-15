@@ -1396,6 +1396,34 @@ impl<'a> Bundler<'a> {
                     if let Expr::Attribute(target_attr) = &assign.targets[0]
                         && let Expr::Name(_) = target_attr.value.as_ref()
                     {
+                        // Special case: wrapper module initialization (e.g., pkg.module = __cribo_init_...())
+                        // These need to happen before any attribute accesses
+                        if let Expr::Call(call) = assign.value.as_ref()
+                            && let Expr::Name(func_name) = call.func.as_ref()
+                            && crate::code_generator::module_registry::is_init_function(
+                                func_name.id.as_str(),
+                            )
+                        {
+                            log::debug!(
+                                "Found wrapper module initialization: {}.{} = {}()",
+                                target_attr
+                                    .value
+                                    .as_ref()
+                                    .as_name_expr()
+                                    .expect(
+                                        "target_attr.value should be Expr::Name as checked by \
+                                         outer if let"
+                                    )
+                                    .id
+                                    .as_str(),
+                                target_attr.attr,
+                                func_name.id
+                            );
+                            // Treat as other_statements so it comes before attribute accesses
+                            other_statements.push(stmt);
+                            continue;
+                        }
+
                         // Special case: if the value is a simple name (e.g., pkg.compat = compat)
                         // this needs the name to be defined first, so treat it as an attribute
                         // access
@@ -1750,7 +1778,38 @@ impl<'a> Bundler<'a> {
                 }
             };
 
-            module_exports_map.insert(module_name.clone(), module_exports.clone());
+            // Handle wildcard imports - if the module has wildcard imports and no explicit __all__,
+            // we need to expand those to include the actual exports from the imported modules
+            let mut expanded_exports = module_exports.clone();
+            if !has_explicit_all {
+                // Check for wildcard imports in the module
+                for stmt in &ast.body {
+                    if let Stmt::ImportFrom(import_from) = stmt {
+                        // Check if this is a wildcard import
+                        if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*"
+                        {
+                            // Simple debug message - actual resolution happens in second pass
+                            let from_module_str = import_from.module.as_deref().unwrap_or_default();
+                            let dots = ".".repeat(import_from.level as usize);
+                            log::debug!(
+                                "Module '{module_name}' has wildcard import from '{dots}{from_module_str}'"
+                            );
+
+                            // Mark that this module has a wildcard import
+                            if expanded_exports.is_none() {
+                                expanded_exports = Some(Vec::new());
+                            }
+
+                            // We'll resolve this in the second pass - for now, exclude '*' from the exports
+                            if let Some(ref mut exports) = expanded_exports {
+                                exports.retain(|s| s != "*");
+                            }
+                        }
+                    }
+                }
+            }
+
+            module_exports_map.insert(module_name.clone(), expanded_exports);
 
             // Check if module is imported as a namespace
             let is_namespace_imported = self.namespace_imported_modules.contains_key(module_name);
@@ -1809,6 +1868,88 @@ impl<'a> Bundler<'a> {
                     module_path.clone(),
                     content_hash.clone(),
                 ));
+            }
+        }
+
+        // Second pass: resolve wildcard imports now that all modules have been processed
+        let mut wildcard_imports: FxIndexMap<String, Vec<String>> = FxIndexMap::default();
+
+        for (module_name, ast, _, _) in modules {
+            // Look for wildcard imports in this module
+            for stmt in &ast.body {
+                if let Stmt::ImportFrom(import_from) = stmt {
+                    // Check if this is a wildcard import
+                    if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*" {
+                        // Resolve the imported module name using the resolver
+                        let imported = if import_from.level > 0 {
+                            // Relative import - use the resolver to resolve it properly
+                            self.resolver.resolve_relative_import_from_package_name(
+                                import_from.level,
+                                import_from.module.as_deref(),
+                                module_name,
+                            )
+                        } else if let Some(module) = &import_from.module {
+                            module.to_string()
+                        } else {
+                            continue;
+                        };
+
+                        wildcard_imports
+                            .entry(module_name.clone())
+                            .or_default()
+                            .push(imported);
+                    }
+                }
+            }
+        }
+
+        // Now expand wildcard imports in module_exports_map
+        for (module_name, wildcard_sources) in wildcard_imports {
+            // Respect explicit __all__: don't auto-expand wildcard imports
+            if self.modules_with_explicit_all.contains(&module_name) {
+                log::debug!(
+                    "Skipping wildcard expansion for module '{module_name}' due to explicit __all__"
+                );
+                continue;
+            }
+
+            log::debug!("Module '{module_name}' has wildcard imports from: {wildcard_sources:?}");
+
+            // Collect exports from all source modules first to avoid double borrow
+            let mut exports_to_add = Vec::new();
+            for source_module in &wildcard_sources {
+                if let Some(source_exports) = module_exports_map.get(source_module)
+                    && let Some(source_exports) = source_exports
+                {
+                    log::debug!(
+                        "  Expanding wildcard import from '{}' with {} exports",
+                        source_module,
+                        source_exports.len()
+                    );
+                    for export in source_exports {
+                        if export != "*" {
+                            exports_to_add.push(export.clone());
+                        }
+                    }
+                }
+            }
+
+            // Now add the collected exports to the module
+            if !exports_to_add.is_empty()
+                && let Some(exports) = module_exports_map.get_mut(&module_name)
+            {
+                if let Some(export_list) = exports {
+                    // Merge, then sort + dedup for deterministic output
+                    export_list.extend(exports_to_add);
+                    export_list.sort();
+                    export_list.dedup();
+                } else {
+                    // Module has no exports yet, create sorted, deduped list
+                    let mut list = exports_to_add;
+                    list.sort();
+                    list.dedup();
+                    *exports = Some(list);
+                }
             }
         }
 
@@ -3839,18 +3980,39 @@ impl<'a> Bundler<'a> {
                             continue;
                         }
 
-                        // Create assignment: namespace.original_name = renamed_name
-                        log::debug!(
-                            "Creating namespace assignment in empty namespace population: \
-                             {namespace_var}.{original_name} = {renamed_name}"
-                        );
+                        // Check if this symbol is re-exported from a wrapper module
+                        // If so, we need to reference it from that module's namespace
+                        let value_expr = if let Some((source_module, source_name)) =
+                            self.find_symbol_source_from_wrapper_module(module_name, original_name)
+                        {
+                            // Symbol is imported from a wrapper module
+                            log::debug!(
+                                "Creating namespace assignment in empty namespace population: \
+                                 {namespace_var}.{original_name} = {source_module}.{source_name} \
+                                 (re-exported from wrapper module)"
+                            );
+
+                            // Create a reference to the symbol from the source module
+                            let source_parts: Vec<&str> = source_module.split('.').collect();
+                            let source_expr =
+                                expressions::dotted_name(&source_parts, ExprContext::Load);
+                            expressions::attribute(source_expr, &source_name, ExprContext::Load)
+                        } else {
+                            // Symbol is defined in this module or renamed
+                            log::debug!(
+                                "Creating namespace assignment in empty namespace population: \
+                                 {namespace_var}.{original_name} = {renamed_name}"
+                            );
+                            expressions::name(renamed_name, ExprContext::Load)
+                        };
+
                         let assign_stmt = statements::assign(
                             vec![expressions::attribute(
                                 expressions::name(&namespace_var, ExprContext::Load),
                                 original_name,
                                 ExprContext::Store,
                             )],
-                            expressions::name(renamed_name, ExprContext::Load),
+                            value_expr,
                         );
 
                         final_body.push(assign_stmt);
@@ -6479,6 +6641,26 @@ impl Bundler<'_> {
 
         log::debug!("  Symbol '{symbol_name}' is re-export from child modules: {result}");
         result
+    }
+
+    /// Find the source module and original name for a symbol re-exported from a wrapper module.
+    ///
+    /// This checks if a symbol is imported from a wrapper module and returns the source
+    /// module name and original symbol name to properly reference it.
+    fn find_symbol_source_from_wrapper_module(
+        &self,
+        module_name: &str,
+        symbol_name: &str,
+    ) -> Option<(String, String)> {
+        let module_asts = self.module_asts.as_ref()?;
+
+        crate::code_generator::symbol_source::find_symbol_source_from_wrapper_module(
+            module_asts,
+            self.resolver,
+            &self.module_registry,
+            module_name,
+            symbol_name,
+        )
     }
 
     /// Check if a self-referential assignment should be filtered out

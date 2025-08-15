@@ -17,6 +17,7 @@ pub mod inliner;
 pub mod module_registry;
 pub mod module_transformer;
 pub mod namespace_manager;
+pub mod symbol_source;
 
 // Re-export the main bundler and key types
 pub use bundler::Bundler;
