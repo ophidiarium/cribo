@@ -622,15 +622,35 @@ pub fn transform_module_to_init_function<'a>(
         );
 
         if bundler.inlined_modules.contains(&full_name) {
-            // For inlined submodules, we create a types.SimpleNamespace with the exported
-            // symbols
-            let create_namespace_stmts = create_namespace_for_inlined_submodule(
-                bundler,
-                &full_name,
-                &relative_name,
-                symbol_renames,
-            );
-            body.extend(create_namespace_stmts);
+            // Check if we're inside a wrapper function context
+            // If we are, skip creating namespace for inlined submodules because
+            // their symbols are at global scope and can't be referenced from
+            // inside the wrapper function at definition time
+            if ctx.is_wrapper_body {
+                debug!(
+                    "Skipping namespace creation for inlined submodule '{}' inside wrapper module '{}'",
+                    full_name, ctx.module_name
+                );
+                // Bind existing global namespace object to module.<relative_name>
+                // Example: module.submodule = pkg_submodule
+                let namespace_var = sanitize_module_name_for_identifier(&full_name);
+                body.push(
+                    crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                        "module",
+                        &relative_name,
+                        &namespace_var,
+                    ),
+                );
+            } else {
+                // For non-wrapper contexts (like global inlined modules), create the namespace
+                let create_namespace_stmts = create_namespace_for_inlined_submodule(
+                    bundler,
+                    &full_name,
+                    &relative_name,
+                    symbol_renames,
+                );
+                body.extend(create_namespace_stmts);
+            }
         } else {
             // For wrapped submodules, we'll set them up later when they're initialized
             // For now, just skip - the parent module will get the submodule reference
@@ -2047,6 +2067,7 @@ pub fn process_wrapper_modules(
             global_info,
             semantic_bundler: Some(semantic_ctx.semantic_bundler),
             python_version,
+            is_wrapper_body: true, // This is for wrapper modules
         };
 
         // Always use cached init functions to ensure modules are only initialized once

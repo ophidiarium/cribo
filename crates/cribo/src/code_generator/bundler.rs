@@ -894,6 +894,41 @@ impl<'a> Bundler<'a> {
                     locally_initialized.insert(module_name.to_string());
                 }
 
+                // Check if this symbol is re-exported from an inlined submodule.
+                // If it is, use the globally inlined symbol (respecting semantic renames)
+                // instead of wrapper attribute access.
+                if self.module_registry.contains_key(module_name) {
+                    // Keep current semantics: we don't attempt to detect "directly defined in wrapper" here.
+                    let is_defined_in_wrapper = false;
+
+                    if !is_defined_in_wrapper
+                        && let Some((source_module, source_symbol)) =
+                            self.is_symbol_from_inlined_submodule(module_name, target_name.as_str())
+                    {
+                        // Map to the effective global name considering semantic renames of the source module.
+                        let global_name = _symbol_renames
+                            .get(&source_module)
+                            .and_then(|m| m.get(&source_symbol))
+                            .cloned()
+                            .unwrap_or_else(|| source_symbol.clone());
+
+                        log::debug!(
+                            "Using global symbol '{}' from inlined submodule '{}' for re-exported symbol '{}' in wrapper '{}'",
+                            global_name,
+                            source_module,
+                            target_name.as_str(),
+                            module_name
+                        );
+
+                        let assignment = statements::simple_assign(
+                            target_name.as_str(),
+                            expressions::name(&global_name, ExprContext::Load),
+                        );
+                        assignments.push(assignment);
+                        continue; // Skip the normal attribute assignment
+                    }
+                }
+
                 // Create: target = module.imported_name
                 let module_expr = if module_name.contains('.') {
                     // For nested modules like models.user, create models.user expression
@@ -928,6 +963,86 @@ impl<'a> Bundler<'a> {
     fn is_valid_python_identifier(name: &str) -> bool {
         // Use ruff's identifier validation which handles Unicode and keywords
         ruff_python_stdlib::identifiers::is_identifier(name)
+    }
+
+    /// Check if a symbol is re-exported from an inlined submodule  
+    pub(crate) fn is_symbol_from_inlined_submodule(
+        &self,
+        module_name: &str,
+        local_name: &str,
+    ) -> Option<(String, String)> {
+        // We need to check if this symbol is imported from a submodule and re-exported
+        // Use the graph to check if the symbol is locally defined or imported
+
+        if let Some(graph) = self.graph
+            && let Some(module) = graph.get_module_by_name(module_name)
+        {
+            // Look through the module's items to find imports
+            for item_data in module.items.values() {
+                if let crate::cribo_graph::ItemType::FromImport {
+                    module: from_module,
+                    names,
+                    level,
+                    ..
+                } = &item_data.item_type
+                {
+                    // Check if this is importing from a relative submodule
+                    let resolved_module = if *level > 0 {
+                        // Relative import - resolve it properly using the resolver
+                        // Find the module's path from module_asts
+                        let module_path = self.module_asts.as_ref().and_then(|asts| {
+                            asts.iter()
+                                .find(|(name, _, _, _)| name == module_name)
+                                .map(|(_, _, path, _)| path.clone())
+                        });
+
+                        // Define fallback logic once
+                        let fallback = || {
+                            let clean_module = from_module.trim_start_matches('.');
+                            format!("{module_name}.{clean_module}")
+                        };
+
+                        if let Some(path) = module_path {
+                            // Use the resolver to correctly resolve the relative import
+                            // The from_module contains dots like ".submodule", we need to strip them
+                            let clean_module = from_module.trim_start_matches('.');
+                            let module_str = if clean_module.is_empty() {
+                                None
+                            } else {
+                                Some(clean_module)
+                            };
+                            self.resolver
+                                .resolve_relative_to_absolute_module_name(*level, module_str, &path)
+                                .unwrap_or_else(fallback)
+                        } else {
+                            // Fallback if we can't find the module path
+                            fallback()
+                        }
+                    } else {
+                        from_module.clone()
+                    };
+
+                    // Check if this resolved module is an inlined submodule
+                    if resolved_module.starts_with(&format!("{module_name}."))
+                        && self.inlined_modules.contains(&resolved_module)
+                    {
+                        // Check if this import includes our symbol
+                        for (imported_name, alias) in names {
+                            let local = alias.as_ref().unwrap_or(imported_name);
+                            if local == local_name {
+                                log::debug!(
+                                    "Symbol '{local_name}' in module '{module_name}' is re-exported from inlined submodule '{resolved_module}' (original name: '{imported_name}')"
+                                );
+                                // Return source module and original symbol name so caller can resolve renames
+                                return Some((resolved_module, imported_name.to_string()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Check if a module accesses attributes on imported modules at module level
@@ -2416,6 +2531,7 @@ impl<'a> Bundler<'a> {
                         global_info,
                         semantic_bundler: Some(semantic_ctx.semantic_bundler),
                         python_version,
+                        is_wrapper_body: true, // This is for wrapper modules
                     };
                     // Generate init function with empty symbol_renames for now
                     let empty_renames = FxIndexMap::default();
