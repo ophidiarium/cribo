@@ -42,6 +42,7 @@ def __cribo_init___cribo_9c0ae3_pkg():
     MyObject.__module__ = 'pkg'
     module.MyObject = MyObject
     module.submodule = pkg_submodule
+    module.create_object = create_object
     return module
 pkg = __cribo_init___cribo_9c0ae3_pkg()
 MyObject = pkg.MyObject

@@ -38,10 +38,12 @@ def __cribo_init___cribo_41b947_mypackage():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage'
     """Package init file."""
+    mypackage.utils = __cribo_init___cribo_7c69fc_mypackage_utils()
+    utils = mypackage.utils
+    module.utils = utils
     print("Loading mypackage")
     return module
 """Test contextlib import missing in wrapper module init functions.\n\nThis test reproduces the bug found when bundling requests where contextlib\nis used as @contextlib.contextmanager decorator but not imported in the\ngenerated init function for wrapper modules with side effects.\n"""
-mypackage.utils = __cribo_init___cribo_7c69fc_mypackage_utils()
 __cribo_init_result = __cribo_init___cribo_41b947_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):

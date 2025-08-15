@@ -11,6 +11,5 @@ greetings = types.SimpleNamespace(__name__='greetings')
 greetings_english = types.SimpleNamespace(__name__='greetings.english')
 greetings.english = greetings_english
 message = "Hello"
-greetings.message = message
 greetings_english.message = message
 print(message)
