@@ -378,8 +378,9 @@ pub fn transform_module_to_init_function<'a>(
                 // Note: We set __module__ for the class, but Python still shows the full scope path
                 // in the class repr when it's defined inside a function. This is expected behavior.
                 // Setting __module__ helps with introspection but doesn't change the repr.
-                body.push(ast_builder::statements::simple_assign(
-                    &format!("{symbol_name}.__module__"),
+                body.push(ast_builder::statements::assign_attribute(
+                    &symbol_name,
+                    "__module__",
                     ast_builder::expressions::string_literal(ctx.module_name),
                 ));
 
