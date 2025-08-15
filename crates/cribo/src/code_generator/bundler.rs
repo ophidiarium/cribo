@@ -1788,53 +1788,19 @@ impl<'a> Bundler<'a> {
                         // Check if this is a wildcard import
                         if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*"
                         {
-                            // Resolve the module being imported from
-                            let imported_module = if let Some(ref module) = import_from.module {
-                                if import_from.level > 0 {
-                                    // Relative import
-                                    let parent_parts: Vec<&str> = module_name.split('.').collect();
-                                    if import_from.level as usize <= parent_parts.len() {
-                                        let parent = parent_parts
-                                            [..parent_parts.len() - import_from.level as usize]
-                                            .join(".");
-                                        if module.is_empty() {
-                                            parent
-                                        } else {
-                                            format!("{parent}.{module}")
-                                        }
-                                    } else {
-                                        continue;
-                                    }
-                                } else {
-                                    // Absolute import
-                                    module.to_string()
-                                }
-                            } else if import_from.level > 0 {
-                                // Pure relative import (e.g., from . import *)
-                                let parent_parts: Vec<&str> = module_name.split('.').collect();
-                                if import_from.level as usize <= parent_parts.len() {
-                                    parent_parts[..parent_parts.len() - import_from.level as usize]
-                                        .join(".")
-                                } else {
-                                    continue;
-                                }
-                            } else {
-                                continue;
-                            };
-
+                            // Simple debug message - actual resolution happens in second pass
+                            let from_module_str = import_from.module.as_deref().unwrap_or_default();
+                            let dots = ".".repeat(import_from.level as usize);
                             log::debug!(
-                                "Module '{module_name}' has wildcard import from '{imported_module}'"
+                                "Module '{module_name}' has wildcard import from '{dots}{from_module_str}'"
                             );
 
-                            // Get the exports from the imported module
-                            // Note: We may not have processed that module yet, so we might need to defer this
-                            // For now, we'll just mark that this module has a wildcard import
+                            // Mark that this module has a wildcard import
                             if expanded_exports.is_none() {
                                 expanded_exports = Some(Vec::new());
                             }
 
-                            // We'll need to resolve this later after all modules are processed
-                            // For now, we exclude '*' from the exports
+                            // We'll resolve this in the second pass - for now, exclude '*' from the exports
                             if let Some(ref mut exports) = expanded_exports {
                                 exports.retain(|s| s != "*");
                             }
