@@ -1400,7 +1400,9 @@ impl<'a> Bundler<'a> {
                         // These need to happen before any attribute accesses
                         if let Expr::Call(call) = assign.value.as_ref()
                             && let Expr::Name(func_name) = call.func.as_ref()
-                            && func_name.id.as_str().starts_with("__cribo_init_")
+                            && crate::code_generator::module_registry::is_init_function(
+                                func_name.id.as_str(),
+                            )
                         {
                             log::debug!(
                                 "Found wrapper module initialization: {}.{} = {}()",
