@@ -631,6 +631,16 @@ pub fn transform_module_to_init_function<'a>(
                     "Skipping namespace creation for inlined submodule '{}' inside wrapper module '{}'",
                     full_name, ctx.module_name
                 );
+                // Bind existing global namespace object to module.<relative_name>
+                // Example: module.submodule = pkg_submodule
+                let namespace_var = sanitize_module_name_for_identifier(&full_name);
+                body.push(
+                    crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                        "module",
+                        &relative_name,
+                        &namespace_var,
+                    ),
+                );
             } else {
                 // For non-wrapper contexts (like global inlined modules), create the namespace
                 let create_namespace_stmts = create_namespace_for_inlined_submodule(

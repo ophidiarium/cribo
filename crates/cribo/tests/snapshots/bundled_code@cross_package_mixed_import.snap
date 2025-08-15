@@ -98,6 +98,8 @@ def __cribo_init___cribo_f00e4b_core():
     _cribo_core__initialized = _initialized
     global _cribo_core__config
     _cribo_core__config = _config
+    module.version = core_version
+    module.utils = core_utils
     module.CORE_MODEL_VERSION = CORE_MODEL_VERSION
     module.validate = validate
     module.get_config = get_config
@@ -149,6 +151,8 @@ def __cribo_init___cribo_563ea2_models():
         __all__.append("AdvancedModel")
     global _cribo_models__base_model
     _cribo_models__base_model = _base_model
+    module.user = models_user
+    module.base = models_base
     module.process_user = process_user
     return module
 @functools.cache

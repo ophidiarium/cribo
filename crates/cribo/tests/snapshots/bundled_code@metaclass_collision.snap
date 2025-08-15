@@ -39,6 +39,7 @@ def __cribo_init___cribo_9c0ae3_pkg():
         def __repr__(self):
             return f"MyObject(value={self.value})"
     module.MyObject = MyObject
+    module.submodule = pkg_submodule
     return module
 pkg = __cribo_init___cribo_9c0ae3_pkg()
 MyObject = pkg.MyObject

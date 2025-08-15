@@ -262,11 +262,12 @@ impl<'a> Visitor<'a> for SideEffectDetector {
                 if let Some(ref arguments) = class_def.arguments {
                     for keyword in &arguments.keywords {
                         if let Some(ref arg) = keyword.arg
-                            && arg.as_str() == "metaclass" {
-                                // Class with metaclass is a side effect
-                                self.has_side_effects = true;
-                                return;
-                            }
+                            && arg.as_str() == "metaclass"
+                        {
+                            // Class with metaclass is a side effect
+                            self.has_side_effects = true;
+                            return;
+                        }
                     }
                 }
 

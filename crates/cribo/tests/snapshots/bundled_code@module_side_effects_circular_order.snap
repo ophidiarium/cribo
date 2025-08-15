@@ -24,6 +24,8 @@ def __cribo_init___cribo_c04dc3_my_package():
     TOP_LEVEL_VAL = mod_a.A_VALUE
     module.TOP_LEVEL_VAL = TOP_LEVEL_VAL
     print(module.TOP_LEVEL_VAL)
+    module.mod_l = my_package_mod_l
+    module.mod_c = my_package_mod_c
     return module
 @functools.cache
 def __cribo_init___cribo_e90488_my_package_mod_a():

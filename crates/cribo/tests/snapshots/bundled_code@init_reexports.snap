@@ -65,6 +65,9 @@ def __cribo_init___cribo_a81151_mypackage():
     module.__version__ = __version__
     DEBUG_MODE = config.DEBUG
     module.DEBUG_MODE = DEBUG_MODE
+    module.utils = mypackage_utils
+    module.formatter = mypackage_formatter
+    module.data_processor = mypackage_data_processor
     module.process_data = process_data
     module.format_data = format_data
     module.helper_function = helper_function
