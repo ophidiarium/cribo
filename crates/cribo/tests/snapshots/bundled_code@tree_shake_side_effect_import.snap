@@ -21,8 +21,6 @@ def __cribo_init___cribo_ddd935_mypackage():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage'
     print("mypackage initialized")
-    mypackage_exceptions = types.SimpleNamespace()
-    mypackage_exceptions.CustomError = CustomError
     module.exceptions = mypackage_exceptions
     return module
 @functools.cache

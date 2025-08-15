@@ -36,6 +36,8 @@ pub struct ModuleTransformContext<'a> {
     pub global_info: Option<crate::semantic_bundler::ModuleGlobalInfo>,
     pub semantic_bundler: Option<&'a SemanticBundler>,
     pub python_version: u8,
+    /// Whether this module is being transformed as a wrapper function body
+    pub is_wrapper_body: bool,
 }
 
 /// Context for inlining modules

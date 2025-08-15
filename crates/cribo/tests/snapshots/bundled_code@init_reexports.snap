@@ -65,14 +65,8 @@ def __cribo_init___cribo_a81151_mypackage():
     module.__version__ = __version__
     DEBUG_MODE = config.DEBUG
     module.DEBUG_MODE = DEBUG_MODE
-    mypackage_utils = types.SimpleNamespace()
-    mypackage_utils.helper_function = helper_function
     module.utils = mypackage_utils
-    mypackage_formatter = types.SimpleNamespace()
-    mypackage_formatter.format_data = format_data
     module.formatter = mypackage_formatter
-    mypackage_data_processor = types.SimpleNamespace()
-    mypackage_data_processor.process_data = process_data
     module.data_processor = mypackage_data_processor
     module.process_data = process_data
     module.format_data = format_data
@@ -90,8 +84,8 @@ __cribo_init_result = __cribo_init___cribo_a81151_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
-format_data = mypackage.format_data
-process_data = mypackage.process_data
+format_data = format_data
+process_data = process_data
 config = mypackage.config
 def main():
     """Main function demonstrating usage of re-exported functions."""
