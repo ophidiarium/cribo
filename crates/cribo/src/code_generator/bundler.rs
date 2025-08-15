@@ -966,7 +966,7 @@ impl<'a> Bundler<'a> {
     }
 
     /// Check if a symbol is re-exported from an inlined submodule  
-    fn is_symbol_from_inlined_submodule(
+    pub(crate) fn is_symbol_from_inlined_submodule(
         &self,
         module_name: &str,
         local_name: &str,

@@ -2728,34 +2728,46 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
             continue;
         }
 
-        // Check if this is likely a re-export from a package __init__.py
-        // But only apply this special handling if the symbol is NOT renamed
-        // If the symbol is renamed, we should use the renamed version
-        let is_package_reexport = is_package_init_reexport(bundler, module_name);
-        let has_rename = symbol_renames
-            .get(module_name)
-            .and_then(|renames| renames.get(imported_name))
-            .is_some();
+        // Prefer precise re-export detection from inlined submodules
+        let renamed_symbol = if let Some((source_module, source_symbol)) =
+            bundler.is_symbol_from_inlined_submodule(module_name, imported_name)
+        {
+            // Apply symbol renames from the source module if they exist
+            let global_name = symbol_renames
+                .get(&source_module)
+                .and_then(|renames| renames.get(&source_symbol))
+                .cloned()
+                .unwrap_or(source_symbol);
 
-        log::debug!(
-            "  is_package_reexport for module '{module_name}': {is_package_reexport}, has_rename: {has_rename}"
-        );
-
-        let renamed_symbol = if is_package_reexport && !has_rename {
-            // For package re-exports WITHOUT renames, use the original symbol name
-            // This handles cases like greetings/__init__.py re-exporting from greetings.english
             log::debug!(
-                "Using original name '{imported_name}' for symbol imported from package \
-                 '{module_name}' (no rename found)"
+                "Resolved re-exported symbol via inlined submodule: {module_name}.{imported_name} -> {global_name}"
             );
-            imported_name.to_string()
+            global_name
         } else {
-            // Has a rename, or not a re-export - check normal renames
-            symbol_renames
+            // Fallback: package re-export heuristic only if there is no explicit rename
+            let is_package_reexport = is_package_init_reexport(bundler, module_name);
+            let has_rename = symbol_renames
                 .get(module_name)
                 .and_then(|renames| renames.get(imported_name))
-                .cloned()
-                .unwrap_or_else(|| imported_name.to_string())
+                .is_some();
+
+            log::debug!(
+                "  is_package_reexport for module '{module_name}': {is_package_reexport}, has_rename: {has_rename}"
+            );
+
+            if is_package_reexport && !has_rename {
+                log::debug!(
+                    "Using original name '{imported_name}' for symbol imported from package \
+                     '{module_name}' (no rename found)"
+                );
+                imported_name.to_string()
+            } else {
+                symbol_renames
+                    .get(module_name)
+                    .and_then(|renames| renames.get(imported_name))
+                    .cloned()
+                    .unwrap_or_else(|| imported_name.to_string())
+            }
         };
 
         log::debug!(
