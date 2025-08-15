@@ -1396,6 +1396,32 @@ impl<'a> Bundler<'a> {
                     if let Expr::Attribute(target_attr) = &assign.targets[0]
                         && let Expr::Name(_) = target_attr.value.as_ref()
                     {
+                        // Special case: wrapper module initialization (e.g., pkg.module = __cribo_init_...())
+                        // These need to happen before any attribute accesses
+                        if let Expr::Call(call) = assign.value.as_ref()
+                            && let Expr::Name(func_name) = call.func.as_ref()
+                            && func_name.id.as_str().starts_with("__cribo_init_")
+                        {
+                            log::debug!(
+                                "Found wrapper module initialization: {}.{} = {}()",
+                                target_attr
+                                    .value
+                                    .as_ref()
+                                    .as_name_expr()
+                                    .expect(
+                                        "target_attr.value should be Expr::Name as checked by \
+                                         outer if let"
+                                    )
+                                    .id
+                                    .as_str(),
+                                target_attr.attr,
+                                func_name.id
+                            );
+                            // Treat as other_statements so it comes before attribute accesses
+                            other_statements.push(stmt);
+                            continue;
+                        }
+
                         // Special case: if the value is a simple name (e.g., pkg.compat = compat)
                         // this needs the name to be defined first, so treat it as an attribute
                         // access
@@ -1750,7 +1776,72 @@ impl<'a> Bundler<'a> {
                 }
             };
 
-            module_exports_map.insert(module_name.clone(), module_exports.clone());
+            // Handle wildcard imports - if the module has wildcard imports and no explicit __all__,
+            // we need to expand those to include the actual exports from the imported modules
+            let mut expanded_exports = module_exports.clone();
+            if !has_explicit_all {
+                // Check for wildcard imports in the module
+                for stmt in &ast.body {
+                    if let Stmt::ImportFrom(import_from) = stmt {
+                        // Check if this is a wildcard import
+                        if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*"
+                        {
+                            // Resolve the module being imported from
+                            let imported_module = if let Some(ref module) = import_from.module {
+                                if import_from.level > 0 {
+                                    // Relative import
+                                    let parent_parts: Vec<&str> = module_name.split('.').collect();
+                                    if import_from.level as usize <= parent_parts.len() {
+                                        let parent = parent_parts
+                                            [..parent_parts.len() - import_from.level as usize]
+                                            .join(".");
+                                        if module.is_empty() {
+                                            parent
+                                        } else {
+                                            format!("{parent}.{module}")
+                                        }
+                                    } else {
+                                        continue;
+                                    }
+                                } else {
+                                    // Absolute import
+                                    module.to_string()
+                                }
+                            } else if import_from.level > 0 {
+                                // Pure relative import (e.g., from . import *)
+                                let parent_parts: Vec<&str> = module_name.split('.').collect();
+                                if import_from.level as usize <= parent_parts.len() {
+                                    parent_parts[..parent_parts.len() - import_from.level as usize]
+                                        .join(".")
+                                } else {
+                                    continue;
+                                }
+                            } else {
+                                continue;
+                            };
+
+                            log::debug!(
+                                "Module '{module_name}' has wildcard import from '{imported_module}'"
+                            );
+
+                            // Get the exports from the imported module
+                            // Note: We may not have processed that module yet, so we might need to defer this
+                            // For now, we'll just mark that this module has a wildcard import
+                            if expanded_exports.is_none() {
+                                expanded_exports = Some(Vec::new());
+                            }
+
+                            // We'll need to resolve this later after all modules are processed
+                            // For now, we exclude '*' from the exports
+                            if let Some(ref mut exports) = expanded_exports {
+                                exports.retain(|s| s != "*");
+                            }
+                        }
+                    }
+                }
+            }
+
+            module_exports_map.insert(module_name.clone(), expanded_exports);
 
             // Check if module is imported as a namespace
             let is_namespace_imported = self.namespace_imported_modules.contains_key(module_name);
@@ -1809,6 +1900,78 @@ impl<'a> Bundler<'a> {
                     module_path.clone(),
                     content_hash.clone(),
                 ));
+            }
+        }
+
+        // Second pass: resolve wildcard imports now that all modules have been processed
+        let mut wildcard_imports: FxIndexMap<String, Vec<String>> = FxIndexMap::default();
+
+        for (module_name, ast, _, _) in modules {
+            // Look for wildcard imports in this module
+            for stmt in &ast.body {
+                if let Stmt::ImportFrom(import_from) = stmt {
+                    // Check if this is a wildcard import
+                    if import_from.names.len() == 1 && import_from.names[0].name.as_str() == "*" {
+                        // Resolve the imported module name using the resolver
+                        let imported = if import_from.level > 0 {
+                            // Relative import - use the resolver to resolve it properly
+                            self.resolver.resolve_relative_import_from_package_name(
+                                import_from.level,
+                                import_from.module.as_deref(),
+                                module_name,
+                            )
+                        } else if let Some(module) = &import_from.module {
+                            module.to_string()
+                        } else {
+                            continue;
+                        };
+
+                        wildcard_imports
+                            .entry(module_name.clone())
+                            .or_default()
+                            .push(imported);
+                    }
+                }
+            }
+        }
+
+        // Now expand wildcard imports in module_exports_map
+        for (module_name, wildcard_sources) in wildcard_imports {
+            log::debug!("Module '{module_name}' has wildcard imports from: {wildcard_sources:?}");
+
+            // Collect exports from all source modules first to avoid double borrow
+            let mut exports_to_add = Vec::new();
+            for source_module in &wildcard_sources {
+                if let Some(source_exports) = module_exports_map.get(source_module)
+                    && let Some(source_exports) = source_exports
+                {
+                    log::debug!(
+                        "  Expanding wildcard import from '{}' with {} exports",
+                        source_module,
+                        source_exports.len()
+                    );
+                    for export in source_exports {
+                        if export != "*" {
+                            exports_to_add.push(export.clone());
+                        }
+                    }
+                }
+            }
+
+            // Now add the collected exports to the module
+            if !exports_to_add.is_empty()
+                && let Some(exports) = module_exports_map.get_mut(&module_name)
+            {
+                if let Some(export_list) = exports {
+                    for export in exports_to_add {
+                        if !export_list.contains(&export) {
+                            export_list.push(export);
+                        }
+                    }
+                } else {
+                    // Module has no exports yet, create a new list
+                    *exports = Some(exports_to_add);
+                }
             }
         }
 
@@ -6527,7 +6690,10 @@ impl Bundler<'_> {
             let resolved_module = if import_from.level > 0 {
                 self.resolver.resolve_relative_to_absolute_module_name(
                     import_from.level,
-                    import_from.module.as_ref().map(ruff_python_ast::Identifier::as_str),
+                    import_from
+                        .module
+                        .as_ref()
+                        .map(ruff_python_ast::Identifier::as_str),
                     module_path,
                 )
             } else {
@@ -6541,7 +6707,8 @@ impl Bundler<'_> {
                     // alias.asname is the local name (if aliased), alias.name is the original
                     let local_name = alias
                         .asname
-                        .as_ref().map_or_else(|| alias.name.as_str(), ruff_python_ast::Identifier::as_str);
+                        .as_ref()
+                        .map_or_else(|| alias.name.as_str(), ruff_python_ast::Identifier::as_str);
 
                     if local_name == symbol_name {
                         // Check if the source module is a wrapper module

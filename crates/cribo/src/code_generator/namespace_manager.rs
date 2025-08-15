@@ -1619,7 +1619,8 @@ fn find_symbol_source_module(
                 // alias.asname is the local name (if aliased), alias.name is the original
                 let local_name = alias
                     .asname
-                    .as_ref().map_or_else(|| alias.name.as_str(), ruff_python_ast::Identifier::as_str);
+                    .as_ref()
+                    .map_or_else(|| alias.name.as_str(), ruff_python_ast::Identifier::as_str);
 
                 if local_name == symbol_name {
                     // Check if the source module is a wrapper module
