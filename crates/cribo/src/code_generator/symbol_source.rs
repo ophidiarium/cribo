@@ -33,12 +33,8 @@ pub fn find_symbol_source_from_wrapper_module(
         .iter()
         .find(|(name, _, _, _)| name == module_name)?;
 
-    // Check if this symbol is imported from another module
-    for stmt in &ast.body {
-        let Stmt::ImportFrom(import_from) = stmt else {
-            continue;
-        };
-
+    // Check if this symbol is imported from another module (including nested scopes)
+    for import_from in collect_import_froms_in_module(ast) {
         let Some(resolved_module) = resolve_import_module(resolver, import_from, module_path)
         else {
             // Unresolvable import — skip and continue scanning remaining imports.
@@ -95,5 +91,103 @@ pub fn resolve_import_module(
         )
     } else {
         import_from.module.as_ref().map(|m| m.as_str().to_string())
+    }
+}
+
+/// Collects all `ImportFrom` statements in a module, including those in nested scopes.
+///
+/// This function recursively traverses the AST to find imports inside functions,
+/// classes, conditionals, and other nested structures.
+fn collect_import_froms_in_module(ast: &ModModule) -> Vec<&StmtImportFrom> {
+    let mut imports = Vec::new();
+    for stmt in &ast.body {
+        collect_import_froms(stmt, &mut imports);
+    }
+    imports
+}
+
+/// Recursively collects `ImportFrom` statements from a statement and its children.
+fn collect_import_froms<'a>(stmt: &'a Stmt, acc: &mut Vec<&'a StmtImportFrom>) {
+    use ruff_python_ast as ast;
+
+    match stmt {
+        Stmt::ImportFrom(import_from) => acc.push(import_from),
+        Stmt::FunctionDef(f) => {
+            // Functions (both sync and async) can contain imports
+            for s in &f.body {
+                collect_import_froms(s, acc);
+            }
+        }
+        Stmt::ClassDef(c) => {
+            // Classes can contain imports in their body
+            for s in &c.body {
+                collect_import_froms(s, acc);
+            }
+        }
+        Stmt::If(if_stmt) => {
+            // Process if body
+            for s in &if_stmt.body {
+                collect_import_froms(s, acc);
+            }
+            // Process elif and else clauses
+            for clause in &if_stmt.elif_else_clauses {
+                for s in &clause.body {
+                    collect_import_froms(s, acc);
+                }
+            }
+        }
+        Stmt::While(while_stmt) => {
+            for s in &while_stmt.body {
+                collect_import_froms(s, acc);
+            }
+            for s in &while_stmt.orelse {
+                collect_import_froms(s, acc);
+            }
+        }
+        Stmt::For(for_stmt) => {
+            for s in &for_stmt.body {
+                collect_import_froms(s, acc);
+            }
+            for s in &for_stmt.orelse {
+                collect_import_froms(s, acc);
+            }
+        }
+        Stmt::Try(try_stmt) => {
+            // Process try body
+            for s in &try_stmt.body {
+                collect_import_froms(s, acc);
+            }
+            // Process except handlers
+            for handler in &try_stmt.handlers {
+                let ast::ExceptHandler::ExceptHandler(h) = handler;
+                for s in &h.body {
+                    collect_import_froms(s, acc);
+                }
+            }
+            // Process else clause
+            for s in &try_stmt.orelse {
+                collect_import_froms(s, acc);
+            }
+            // Process finally clause
+            for s in &try_stmt.finalbody {
+                collect_import_froms(s, acc);
+            }
+        }
+        Stmt::With(with_stmt) => {
+            for s in &with_stmt.body {
+                collect_import_froms(s, acc);
+            }
+        }
+        Stmt::Match(match_stmt) => {
+            // Process match case bodies
+            for case in &match_stmt.cases {
+                for s in &case.body {
+                    collect_import_froms(s, acc);
+                }
+            }
+        }
+        _ => {
+            // Other statement types don't contain nested statements with imports
+        }
     }
 }
