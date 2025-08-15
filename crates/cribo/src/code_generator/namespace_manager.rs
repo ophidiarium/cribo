@@ -1503,11 +1503,7 @@ pub fn populate_namespace_with_module_symbols(
 
                 // Create a reference to the symbol from the source module
                 let source_parts: Vec<&str> = source_module.split('.').collect();
-                let source_expr = if source_parts.len() > 1 {
-                    expressions::dotted_name(&source_parts, ExprContext::Load)
-                } else {
-                    expressions::name(&source_module, ExprContext::Load)
-                };
+                let source_expr = expressions::dotted_name(&source_parts, ExprContext::Load);
                 expressions::attribute(source_expr, symbol_name, ExprContext::Load)
             } else {
                 // Symbol is defined in this module or renamed
