@@ -1296,6 +1296,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         import_from,
                         resolved,
                         self.symbol_renames,
+                        self.is_wrapper_init,
                     );
                 } else {
                     log::debug!("  Module '{resolved}' is inlined, handling import assignments");
@@ -1306,6 +1307,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         import_from,
                         resolved,
                         self.symbol_renames,
+                        self.is_wrapper_init,
                     );
 
                     // Only defer if we're not in the entry module
@@ -2594,6 +2596,7 @@ fn rewrite_import_from(params: RewriteImportFromParams) -> Vec<Stmt> {
                 &import_from,
                 &module_name,
                 symbol_renames,
+                inside_wrapper_init,
             );
         }
 
@@ -2711,6 +2714,7 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
     import_from: &StmtImportFrom,
     module_name: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    is_wrapper_init: bool,
 ) -> Vec<Stmt> {
     log::debug!(
         "handle_imports_from_inlined_module_with_context: module_name={}, available_renames={:?}",
@@ -2783,20 +2787,33 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
                 symbol_name.clone()
             };
 
-            // For wildcard imports, always create an assignment to ensure "last import wins"
-            // semantics are preserved. Even if the symbol wasn't renamed, we need to rebind
-            // it in case a previous wildcard import brought in a different version.
-            result_stmts.push(statements::simple_assign(
-                symbol_name,
-                expressions::name(&renamed_symbol, ExprContext::Load),
-            ));
-
+            // For wildcard imports, create assignments only when necessary
             if renamed_symbol == *symbol_name {
-                log::debug!(
-                    "Created wildcard import assignment for non-renamed symbol: {symbol_name} = \
-                     {renamed_symbol}"
-                );
+                // Symbol wasn't renamed
+                // In wrapper modules, the symbol will be accessed via global declaration,
+                // so we don't need a self-referential assignment
+                if is_wrapper_init {
+                    log::debug!(
+                        "Skipping self-referential assignment for non-renamed symbol '{symbol_name}' in wrapper init function"
+                    );
+                } else {
+                    // In regular inlined modules, we might need the assignment for "last import wins" semantics
+                    // But only if we're potentially overriding a previous import
+                    result_stmts.push(statements::simple_assign(
+                        symbol_name,
+                        expressions::name(&renamed_symbol, ExprContext::Load),
+                    ));
+                    log::debug!(
+                        "Created wildcard import assignment for non-renamed symbol: {symbol_name} = \
+                         {renamed_symbol}"
+                    );
+                }
             } else {
+                // Symbol was renamed, create an alias assignment
+                result_stmts.push(statements::simple_assign(
+                    symbol_name,
+                    expressions::name(&renamed_symbol, ExprContext::Load),
+                ));
                 log::debug!(
                     "Created wildcard import alias for renamed symbol: {symbol_name} = \
                      {renamed_symbol}"

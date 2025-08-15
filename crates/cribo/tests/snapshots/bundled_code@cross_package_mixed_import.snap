@@ -188,6 +188,7 @@ def __cribo_init___cribo_1f0c3d_core_database_connection():
 
         def __str__(self):
             return f"Connection to {self.name}"
+    Connection.__module__ = 'core.database.connection'
     module.Connection = Connection
 
     def connect(database_name: str) -> Connection:

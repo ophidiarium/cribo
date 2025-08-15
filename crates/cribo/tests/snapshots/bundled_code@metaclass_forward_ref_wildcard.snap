@@ -23,6 +23,7 @@ def __cribo_init___cribo_5d409b_wildcard_pkg_base():
 
         def __str__(self):
             return f"WildcardObject(tag={self.yaml_tag})"
+    WildcardObject.__module__ = 'wildcard_pkg.base'
     module.WildcardObject = WildcardObject
     module.WildcardMetaclass = WildcardMetaclass
     return module

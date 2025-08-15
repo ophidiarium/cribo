@@ -22,6 +22,7 @@ def __cribo_init___cribo_5687a6__2024_config():
         @classmethod
         def get_config(cls):
             return {"year": cls.YEAR, "version": cls.VERSION, "features": cls.FEATURES}
+    Config2024.__module__ = '2024-config'
     module.Config2024 = Config2024
 
     def load_yearly_config():
@@ -49,6 +50,7 @@ def __cribo_init___cribo_ec6681_for_():
             for item in self.iterable:
                 results.append(f"Processing: {item}")
             return results
+    ForLoop.__module__ = 'for'
     module.ForLoop = ForLoop
 
     def create_loop(items):
@@ -74,6 +76,7 @@ def __cribo_init___cribo_944eb6_def_():
         def __str__(self):
             params_str = ", ".join(self.params)
             return f"def {self.name}({params_str})"
+    FunctionDefinition.__module__ = 'def'
     module.FunctionDefinition = FunctionDefinition
 
     def define_function(name, *args):
@@ -98,6 +101,7 @@ def __cribo_init___cribo_004e55_class_():
 
         def describe(self):
             return f"This is a {self.type} named {self.name}"
+    MetaClass.__module__ = 'class'
     module.MetaClass = MetaClass
 
     def create_class_instance(class_name):
@@ -122,6 +126,7 @@ def __cribo_init___cribo_64c186_api_client():
 
         def make_request(self, endpoint):
             return f"Making request to {self.base_url}/{endpoint}"
+    APIClient.__module__ = 'api-client'
     module.APIClient = APIClient
 
     def create_client(url=None):
@@ -145,6 +150,7 @@ def __cribo_init___cribo_d8297b_data_processor():
 
         def process(self, data):
             return f"Processing {data} with hyphenated module"
+    DataProcessor.__module__ = 'data-processor'
     module.DataProcessor = DataProcessor
 
     def get_processor_info():

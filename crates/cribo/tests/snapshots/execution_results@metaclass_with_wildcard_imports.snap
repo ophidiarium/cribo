@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/metaclass_with_wildcard_imports/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Module loaded successfully\nYAMLObject name: YAMLObject\nYAMLObjectMetaclass name: YAMLObjectMetaclass\nLoader name: Loader\nFullLoader name: FullLoader\nDumper name: Dumper\nRegistering CustomYAMLObject with Loader\nRegistering CustomYAMLObject with FullLoader\nCreated custom object with value: test\nCustom object class name: CustomYAMLObject\nyaml_loader types: ['type', 'type']\nyaml_dumper type: type",
+    stderr: "",
+}

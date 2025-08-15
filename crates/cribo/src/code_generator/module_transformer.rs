@@ -112,16 +112,52 @@ pub fn transform_module_to_init_function<'a>(
                     // Track all imported names from this inlined module
                     for alias in &import_from.names {
                         let imported_name = alias.name.as_str();
-                        // Skip wildcard imports - they don't create individual global names
+                        // For wildcard imports, we need to track all symbols that will be imported
                         if imported_name == "*" {
-                            debug!("Skipping wildcard import from inlined module '{module}'");
-                            continue;
+                            debug!("Processing wildcard import from inlined module '{module}'");
+                            // Get all exported symbols from this module
+                            if let Some(exports) = bundler.module_exports.get(module) {
+                                if let Some(export_list) = exports {
+                                    // Module has explicit __all__, use it
+                                    for symbol in export_list {
+                                        if symbol != "*" {
+                                            debug!(
+                                                "Tracking wildcard-imported symbol '{symbol}' from inlined module '{module}'"
+                                            );
+                                            imports_from_inlined.push(symbol.clone());
+                                        }
+                                    }
+                                } else {
+                                    // No explicit __all__, we need to track all symbols that are imported
+                                    // Look at the symbol renames which contains all symbols from the module
+                                    if let Some(renames) = symbol_renames.get(module) {
+                                        for (original_name, renamed_name) in renames {
+                                            // Track the renamed symbol (which is what will be in the global scope)
+                                            if !renamed_name.starts_with('_') {
+                                                debug!(
+                                                    "Tracking wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}'"
+                                                );
+                                                imports_from_inlined.push(renamed_name.clone());
+                                            }
+                                        }
+                                    } else {
+                                        debug!(
+                                            "Warning: No symbol renames found for inlined module '{module}', wildcard import may not work correctly"
+                                        );
+                                    }
+                                }
+                            } else {
+                                debug!(
+                                    "Warning: Could not find exports for inlined module '{module}'"
+                                );
+                            }
+                        } else {
+                            debug!(
+                                "Tracking imported name '{imported_name}' from inlined module \
+                                 '{module}'"
+                            );
+                            imports_from_inlined.push(imported_name.to_string());
                         }
-                        debug!(
-                            "Tracking imported name '{imported_name}' from inlined module \
-                             '{module}'"
-                        );
-                        imports_from_inlined.push(imported_name.to_string());
                     }
                 }
             }
@@ -336,8 +372,18 @@ pub fn transform_module_to_init_function<'a>(
             Stmt::ClassDef(class_def) => {
                 // Add class definition
                 body.push(stmt.clone());
-                // Set as module attribute - include all module-scope symbols
+
                 let symbol_name = class_def.name.to_string();
+
+                // Note: We set __module__ for the class, but Python still shows the full scope path
+                // in the class repr when it's defined inside a function. This is expected behavior.
+                // Setting __module__ helps with introspection but doesn't change the repr.
+                body.push(ast_builder::statements::simple_assign(
+                    &format!("{symbol_name}.__module__"),
+                    ast_builder::expressions::string_literal(ctx.module_name),
+                ));
+
+                // Set as module attribute - include all module-scope symbols
                 if should_include_symbol(
                     bundler,
                     &symbol_name,

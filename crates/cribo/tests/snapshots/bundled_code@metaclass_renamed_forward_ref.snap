@@ -20,6 +20,7 @@ def __cribo_init___cribo_c0fc3d_other():
         def __init__(cls, name, bases, kwds):
             super(MyMetaclass, cls).__init__(name, bases, kwds)
             cls.other_attr = "from other"
+    MyMetaclass.__module__ = 'other'
     module.MyMetaclass = MyMetaclass
 
     class MyObject(metaclass=MyMetaclass):
@@ -27,6 +28,7 @@ def __cribo_init___cribo_c0fc3d_other():
 
         def __repr__(self):
             return f"OtherMyObject(other_attr={self.other_attr})"
+    MyObject.__module__ = 'other'
     module.MyObject = MyObject
     return module
 @functools.cache
@@ -41,6 +43,7 @@ def __cribo_init___cribo_a6386c_base():
         def __init__(cls, name, bases, kwds):
             super(MyMetaclass, cls).__init__(name, bases, kwds)
             cls.base_attr = "from base"
+    MyMetaclass.__module__ = 'base'
     module.MyMetaclass = MyMetaclass
 
     class MyObject(metaclass=MyMetaclass):
@@ -48,6 +51,7 @@ def __cribo_init___cribo_a6386c_base():
 
         def __repr__(self):
             return f"MyObject(base_attr={self.base_attr})"
+    MyObject.__module__ = 'base'
     module.MyObject = MyObject
     return module
 """\nTest fixture for metaclass forward reference with renaming issue.\n\nThis reproduces the bug where class renaming causes forward references\nto metaclasses, similar to what happens with PyYAML.\n"""
