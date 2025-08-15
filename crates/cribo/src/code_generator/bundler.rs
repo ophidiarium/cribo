@@ -917,20 +917,20 @@ impl<'a> Bundler<'a> {
                     if !is_defined_in_wrapper
                         && let Some(global_name) =
                             self.is_symbol_from_inlined_submodule(module_name, imported_name)
-                        {
-                            // The symbol is re-exported from an inlined submodule
-                            // Use the global symbol directly
-                            log::debug!(
-                                "Using global symbol '{global_name}' for re-exported symbol '{imported_name}' from wrapper module '{module_name}'"
-                            );
+                    {
+                        // The symbol is re-exported from an inlined submodule
+                        // Use the global symbol directly
+                        log::debug!(
+                            "Using global symbol '{global_name}' for re-exported symbol '{imported_name}' from wrapper module '{module_name}'"
+                        );
 
-                            let assignment = statements::simple_assign(
-                                target_name.as_str(),
-                                expressions::name(&global_name, ExprContext::Load),
-                            );
-                            assignments.push(assignment);
-                            continue; // Skip the normal attribute assignment
-                        }
+                        let assignment = statements::simple_assign(
+                            target_name.as_str(),
+                            expressions::name(&global_name, ExprContext::Load),
+                        );
+                        assignments.push(assignment);
+                        continue; // Skip the normal attribute assignment
+                    }
                 }
 
                 // Create: target = module.imported_name
@@ -979,46 +979,72 @@ impl<'a> Bundler<'a> {
         // Use the graph to check if the symbol is locally defined or imported
 
         if let Some(graph) = self.graph
-            && let Some(module) = graph.get_module_by_name(module_name) {
-                // Look through the module's items to find imports
-                for item_data in module.items.values() {
-                    if let crate::cribo_graph::ItemType::FromImport {
-                        module: from_module,
-                        names,
-                        level,
-                        ..
-                    } = &item_data.item_type
-                    {
-                        // Check if this is importing from a relative submodule
-                        let resolved_module = if *level > 0 {
-                            // Relative import - resolve it
-                            // For "from .submodule import", from_module is ".submodule"
-                            // We need to strip the leading dot(s)
+            && let Some(module) = graph.get_module_by_name(module_name)
+        {
+            // Look through the module's items to find imports
+            for item_data in module.items.values() {
+                if let crate::cribo_graph::ItemType::FromImport {
+                    module: from_module,
+                    names,
+                    level,
+                    ..
+                } = &item_data.item_type
+                {
+                    // Check if this is importing from a relative submodule
+                    let resolved_module = if *level > 0 {
+                        // Relative import - resolve it properly using the resolver
+                        // Find the module's path from module_asts
+                        let module_path = self.module_asts.as_ref().and_then(|asts| {
+                            asts.iter()
+                                .find(|(name, _, _, _)| name == module_name)
+                                .map(|(_, _, path, _)| path.clone())
+                        });
+
+                        if let Some(path) = module_path {
+                            // Use the resolver to correctly resolve the relative import
+                            // The from_module contains dots like ".submodule", we need to strip them
+                            let clean_module = from_module.trim_start_matches('.');
+                            let module_str = if clean_module.is_empty() {
+                                None
+                            } else {
+                                Some(clean_module)
+                            };
+                            let resolved = self.resolver.resolve_relative_to_absolute_module_name(
+                                *level, module_str, &path,
+                            );
+                            resolved.unwrap_or_else(|| {
+                                // Fallback to the old behavior if resolution fails
+                                let clean_module = from_module.trim_start_matches('.');
+                                format!("{module_name}.{clean_module}")
+                            })
+                        } else {
+                            // Fallback to the old behavior if we can't find the module path
                             let clean_module = from_module.trim_start_matches('.');
                             format!("{module_name}.{clean_module}")
-                        } else {
-                            from_module.clone()
-                        };
+                        }
+                    } else {
+                        from_module.clone()
+                    };
 
-                        // Check if this resolved module is an inlined submodule
-                        if resolved_module.starts_with(&format!("{module_name}."))
-                            && self.inlined_modules.contains(&resolved_module)
-                        {
-                            // Check if this import includes our symbol
-                            for (imported_name, alias) in names {
-                                let local_name = alias.as_ref().unwrap_or(imported_name);
-                                if local_name == symbol_name {
-                                    log::debug!(
-                                        "Symbol '{symbol_name}' in module '{module_name}' is re-exported from inlined submodule '{resolved_module}'"
-                                    );
-                                    // The symbol should be available at global scope with the same name
-                                    return Some(symbol_name.to_string());
-                                }
+                    // Check if this resolved module is an inlined submodule
+                    if resolved_module.starts_with(&format!("{module_name}."))
+                        && self.inlined_modules.contains(&resolved_module)
+                    {
+                        // Check if this import includes our symbol
+                        for (imported_name, alias) in names {
+                            let local_name = alias.as_ref().unwrap_or(imported_name);
+                            if local_name == symbol_name {
+                                log::debug!(
+                                    "Symbol '{symbol_name}' in module '{module_name}' is re-exported from inlined submodule '{resolved_module}'"
+                                );
+                                // The symbol should be available at global scope with the same name
+                                return Some(symbol_name.to_string());
                             }
                         }
                     }
                 }
             }
+        }
 
         None
     }
