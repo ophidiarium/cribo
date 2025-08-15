@@ -1468,7 +1468,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.deferred_imports.extend(new_assignments);
 
                         log::debug!(
-                            "  Returning {} statements for wildcard import",
+                            "  Returning {} parent-init statements for wildcard import; wrapper init + assignments were deferred",
                             init_stmts.len()
                         );
                         return init_stmts;
