@@ -996,6 +996,12 @@ impl<'a> Bundler<'a> {
                                 .map(|(_, _, path, _)| path.clone())
                         });
 
+                        // Define fallback logic once
+                        let fallback = || {
+                            let clean_module = from_module.trim_start_matches('.');
+                            format!("{module_name}.{clean_module}")
+                        };
+
                         if let Some(path) = module_path {
                             // Use the resolver to correctly resolve the relative import
                             // The from_module contains dots like ".submodule", we need to strip them
@@ -1005,18 +1011,12 @@ impl<'a> Bundler<'a> {
                             } else {
                                 Some(clean_module)
                             };
-                            let resolved = self.resolver.resolve_relative_to_absolute_module_name(
-                                *level, module_str, &path,
-                            );
-                            resolved.unwrap_or_else(|| {
-                                // Fallback to the old behavior if resolution fails
-                                let clean_module = from_module.trim_start_matches('.');
-                                format!("{module_name}.{clean_module}")
-                            })
+                            self.resolver
+                                .resolve_relative_to_absolute_module_name(*level, module_str, &path)
+                                .unwrap_or_else(fallback)
                         } else {
-                            // Fallback to the old behavior if we can't find the module path
-                            let clean_module = from_module.trim_start_matches('.');
-                            format!("{module_name}.{clean_module}")
+                            // Fallback if we can't find the module path
+                            fallback()
                         }
                     } else {
                         from_module.clone()
