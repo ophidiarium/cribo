@@ -73,7 +73,6 @@ _cribo_models_base_Connection = None
 def __cribo_init___cribo_0a162a_models_base():
     module = types.SimpleNamespace()
     module.__name__ = 'models.base'
-    global validate
     util_validate = validate_6
     """Base models module - imports only from core to avoid circular dependencies"""
     process = lambda x: f"base_process: {x}"
@@ -105,6 +104,7 @@ def __cribo_init___cribo_0a162a_models_base():
 
         def get_message(self):
             return f"base_logger_{self.prefix}"
+    Logger.__module__ = 'models.base'
     module.Logger = Logger
 
     def initialize():
@@ -116,6 +116,7 @@ def __cribo_init___cribo_0a162a_models_base():
     module.initialize = initialize
     global _cribo_models_base_Connection
     _cribo_models_base_Connection = Connection
+    module.util_validate = util_validate
     return module
 @functools.cache
 def __cribo_init___cribo_293a98_models():
@@ -130,7 +131,6 @@ def __cribo_init___cribo_293a98_models():
 def __cribo_init___cribo_1f9e6c_models_user():
     module = types.SimpleNamespace()
     module.__name__ = 'models.user'
-    global Logger, process
     util_process = process_7
     UtilLogger = Logger_6
     """User models module - imports from core and base, no circular dependencies"""
@@ -171,6 +171,7 @@ def __cribo_init___cribo_1f9e6c_models_user():
 
         def process(self):
             return f"User.process: {self.name}"
+    User.__module__ = 'models.user'
     module.User = User
 
     class Logger:
@@ -186,6 +187,7 @@ def __cribo_init___cribo_1f9e6c_models_user():
 
         def log_all(self):
             return [self.get_message(), self.base_logger.get_message(), self.util_logger.get_message()]
+    Logger.__module__ = 'models.user'
     module.Logger = Logger
 
     class UserValidator:
@@ -196,7 +198,10 @@ def __cribo_init___cribo_1f9e6c_models_user():
 
         def add_rule(self, rule):
             self.rules.append(rule)
+    UserValidator.__module__ = 'models.user'
     module.UserValidator = UserValidator
+    module.util_process = util_process
+    module.UtilLogger = UtilLogger
     return module
 @functools.cache
 def __cribo_init___cribo_84bf42_services_auth():
@@ -220,7 +225,6 @@ def __cribo_init___cribo_b2dda7_services():
 def __cribo_init___cribo_0ecebd_services_auth_manager():
     module = types.SimpleNamespace()
     module.__name__ = 'services.auth.manager'
-    global sanitize
     """Authentication manager - imports from core and models only, no circular dependencies"""
     core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
     DBConnection = core.database.connection.Connection
@@ -261,6 +265,7 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
 
         def authenticate(self):
             return f"auth_user_{self.username}"
+    User.__module__ = 'services.auth.manager'
     module.User = User
 
     class Connection:
@@ -273,6 +278,7 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
         def connect(self):
             db_result = self.db_conn.connect()
             return f"auth_wrapped_{db_result}"
+    Connection.__module__ = 'services.auth.manager'
     module.Connection = Connection
 
     class AuthManager:
@@ -287,6 +293,7 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
 
         def process_auth(self, username, data):
             return process(f"{username}:{data}")
+    AuthManager.__module__ = 'services.auth.manager'
     module.AuthManager = AuthManager
     module.sanitize = sanitize
     return module
@@ -328,6 +335,7 @@ def __cribo_init___cribo_df9c8d_core_database_connection():
             if not self.connected:
                 raise RuntimeError("Not connected")
             return format_result(f"Query: {query}")
+    Connection.__module__ = 'core.database.connection'
     module.Connection = Connection
 
     class Logger:
@@ -338,6 +346,7 @@ def __cribo_init___cribo_df9c8d_core_database_connection():
 
         def log(self, message):
             return f"DB_LOG[{self.context}]: {message}"
+    Logger.__module__ = 'core.database.connection'
     module.Logger = Logger
 
     def create_connection(db_name):

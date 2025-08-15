@@ -21,6 +21,7 @@ def __cribo_init___cribo_276673_module_b():
             super(YAMLObjectMetaclass, cls).__init__(name, bases, kwds)
             if "yaml_tag" in kwds and kwds["yaml_tag"] is not None:
                 cls._registered_b = True
+    YAMLObjectMetaclass.__module__ = 'module_b'
     module.YAMLObjectMetaclass = YAMLObjectMetaclass
 
     class YAMLObject(metaclass=YAMLObjectMetaclass):
@@ -29,6 +30,7 @@ def __cribo_init___cribo_276673_module_b():
 
         def __init__(self):
             pass
+    YAMLObject.__module__ = 'module_b'
     module.YAMLObject = YAMLObject
     return module
 @functools.cache
@@ -44,6 +46,7 @@ def __cribo_init___cribo_12d4a8_module_a():
             super(YAMLObjectMetaclass, cls).__init__(name, bases, kwds)
             if "yaml_tag" in kwds and kwds["yaml_tag"] is not None:
                 cls._registered_a = True
+    YAMLObjectMetaclass.__module__ = 'module_a'
     module.YAMLObjectMetaclass = YAMLObjectMetaclass
 
     class YAMLObject(metaclass=YAMLObjectMetaclass):
@@ -52,6 +55,7 @@ def __cribo_init___cribo_12d4a8_module_a():
 
         def __init__(self):
             pass
+    YAMLObject.__module__ = 'module_a'
     module.YAMLObject = YAMLObject
     return module
 """Test that demonstrates metaclass ordering issue with name collisions."""

@@ -525,7 +525,7 @@ The text between BEGIN_BODY/END_BODY is what you must act on.
 - REPLY DIRECTLY AND SPECIFICALLY to the original comment:
 
 ```bash
-gh api repos/ophidiarium/cribo/pulls/<PR#>/comments/<COMMENT_ID>/replies \
+gh api repos/ophidiarium/cribo/pulls/$(gh pr view --json number --jq .number)/comments/<COMMENT_ID>/replies \
   -X POST -f body='✅ Addressed in <hash>. Thanks!'
 ```
 

@@ -80,7 +80,10 @@ pub fn transform_module_to_init_function<'a>(
     });
 
     // Track imports from inlined modules before transformation
+    // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard imports)
+    // - inlined_import_bindings: local binding names created by explicit from-imports (asname if present)
     let mut imports_from_inlined = Vec::new();
+    let mut inlined_import_bindings = Vec::new();
 
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
@@ -112,16 +115,25 @@ pub fn transform_module_to_init_function<'a>(
                     // Track all imported names from this inlined module
                     for alias in &import_from.names {
                         let imported_name = alias.name.as_str();
-                        // Skip wildcard imports - they don't create individual global names
+                        // For wildcard imports, we need to track all symbols that will be imported
                         if imported_name == "*" {
-                            debug!("Skipping wildcard import from inlined module '{module}'");
-                            continue;
+                            process_wildcard_import(
+                                bundler,
+                                module,
+                                symbol_renames,
+                                &mut imports_from_inlined,
+                            );
+                        } else {
+                            let local_binding_name = alias
+                                .asname
+                                .as_ref()
+                                .map_or(imported_name, ruff_python_ast::Identifier::as_str);
+                            debug!(
+                                "Tracking imported name '{imported_name}' as local binding \
+                                 '{local_binding_name}' from inlined module '{module}'"
+                            );
+                            inlined_import_bindings.push(local_binding_name.to_string());
                         }
-                        debug!(
-                            "Tracking imported name '{imported_name}' from inlined module \
-                             '{module}'"
-                        );
-                        imports_from_inlined.push(imported_name.to_string());
                     }
                 }
             }
@@ -336,8 +348,19 @@ pub fn transform_module_to_init_function<'a>(
             Stmt::ClassDef(class_def) => {
                 // Add class definition
                 body.push(stmt.clone());
-                // Set as module attribute - include all module-scope symbols
+
                 let symbol_name = class_def.name.to_string();
+
+                // Note: We set __module__ for the class, but Python still shows the full scope path
+                // in the class repr when it's defined inside a function. This is expected behavior.
+                // Setting __module__ helps with introspection but doesn't change the repr.
+                body.push(ast_builder::statements::assign_attribute(
+                    &symbol_name,
+                    "__module__",
+                    ast_builder::expressions::string_literal(ctx.module_name),
+                ));
+
+                // Set as module attribute - include all module-scope symbols
                 if should_include_symbol(
                     bundler,
                     &symbol_name,
@@ -429,10 +452,10 @@ pub fn transform_module_to_init_function<'a>(
                     // Check if this assignment came from a transformed import
                     if let Some(name) = expression_handlers::extract_simple_assign_target(assign) {
                         debug!(
-                            "Checking assignment '{}' in module '{}' (imports_from_inlined: {:?})",
-                            name, ctx.module_name, imports_from_inlined
+                            "Checking assignment '{}' in module '{}' (inlined_import_bindings: {:?})",
+                            name, ctx.module_name, inlined_import_bindings
                         );
-                        if imports_from_inlined.contains(&name) {
+                        if inlined_import_bindings.contains(&name) {
                             // This was imported from an inlined module
                             // Use a special case: if no scope info available, include imported
                             // symbols
@@ -697,7 +720,13 @@ pub fn transform_module_to_init_function<'a>(
 
     // For imports from inlined modules that don't create assignments,
     // we still need to set them as module attributes if they're exported
-    for imported_name in imports_from_inlined {
+    // Process both wildcard imports (imports_from_inlined) and explicit imports (inlined_import_bindings)
+    let all_imported_names: Vec<String> = imports_from_inlined
+        .into_iter()
+        .chain(inlined_import_bindings)
+        .collect();
+
+    for imported_name in all_imported_names {
         if bundler.should_export_symbol(&imported_name, ctx.module_name) {
             // Check if we already have a module attribute assignment for this
             let already_assigned = body.iter().any(|stmt| {
@@ -1943,6 +1972,68 @@ fn renamed_symbol_exists(
     }
 
     false
+}
+
+/// Process wildcard import from an inlined module
+fn process_wildcard_import(
+    bundler: &Bundler,
+    module: &str,
+    symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
+    imports_from_inlined: &mut Vec<String>,
+) {
+    debug!("Processing wildcard import from inlined module '{module}'");
+
+    // Get all exported symbols from this module
+    let exports = bundler.module_exports.get(module);
+
+    if let Some(Some(export_list)) = exports {
+        // Module has explicit __all__, use it
+        for symbol in export_list {
+            if symbol != "*" {
+                debug!(
+                    "Tracking wildcard-imported symbol '{symbol}' from inlined module '{module}'"
+                );
+                imports_from_inlined.push(symbol.clone());
+            }
+        }
+        return;
+    }
+
+    if exports.is_some() {
+        // Module exists but has no explicit __all__
+        // Look at the symbol renames which contains all symbols from the module
+        if let Some(renames) = symbol_renames.get(module) {
+            for (original_name, renamed_name) in renames {
+                // Track the renamed symbol (which is what will be in the global scope)
+                if !renamed_name.starts_with('_') {
+                    debug!(
+                        "Tracking wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}'"
+                    );
+                    imports_from_inlined.push(renamed_name.clone());
+                }
+            }
+            return;
+        }
+
+        // Fallback to semantic exports when no renames are available
+        if let Some(semantic) = bundler.semantic_exports.get(module) {
+            for symbol in semantic {
+                if !symbol.starts_with('_') {
+                    debug!(
+                        "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}'"
+                    );
+                    imports_from_inlined.push(symbol.clone());
+                }
+            }
+            return;
+        }
+
+        log::warn!(
+            "No symbol renames or semantic exports found for inlined module '{module}' — wildcard import may miss symbols"
+        );
+    } else {
+        log::warn!("Could not find exports for inlined module '{module}'");
+    }
 }
 
 /// Transform module to cache init function by adding @functools.cache decorator

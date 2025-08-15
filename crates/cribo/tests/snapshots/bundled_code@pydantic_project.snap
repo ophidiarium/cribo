@@ -38,6 +38,7 @@ def __cribo_init___cribo_f275a8_schemas_user():
             """Pydantic configuration."""
             json_encoders = {}
             json_schema_extra = {"example": {"name": "John Doe", "email": "john@example.com", "age": 30, "is_active": True, "bio": "Software developer"}}
+    UserSchema.__module__ = 'schemas.user'
     module.UserSchema = UserSchema
 
     class CreateUserRequest(BaseModel):
@@ -46,6 +47,7 @@ def __cribo_init___cribo_f275a8_schemas_user():
         email: EmailStr
         age: typing.Optional[int] = Field(default=None, ge=0, le=150)
         bio: typing.Optional[str] = Field(default=None, max_length=500)
+    CreateUserRequest.__module__ = 'schemas.user'
     module.CreateUserRequest = CreateUserRequest
 
     class UserResponse(BaseModel):
@@ -56,6 +58,7 @@ def __cribo_init___cribo_f275a8_schemas_user():
         age: int
         is_active: bool
         bio: typing.Optional[str] = None
+    UserResponse.__module__ = 'schemas.user'
     module.UserResponse = UserResponse
     return module
 schemas.user = __cribo_init___cribo_f275a8_schemas_user()

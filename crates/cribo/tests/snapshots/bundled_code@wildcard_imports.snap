@@ -63,6 +63,7 @@ def __cribo_init___cribo_9a9871_with_side_effects():
 
         def method(self):
             return "EffectClass.method_result"
+    EffectClass.__module__ = 'with_side_effects'
     module.EffectClass = EffectClass
     EFFECT_CONSTANT = "EFFECT_VALUE"
     module.EFFECT_CONSTANT = EFFECT_CONSTANT

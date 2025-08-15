@@ -23,7 +23,6 @@ pkg.style = pkg_style
 def __cribo_init___cribo_2353ad_pkg_pretty():
     module = types.SimpleNamespace()
     module.__name__ = 'pkg.pretty'
-    global Console, RichRenderable
     Any = typing.Any
     module.Any = Any
     """Pretty printing module with circular dependency on console."""
@@ -44,6 +43,7 @@ def __cribo_init___cribo_2353ad_pkg_pretty():
             console = Console()
             formatted = format_pretty(obj, console)
             print(formatted)
+    PrettyPrinter.__module__ = 'pkg.pretty'
     module.PrettyPrinter = PrettyPrinter
 
     def format_pretty(obj: typing.Any, console: Console) -> str:

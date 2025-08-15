@@ -27,6 +27,7 @@ def __cribo_init___cribo_9c0ae3_pkg():
             super(MyMetaclass, cls).__init__(name, bases, kwds)
             if hasattr(cls, "tag"):
                 print(f"Metaclass initialized {name} with tag {cls.tag}")
+    MyMetaclass.__module__ = 'pkg'
     module.MyMetaclass = MyMetaclass
 
     class MyObject(metaclass=MyMetaclass):
@@ -38,6 +39,7 @@ def __cribo_init___cribo_9c0ae3_pkg():
 
         def __repr__(self):
             return f"MyObject(value={self.value})"
+    MyObject.__module__ = 'pkg'
     module.MyObject = MyObject
     module.submodule = pkg_submodule
     return module
