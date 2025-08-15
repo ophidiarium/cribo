@@ -259,16 +259,15 @@ impl<'a> Visitor<'a> for SideEffectDetector {
             Stmt::ClassDef(class_def) => {
                 // Check if the class has a metaclass - metaclasses can execute arbitrary code
                 // during class creation, making them a side effect
-                if let Some(ref arguments) = class_def.arguments {
-                    for keyword in &arguments.keywords {
-                        if let Some(ref arg) = keyword.arg
-                            && arg.as_str() == "metaclass"
-                        {
-                            // Class with metaclass is a side effect
-                            self.has_side_effects = true;
-                            return;
-                        }
-                    }
+                if let Some(ref arguments) = class_def.arguments
+                    && arguments
+                        .keywords
+                        .iter()
+                        .any(|kw| kw.arg.as_deref() == Some("metaclass"))
+                {
+                    // Class with metaclass is a side effect
+                    self.has_side_effects = true;
+                    return;
                 }
 
                 // Check class body for module-level side effects
