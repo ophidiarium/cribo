@@ -15,7 +15,6 @@ wildcard_pkg.meta = wildcard_pkg_meta
 def __cribo_init___cribo_5d409b_wildcard_pkg_base():
     module = types.SimpleNamespace()
     module.__name__ = 'wildcard_pkg.base'
-    global WildcardMetaclass
 
     class WildcardObject(metaclass=WildcardMetaclass):
         """An object with a metaclass"""

@@ -80,7 +80,10 @@ pub fn transform_module_to_init_function<'a>(
     });
 
     // Track imports from inlined modules before transformation
+    // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard imports)
+    // - inlined_import_bindings: local binding names created by explicit from-imports (asname if present)
     let mut imports_from_inlined = Vec::new();
+    let mut inlined_import_bindings = Vec::new();
 
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
@@ -121,11 +124,15 @@ pub fn transform_module_to_init_function<'a>(
                                 &mut imports_from_inlined,
                             );
                         } else {
+                            let local_binding_name = alias
+                                .asname
+                                .as_ref()
+                                .map_or(imported_name, ruff_python_ast::Identifier::as_str);
                             debug!(
-                                "Tracking imported name '{imported_name}' from inlined module \
-                                 '{module}'"
+                                "Tracking imported name '{imported_name}' as local binding \
+                                 '{local_binding_name}' from inlined module '{module}'"
                             );
-                            imports_from_inlined.push(imported_name.to_string());
+                            inlined_import_bindings.push(local_binding_name.to_string());
                         }
                     }
                 }
@@ -445,10 +452,10 @@ pub fn transform_module_to_init_function<'a>(
                     // Check if this assignment came from a transformed import
                     if let Some(name) = expression_handlers::extract_simple_assign_target(assign) {
                         debug!(
-                            "Checking assignment '{}' in module '{}' (imports_from_inlined: {:?})",
-                            name, ctx.module_name, imports_from_inlined
+                            "Checking assignment '{}' in module '{}' (inlined_import_bindings: {:?})",
+                            name, ctx.module_name, inlined_import_bindings
                         );
-                        if imports_from_inlined.contains(&name) {
+                        if inlined_import_bindings.contains(&name) {
                             // This was imported from an inlined module
                             // Use a special case: if no scope info available, include imported
                             // symbols
@@ -713,7 +720,13 @@ pub fn transform_module_to_init_function<'a>(
 
     // For imports from inlined modules that don't create assignments,
     // we still need to set them as module attributes if they're exported
-    for imported_name in imports_from_inlined {
+    // Process both wildcard imports (imports_from_inlined) and explicit imports (inlined_import_bindings)
+    let all_imported_names: Vec<String> = imports_from_inlined
+        .into_iter()
+        .chain(inlined_import_bindings)
+        .collect();
+
+    for imported_name in all_imported_names {
         if bundler.should_export_symbol(&imported_name, ctx.module_name) {
             // Check if we already have a module attribute assignment for this
             let already_assigned = body.iter().any(|stmt| {

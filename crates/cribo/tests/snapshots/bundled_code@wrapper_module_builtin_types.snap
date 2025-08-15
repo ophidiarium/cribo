@@ -42,7 +42,6 @@ pkg___version__ = types.SimpleNamespace(__name__='pkg.__version__')
 def __cribo_init___cribo_5a392a_pkg__internal_utils():
     module = types.SimpleNamespace()
     module.__name__ = 'pkg._internal_utils'
-    global builtin_str
     """Internal utils that depends on compat, creating circular dependency."""
     HEADER_VALIDATORS = {"str": lambda x: isinstance(x, builtin_str), "bytes": lambda x: isinstance(x, bytes)}
     module.HEADER_VALIDATORS = HEADER_VALIDATORS

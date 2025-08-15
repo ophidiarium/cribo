@@ -23,7 +23,6 @@ pkg.style = pkg_style
 def __cribo_init___cribo_2353ad_pkg_pretty():
     module = types.SimpleNamespace()
     module.__name__ = 'pkg.pretty'
-    global Console, RichRenderable
     Any = typing.Any
     module.Any = Any
     """Pretty printing module with circular dependency on console."""

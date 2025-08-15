@@ -352,7 +352,6 @@ Connection_5.__qualname__ = 'Connection'
 def __cribo_init___cribo_6ccb3a_services_auth_manager():
     module = types.SimpleNamespace()
     module.__name__ = 'services.auth.manager'
-    global Connection, base
     DBConnection = Connection_5
     Optional = typing.Optional
     module.Optional = Optional
@@ -482,6 +481,7 @@ def __cribo_init___cribo_6ccb3a_services_auth_manager():
             return {"manager_results": result}
     AuthManager.__module__ = 'services.auth.manager'
     module.AuthManager = AuthManager
+    module.DBConnection = DBConnection
     return module
 core_validate = validate_5
 UserLogger = Logger_2

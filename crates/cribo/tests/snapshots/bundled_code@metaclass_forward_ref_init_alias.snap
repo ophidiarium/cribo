@@ -15,7 +15,6 @@ yaml_pkg.meta = yaml_pkg_meta
 def __cribo_init___cribo_6d74f2_yaml_pkg_base():
     module = types.SimpleNamespace()
     module.__name__ = 'yaml_pkg.base'
-    global YAMLObjectMetaclass
 
     class YAMLObject(metaclass=YAMLObjectMetaclass):
         """An object with a metaclass"""

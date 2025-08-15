@@ -73,7 +73,6 @@ _cribo_models_base_Connection = None
 def __cribo_init___cribo_0a162a_models_base():
     module = types.SimpleNamespace()
     module.__name__ = 'models.base'
-    global validate
     util_validate = validate_6
     """Base models module - imports only from core to avoid circular dependencies"""
     process = lambda x: f"base_process: {x}"
@@ -117,6 +116,7 @@ def __cribo_init___cribo_0a162a_models_base():
     module.initialize = initialize
     global _cribo_models_base_Connection
     _cribo_models_base_Connection = Connection
+    module.util_validate = util_validate
     return module
 @functools.cache
 def __cribo_init___cribo_293a98_models():
@@ -131,7 +131,6 @@ def __cribo_init___cribo_293a98_models():
 def __cribo_init___cribo_1f9e6c_models_user():
     module = types.SimpleNamespace()
     module.__name__ = 'models.user'
-    global Logger, process
     util_process = process_7
     UtilLogger = Logger_6
     """User models module - imports from core and base, no circular dependencies"""
@@ -201,6 +200,8 @@ def __cribo_init___cribo_1f9e6c_models_user():
             self.rules.append(rule)
     UserValidator.__module__ = 'models.user'
     module.UserValidator = UserValidator
+    module.util_process = util_process
+    module.UtilLogger = UtilLogger
     return module
 @functools.cache
 def __cribo_init___cribo_84bf42_services_auth():
@@ -224,7 +225,6 @@ def __cribo_init___cribo_b2dda7_services():
 def __cribo_init___cribo_0ecebd_services_auth_manager():
     module = types.SimpleNamespace()
     module.__name__ = 'services.auth.manager'
-    global sanitize
     """Authentication manager - imports from core and models only, no circular dependencies"""
     core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
     DBConnection = core.database.connection.Connection
