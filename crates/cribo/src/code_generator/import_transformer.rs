@@ -1405,13 +1405,12 @@ impl<'a> RecursiveImportTransformer<'a> {
         }
 
         // Otherwise, use standard transformation
-        let empty_renames = FxIndexMap::default();
         rewrite_import_from(RewriteImportFromParams {
             bundler: self.bundler,
             import_from: import_from.clone(),
             current_module: self.module_name,
             module_path: self.module_path,
-            symbol_renames: &empty_renames,
+            symbol_renames: self.symbol_renames,
             inside_wrapper_init: self.is_wrapper_init,
             stdlib_names: &self.stdlib_names_in_scope,
             python_version: self.python_version,
@@ -2618,6 +2617,11 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
     module_name: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
 ) -> Vec<Stmt> {
+    log::debug!(
+        "handle_imports_from_inlined_module_with_context: module_name={}, available_renames={:?}",
+        module_name,
+        symbol_renames.get(module_name)
+    );
     let mut result_stmts = Vec::new();
 
     // Check if this is a wildcard import
@@ -2725,24 +2729,43 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
         }
 
         // Check if this is likely a re-export from a package __init__.py
+        // But only apply this special handling if the symbol is NOT renamed
+        // If the symbol is renamed, we should use the renamed version
         let is_package_reexport = is_package_init_reexport(bundler, module_name);
+        let has_rename = symbol_renames
+            .get(module_name)
+            .and_then(|renames| renames.get(imported_name))
+            .is_some();
 
-        let renamed_symbol = if is_package_reexport {
-            // For package re-exports, use the original symbol name
+        log::debug!(
+            "  is_package_reexport for module '{module_name}': {is_package_reexport}, has_rename: {has_rename}"
+        );
+
+        let renamed_symbol = if is_package_reexport && !has_rename {
+            // For package re-exports WITHOUT renames, use the original symbol name
             // This handles cases like greetings/__init__.py re-exporting from greetings.english
             log::debug!(
                 "Using original name '{imported_name}' for symbol imported from package \
-                 '{module_name}'"
+                 '{module_name}' (no rename found)"
             );
             imported_name.to_string()
         } else {
-            // Not a re-export, check normal renames
+            // Has a rename, or not a re-export - check normal renames
             symbol_renames
                 .get(module_name)
                 .and_then(|renames| renames.get(imported_name))
                 .cloned()
                 .unwrap_or_else(|| imported_name.to_string())
         };
+
+        log::debug!(
+            "Processing import: module={}, imported_name={}, local_name={}, renamed_symbol={}, available_renames={:?}",
+            module_name,
+            imported_name,
+            local_name,
+            renamed_symbol,
+            symbol_renames.get(module_name)
+        );
 
         // Check if the source symbol was tree-shaken
         if !bundler.is_symbol_kept_by_tree_shaking(module_name, imported_name) {
@@ -2755,6 +2778,7 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
 
         // Only create assignment if the names are different
         if local_name != renamed_symbol {
+            log::debug!("Creating assignment: {local_name} = {renamed_symbol}");
             result_stmts.push(statements::simple_assign(
                 local_name,
                 expressions::name(&renamed_symbol, ExprContext::Load),
