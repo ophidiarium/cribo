@@ -1615,20 +1615,20 @@ fn find_symbol_source_module(
             continue;
         };
 
-        let resolved_module = resolve_import_module(ctx, import_from, module_path)?;
-
-        // Check if our symbol is in this import
-        for alias in &import_from.names {
-            if alias.name.as_str() == symbol_name {
-                // Check if the source module is a wrapper module
-                if ctx.module_registry.contains_key(&resolved_module) {
-                    debug!(
-                        "Symbol '{symbol_name}' in module '{module_name}' is imported from wrapper \
-                         module '{resolved_module}'"
-                    );
-                    return Some(resolved_module);
+        if let Some(resolved_module) = resolve_import_module(ctx, import_from, module_path) {
+            // Check if our symbol is in this import
+            for alias in &import_from.names {
+                if alias.name.as_str() == symbol_name {
+                    // Check if the source module is a wrapper module
+                    if ctx.module_registry.contains_key(&resolved_module) {
+                        debug!(
+                            "Symbol '{symbol_name}' in module '{module_name}' is imported from wrapper \
+                             module '{resolved_module}'"
+                        );
+                        return Some(resolved_module);
+                    }
+                    break;
                 }
-                break;
             }
         }
     }

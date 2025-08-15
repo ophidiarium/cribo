@@ -12,7 +12,7 @@ yaml_pkg = types.SimpleNamespace(__name__='yaml_pkg')
 yaml_pkg_meta = types.SimpleNamespace(__name__='yaml_pkg.meta')
 yaml_pkg.meta = yaml_pkg_meta
 @functools.cache
-def __cribo_init___cribo_8f3063_yaml_pkg_base():
+def __cribo_init___cribo_8a246b_yaml_pkg_base():
     module = types.SimpleNamespace()
     module.__name__ = 'yaml_pkg.base'
     global YAMLObjectMetaclass
@@ -31,10 +31,10 @@ class YAMLObjectMetaclass(type):
 
     def __init__(cls, name, bases, kwds):
         super(YAMLObjectMetaclass, cls).__init__(name, bases, kwds)
-        if not hasattr(cls, 'yaml_tag') or cls.yaml_tag is None:
-            cls.yaml_tag = f'!{name}'
+        if not hasattr(cls, "yaml_tag") or cls.yaml_tag is None:
+            cls.yaml_tag = f"!{name}"
 YAMLObjectMetaclass.__module__ = 'yaml_pkg.meta'
-yaml_pkg.base = __cribo_init___cribo_8f3063_yaml_pkg_base()
+yaml_pkg.base = __cribo_init___cribo_8a246b_yaml_pkg_base()
 yaml_pkg_meta.YAMLObjectMetaclass = YAMLObjectMetaclass
 yaml_pkg.YAMLObject = yaml_pkg.base.YAMLObject
 obj = yaml_pkg.YAMLObject()
