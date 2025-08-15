@@ -49,6 +49,9 @@ def __cribo_init___cribo_1309dd_yaml_module():
     yaml_module.other = __cribo_init___cribo_1fd8cb_yaml_module_other()
     OtherYAMLObject = yaml_module.other.YAMLObject
     module.OtherYAMLObject = OtherYAMLObject
+    yaml_module.other = __cribo_init___cribo_1fd8cb_yaml_module_other()
+    OtherYAMLObjectMetaclass = yaml_module.other.YAMLObjectMetaclass
+    module.OtherYAMLObjectMetaclass = OtherYAMLObjectMetaclass
 
     class YAMLObjectMetaclass(type):
         """The metaclass for YAMLObject"""

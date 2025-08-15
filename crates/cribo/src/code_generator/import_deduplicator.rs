@@ -759,7 +759,10 @@ pub(super) fn trim_unused_imports_from_modules(
                                 // Check if this imported symbol itself is marked as used by tree shaker
                                 // This handles the case where the symbol is accessed via module attributes
                                 // (e.g., yaml_module.OtherYAMLObject where OtherYAMLObject is from an import)
-                                if shaker.is_symbol_used(module_name, local_name) {
+                                // Check both the local name (alias) and the original imported name
+                                if shaker.is_symbol_used(module_name, local_name)
+                                    || shaker.is_symbol_used(module_name, imported_name)
+                                {
                                     log::debug!(
                                         "Skipping tree-shaking for import '{local_name}' from \
                                          '{from_module}' - symbol is marked as used"
