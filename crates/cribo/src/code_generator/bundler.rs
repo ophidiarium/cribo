@@ -894,34 +894,30 @@ impl<'a> Bundler<'a> {
                     locally_initialized.insert(module_name.to_string());
                 }
 
-                // Check if this symbol is re-exported from an inlined submodule
-                // If it is, we should use the global symbol directly instead of accessing through the wrapper
-                // But only if the symbol is NOT directly defined in the wrapper module itself
+                // Check if this symbol is re-exported from an inlined submodule.
+                // If it is, use the globally inlined symbol (respecting semantic renames)
+                // instead of wrapper attribute access.
                 if self.module_registry.contains_key(module_name) {
-                    // This is a wrapper module
-                    // First check if the symbol is directly defined in the wrapper module
-                    let is_defined_in_wrapper =
-                        if let Some(exports) = self.module_exports.get(module_name) {
-                            if let Some(_export_list) = exports {
-                                // Check if the symbol is in the export list AND not just re-exported
-                                // We need to check if it's actually defined in the module
-                                // For now, we'll assume symbols defined in wrapper modules stay in the wrapper
-                                false
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
+                    // Keep current semantics: we don't attempt to detect "directly defined in wrapper" here.
+                    let is_defined_in_wrapper = false;
 
                     if !is_defined_in_wrapper
-                        && let Some(global_name) =
-                            self.is_symbol_from_inlined_submodule(module_name, imported_name)
+                        && let Some((source_module, source_symbol)) =
+                            self.is_symbol_from_inlined_submodule(module_name, target_name.as_str())
                     {
-                        // The symbol is re-exported from an inlined submodule
-                        // Use the global symbol directly
+                        // Map to the effective global name considering semantic renames of the source module.
+                        let global_name = _symbol_renames
+                            .get(&source_module)
+                            .and_then(|m| m.get(&source_symbol))
+                            .cloned()
+                            .unwrap_or_else(|| source_symbol.clone());
+
                         log::debug!(
-                            "Using global symbol '{global_name}' for re-exported symbol '{imported_name}' from wrapper module '{module_name}'"
+                            "Using global symbol '{}' from inlined submodule '{}' for re-exported symbol '{}' in wrapper '{}'",
+                            global_name,
+                            source_module,
+                            target_name.as_str(),
+                            module_name
                         );
 
                         let assignment = statements::simple_assign(
@@ -973,8 +969,8 @@ impl<'a> Bundler<'a> {
     fn is_symbol_from_inlined_submodule(
         &self,
         module_name: &str,
-        symbol_name: &str,
-    ) -> Option<String> {
+        local_name: &str,
+    ) -> Option<(String, String)> {
         // We need to check if this symbol is imported from a submodule and re-exported
         // Use the graph to check if the symbol is locally defined or imported
 
@@ -1032,13 +1028,13 @@ impl<'a> Bundler<'a> {
                     {
                         // Check if this import includes our symbol
                         for (imported_name, alias) in names {
-                            let local_name = alias.as_ref().unwrap_or(imported_name);
-                            if local_name == symbol_name {
+                            let local = alias.as_ref().unwrap_or(imported_name);
+                            if local == local_name {
                                 log::debug!(
-                                    "Symbol '{symbol_name}' in module '{module_name}' is re-exported from inlined submodule '{resolved_module}'"
+                                    "Symbol '{local_name}' in module '{module_name}' is re-exported from inlined submodule '{resolved_module}' (original name: '{imported_name}')"
                                 );
-                                // The symbol should be available at global scope with the same name
-                                return Some(symbol_name.to_string());
+                                // Return source module and original symbol name so caller can resolve renames
+                                return Some((resolved_module, imported_name.to_string()));
                             }
                         }
                     }
