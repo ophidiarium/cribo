@@ -72,7 +72,7 @@ pub fn find_symbol_source_from_wrapper_module(
 /// Resolves an import statement to an absolute module name.
 ///
 /// Handles both relative and absolute imports.
-fn resolve_import_module(
+pub fn resolve_import_module(
     resolver: &ModuleResolver,
     import_from: &StmtImportFrom,
     module_path: &Path,

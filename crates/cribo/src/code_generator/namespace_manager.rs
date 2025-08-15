@@ -3,7 +3,7 @@
 //! This module provides functions for creating and managing Python namespace objects
 //! that simulate module structures in bundled code.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use log::debug;
 use ruff_python_ast::{
@@ -1566,7 +1566,11 @@ fn is_symbol_from_inlined_submodule(
             continue;
         };
 
-        let resolved_module = resolve_import_module(ctx, import_from, module_path);
+        let resolved_module = crate::code_generator::symbol_source::resolve_import_module(
+            ctx.resolver,
+            import_from,
+            module_path,
+        );
 
         if let Some(ref resolved) = resolved_module {
             // Check if the resolved module is inlined
@@ -1608,26 +1612,4 @@ fn find_symbol_source_module(
         module_name,
         symbol_name,
     )
-}
-
-/// Resolve the module name from an import statement.
-///
-/// This helper function reduces nesting by extracting the module resolution logic.
-fn resolve_import_module(
-    ctx: &NamespacePopulationContext,
-    import_from: &StmtImportFrom,
-    module_path: &Path,
-) -> Option<String> {
-    if import_from.level > 0 {
-        ctx.resolver.resolve_relative_to_absolute_module_name(
-            import_from.level,
-            import_from
-                .module
-                .as_ref()
-                .map(ruff_python_ast::Identifier::as_str),
-            module_path,
-        )
-    } else {
-        import_from.module.as_ref().map(|m| m.as_str().to_string())
-    }
 }
