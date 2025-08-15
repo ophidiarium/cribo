@@ -6,7 +6,7 @@ use cow_utils::CowUtils;
 use ruff_python_ast::{
     AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprCall, ExprContext, ExprFString,
     ExprName, FString, FStringValue, Identifier, InterpolatedElement, InterpolatedStringElement,
-    InterpolatedStringElements, Keyword, ModModule, Stmt, StmtAssign, StmtImport, StmtImportFrom,
+    InterpolatedStringElements, Keyword, ModModule, Stmt, StmtImport, StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
@@ -1420,23 +1420,15 @@ impl<'a> RecursiveImportTransformer<'a> {
                                             expressions::name(resolved, ExprContext::Load)
                                         };
 
-                                        let assign_stmt = Stmt::Assign(StmtAssign {
-                                            targets: vec![Expr::Name(ExprName {
-                                                id: export.to_string().into(),
-                                                ctx: ExprContext::Store,
-                                                range: TextRange::default(),
-                                                node_index: AtomicNodeIndex::dummy(),
-                                            })],
-                                            value: Box::new(Expr::Attribute(ExprAttribute {
-                                                value: Box::new(module_ref),
-                                                attr: Identifier::new(export, TextRange::default()),
-                                                ctx: ExprContext::Load,
-                                                range: TextRange::default(),
-                                                node_index: AtomicNodeIndex::dummy(),
-                                            })),
-                                            range: TextRange::default(),
-                                            node_index: AtomicNodeIndex::dummy(),
-                                        });
+                                        // Use ast_builder to create the assignment
+                                        let target = expressions::name(export, ExprContext::Store);
+                                        let value = expressions::attribute(
+                                            module_ref,
+                                            export,
+                                            ExprContext::Load,
+                                        );
+                                        let assign_stmt = statements::assign(vec![target], value);
+
                                         // Defer the assignment
                                         self.deferred_imports.push(assign_stmt);
                                     }
