@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.15](https://github.com/ophidiarium/cribo/compare/v0.5.14...v0.5.15) (2025-08-15)
+
+
+### Bug Fixes
+
+* apply renames to metaclass keyword arguments in class definitions ([#295](https://github.com/ophidiarium/cribo/issues/295)) ([894f45b](https://github.com/ophidiarium/cribo/commit/894f45b9e8ae5a47ace9086af71dd082c9ccbcd7))
+* correctly reference symbols from wrapper modules in namespace assignments ([#298](https://github.com/ophidiarium/cribo/issues/298)) ([b78c0a8](https://github.com/ophidiarium/cribo/commit/b78c0a8edcfefaa04daccf43a0c54cb331bdcf49))
+* handle wildcard imports correctly for wrapper and inlined modules ([#294](https://github.com/ophidiarium/cribo/issues/294)) ([23d3594](https://github.com/ophidiarium/cribo/commit/23d3594e555b51a0383c355d579980be05d36e5e))
+* initialize wrapper modules for lazy imports in inlined modules ([#289](https://github.com/ophidiarium/cribo/issues/289)) ([828c554](https://github.com/ophidiarium/cribo/commit/828c5546044581be31a6926c6347f890f48c9e7f))
+* resolve metaclass forward references and tree-shaking for same-module dependencies ([#296](https://github.com/ophidiarium/cribo/issues/296)) ([b564cd6](https://github.com/ophidiarium/cribo/commit/b564cd6d33ac15569e1bfa21929f78bcb88f1136))
+* resolve metaclass forward references and tree-shaking for same-module dependencies ([#297](https://github.com/ophidiarium/cribo/issues/297)) ([92aedc4](https://github.com/ophidiarium/cribo/commit/92aedc4d2d39e9fd28f8b0a2e6fe1feb9160b1cd))
+
 ## [0.5.14](https://github.com/ophidiarium/cribo/compare/v0.5.13...v0.5.14) (2025-08-14)
 
 
