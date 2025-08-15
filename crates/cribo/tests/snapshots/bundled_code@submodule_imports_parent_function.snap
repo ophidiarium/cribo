@@ -20,7 +20,6 @@ def get_result():
 def __cribo_init___cribo_dca395_pkg_submodule():
     module = types.SimpleNamespace()
     module.__name__ = 'pkg.submodule'
-    global get_base
     """Submodule that becomes a wrapper module due to module-level import from parent."""
     computed_value = f"computed: {get_base()}"
     module.computed_value = computed_value

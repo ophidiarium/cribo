@@ -15,7 +15,6 @@ mypackage.core = mypackage_core
 def __cribo_init___cribo_35f1d1_mypackage_utils():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage.utils'
-    global __version__
     """Utils module that imports from __version__ module and uses it at module level."""
     VERSION_PREFIX = f"v{__version__}"
     module.VERSION_PREFIX = VERSION_PREFIX

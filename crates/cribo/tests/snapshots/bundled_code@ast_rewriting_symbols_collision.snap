@@ -352,7 +352,6 @@ Connection_5.__qualname__ = 'Connection'
 def __cribo_init___cribo_6ccb3a_services_auth_manager():
     module = types.SimpleNamespace()
     module.__name__ = 'services.auth.manager'
-    global Connection, base
     DBConnection = Connection_5
     Optional = typing.Optional
     module.Optional = Optional
@@ -393,6 +392,7 @@ def __cribo_init___cribo_6ccb3a_services_auth_manager():
             """Method with same name as global functions"""
             self.connection = DBConnection()
             return f"User {self.username} connected"
+    User.__module__ = 'services.auth.manager'
     module.User = User
 
     class Connection:
@@ -409,6 +409,7 @@ def __cribo_init___cribo_6ccb3a_services_auth_manager():
         def process(self, User: str) -> str:
             """Process with parameter name conflicts"""
             return f"auth_connection_process: {User}"
+    Connection.__module__ = 'services.auth.manager'
     module.Connection = Connection
 
     def process(data: typing.Any) -> str:
@@ -478,7 +479,9 @@ def __cribo_init___cribo_6ccb3a_services_auth_manager():
                 connection_process = connection.process(User.username)
                 result.append({"user": User.username, "process": user_result, "validate": validate_result, "connection": connection_process})
             return {"manager_results": result}
+    AuthManager.__module__ = 'services.auth.manager'
     module.AuthManager = AuthManager
+    module.DBConnection = DBConnection
     return module
 core_validate = validate_5
 UserLogger = Logger_2

@@ -27,7 +27,6 @@ def __cribo_init___cribo_ddd935_mypackage():
 def __cribo_init___cribo_09b9b3_mypackage_utils():
     module = types.SimpleNamespace()
     module.__name__ = 'mypackage.utils'
-    global CustomError
     DEFAULT_PATH = os.environ.get("DEFAULT_PATH", "/tmp")
     module.DEFAULT_PATH = DEFAULT_PATH
 
