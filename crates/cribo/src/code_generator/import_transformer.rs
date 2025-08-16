@@ -73,6 +73,18 @@ pub struct RecursiveImportTransformer<'a> {
 }
 
 impl<'a> RecursiveImportTransformer<'a> {
+    /// Check if a condition is a `TYPE_CHECKING` check
+    fn is_type_checking_condition(expr: &Expr) -> bool {
+        match expr {
+            Expr::Name(name) => name.id.as_str() == "TYPE_CHECKING",
+            Expr::Attribute(attr) => {
+                attr.attr.as_str() == "TYPE_CHECKING"
+                    && matches!(&*attr.value, Expr::Name(name) if name.id.as_str() == "typing")
+            }
+            _ => false,
+        }
+    }
+
     /// Create a new transformer from parameters
     #[allow(clippy::needless_pass_by_value)] // params contains mutable references
     pub fn new(params: RecursiveImportTransformerParams<'a>) -> Self {
@@ -400,11 +412,30 @@ impl<'a> RecursiveImportTransformer<'a> {
                     Stmt::If(if_stmt) => {
                         self.transform_expr(&mut if_stmt.test);
                         self.transform_statements(&mut if_stmt.body);
+
+                        // Check if this is a TYPE_CHECKING block and ensure it has a body
+                        if if_stmt.body.is_empty()
+                            && Self::is_type_checking_condition(&if_stmt.test)
+                        {
+                            log::debug!(
+                                "Adding pass statement to empty TYPE_CHECKING block in import transformer"
+                            );
+                            if_stmt.body.push(crate::ast_builder::statements::pass());
+                        }
+
                         for clause in &mut if_stmt.elif_else_clauses {
                             if let Some(test_expr) = &mut clause.test {
                                 self.transform_expr(test_expr);
                             }
                             self.transform_statements(&mut clause.body);
+
+                            // Ensure non-empty body for elif/else clauses too
+                            if clause.body.is_empty() {
+                                log::debug!(
+                                    "Adding pass statement to empty elif/else clause in import transformer"
+                                );
+                                clause.body.push(crate::ast_builder::statements::pass());
+                            }
                         }
                     }
                     Stmt::While(while_stmt) => {
