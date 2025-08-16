@@ -5018,6 +5018,18 @@ impl<'a> Bundler<'a> {
         None
     }
 
+    /// Check if a condition is a `TYPE_CHECKING` check
+    fn is_type_checking_condition(expr: &Expr) -> bool {
+        match expr {
+            Expr::Name(name) => name.id.as_str() == "TYPE_CHECKING",
+            Expr::Attribute(attr) => {
+                attr.attr.as_str() == "TYPE_CHECKING"
+                    && matches!(&*attr.value, Expr::Name(name) if name.id.as_str() == "typing")
+            }
+            _ => false,
+        }
+    }
+
     /// Process module body recursively to handle conditional imports
     pub fn process_body_recursive(
         &self,
@@ -5042,24 +5054,39 @@ impl<'a> Bundler<'a> {
             match &stmt {
                 Stmt::If(if_stmt) => {
                     // Process if body recursively (inside conditional context)
-                    let processed_body = self.process_body_recursive_impl(
+                    let mut processed_body = self.process_body_recursive_impl(
                         if_stmt.body.clone(),
                         module_name,
                         module_scope_symbols,
                         true,
                     );
 
+                    // Check if this is a TYPE_CHECKING block and ensure it has a body
+                    if processed_body.is_empty() && Self::is_type_checking_condition(&if_stmt.test)
+                    {
+                        log::debug!("Adding pass statement to empty TYPE_CHECKING block");
+                        // Add a pass statement to avoid IndentationError
+                        processed_body.push(statements::pass());
+                    }
+
                     // Process elif/else clauses
                     let processed_elif_else = if_stmt
                         .elif_else_clauses
                         .iter()
                         .map(|clause| {
-                            let processed_clause_body = self.process_body_recursive_impl(
+                            let mut processed_clause_body = self.process_body_recursive_impl(
                                 clause.body.clone(),
                                 module_name,
                                 module_scope_symbols,
                                 true,
                             );
+
+                            // Ensure non-empty body for elif/else clauses too
+                            if processed_clause_body.is_empty() {
+                                log::debug!("Adding pass statement to empty elif/else clause");
+                                processed_clause_body.push(statements::pass());
+                            }
+
                             ruff_python_ast::ElifElseClause {
                                 node_index: clause.node_index.clone(),
                                 test: clause.test.clone(),
