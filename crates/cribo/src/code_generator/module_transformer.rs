@@ -166,30 +166,27 @@ pub fn transform_module_to_init_function<'a>(
 
         // Filter out tree-shaken symbols
         if let Some(ref tree_shaking_keep) = bundler.tree_shaking_keep_symbols {
-            // For wildcard imports, the symbols come from submodules (e.g., yaml_module.loader)
-            // We need to check each symbol against the appropriate source module.
-            // Create a flattened set of all kept symbols for efficient lookup.
-            let all_kept_symbols: crate::types::FxHashSet<_> =
-                tree_shaking_keep.values().flatten().collect();
-
-            unique_imports.retain(|symbol| {
-                if all_kept_symbols.contains(symbol) {
-                    if log::log_enabled!(log::Level::Debug) {
-                        // This find is only executed when debug logging is enabled.
-                        let module_name = tree_shaking_keep
-                            .iter()
-                            .find(|(_, symbols)| symbols.contains(symbol))
-                            .map_or("unknown", |(name, _)| name.as_str());
-                        debug!("Symbol '{symbol}' kept by tree-shaking from module '{module_name}'");
+            // Use the pre-computed global set of kept symbols for efficient lookup.
+            if let Some(ref all_kept_symbols) = bundler.kept_symbols_global {
+                unique_imports.retain(|symbol| {
+                    if all_kept_symbols.contains(symbol) {
+                        if log::log_enabled!(log::Level::Debug) {
+                            // This find is only executed when debug logging is enabled.
+                            let module_name = tree_shaking_keep
+                                .iter()
+                                .find(|(_, symbols)| symbols.contains(symbol))
+                                .map_or("unknown", |(name, _)| name.as_str());
+                            debug!("Symbol '{symbol}' kept by tree-shaking from module '{module_name}'");
+                        }
+                        true
+                    } else {
+                        debug!(
+                            "Symbol '{symbol}' was removed by tree-shaking, excluding from global declaration"
+                        );
+                        false
                     }
-                    true
-                } else {
-                    debug!(
-                        "Symbol '{symbol}' was removed by tree-shaking, excluding from global declaration"
-                    );
-                    false
-                }
-            });
+                });
+            }
         }
 
         debug!(
