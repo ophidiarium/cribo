@@ -189,12 +189,11 @@ pub fn transform_module_to_init_function<'a>(
             }
         }
 
-        debug!(
-            "Adding global declaration for imported symbols from inlined modules: \
-             {unique_imports:?}"
-        );
-
         if !unique_imports.is_empty() {
+            debug!(
+                "Adding global declaration for imported symbols from inlined modules: \
+                 {unique_imports:?}"
+            );
             body.push(Stmt::Global(StmtGlobal {
                 node_index: AtomicNodeIndex::dummy(),
                 names: unique_imports
