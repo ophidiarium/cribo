@@ -78,7 +78,7 @@ def __cribo_init___cribo_e43fad_conditional_module():
     except ImportError:
         import json
         module.json = json
-    if has_simplejson:
+    if module.has_simplejson:
         from simplejson import JSONDecodeError
         module.JSONDecodeError = JSONDecodeError
     else:
@@ -96,7 +96,7 @@ def __cribo_init___cribo_e43fad_conditional_module():
         module.my_str = my_str
     basestring = str, bytes
     module.basestring = basestring
-    if has_simplejson:
+    if module.has_simplejson:
         if hasattr(json, "JSONDecodeError"):
             pass
         else:

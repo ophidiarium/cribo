@@ -4741,36 +4741,35 @@ impl<'a> Bundler<'a> {
             return false;
         }
 
-        // If tree-shaking is enabled, check if the symbol was kept
-        if let Some(ref tree_shaking_keep) = self.tree_shaking_keep_symbols
-            && let Some(kept_symbols) = tree_shaking_keep.get(module_name)
-                && !kept_symbols.contains(symbol_name) {
-                    log::debug!(
-                        "Symbol '{symbol_name}' from module '{module_name}' was removed by tree-shaking, \
-                         not exporting"
-                    );
-                    return false;
-                }
-
         // Check if the module has explicit __all__ exports
         if let Some(Some(exports)) = self.module_exports.get(module_name) {
-            // Module defines __all__, only export symbols listed there
-            let result = exports.contains(&symbol_name.to_string());
-            log::debug!(
-                "Module '{module_name}' has explicit __all__ exports: {exports:?}, symbol \
-                 '{symbol_name}' included: {result}"
-            );
-            result
-        } else {
-            // No __all__ defined, use default Python visibility rules
-            // Export all symbols that don't start with underscore
-            let result = !symbol_name.starts_with('_');
-            log::debug!(
-                "Module '{module_name}' has no explicit __all__, symbol '{symbol_name}' should \
-                 export: {result}"
-            );
-            result
+            // Module defines __all__, check if symbol is listed there
+            if exports.contains(&symbol_name.to_string()) {
+                // Symbol is in __all__, it should be exported
+                // For re-exported symbols (imported and then in __all__), they'll be
+                // available in scope and should be exported regardless of tree-shaking
+                log::debug!(
+                    "Symbol '{symbol_name}' is in module '{module_name}' __all__ list, exporting"
+                );
+                return true;
+            }
         }
+
+        // For symbols not in __all__ (or if no __all__ is defined), check tree-shaking
+        if !self.is_symbol_kept_by_tree_shaking(module_name, symbol_name) {
+            log::debug!(
+                "Symbol '{symbol_name}' from module '{module_name}' was removed by tree-shaking; not exporting"
+            );
+            return false;
+        }
+
+        // No __all__ defined or symbol not in __all__, use default Python visibility rules
+        // Export all symbols that don't start with underscore
+        let result = !symbol_name.starts_with('_');
+        log::debug!(
+            "Module '{module_name}' symbol '{symbol_name}' using default visibility: {result}"
+        );
+        result
     }
 
     /// Extract simple assignment target name

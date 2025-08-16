@@ -54,7 +54,7 @@ Loader.__module__ = 'yaml_module.loader'
 FullLoader.__module__ = 'yaml_module.loader'
 UnsafeLoader.__module__ = 'yaml_module.loader'
 @functools.cache
-def __cribo_init___cribo_8d28cc_yaml_module():
+def __cribo_init___cribo_952a76_yaml_module():
     module = types.SimpleNamespace()
     module.__name__ = 'yaml_module'
     global BaseDumper, BaseLoader, Dumper, FullLoader, Loader, UnsafeLoader
@@ -64,9 +64,9 @@ def __cribo_init___cribo_8d28cc_yaml_module():
 
         def __init__(cls, name, bases, kwds):
             super().__init__(name, bases, kwds)
-            if 'yaml_tag' in kwds and kwds.get('yaml_tag') is not None:
+            if "yaml_tag" in kwds and kwds.get("yaml_tag") is not None:
                 print(f"Metaclass: Registering {name} with tag {kwds['yaml_tag']}")
-                if hasattr(cls, 'yaml_loader'):
+                if hasattr(cls, "yaml_loader"):
                     if isinstance(cls.yaml_loader, list):
                         for loader in cls.yaml_loader:
                             print(f"  - Would register with {loader.__name__}")
@@ -97,16 +97,22 @@ def __cribo_init___cribo_8d28cc_yaml_module():
     module.YAMLObject = YAMLObject
     module.dumper = yaml_module_dumper
     module.loader = yaml_module_loader
+    module.BaseLoader = BaseLoader
+    module.Loader = Loader
+    module.FullLoader = FullLoader
+    module.UnsafeLoader = UnsafeLoader
+    module.BaseDumper = BaseDumper
+    module.Dumper = Dumper
     return module
-"""\nTest fixture for wildcard imports with metaclass ordering.\n\nThis tests that when using wildcard imports, symbols from __all__ \nare properly included even if not directly used in the class body.\n"""
-yaml_module = __cribo_init___cribo_8d28cc_yaml_module()
-assert hasattr(yaml_module, 'YAMLObject')
-assert hasattr(yaml_module, 'YAMLObjectMetaclass')
+"""\nTest fixture for wildcard imports with metaclass ordering.\n\nThis tests that when using wildcard imports, symbols from __all__\nare properly included even if not directly used in the class body.\n"""
+yaml_module = __cribo_init___cribo_952a76_yaml_module()
+assert hasattr(yaml_module, "YAMLObject")
+assert hasattr(yaml_module, "YAMLObjectMetaclass")
 print("Testing YAMLObject...")
 obj = yaml_module.YAMLObject()
 print(f"YAMLObject created: {obj}")
 print(f"YAMLObject has metaclass: {type(yaml_module.YAMLObject).__name__}")
 class CustomYAML(yaml_module.YAMLObject):
-    yaml_tag = '!custom'
+    yaml_tag = "!custom"
 print("CustomYAML class created successfully")
 print("All tests passed!")

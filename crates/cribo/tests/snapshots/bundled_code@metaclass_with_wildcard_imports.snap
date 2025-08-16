@@ -85,6 +85,7 @@ def __cribo_init___cribo_5b2acd_yaml_pkg():
     module.YAMLObject = YAMLObject
     module.dumper = yaml_pkg_dumper
     module.loader = yaml_pkg_loader
+    module.BaseLoader = BaseLoader
     module.Loader = Loader
     module.FullLoader = FullLoader
     module.Dumper = Dumper

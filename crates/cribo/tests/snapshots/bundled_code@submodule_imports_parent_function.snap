@@ -27,6 +27,7 @@ def __cribo_init___cribo_dca395_pkg_submodule():
     def process():
         return module.computed_value
     module.process = process
+    module.get_base = get_base
     return module
 pkg.base_value = base_value
 pkg.get_base = get_base

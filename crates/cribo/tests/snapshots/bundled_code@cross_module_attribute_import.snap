@@ -23,6 +23,7 @@ def __cribo_init___cribo_35f1d1_mypackage_utils():
         """Return version information using the imported __version__ variable."""
         return module.VERSION_PREFIX
     module.get_version_info = get_version_info
+    module.__version__ = __version__
     return module
 __version__ = "1.0.0"
 def get_full_info():

@@ -36,7 +36,7 @@ def __cribo_init___cribo_244765_compat_module():
     except ImportError:
         import json
         module.json = json
-    if has_simplejson:
+    if module.has_simplejson:
         from simplejson import JSONDecodeError
         module.JSONDecodeError = JSONDecodeError
     else:

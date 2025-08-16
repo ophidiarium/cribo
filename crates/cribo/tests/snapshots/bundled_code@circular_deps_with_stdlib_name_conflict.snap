@@ -26,6 +26,7 @@ def __cribo_init___cribo_2353ad_pkg_pretty():
     Any = typing.Any
     module.Any = Any
     """Pretty printing module with circular dependency on console."""
+    module.RichRenderable = RichRenderable
 
     class PrettyPrinter(RichRenderable):
         """Pretty printer that implements RichRenderable."""
@@ -51,6 +52,7 @@ def __cribo_init___cribo_2353ad_pkg_pretty():
             return f"<Renderable: {obj}>"
         return repr(obj)
     module.format_pretty = format_pretty
+    module.Console = Console
     return module
 abstractmethod = abc.abstractmethod
 class RichRenderable(abc.ABC):

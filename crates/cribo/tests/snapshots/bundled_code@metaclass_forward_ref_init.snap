@@ -24,6 +24,7 @@ def __cribo_init___cribo_8a246b_yaml_pkg_base():
             return f"YAMLObject(tag={self.yaml_tag})"
     YAMLObject.__module__ = 'yaml_pkg.base'
     module.YAMLObject = YAMLObject
+    module.YAMLObjectMetaclass = YAMLObjectMetaclass
     return module
 class YAMLObjectMetaclass(type):
     """Metaclass that adds yaml_tag"""
