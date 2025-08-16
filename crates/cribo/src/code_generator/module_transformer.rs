@@ -163,18 +163,46 @@ pub fn transform_module_to_init_function<'a>(
             .cloned()
             .collect();
         unique_imports.sort();
-        debug!(
-            "Adding global declaration for imported symbols from inlined modules: \
-             {unique_imports:?}"
-        );
-        body.push(Stmt::Global(StmtGlobal {
-            node_index: AtomicNodeIndex::dummy(),
-            names: unique_imports
-                .iter()
-                .map(|name| Identifier::new(name, TextRange::default()))
-                .collect(),
-            range: TextRange::default(),
-        }));
+
+        // Filter out tree-shaken symbols
+        if let Some(ref tree_shaking_keep) = bundler.tree_shaking_keep_symbols {
+            // Use the pre-computed global set of kept symbols for efficient lookup.
+            if let Some(ref all_kept_symbols) = bundler.kept_symbols_global {
+                unique_imports.retain(|symbol| {
+                    if all_kept_symbols.contains(symbol) {
+                        if log::log_enabled!(log::Level::Debug) {
+                            // This find is only executed when debug logging is enabled.
+                            let module_name = tree_shaking_keep
+                                .iter()
+                                .find(|(_, symbols)| symbols.contains(symbol))
+                                .map_or("unknown", |(name, _)| name.as_str());
+                            debug!("Symbol '{symbol}' kept by tree-shaking from module '{module_name}'");
+                        }
+                        true
+                    } else {
+                        debug!(
+                            "Symbol '{symbol}' was removed by tree-shaking, excluding from global declaration"
+                        );
+                        false
+                    }
+                });
+            }
+        }
+
+        if !unique_imports.is_empty() {
+            debug!(
+                "Adding global declaration for imported symbols from inlined modules: \
+                 {unique_imports:?}"
+            );
+            body.push(Stmt::Global(StmtGlobal {
+                node_index: AtomicNodeIndex::dummy(),
+                names: unique_imports
+                    .iter()
+                    .map(|name| Identifier::new(name, TextRange::default()))
+                    .collect(),
+                range: TextRange::default(),
+            }));
+        }
     }
 
     // IMPORTANT: Add import alias assignments FIRST, before processing the module body
@@ -1990,10 +2018,17 @@ fn process_wildcard_import(
         // Module has explicit __all__, use it
         for symbol in export_list {
             if symbol != "*" {
-                debug!(
-                    "Tracking wildcard-imported symbol '{symbol}' from inlined module '{module}'"
-                );
-                imports_from_inlined.push(symbol.clone());
+                // Check if the symbol was kept by tree-shaking
+                if bundler.is_symbol_kept_by_tree_shaking(module, symbol) {
+                    debug!(
+                        "Tracking wildcard-imported symbol '{symbol}' from inlined module '{module}'"
+                    );
+                    imports_from_inlined.push(symbol.clone());
+                } else {
+                    debug!(
+                        "Skipping wildcard-imported symbol '{symbol}' from inlined module '{module}' - removed by tree-shaking"
+                    );
+                }
             }
         }
         return;
@@ -2006,10 +2041,17 @@ fn process_wildcard_import(
             for (original_name, renamed_name) in renames {
                 // Track the renamed symbol (which is what will be in the global scope)
                 if !renamed_name.starts_with('_') {
-                    debug!(
-                        "Tracking wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}'"
-                    );
-                    imports_from_inlined.push(renamed_name.clone());
+                    // Check if the original symbol was kept by tree-shaking
+                    if bundler.is_symbol_kept_by_tree_shaking(module, original_name) {
+                        debug!(
+                            "Tracking wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}'"
+                        );
+                        imports_from_inlined.push(renamed_name.clone());
+                    } else {
+                        debug!(
+                            "Skipping wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}' - removed by tree-shaking"
+                        );
+                    }
                 }
             }
             return;
@@ -2019,10 +2061,17 @@ fn process_wildcard_import(
         if let Some(semantic) = bundler.semantic_exports.get(module) {
             for symbol in semantic {
                 if !symbol.starts_with('_') {
-                    debug!(
-                        "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}'"
-                    );
-                    imports_from_inlined.push(symbol.clone());
+                    // Check if the symbol was kept by tree-shaking
+                    if bundler.is_symbol_kept_by_tree_shaking(module, symbol) {
+                        debug!(
+                            "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}'"
+                        );
+                        imports_from_inlined.push(symbol.clone());
+                    } else {
+                        debug!(
+                            "Skipping wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}' - removed by tree-shaking"
+                        );
+                    }
                 }
             }
             return;

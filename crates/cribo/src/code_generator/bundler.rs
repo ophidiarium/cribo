@@ -143,6 +143,9 @@ pub struct Bundler<'a> {
     /// Set of (`accessing_module`, `accessed_alias`) pairs to handle alias collisions
     /// Only these modules need their __all__ emitted in the bundle
     pub(crate) modules_with_accessed_all: FxIndexSet<(String, String)>,
+    /// Global cache of all kept symbols for O(1) lookup
+    /// Populated from `tree_shaking_keep_symbols` for efficient symbol existence checks
+    pub(crate) kept_symbols_global: Option<FxIndexSet<String>>,
 }
 
 impl std::fmt::Debug for Bundler<'_> {
@@ -256,6 +259,7 @@ impl<'a> Bundler<'a> {
             namespace_assignments_made: FxIndexSet::default(),
             symbols_populated_after_deferred: FxIndexSet::default(),
             modules_with_accessed_all: FxIndexSet::default(),
+            kept_symbols_global: None,
         }
     }
 
@@ -1649,6 +1653,25 @@ impl<'a> Bundler<'a> {
                     .as_ref()
                     .map_or(0, indexmap::IndexMap::len)
             );
+
+            // Populate global cache of all kept symbols for O(1) lookup
+            if let Some(ref kept_by_module) = self.tree_shaking_keep_symbols {
+                // Pre-reserve capacity to avoid re-allocations
+                let estimated_capacity: usize =
+                    kept_by_module.values().map(indexmap::IndexSet::len).sum();
+                let mut all_kept = FxIndexSet::default();
+                all_kept.reserve(estimated_capacity);
+
+                for symbols in kept_by_module.values() {
+                    // Strings are already owned; clone to populate the global set
+                    all_kept.extend(symbols.iter().cloned());
+                }
+                log::debug!(
+                    "Populated global kept symbols cache with {} unique symbols",
+                    all_kept.len()
+                );
+                self.kept_symbols_global = Some(all_kept);
+            }
         }
 
         // Extract modules that access __all__ from the pre-computed graph data
@@ -4743,23 +4766,42 @@ impl<'a> Bundler<'a> {
 
         // Check if the module has explicit __all__ exports
         if let Some(Some(exports)) = self.module_exports.get(module_name) {
-            // Module defines __all__, only export symbols listed there
-            let result = exports.contains(&symbol_name.to_string());
-            log::debug!(
-                "Module '{module_name}' has explicit __all__ exports: {exports:?}, symbol \
-                 '{symbol_name}' included: {result}"
-            );
-            result
-        } else {
-            // No __all__ defined, use default Python visibility rules
-            // Export all symbols that don't start with underscore
-            let result = !symbol_name.starts_with('_');
-            log::debug!(
-                "Module '{module_name}' has no explicit __all__, symbol '{symbol_name}' should \
-                 export: {result}"
-            );
-            result
+            // Module defines __all__, check if symbol is listed there
+            if exports.iter().any(|s| s == symbol_name) {
+                // Symbol is in __all__. For re-exported symbols, check if the symbol exists anywhere in the bundle.
+                let should_export = match &self.kept_symbols_global {
+                    Some(kept) => kept.contains(symbol_name),
+                    None => true, // No tree-shaking, export everything in __all__
+                };
+
+                if should_export {
+                    log::debug!(
+                        "Symbol '{symbol_name}' is in module '{module_name}' __all__ list, exporting"
+                    );
+                } else {
+                    log::debug!(
+                        "Symbol '{symbol_name}' is in __all__ but was completely removed by tree-shaking, not exporting"
+                    );
+                }
+                return should_export;
+            }
         }
+
+        // For symbols not in __all__ (or if no __all__ is defined), check tree-shaking
+        if !self.is_symbol_kept_by_tree_shaking(module_name, symbol_name) {
+            log::debug!(
+                "Symbol '{symbol_name}' from module '{module_name}' was removed by tree-shaking; not exporting"
+            );
+            return false;
+        }
+
+        // No __all__ defined or symbol not in __all__, use default Python visibility rules
+        // Export all symbols that don't start with underscore
+        let result = !symbol_name.starts_with('_');
+        log::debug!(
+            "Module '{module_name}' symbol '{symbol_name}' using default visibility: {result}"
+        );
+        result
     }
 
     /// Extract simple assignment target name

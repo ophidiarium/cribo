@@ -490,23 +490,26 @@ If tests fail or clippy reports issues, the implementation is NOT complete until
 1. When given an URL - parse the incoming URL
 
 ```text
-https://github.com/ophidiarium/cribo/pull/<PR#>#discussion_r<COMMENT_ID>
+https://github.com/ophidiarium/cribo/pull/<PR_NUMBER>#discussion_r<COMMENT_ID>
 ```
 
-- `<PR#>` → digits between `/pull/` and `#`.
+- `<PR_NUMBER>` → digits between `/pull/` and `#`.
 - `<COMMENT_ID>` → digits after `discussion_r`.
 
 2. Fetch the comment body
 
 ```bash
 GH_PAGER=cat gh api repos/ophidiarium/cribo/pulls/comments/<COMMENT_ID> \
-  --template '
-id:          {{ printf "%.0f" .id }}
-author:      {{ .user.login }}
-created_at:  {{ .created_at }}
+  --jq '
+"id:         \(.id)
+pr_number:   \(.pull_request_url | split("/") | last)
+author:      \(.user.login)
+created_at:  \(.created_at)
+file:        \( .path )
+line:        \( .start_line )
 --- BEGIN_BODY ---
-{{ .body }}
---- END_BODY ---'
+\(.body)
+--- END_BODY ---"'
 ```
 
 The text between BEGIN_BODY/END_BODY is what you must act on.
@@ -525,7 +528,7 @@ The text between BEGIN_BODY/END_BODY is what you must act on.
 - REPLY DIRECTLY AND SPECIFICALLY to the original comment:
 
 ```bash
-gh api repos/ophidiarium/cribo/pulls/$(gh pr view --json number --jq .number)/comments/<COMMENT_ID>/replies \
+gh api repos/ophidiarium/cribo/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
   -X POST -f body='✅ Addressed in <hash>. Thanks!'
 ```
 
