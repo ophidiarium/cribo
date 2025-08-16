@@ -4763,29 +4763,22 @@ impl<'a> Bundler<'a> {
         if let Some(Some(exports)) = self.module_exports.get(module_name) {
             // Module defines __all__, check if symbol is listed there
             if exports.iter().any(|s| s == symbol_name) {
-                // Symbol is in __all__. For re-exported symbols (imported from another module
-                // and then added to __all__), we need to check if the symbol exists ANYWHERE
-                // in the kept symbols, not just in this module.
-                if let Some(ref kept_global) = self.kept_symbols_global {
-                    // Use the cached global set for O(1) lookup
-                    let symbol_exists_anywhere = kept_global.contains(symbol_name);
+                // Symbol is in __all__. For re-exported symbols, check if the symbol exists anywhere in the bundle.
+                let should_export = match &self.kept_symbols_global {
+                    Some(kept) => kept.contains(symbol_name),
+                    None => true, // No tree-shaking, export everything in __all__
+                };
 
-                    if symbol_exists_anywhere {
-                        log::debug!(
-                            "Symbol '{symbol_name}' is in module '{module_name}' __all__ list and exists in bundle, exporting"
-                        );
-                        return true;
-                    }
+                if should_export {
+                    log::debug!(
+                        "Symbol '{symbol_name}' is in module '{module_name}' __all__ list, exporting"
+                    );
+                } else {
                     log::debug!(
                         "Symbol '{symbol_name}' is in __all__ but was completely removed by tree-shaking, not exporting"
                     );
-                    return false;
                 }
-                // No tree-shaking, export everything in __all__
-                log::debug!(
-                    "Symbol '{symbol_name}' is in module '{module_name}' __all__ list, exporting (no tree-shaking)"
-                );
-                return true;
+                return should_export;
             }
         }
 
