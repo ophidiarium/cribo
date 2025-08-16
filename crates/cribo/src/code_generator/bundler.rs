@@ -1657,7 +1657,8 @@ impl<'a> Bundler<'a> {
             // Populate global cache of all kept symbols for O(1) lookup
             if let Some(ref kept_by_module) = self.tree_shaking_keep_symbols {
                 // Pre-reserve capacity to avoid re-allocations
-                let estimated_capacity: usize = kept_by_module.values().map(indexmap::IndexSet::len).sum();
+                let estimated_capacity: usize =
+                    kept_by_module.values().map(indexmap::IndexSet::len).sum();
                 let mut all_kept = FxIndexSet::default();
                 all_kept.reserve(estimated_capacity);
 
