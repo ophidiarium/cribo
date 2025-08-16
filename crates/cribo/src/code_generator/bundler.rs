@@ -4744,12 +4744,30 @@ impl<'a> Bundler<'a> {
         // Check if the module has explicit __all__ exports
         if let Some(Some(exports)) = self.module_exports.get(module_name) {
             // Module defines __all__, check if symbol is listed there
-            if exports.contains(&symbol_name.to_string()) {
-                // Symbol is in __all__, it should be exported
-                // For re-exported symbols (imported and then in __all__), they'll be
-                // available in scope and should be exported regardless of tree-shaking
+            if exports.iter().any(|s| s == symbol_name) {
+                // Symbol is in __all__. For re-exported symbols (imported from another module
+                // and then added to __all__), we need to check if the symbol exists ANYWHERE
+                // in the kept symbols, not just in this module.
+                if let Some(ref tree_shaking_keep) = self.tree_shaking_keep_symbols {
+                    // Check if the symbol was kept anywhere in the bundle
+                    let symbol_exists_anywhere = tree_shaking_keep
+                        .values()
+                        .any(|symbols| symbols.contains(symbol_name));
+
+                    if symbol_exists_anywhere {
+                        log::debug!(
+                            "Symbol '{symbol_name}' is in module '{module_name}' __all__ list and exists in bundle, exporting"
+                        );
+                        return true;
+                    }
+                    log::debug!(
+                        "Symbol '{symbol_name}' is in __all__ but was completely removed by tree-shaking, not exporting"
+                    );
+                    return false;
+                }
+                // No tree-shaking, export everything in __all__
                 log::debug!(
-                    "Symbol '{symbol_name}' is in module '{module_name}' __all__ list, exporting"
+                    "Symbol '{symbol_name}' is in module '{module_name}' __all__ list, exporting (no tree-shaking)"
                 );
                 return true;
             }
