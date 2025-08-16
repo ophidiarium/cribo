@@ -143,6 +143,9 @@ pub struct Bundler<'a> {
     /// Set of (`accessing_module`, `accessed_alias`) pairs to handle alias collisions
     /// Only these modules need their __all__ emitted in the bundle
     pub(crate) modules_with_accessed_all: FxIndexSet<(String, String)>,
+    /// Global cache of all kept symbols for O(1) lookup
+    /// Populated from `tree_shaking_keep_symbols` for efficient symbol existence checks
+    pub(crate) kept_symbols_global: Option<FxIndexSet<String>>,
 }
 
 impl std::fmt::Debug for Bundler<'_> {
@@ -256,6 +259,7 @@ impl<'a> Bundler<'a> {
             namespace_assignments_made: FxIndexSet::default(),
             symbols_populated_after_deferred: FxIndexSet::default(),
             modules_with_accessed_all: FxIndexSet::default(),
+            kept_symbols_global: None,
         }
     }
 
@@ -1649,6 +1653,20 @@ impl<'a> Bundler<'a> {
                     .as_ref()
                     .map_or(0, indexmap::IndexMap::len)
             );
+
+            // Populate global cache of all kept symbols for O(1) lookup
+            if let Some(ref kept_by_module) = self.tree_shaking_keep_symbols {
+                let mut all_kept = FxIndexSet::default();
+                for symbols in kept_by_module.values() {
+                    // Strings are already owned; clone to populate the global set
+                    all_kept.extend(symbols.iter().cloned());
+                }
+                log::debug!(
+                    "Populated global kept symbols cache with {} unique symbols",
+                    all_kept.len()
+                );
+                self.kept_symbols_global = Some(all_kept);
+            }
         }
 
         // Extract modules that access __all__ from the pre-computed graph data
@@ -4748,11 +4766,9 @@ impl<'a> Bundler<'a> {
                 // Symbol is in __all__. For re-exported symbols (imported from another module
                 // and then added to __all__), we need to check if the symbol exists ANYWHERE
                 // in the kept symbols, not just in this module.
-                if let Some(ref tree_shaking_keep) = self.tree_shaking_keep_symbols {
-                    // Check if the symbol was kept anywhere in the bundle
-                    let symbol_exists_anywhere = tree_shaking_keep
-                        .values()
-                        .any(|symbols| symbols.contains(symbol_name));
+                if let Some(ref kept_global) = self.kept_symbols_global {
+                    // Use the cached global set for O(1) lookup
+                    let symbol_exists_anywhere = kept_global.contains(symbol_name);
 
                     if symbol_exists_anywhere {
                         log::debug!(
