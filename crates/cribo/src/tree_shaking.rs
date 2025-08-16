@@ -21,6 +21,8 @@ pub struct TreeShaker {
     used_symbols: FxIndexSet<(String, String)>,
     /// Map from module ID to module name
     _module_names: FxIndexMap<ModuleId, String>,
+    /// Module exports (for __all__ handling)
+    module_exports: FxIndexMap<String, Option<Vec<String>>>,
 }
 
 impl TreeShaker {
@@ -45,7 +47,13 @@ impl TreeShaker {
             cross_module_refs: FxIndexMap::default(),
             used_symbols: FxIndexSet::default(),
             _module_names: module_names,
+            module_exports: FxIndexMap::default(),
         }
+    }
+
+    /// Set module exports for proper wildcard import handling
+    pub fn set_module_exports(&mut self, module_exports: FxIndexMap<String, Option<Vec<String>>>) {
+        self.module_exports = module_exports;
     }
 
     /// Analyze which symbols should be kept based on entry point
@@ -882,28 +890,19 @@ impl TreeShaker {
     /// Mark symbols defined in __all__ as used for star imports
     fn mark_all_defined_symbols_as_used(
         &self,
-        target_items: &[ItemData],
+        _target_items: &[ItemData],
         resolved_from_module: &str,
         worklist: &mut VecDeque<(String, String)>,
     ) {
-        for item in target_items {
-            if item.defined_symbols.contains("__all__")
-                && let ItemType::Assignment { targets, .. } = &item.item_type
-            {
-                for target in targets {
-                    if target == "__all__" {
-                        // Mark all symbols listed in __all__
-                        for symbol in &item.read_vars {
-                            if !symbol.starts_with('_') {
-                                debug!(
-                                    "Marking {symbol} from star import of {resolved_from_module} \
-                                     as used"
-                                );
-                                worklist
-                                    .push_back((resolved_from_module.to_string(), symbol.clone()));
-                            }
-                        }
-                    }
+        // Get the actual __all__ exports from the module exports map
+        if let Some(Some(exports)) = self.module_exports.get(resolved_from_module) {
+            for symbol in exports {
+                if !symbol.starts_with('_') {
+                    debug!(
+                        "Marking {symbol} from star import of {resolved_from_module} \
+                         as used (from __all__)"
+                    );
+                    worklist.push_back((resolved_from_module.to_string(), symbol.clone()));
                 }
             }
         }

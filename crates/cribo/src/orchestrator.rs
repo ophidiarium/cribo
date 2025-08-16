@@ -23,7 +23,7 @@ use crate::{
     tree_shaking::TreeShaker,
     types::FxIndexMap,
     util::{module_name_from_relative, normalize_line_endings},
-    visitors::{ImportDiscoveryVisitor, ImportLocation, ScopeElement},
+    visitors::{ExportCollector, ImportDiscoveryVisitor, ImportLocation, ScopeElement},
 };
 
 /// Static empty parsed module for creating Stylist instances
@@ -526,10 +526,21 @@ impl BundleOrchestrator {
             }
         }
 
+        // Collect module exports for tree-shaking
+        let mut module_exports = FxIndexMap::default();
+        for (module_name, _module_path, _imports, ast, _source) in &parsed_modules {
+            // Extract __all__ exports from the module
+            let export_info = ExportCollector::analyze(ast);
+            module_exports.insert(module_name.clone(), export_info.exported_names);
+        }
+
         // Run tree-shaking if enabled
         let tree_shaker = if self.config.tree_shake {
             info!("Running tree-shaking analysis...");
             let mut shaker = TreeShaker::from_graph(graph);
+
+            // Set module exports for proper wildcard import handling
+            shaker.set_module_exports(module_exports.clone());
 
             // Check which modules can be tree-shaken (no side effects)
             let mut modules_with_side_effects = Vec::new();
