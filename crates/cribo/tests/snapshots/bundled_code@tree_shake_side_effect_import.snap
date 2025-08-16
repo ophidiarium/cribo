@@ -36,7 +36,6 @@ def __cribo_init___cribo_09b9b3_mypackage_utils():
             raise CustomError("Data cannot be None")
         return f"Processed: {data}"
     module.process_data = process_data
-    module.CustomError = CustomError
     return module
 mypackage.utils = __cribo_init___cribo_09b9b3_mypackage_utils()
 __cribo_init_result = __cribo_init___cribo_ddd935_mypackage()

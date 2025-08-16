@@ -52,7 +52,6 @@ def __cribo_init___cribo_5a392a_pkg__internal_utils():
             return value
         return str(value)
     module.to_native_string = to_native_string
-    module.builtin_str = builtin_str
     return module
 pkg._internal_utils = __cribo_init___cribo_5a392a_pkg__internal_utils()
 utils = pkg_utils

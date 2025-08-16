@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/wildcard_metaclass_ordering/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Testing YAMLObject...\nYAMLObject created: YAMLObject(loaders=3, dumper=Dumper)\nYAMLObject has metaclass: YAMLObjectMetaclass\nMetaclass: Registering CustomYAML with tag !custom\n  - Would register with Loader\n  - Would register with FullLoader\n  - Would register with UnsafeLoader\nCustomYAML class created successfully\nAll tests passed!",
+    stderr: "",
+}

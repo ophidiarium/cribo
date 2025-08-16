@@ -163,18 +163,39 @@ pub fn transform_module_to_init_function<'a>(
             .cloned()
             .collect();
         unique_imports.sort();
+
+        // Filter out tree-shaken symbols
+        if let Some(ref tree_shaking_keep) = bundler.tree_shaking_keep_symbols {
+            // For wildcard imports, the symbols come from submodules (e.g., yaml_module.loader)
+            // We need to check each symbol against the appropriate source module
+            unique_imports.retain(|symbol| {
+                // Try to find which module this symbol comes from
+                for (module_name, module_symbols) in tree_shaking_keep {
+                    if module_symbols.contains(symbol) {
+                        debug!("Symbol '{symbol}' kept by tree-shaking from module '{module_name}'");
+                        return true;
+                    }
+                }
+                debug!("Symbol '{symbol}' was removed by tree-shaking, excluding from global declaration");
+                false
+            });
+        }
+
         debug!(
             "Adding global declaration for imported symbols from inlined modules: \
              {unique_imports:?}"
         );
-        body.push(Stmt::Global(StmtGlobal {
-            node_index: AtomicNodeIndex::dummy(),
-            names: unique_imports
-                .iter()
-                .map(|name| Identifier::new(name, TextRange::default()))
-                .collect(),
-            range: TextRange::default(),
-        }));
+
+        if !unique_imports.is_empty() {
+            body.push(Stmt::Global(StmtGlobal {
+                node_index: AtomicNodeIndex::dummy(),
+                names: unique_imports
+                    .iter()
+                    .map(|name| Identifier::new(name, TextRange::default()))
+                    .collect(),
+                range: TextRange::default(),
+            }));
+        }
     }
 
     // IMPORTANT: Add import alias assignments FIRST, before processing the module body

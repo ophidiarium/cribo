@@ -4741,6 +4741,17 @@ impl<'a> Bundler<'a> {
             return false;
         }
 
+        // If tree-shaking is enabled, check if the symbol was kept
+        if let Some(ref tree_shaking_keep) = self.tree_shaking_keep_symbols
+            && let Some(kept_symbols) = tree_shaking_keep.get(module_name)
+                && !kept_symbols.contains(symbol_name) {
+                    log::debug!(
+                        "Symbol '{symbol_name}' from module '{module_name}' was removed by tree-shaking, \
+                         not exporting"
+                    );
+                    return false;
+                }
+
         // Check if the module has explicit __all__ exports
         if let Some(Some(exports)) = self.module_exports.get(module_name) {
             // Module defines __all__, only export symbols listed there

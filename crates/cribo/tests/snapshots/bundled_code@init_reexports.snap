@@ -70,7 +70,6 @@ def __cribo_init___cribo_a81151_mypackage():
     module.data_processor = mypackage_data_processor
     module.process_data = process_data
     module.format_data = format_data
-    module.helper_function = helper_function
     return module
 mypackage.config = __cribo_init___cribo_de6c46_mypackage_config()
 __cribo_init_result = __cribo_init___cribo_a81151_mypackage()

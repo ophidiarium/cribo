@@ -116,7 +116,6 @@ def __cribo_init___cribo_0a162a_models_base():
     module.initialize = initialize
     global _cribo_models_base_Connection
     _cribo_models_base_Connection = Connection
-    module.util_validate = util_validate
     return module
 @functools.cache
 def __cribo_init___cribo_293a98_models():
@@ -200,8 +199,6 @@ def __cribo_init___cribo_1f9e6c_models_user():
             self.rules.append(rule)
     UserValidator.__module__ = 'models.user'
     module.UserValidator = UserValidator
-    module.util_process = util_process
-    module.UtilLogger = UtilLogger
     return module
 @functools.cache
 def __cribo_init___cribo_84bf42_services_auth():
@@ -295,7 +292,6 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
             return process(f"{username}:{data}")
     AuthManager.__module__ = 'services.auth.manager'
     module.AuthManager = AuthManager
-    module.sanitize = sanitize
     return module
 @functools.cache
 def __cribo_init___cribo_df9c8d_core_database_connection():
