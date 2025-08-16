@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.16](https://github.com/ophidiarium/cribo/compare/v0.5.15...v0.5.16) (2025-08-16)
+
+
+### Bug Fixes
+
+* preserve aliased imports accessed via module attributes during tree-shaking ([#301](https://github.com/ophidiarium/cribo/issues/301)) ([651ec2a](https://github.com/ophidiarium/cribo/commit/651ec2aca5614cb374fb5058a403f6179f5424b8))
+* prevent code generator from referencing tree-shaken symbols ([#305](https://github.com/ophidiarium/cribo/issues/305)) ([78eb188](https://github.com/ophidiarium/cribo/commit/78eb1888e23784588474b86cee8f96dedb2f5d48))
+
 ## [0.5.15](https://github.com/ophidiarium/cribo/compare/v0.5.14...v0.5.15) (2025-08-15)
 
 
