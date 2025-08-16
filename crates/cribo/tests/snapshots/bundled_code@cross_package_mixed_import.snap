@@ -201,7 +201,6 @@ def __cribo_init___cribo_1f0c3d_core_database_connection():
         return info
     module.get_connection_info = get_connection_info
     module.process_user = process_user
-    module.helper_validate = helper_validate
     module.CORE_MODEL_VERSION = CORE_MODEL_VERSION
     return module
 @functools.cache
