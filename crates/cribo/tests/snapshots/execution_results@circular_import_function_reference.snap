@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/circular_import_function_reference/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Auth header set: Basic user:pass\nSUCCESS: Function was properly available",
+    stderr: "",
+}
