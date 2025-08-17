@@ -82,8 +82,10 @@ pub fn transform_module_to_init_function<'a>(
     // Track imports from inlined modules before transformation
     // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard imports)
     // - inlined_import_bindings: local binding names created by explicit from-imports (asname if present)
+    // - import_alias_bindings: simple import alias assignments added early (target names)
     let mut imports_from_inlined = Vec::new();
     let mut inlined_import_bindings = Vec::new();
+    let mut import_alias_bindings = Vec::new();
 
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
@@ -211,9 +213,11 @@ pub fn transform_module_to_init_function<'a>(
     for stmt in &deferred_imports_to_add {
         if let Stmt::Assign(assign) = stmt {
             // Check if this is a simple name-to-name assignment (import alias)
-            if let [Expr::Name(_target)] = assign.targets.as_slice()
+            if let [Expr::Name(target)] = assign.targets.as_slice()
                 && let Expr::Name(_value) = &*assign.value
             {
+                // Track the alias target name for locals() reconstruction
+                import_alias_bindings.push(target.id.to_string());
                 // This is an import alias assignment, add it immediately
                 body.push(stmt.clone());
             }
@@ -470,23 +474,33 @@ pub fn transform_module_to_init_function<'a>(
                     && let Expr::Name(func_name) = &*call.func
                     && func_name.id == "locals"
                     && call.arguments.args.is_empty()
+                    && call.arguments.keywords.is_empty()
+                // Ensure no keywords were passed
                 {
-                    // Build a dict with all module-level symbols that would be in locals()
-                    let mut dict_items = Vec::new();
+                    // Collect all names that should be in locals()
+                    let mut names: FxIndexSet<String> = FxIndexSet::default();
 
                     // Add imported symbols (from inlined modules)
-                    for binding in &inlined_import_bindings {
-                        dict_items.push((
-                            Some(ast_builder::expressions::string_literal(binding)),
-                            ast_builder::expressions::name(binding, ExprContext::Load),
-                        ));
-                    }
+                    names.extend(inlined_import_bindings.iter().cloned());
+
+                    // Add import alias bindings
+                    names.extend(import_alias_bindings.iter().cloned());
 
                     // Add __all__ if it exists and is referenced
                     if all_is_referenced {
+                        names.insert("__all__".to_string());
+                    }
+
+                    // Sort names for deterministic output
+                    let mut sorted_names: Vec<String> = names.into_iter().collect();
+                    sorted_names.sort();
+
+                    // Build the dict items
+                    let mut dict_items = Vec::new();
+                    for binding in &sorted_names {
                         dict_items.push((
-                            Some(ast_builder::expressions::string_literal("__all__")),
-                            ast_builder::expressions::name("__all__", ExprContext::Load),
+                            Some(ast_builder::expressions::string_literal(binding)),
+                            ast_builder::expressions::name(binding, ExprContext::Load),
                         ));
                     }
 

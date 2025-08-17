@@ -19,11 +19,11 @@ def my_func():
     return "Hello from my_func"
 MyClass.__module__ = 'mypkg._internal'
 @functools.cache
-def __cribo_init___cribo_ab35d8_mypkg():
+def __cribo_init___cribo_4c9561_mypkg():
     module = types.SimpleNamespace()
     module.__name__ = 'mypkg'
     __all__ = ["MyClass", "my_func"]
-    __locals = {'MyClass': MyClass, 'my_func': my_func, '__all__': __all__}
+    __locals = {'MyClass': MyClass, '__all__': __all__, 'my_func': my_func}
     for __name in __all__:
         if not __name.startswith("__"):
             setattr(__locals[__name], "__module__", "mypkg")
@@ -31,7 +31,7 @@ def __cribo_init___cribo_ab35d8_mypkg():
     module.MyClass = MyClass
     module.my_func = my_func
     return module
-mypkg = __cribo_init___cribo_ab35d8_mypkg()
+mypkg = __cribo_init___cribo_4c9561_mypkg()
 MyClass = MyClass
 my_func = my_func
 obj = MyClass()
