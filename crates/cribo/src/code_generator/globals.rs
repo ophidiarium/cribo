@@ -123,22 +123,26 @@ fn transform_introspection_in_expr(expr: &mut Expr, target_fn: &str, recurse_int
             transform_introspection_in_expr(&mut if_expr.body, target_fn, recurse_into_scopes);
             transform_introspection_in_expr(&mut if_expr.orelse, target_fn, recurse_into_scopes);
         }
-        Expr::ListComp(comp_expr) => {
+        Expr::ListComp(comp_expr) if recurse_into_scopes => {
             transform_introspection_in_expr(&mut comp_expr.elt, target_fn, recurse_into_scopes);
             transform_generators(&mut comp_expr.generators, target_fn, recurse_into_scopes);
         }
-        Expr::DictComp(comp_expr) => {
+        Expr::DictComp(comp_expr) if recurse_into_scopes => {
             transform_introspection_in_expr(&mut comp_expr.key, target_fn, recurse_into_scopes);
             transform_introspection_in_expr(&mut comp_expr.value, target_fn, recurse_into_scopes);
             transform_generators(&mut comp_expr.generators, target_fn, recurse_into_scopes);
         }
-        Expr::SetComp(comp_expr) => {
+        Expr::SetComp(comp_expr) if recurse_into_scopes => {
             transform_introspection_in_expr(&mut comp_expr.elt, target_fn, recurse_into_scopes);
             transform_generators(&mut comp_expr.generators, target_fn, recurse_into_scopes);
         }
-        Expr::Generator(gen_expr) => {
+        Expr::Generator(gen_expr) if recurse_into_scopes => {
             transform_introspection_in_expr(&mut gen_expr.elt, target_fn, recurse_into_scopes);
             transform_generators(&mut gen_expr.generators, target_fn, recurse_into_scopes);
+        }
+        Expr::ListComp(_) | Expr::DictComp(_) | Expr::SetComp(_) | Expr::Generator(_) => {
+            // Don't transform inside comprehensions/generators when recurse_into_scopes is false
+            // These have their own local scopes in Python 3
         }
         Expr::Compare(compare_expr) => {
             transform_introspection_in_expr(&mut compare_expr.left, target_fn, recurse_into_scopes);
