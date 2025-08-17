@@ -347,6 +347,9 @@ fn transform_introspection_in_stmt(stmt: &mut Stmt, target_fn: &str, recurse_int
                     target_fn,
                     recurse_into_scopes,
                 );
+                if let Some(ref mut vars) = item.optional_vars {
+                    transform_introspection_in_expr(vars, target_fn, recurse_into_scopes);
+                }
             }
             for stmt in &mut with_stmt.body {
                 transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
@@ -381,6 +384,9 @@ fn transform_introspection_in_stmt(stmt: &mut Stmt, target_fn: &str, recurse_int
             }
             for handler in &mut try_stmt.handlers {
                 let ExceptHandler::ExceptHandler(handler) = handler;
+                if let Some(ref mut type_) = handler.type_ {
+                    transform_introspection_in_expr(type_, target_fn, recurse_into_scopes);
+                }
                 for stmt in &mut handler.body {
                     transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
                 }
