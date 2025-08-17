@@ -17,8 +17,9 @@ def create_object():
     return pkg.MyObject()
 @functools.cache
 def __cribo_init___cribo_9c0ae3_pkg():
-    module = types.SimpleNamespace()
-    module.__name__ = 'pkg'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'pkg'
+    __cribo_module.create_object = create_object
 
     class MyMetaclass(type):
         """The metaclass."""
@@ -28,7 +29,7 @@ def __cribo_init___cribo_9c0ae3_pkg():
             if hasattr(cls, "tag"):
                 print(f"Metaclass initialized {name} with tag {cls.tag}")
     MyMetaclass.__module__ = 'pkg'
-    module.MyMetaclass = MyMetaclass
+    __cribo_module.MyMetaclass = MyMetaclass
 
     class MyObject(metaclass=MyMetaclass):
         """An object with metaclass."""
@@ -40,10 +41,9 @@ def __cribo_init___cribo_9c0ae3_pkg():
         def __repr__(self):
             return f"MyObject(value={self.value})"
     MyObject.__module__ = 'pkg'
-    module.MyObject = MyObject
-    module.submodule = pkg_submodule
-    module.create_object = create_object
-    return module
+    __cribo_module.MyObject = MyObject
+    __cribo_module.submodule = pkg_submodule
+    return __cribo_module
 pkg = __cribo_init___cribo_9c0ae3_pkg()
 MyObject = pkg.MyObject
 create_object = create_object

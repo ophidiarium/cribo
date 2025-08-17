@@ -26,10 +26,10 @@ use crate::{
         bundler::Bundler,
         context::{ModuleTransformContext, ProcessGlobalsParams, SemanticContext},
         expression_handlers,
-        globals::{GlobalsLifter, transform_globals_in_stmt},
+        globals::{GlobalsLifter, transform_globals_in_stmt, transform_locals_in_stmt},
         import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry::{self, sanitize_module_name_for_identifier},
+        module_registry::{self, MODULE_VAR, sanitize_module_name_for_identifier},
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -211,12 +211,35 @@ pub fn transform_module_to_init_function<'a>(
     for stmt in &deferred_imports_to_add {
         if let Stmt::Assign(assign) = stmt {
             // Check if this is a simple name-to-name assignment (import alias)
-            if let [Expr::Name(_target)] = assign.targets.as_slice()
-                && let Expr::Name(_value) = &*assign.value
+            if let [Expr::Name(_)] = assign.targets.as_slice()
+                && let Expr::Name(_) = &*assign.value
             {
                 // This is an import alias assignment, add it immediately
                 body.push(stmt.clone());
             }
+        }
+    }
+
+    // Check if __all__ is referenced in the module body
+    let mut all_is_referenced = false;
+    for stmt in &ast.body {
+        // Skip checking __all__ assignment itself
+        if let Stmt::Assign(assign) = stmt
+            && let Some(name) = expression_handlers::extract_simple_assign_target(assign)
+            && name == "__all__"
+        {
+            continue;
+        } else if let Stmt::AnnAssign(ann_assign) = stmt
+            && let Expr::Name(target) = ann_assign.target.as_ref()
+            && target.id.as_str() == "__all__"
+        {
+            // Skip annotated assignments to __all__ as a "reference"
+            continue;
+        }
+        // Check if __all__ is referenced in this statement
+        if crate::visitors::VariableCollector::statement_references_variable(stmt, "__all__") {
+            all_is_referenced = true;
+            break;
         }
     }
 
@@ -345,8 +368,23 @@ pub fn transform_module_to_init_function<'a>(
     let processed_body =
         bundler.process_body_recursive(ast.body, ctx.module_name, module_scope_symbols);
 
+    debug!(
+        "Processing init function for module '{}', inlined_import_bindings: {:?}",
+        ctx.module_name, inlined_import_bindings
+    );
+    debug!("Processed body has {} statements", processed_body.len());
+
     // Process each statement from the transformed module body
-    for stmt in processed_body {
+    for (idx, stmt) in processed_body.into_iter().enumerate() {
+        match &stmt {
+            Stmt::Assign(_) => debug!("Processing statement {idx} in init function: Assign"),
+            Stmt::ImportFrom(_) => {
+                debug!("Processing statement {idx} in init function: ImportFrom");
+            }
+            Stmt::Expr(_) => debug!("Processing statement {idx} in init function: Expr"),
+            Stmt::For(_) => debug!("Processing statement {idx} in init function: For"),
+            _ => debug!("Processing statement {idx} in init function: Other"),
+        }
         match &stmt {
             Stmt::Import(_import_stmt) => {
                 // Skip imports that are already hoisted
@@ -397,7 +435,7 @@ pub fn transform_module_to_init_function<'a>(
                 ) {
                     body.push(
                         crate::code_generator::module_registry::create_module_attr_assignment(
-                            "module",
+                            MODULE_VAR,
                             &symbol_name,
                         ),
                     );
@@ -428,17 +466,22 @@ pub fn transform_module_to_init_function<'a>(
                 ) {
                     body.push(
                         crate::code_generator::module_registry::create_module_attr_assignment(
-                            "module",
+                            MODULE_VAR,
                             &symbol_name,
                         ),
                     );
                 }
             }
             Stmt::Assign(assign) => {
-                // Skip __all__ assignments - they have no meaning for types.SimpleNamespace
+                // Handle __all__ assignments - skip unless it's referenced elsewhere
                 if let Some(name) = expression_handlers::extract_simple_assign_target(assign)
                     && name == "__all__"
                 {
+                    if all_is_referenced {
+                        // __all__ is referenced elsewhere, include the assignment
+                        body.push(stmt.clone());
+                    }
+                    // Skip further processing for __all__ assignments
                     continue;
                 }
 
@@ -485,15 +528,11 @@ pub fn transform_module_to_init_function<'a>(
                         );
                         if inlined_import_bindings.contains(&name) {
                             // This was imported from an inlined module
-                            // Use a special case: if no scope info available, include imported
-                            // symbols
-                            let should_include =
-                                module_scope_symbols.is_none_or(|symbols| symbols.contains(&name));
-
-                            if should_include {
-                                debug!("Exporting imported symbol '{name}' as module attribute");
-                                body.push(crate::code_generator::module_registry::create_module_attr_assignment("module", &name));
-                            }
+                            // Module attributes for imports are now handled by import_transformer
+                            // to ensure correct value assignment (original_name vs local_name)
+                            debug!(
+                                "Skipping module attribute for imported symbol '{name}' - handled by import_transformer"
+                            );
                         } else if let Some(name) =
                             expression_handlers::extract_simple_assign_target(assign)
                         {
@@ -506,7 +545,10 @@ pub fn transform_module_to_init_function<'a>(
 
                                 if should_include {
                                     debug!("Exporting '{name}' as it's used by exported functions");
-                                    body.push(crate::code_generator::module_registry::create_module_attr_assignment("module", &name));
+                                    body.push(crate::code_generator::module_registry::create_module_attr_assignment(
+                                    MODULE_VAR,
+                                    &name,
+                                ));
                                 }
                             } else {
                                 // Regular assignment, use the normal export logic
@@ -534,6 +576,14 @@ pub fn transform_module_to_init_function<'a>(
             Stmt::AnnAssign(ann_assign) => {
                 // Handle annotated assignments similar to regular assignments
                 if ann_assign.value.is_some() {
+                    // Skip __all__ annotated assignments unless it's referenced elsewhere
+                    if let Expr::Name(target) = ann_assign.target.as_ref()
+                        && target.id.as_str() == "__all__"
+                        && !all_is_referenced
+                    {
+                        continue;
+                    }
+
                     let mut ann_assign_clone = ann_assign.clone();
 
                     // Use actual module-level variables if available, but filter to only exported
@@ -576,7 +626,7 @@ pub fn transform_module_to_init_function<'a>(
                     {
                         body.push(
                             crate::code_generator::module_registry::create_module_attr_assignment(
-                                "module", &target.id,
+                                MODULE_VAR, &target.id,
                             ),
                         );
                     }
@@ -687,7 +737,7 @@ pub fn transform_module_to_init_function<'a>(
                 let namespace_var = sanitize_module_name_for_identifier(&full_name);
                 body.push(
                     crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                        "module",
+                        MODULE_VAR,
                         &relative_name,
                         &namespace_var,
                     ),
@@ -762,7 +812,7 @@ pub fn transform_module_to_init_function<'a>(
                     && let [Expr::Attribute(attr)] = assign.targets.as_slice()
                     && let Expr::Name(name) = &*attr.value
                 {
-                    return name.id == "module" && attr.attr == imported_name;
+                    return name.id == MODULE_VAR && attr.attr == imported_name;
                 }
                 false
             });
@@ -770,7 +820,7 @@ pub fn transform_module_to_init_function<'a>(
             if !already_assigned {
                 body.push(
                     crate::code_generator::module_registry::create_module_attr_assignment(
-                        "module",
+                        MODULE_VAR,
                         &imported_name,
                     ),
                 );
@@ -781,11 +831,13 @@ pub fn transform_module_to_init_function<'a>(
     // Transform globals() calls to module.__dict__ in the entire body
     for stmt in &mut body {
         transform_globals_in_stmt(stmt);
+        // Transform locals() calls to vars(__cribo_module) in the entire body
+        transform_locals_in_stmt(stmt);
     }
 
     // Return the module object
     body.push(ast_builder::statements::return_stmt(Some(
-        ast_builder::expressions::name("module", ExprContext::Load),
+        ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
     )));
 
     // Create the init function WITHOUT decorator - we're not using module cache
@@ -821,7 +873,7 @@ fn transform_expr_for_module_vars(
             if name.id.as_str() == "__name__" {
                 // Transform __name__ -> module.__name__
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name("module", ExprContext::Load),
+                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
                     "__name__",
                     ExprContext::Load,
                 );
@@ -837,7 +889,7 @@ fn transform_expr_for_module_vars(
             {
                 // Transform to module.var
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name("module", ExprContext::Load),
+                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
                     name.id.as_str(),
                     ExprContext::Load,
                 );
@@ -1490,7 +1542,7 @@ fn transform_expr_for_module_vars_with_locals(
             if name_str == "__name__" && matches!(name_expr.ctx, ExprContext::Load) {
                 // Transform __name__ -> module.__name__
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name("module", ExprContext::Load),
+                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
                     "__name__",
                     ExprContext::Load,
                 );
@@ -1504,7 +1556,7 @@ fn transform_expr_for_module_vars_with_locals(
             {
                 // Transform foo -> module.foo
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name("module", ExprContext::Load),
+                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
                     name_str,
                     ExprContext::Load,
                 );
@@ -1613,11 +1665,11 @@ pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<
     );
 
     vec![
-        // module = types.SimpleNamespace()
-        ast_builder::statements::simple_assign("module", module_call),
-        // module.__name__ = "module_name"
+        // __cribo_module = types.SimpleNamespace()
+        ast_builder::statements::simple_assign(MODULE_VAR, module_call),
+        // __cribo_module.__name__ = "module_name"
         ast_builder::statements::assign_attribute(
-            "module",
+            MODULE_VAR,
             "__name__",
             ast_builder::expressions::string_literal(module_name),
         ),
@@ -1836,7 +1888,9 @@ fn add_module_attr_if_exported(
         && should_include_symbol(bundler, &name, module_name, module_scope_symbols)
     {
         body.push(
-            crate::code_generator::module_registry::create_module_attr_assignment("module", &name),
+            crate::code_generator::module_registry::create_module_attr_assignment(
+                MODULE_VAR, &name,
+            ),
         );
     }
 }
@@ -1967,7 +2021,7 @@ fn create_namespace_for_inlined_submodule(
     // This allows the parent module to access the submodule via the expected attribute name
     stmts.push(
         crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-            "module",
+            MODULE_VAR,
             attr_name,
             &namespace_var,
         ),

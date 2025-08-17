@@ -28,38 +28,38 @@ class InvalidJSONError(RequestException):
     pass
 @functools.cache
 def __cribo_init___cribo_5ad29b_myrequests_compat():
-    module = types.SimpleNamespace()
-    module.__name__ = 'myrequests.compat'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'myrequests.compat'
     urlparse = urllib.parse.urlparse
-    module.urlparse = urlparse
+    __cribo_module.urlparse = urlparse
     urlunparse = urllib.parse.urlunparse
-    module.urlunparse = urlunparse
+    __cribo_module.urlunparse = urlunparse
     urljoin = urllib.parse.urljoin
-    module.urljoin = urljoin
+    __cribo_module.urljoin = urljoin
     cookielib = http.cookiejar
-    module.cookielib = cookielib
+    __cribo_module.cookielib = cookielib
     MutableMapping = collections.abc.MutableMapping
-    module.MutableMapping = MutableMapping
+    __cribo_module.MutableMapping = MutableMapping
     Mapping = collections.abc.Mapping
-    module.Mapping = Mapping
+    __cribo_module.Mapping = Mapping
     """Compat module that provides base classes and utilities used by other modules."""
     try:
         import simplejson as json
-        module.json = json
+        __cribo_module.json = json
     except ImportError:
         import json
-        module.json = json
+        __cribo_module.json = json
     if hasattr(json, "JSONDecodeError"):
         JSONDecodeError = json.JSONDecodeError
-        module.JSONDecodeError = JSONDecodeError
+        __cribo_module.JSONDecodeError = JSONDecodeError
     else:
         JSONDecodeError = ValueError
-        module.JSONDecodeError = JSONDecodeError
+        __cribo_module.JSONDecodeError = JSONDecodeError
     builtin_str = str
-    module.builtin_str = builtin_str
+    __cribo_module.builtin_str = builtin_str
     basestring = str, bytes
-    module.basestring = basestring
-    return module
+    __cribo_module.basestring = basestring
+    return __cribo_module
 myrequests.compat = __cribo_init___cribo_5ad29b_myrequests_compat()
 class JSONDecodeError(InvalidJSONError, myrequests.compat.JSONDecodeError):
     """Couldn't decode the text into json."""

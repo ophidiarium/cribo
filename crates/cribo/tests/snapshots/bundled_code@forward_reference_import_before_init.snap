@@ -17,17 +17,17 @@ class BaseException(Exception):
     pass
 @functools.cache
 def __cribo_init___cribo_4089db_mypkg_compat():
-    module = types.SimpleNamespace()
-    module.__name__ = 'mypkg.compat'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'mypkg.compat'
     try:
         from fakejson import JSONDecodeError
-        module.JSONDecodeError = JSONDecodeError
+        __cribo_module.JSONDecodeError = JSONDecodeError
     except ImportError:
         from json import JSONDecodeError
-        module.JSONDecodeError = JSONDecodeError
+        __cribo_module.JSONDecodeError = JSONDecodeError
     MutableMapping = collections.abc.MutableMapping
-    module.MutableMapping = MutableMapping
-    return module
+    __cribo_module.MutableMapping = MutableMapping
+    return __cribo_module
 mypkg.compat = __cribo_init___cribo_4089db_mypkg_compat()
 class CustomJSONError(BaseException, mypkg.compat.JSONDecodeError):
     """Custom JSON error that inherits from compat's JSONDecodeError"""

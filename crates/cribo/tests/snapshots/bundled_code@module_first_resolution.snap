@@ -10,14 +10,14 @@ import functools
 import types
 @functools.cache
 def __cribo_init___cribo_e25798_foo():
-    module = types.SimpleNamespace()
-    module.__name__ = 'foo'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'foo'
     source = "foo/__init__.py (package)"
-    module.source = source
+    __cribo_module.source = source
     value = "CORRECT - package"
-    module.value = value
+    __cribo_module.value = value
     print("Successfully imported foo package")
-    return module
+    return __cribo_module
 foo = __cribo_init___cribo_e25798_foo()
 print(f"Imported foo from: {foo.source}")
 print(f"foo.value = {foo.value}")

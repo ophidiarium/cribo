@@ -21,12 +21,13 @@ pkg_style = types.SimpleNamespace(__name__='pkg.style')
 pkg.style = pkg_style
 @functools.cache
 def __cribo_init___cribo_2353ad_pkg_pretty():
-    module = types.SimpleNamespace()
-    module.__name__ = 'pkg.pretty'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'pkg.pretty'
     Any = typing.Any
-    module.Any = Any
+    __cribo_module.Any = Any
     """Pretty printing module with circular dependency on console."""
-    module.RichRenderable = RichRenderable
+    __cribo_module.RichRenderable = RichRenderable
+    __cribo_module.Console = Console
 
     class PrettyPrinter(RichRenderable):
         """Pretty printer that implements RichRenderable."""
@@ -44,16 +45,15 @@ def __cribo_init___cribo_2353ad_pkg_pretty():
             formatted = format_pretty(obj, console)
             print(formatted)
     PrettyPrinter.__module__ = 'pkg.pretty'
-    module.PrettyPrinter = PrettyPrinter
+    __cribo_module.PrettyPrinter = PrettyPrinter
 
     def format_pretty(obj: typing.Any, console: Console) -> str:
         """Format object for pretty printing."""
         if console.is_renderable(obj):
             return f"<Renderable: {obj}>"
         return repr(obj)
-    module.format_pretty = format_pretty
-    module.Console = Console
-    return module
+    __cribo_module.format_pretty = format_pretty
+    return __cribo_module
 abstractmethod = abc.abstractmethod
 class RichRenderable(abc.ABC):
     """Abstract base class for renderables."""

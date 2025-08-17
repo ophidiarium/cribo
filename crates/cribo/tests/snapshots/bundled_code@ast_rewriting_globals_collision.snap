@@ -71,30 +71,31 @@ Connection_6.__qualname__ = 'Connection'
 _cribo_models_base_Connection = None
 @functools.cache
 def __cribo_init___cribo_0a162a_models_base():
-    module = types.SimpleNamespace()
-    module.__name__ = 'models.base'
-    util_validate = validate_6
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'models.base'
     """Base models module - imports only from core to avoid circular dependencies"""
+    __cribo_module.util_validate = validate_6
+    util_validate = validate_6
     process = lambda x: f"base_process: {x}"
-    module.process = process
+    __cribo_module.process = process
     validate = 123
-    module.validate = validate
+    __cribo_module.validate = validate
     Logger = None
-    module.Logger = Logger
+    __cribo_module.Logger = Logger
     Connection = []
-    module.Connection = Connection
+    __cribo_module.Connection = Connection
 
     def process(data):
         """Process function in base module"""
         return f"base_process: {data} (overrides lambda)"
-    module.process = process
+    __cribo_module.process = process
 
     def validate(data):
         """Validate function that uses imported validate"""
         base_check = f"base_validate: {data}"
         util_check = util_validate(data)
         return f"{base_check} + {util_check}"
-    module.validate = validate
+    __cribo_module.validate = validate
 
     class Logger:
         """Base logger class"""
@@ -105,61 +106,63 @@ def __cribo_init___cribo_0a162a_models_base():
         def get_message(self):
             return f"base_logger_{self.prefix}"
     Logger.__module__ = 'models.base'
-    module.Logger = Logger
+    __cribo_module.Logger = Logger
 
     def initialize():
         """Initialize base module"""
         global _cribo_models_base_Connection
         _cribo_models_base_Connection = type("Connection", (), {"type": "base_connection"})
-        module.Connection = _cribo_models_base_Connection
+        __cribo_module.Connection = _cribo_models_base_Connection
         return "base_initialized"
-    module.initialize = initialize
+    __cribo_module.initialize = initialize
     global _cribo_models_base_Connection
     _cribo_models_base_Connection = Connection
-    return module
+    return __cribo_module
 @functools.cache
 def __cribo_init___cribo_293a98_models():
-    module = types.SimpleNamespace()
-    module.__name__ = 'models'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'models'
     Logger = lambda x: f"models_logger_{x}"
-    module.Logger = Logger
+    __cribo_module.Logger = Logger
     process = "models_process"
-    module.process = process
-    return module
+    __cribo_module.process = process
+    return __cribo_module
 @functools.cache
 def __cribo_init___cribo_1f9e6c_models_user():
-    module = types.SimpleNamespace()
-    module.__name__ = 'models.user'
-    util_process = process_7
-    UtilLogger = Logger_6
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'models.user'
     """User models module - imports from core and base, no circular dependencies"""
+    __cribo_module.util_process = process_7
+    util_process = process_7
+    __cribo_module.UtilLogger = Logger_6
+    UtilLogger = Logger_6
     models.base = __cribo_init___cribo_0a162a_models_base()
     BaseLogger = models.base.Logger
-    module.BaseLogger = BaseLogger
+    __cribo_module.BaseLogger = BaseLogger
     process = "process_string"
-    module.process = process
+    __cribo_module.process = process
     validate = {"action": "validate"}
-    module.validate = validate
+    __cribo_module.validate = validate
     User = None
-    module.User = User
+    __cribo_module.User = User
     Connection = type("Connection", (), {"source": "models.user"})
-    module.Connection = Connection
+    __cribo_module.Connection = Connection
 
     def process(data):
         """Process function in user module"""
         return f"user_process: {data}"
-    module.process = process
+    __cribo_module.process = process
 
     def process_user(user_data):
         """Process user-specific data"""
         util_result = util_process(user_data)
         return f"process_user: {user_data} -> {util_result}"
-    module.process_user = process_user
+    __cribo_module.process_user = process_user
 
     def validate(data):
         """Validate function in user module"""
         return f"user_validate: {data}"
-    module.validate = validate
+    __cribo_module.validate = validate
 
     class User:
         """User model class"""
@@ -171,7 +174,7 @@ def __cribo_init___cribo_1f9e6c_models_user():
         def process(self):
             return f"User.process: {self.name}"
     User.__module__ = 'models.user'
-    module.User = User
+    __cribo_module.User = User
 
     class Logger:
         """User module logger - different from utils and base Logger"""
@@ -187,7 +190,7 @@ def __cribo_init___cribo_1f9e6c_models_user():
         def log_all(self):
             return [self.get_message(), self.base_logger.get_message(), self.util_logger.get_message()]
     Logger.__module__ = 'models.user'
-    module.Logger = Logger
+    __cribo_module.Logger = Logger
 
     class UserValidator:
         """Non-conflicting class name"""
@@ -198,60 +201,61 @@ def __cribo_init___cribo_1f9e6c_models_user():
         def add_rule(self, rule):
             self.rules.append(rule)
     UserValidator.__module__ = 'models.user'
-    module.UserValidator = UserValidator
-    return module
+    __cribo_module.UserValidator = UserValidator
+    return __cribo_module
 @functools.cache
 def __cribo_init___cribo_84bf42_services_auth():
-    module = types.SimpleNamespace()
-    module.__name__ = 'services.auth'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'services.auth'
     Connection = lambda: "auth_package_connection"
-    module.Connection = Connection
+    __cribo_module.Connection = Connection
     Logger = 42
-    module.Logger = Logger
-    return module
+    __cribo_module.Logger = Logger
+    return __cribo_module
 @functools.cache
 def __cribo_init___cribo_b2dda7_services():
-    module = types.SimpleNamespace()
-    module.__name__ = 'services'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'services'
     process = lambda x, y: f"services_process: {x}, {y}"
-    module.process = process
+    __cribo_module.process = process
     validate = "services_validate"
-    module.validate = validate
-    return module
+    __cribo_module.validate = validate
+    return __cribo_module
 @functools.cache
 def __cribo_init___cribo_0ecebd_services_auth_manager():
-    module = types.SimpleNamespace()
-    module.__name__ = 'services.auth.manager'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'services.auth.manager'
     """Authentication manager - imports from core and models only, no circular dependencies"""
     core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
     DBConnection = core.database.connection.Connection
-    module.DBConnection = DBConnection
+    __cribo_module.DBConnection = DBConnection
+    __cribo_module.sanitize = sanitize
     models.base = __cribo_init___cribo_0a162a_models_base()
     base_init = models.base.initialize
-    module.base_init = base_init
+    __cribo_module.base_init = base_init
     process = [1, 2, 3]
-    module.process = process
+    __cribo_module.process = process
     validate = None
-    module.validate = validate
+    __cribo_module.validate = validate
     User = "auth_user_string"
-    module.User = User
+    __cribo_module.User = User
     Logger = set()
-    module.Logger = Logger
+    __cribo_module.Logger = Logger
     Connection = {"auth": True}
-    module.Connection = Connection
+    __cribo_module.Connection = Connection
 
     def process(data):
         """Process function in auth module"""
         sanitized = sanitize(data)
         return f"auth_process: {sanitized}"
-    module.process = process
+    __cribo_module.process = process
 
     def validate(data):
         """Validate function in auth module"""
         if not isinstance(data, str):
             return f"auth_validate_failed: {data}"
         return f"auth_validate: {data}"
-    module.validate = validate
+    __cribo_module.validate = validate
 
     class User:
         """Auth user class"""
@@ -263,7 +267,7 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
         def authenticate(self):
             return f"auth_user_{self.username}"
     User.__module__ = 'services.auth.manager'
-    module.User = User
+    __cribo_module.User = User
 
     class Connection:
         """Auth connection - overrides the global dict"""
@@ -276,7 +280,7 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
             db_result = self.db_conn.connect()
             return f"auth_wrapped_{db_result}"
     Connection.__module__ = 'services.auth.manager'
-    module.Connection = Connection
+    __cribo_module.Connection = Connection
 
     class AuthManager:
         """Non-conflicting class name"""
@@ -291,31 +295,30 @@ def __cribo_init___cribo_0ecebd_services_auth_manager():
         def process_auth(self, username, data):
             return process(f"{username}:{data}")
     AuthManager.__module__ = 'services.auth.manager'
-    module.AuthManager = AuthManager
-    module.sanitize = sanitize
-    return module
+    __cribo_module.AuthManager = AuthManager
+    return __cribo_module
 @functools.cache
 def __cribo_init___cribo_df9c8d_core_database_connection():
-    module = types.SimpleNamespace()
-    module.__name__ = 'core.database.connection'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'core.database.connection'
     """Database connection module - imports only from core.utils to avoid circular dependencies"""
     process = None
-    module.process = process
+    __cribo_module.process = process
     validate = lambda x: f"db_validate: {x}"
-    module.validate = validate
+    __cribo_module.validate = validate
     User = {"type": "database_user"}
-    module.User = User
+    __cribo_module.User = User
 
     def process(data):
         """Process function in database module"""
         clean_data = sanitize(data)
         return f"db_process: {clean_data}"
-    module.process = process
+    __cribo_module.process = process
 
     def validate(data):
         """Validate function in database module"""
         return f"db_validate: {data} (overrides lambda)"
-    module.validate = validate
+    __cribo_module.validate = validate
 
     class Connection:
         """Database connection class"""
@@ -333,7 +336,7 @@ def __cribo_init___cribo_df9c8d_core_database_connection():
                 raise RuntimeError("Not connected")
             return format_result(f"Query: {query}")
     Connection.__module__ = 'core.database.connection'
-    module.Connection = Connection
+    __cribo_module.Connection = Connection
 
     class Logger:
         """Database logger - different from utils Logger"""
@@ -344,15 +347,15 @@ def __cribo_init___cribo_df9c8d_core_database_connection():
         def log(self, message):
             return f"DB_LOG[{self.context}]: {message}"
     Logger.__module__ = 'core.database.connection'
-    module.Logger = Logger
+    __cribo_module.Logger = Logger
 
     def create_connection(db_name):
         """Factory function"""
         conn = Connection(db_name)
         conn.connect()
         return conn
-    module.create_connection = create_connection
-    return module
+    __cribo_module.create_connection = create_connection
+    return __cribo_module
 models.base = __cribo_init___cribo_0a162a_models_base()
 services.auth.manager = __cribo_init___cribo_0ecebd_services_auth_manager()
 core.database.connection = __cribo_init___cribo_df9c8d_core_database_connection()
