@@ -471,7 +471,7 @@ def __cribo_init___cribo_ee1d45_services_auth_manager():
 
         def add_user(self, username: str, password: str) -> "User":
             """Method that creates User with local scope conflicts"""
-            User = globals()["User"]
+            User = __cribo_module.__dict__["User"]
             user = User(username, password)
             self.users.append(user)
             self.User = user

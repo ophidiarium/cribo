@@ -63,7 +63,7 @@ def __cribo_init___cribo_c75306_module_mixed_patterns():
             _cribo_module_mixed_patterns_counter += 1
             __cribo_module.counter = _cribo_module_mixed_patterns_counter
             return _cribo_module_mixed_patterns_counter
-        global_keys = [k for k in globals() if not k.startswith("_")]
+        global_keys = [k for k in __cribo_module.__dict__ if not k.startswith("_")]
         return {"original": original, "after_loop": _cribo_module_mixed_patterns_counter, "increment_func": increment, "global_count": len(global_keys)}
     __cribo_module.complex_global_usage = complex_global_usage
     __cribo_module.__dict__["initialized_via_globals"] = True
@@ -105,7 +105,7 @@ def __cribo_init___cribo_5101f4_module_globals_dict():
 
     def list_module_globals():
         """List all non-built-in globals in this module."""
-        return {k: v for k, v in globals().items() if not k.startswith("__") and k not in ["get_bar", "modify_bar", "set_dynamic_global", "get_dynamic_global", "list_module_globals"]}
+        return {k: v for k, v in __cribo_module.__dict__.items() if not k.startswith("__") and k not in ["get_bar", "modify_bar", "set_dynamic_global", "get_dynamic_global", "list_module_globals"]}
     __cribo_module.list_module_globals = list_module_globals
     set_dynamic_global("dynamic1", "created_via_globals")
     set_dynamic_global("dynamic2", [1, 2, 3])

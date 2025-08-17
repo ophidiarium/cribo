@@ -1,5 +1,5 @@
 use log::debug;
-use ruff_python_ast::{Expr, ExprContext, Stmt};
+use ruff_python_ast::{ExceptHandler, Expr, ExprContext, Stmt};
 
 use crate::{
     ast_builder::{expressions, statements},
@@ -30,107 +30,383 @@ pub struct GlobalsLifter {
     pub lifted_declarations: Vec<Stmt>,
 }
 
-/// Transform `globals()` references in expressions
-pub fn transform_globals_in_expr(expr: &mut Expr) {
+/// Unified function to transform module-level introspection calls
+/// For `locals()`: transforms to `vars(__cribo_module)`, stops at function/class boundaries
+/// For `globals()`: transforms to `__cribo_module.__dict__`, recurses into all contexts
+fn transform_introspection_in_expr(expr: &mut Expr, target_fn: &str, recurse_into_scopes: bool) {
     match expr {
         Expr::Call(call_expr) => {
-            // Check if this is a globals() call
+            // Check if this is the target introspection call
             if let Expr::Name(name_expr) = &*call_expr.func
-                && name_expr.id.as_str() == "globals"
+                && name_expr.id.as_str() == target_fn
                 && call_expr.arguments.args.is_empty()
                 && call_expr.arguments.keywords.is_empty()
             {
-                // Replace the entire expression with __cribo_module.__dict__
-                *expr = expressions::attribute(
-                    expressions::name(
-                        crate::code_generator::module_registry::MODULE_VAR,
+                // Transform based on the target function
+                if target_fn == "locals" {
+                    // Replace with vars(__cribo_module)
+                    *expr = expressions::call(
+                        expressions::name("vars", ExprContext::Load),
+                        vec![expressions::name(
+                            crate::code_generator::module_registry::MODULE_VAR,
+                            ExprContext::Load,
+                        )],
+                        vec![],
+                    );
+                } else if target_fn == "globals" {
+                    // Replace with __cribo_module.__dict__
+                    *expr = expressions::attribute(
+                        expressions::name(
+                            crate::code_generator::module_registry::MODULE_VAR,
+                            ExprContext::Load,
+                        ),
+                        "__dict__",
                         ExprContext::Load,
-                    ),
-                    "__dict__",
-                    ExprContext::Load,
-                );
+                    );
+                }
                 return;
             }
 
             // Recursively transform in function and arguments
-            transform_globals_in_expr(&mut call_expr.func);
+            transform_introspection_in_expr(&mut call_expr.func, target_fn, recurse_into_scopes);
             for arg in &mut call_expr.arguments.args {
-                transform_globals_in_expr(arg);
+                transform_introspection_in_expr(arg, target_fn, recurse_into_scopes);
             }
             for keyword in &mut call_expr.arguments.keywords {
-                transform_globals_in_expr(&mut keyword.value);
+                transform_introspection_in_expr(&mut keyword.value, target_fn, recurse_into_scopes);
             }
         }
+        Expr::Lambda(lambda_expr) if recurse_into_scopes => {
+            // Only recurse into lambda if allowed (for globals)
+            transform_introspection_in_expr(&mut lambda_expr.body, target_fn, recurse_into_scopes);
+        }
         Expr::Attribute(attr_expr) => {
-            transform_globals_in_expr(&mut attr_expr.value);
+            transform_introspection_in_expr(&mut attr_expr.value, target_fn, recurse_into_scopes);
         }
         Expr::Subscript(subscript_expr) => {
-            transform_globals_in_expr(&mut subscript_expr.value);
-            transform_globals_in_expr(&mut subscript_expr.slice);
+            transform_introspection_in_expr(
+                &mut subscript_expr.value,
+                target_fn,
+                recurse_into_scopes,
+            );
+            transform_introspection_in_expr(
+                &mut subscript_expr.slice,
+                target_fn,
+                recurse_into_scopes,
+            );
         }
         Expr::List(list_expr) => {
             for elem in &mut list_expr.elts {
-                transform_globals_in_expr(elem);
+                transform_introspection_in_expr(elem, target_fn, recurse_into_scopes);
             }
         }
         Expr::Dict(dict_expr) => {
             for item in &mut dict_expr.items {
                 if let Some(ref mut key) = item.key {
-                    transform_globals_in_expr(key);
+                    transform_introspection_in_expr(key, target_fn, recurse_into_scopes);
                 }
-                transform_globals_in_expr(&mut item.value);
+                transform_introspection_in_expr(&mut item.value, target_fn, recurse_into_scopes);
             }
         }
         Expr::If(if_expr) => {
-            transform_globals_in_expr(&mut if_expr.test);
-            transform_globals_in_expr(&mut if_expr.body);
-            transform_globals_in_expr(&mut if_expr.orelse);
+            transform_introspection_in_expr(&mut if_expr.test, target_fn, recurse_into_scopes);
+            transform_introspection_in_expr(&mut if_expr.body, target_fn, recurse_into_scopes);
+            transform_introspection_in_expr(&mut if_expr.orelse, target_fn, recurse_into_scopes);
         }
-        // Add more expression types as needed
+        Expr::ListComp(comp_expr) => {
+            transform_introspection_in_expr(&mut comp_expr.elt, target_fn, recurse_into_scopes);
+            for generator in &mut comp_expr.generators {
+                transform_introspection_in_expr(
+                    &mut generator.iter,
+                    target_fn,
+                    recurse_into_scopes,
+                );
+                transform_introspection_in_expr(
+                    &mut generator.target,
+                    target_fn,
+                    recurse_into_scopes,
+                );
+                for if_clause in &mut generator.ifs {
+                    transform_introspection_in_expr(if_clause, target_fn, recurse_into_scopes);
+                }
+            }
+        }
+        Expr::DictComp(comp_expr) => {
+            transform_introspection_in_expr(&mut comp_expr.key, target_fn, recurse_into_scopes);
+            transform_introspection_in_expr(&mut comp_expr.value, target_fn, recurse_into_scopes);
+            for generator in &mut comp_expr.generators {
+                transform_introspection_in_expr(
+                    &mut generator.iter,
+                    target_fn,
+                    recurse_into_scopes,
+                );
+                transform_introspection_in_expr(
+                    &mut generator.target,
+                    target_fn,
+                    recurse_into_scopes,
+                );
+                for if_clause in &mut generator.ifs {
+                    transform_introspection_in_expr(if_clause, target_fn, recurse_into_scopes);
+                }
+            }
+        }
+        Expr::SetComp(comp_expr) => {
+            transform_introspection_in_expr(&mut comp_expr.elt, target_fn, recurse_into_scopes);
+            for generator in &mut comp_expr.generators {
+                transform_introspection_in_expr(
+                    &mut generator.iter,
+                    target_fn,
+                    recurse_into_scopes,
+                );
+                transform_introspection_in_expr(
+                    &mut generator.target,
+                    target_fn,
+                    recurse_into_scopes,
+                );
+                for if_clause in &mut generator.ifs {
+                    transform_introspection_in_expr(if_clause, target_fn, recurse_into_scopes);
+                }
+            }
+        }
+        Expr::Generator(gen_expr) => {
+            transform_introspection_in_expr(&mut gen_expr.elt, target_fn, recurse_into_scopes);
+            for generator in &mut gen_expr.generators {
+                transform_introspection_in_expr(
+                    &mut generator.iter,
+                    target_fn,
+                    recurse_into_scopes,
+                );
+                transform_introspection_in_expr(
+                    &mut generator.target,
+                    target_fn,
+                    recurse_into_scopes,
+                );
+                for if_clause in &mut generator.ifs {
+                    transform_introspection_in_expr(if_clause, target_fn, recurse_into_scopes);
+                }
+            }
+        }
+        Expr::Compare(compare_expr) => {
+            transform_introspection_in_expr(&mut compare_expr.left, target_fn, recurse_into_scopes);
+            for comparator in &mut compare_expr.comparators {
+                transform_introspection_in_expr(comparator, target_fn, recurse_into_scopes);
+            }
+        }
+        Expr::BoolOp(bool_op_expr) => {
+            for value in &mut bool_op_expr.values {
+                transform_introspection_in_expr(value, target_fn, recurse_into_scopes);
+            }
+        }
+        Expr::BinOp(bin_op_expr) => {
+            transform_introspection_in_expr(&mut bin_op_expr.left, target_fn, recurse_into_scopes);
+            transform_introspection_in_expr(&mut bin_op_expr.right, target_fn, recurse_into_scopes);
+        }
+        Expr::UnaryOp(unary_op_expr) => {
+            transform_introspection_in_expr(
+                &mut unary_op_expr.operand,
+                target_fn,
+                recurse_into_scopes,
+            );
+        }
+        Expr::Tuple(tuple_expr) => {
+            for elem in &mut tuple_expr.elts {
+                transform_introspection_in_expr(elem, target_fn, recurse_into_scopes);
+            }
+        }
+        Expr::Set(set_expr) => {
+            for elem in &mut set_expr.elts {
+                transform_introspection_in_expr(elem, target_fn, recurse_into_scopes);
+            }
+        }
+        Expr::Slice(slice_expr) => {
+            if let Some(ref mut lower) = slice_expr.lower {
+                transform_introspection_in_expr(lower, target_fn, recurse_into_scopes);
+            }
+            if let Some(ref mut upper) = slice_expr.upper {
+                transform_introspection_in_expr(upper, target_fn, recurse_into_scopes);
+            }
+            if let Some(ref mut step) = slice_expr.step {
+                transform_introspection_in_expr(step, target_fn, recurse_into_scopes);
+            }
+        }
+        Expr::Starred(starred_expr) => {
+            transform_introspection_in_expr(
+                &mut starred_expr.value,
+                target_fn,
+                recurse_into_scopes,
+            );
+        }
+        Expr::Await(await_expr) => {
+            transform_introspection_in_expr(&mut await_expr.value, target_fn, recurse_into_scopes);
+        }
+        Expr::Yield(yield_expr) => {
+            if let Some(ref mut value) = yield_expr.value {
+                transform_introspection_in_expr(value, target_fn, recurse_into_scopes);
+            }
+        }
+        Expr::YieldFrom(yield_from) => {
+            transform_introspection_in_expr(&mut yield_from.value, target_fn, recurse_into_scopes);
+        }
+        Expr::Named(named_expr) => {
+            transform_introspection_in_expr(&mut named_expr.target, target_fn, recurse_into_scopes);
+            transform_introspection_in_expr(&mut named_expr.value, target_fn, recurse_into_scopes);
+        }
+        // Base cases that don't need transformation
+        _ => {}
+    }
+}
+
+/// Unified function to transform module-level introspection calls in statements
+/// For `locals()`: stops at function/class boundaries
+/// For `globals()`: recurses into all contexts
+fn transform_introspection_in_stmt(stmt: &mut Stmt, target_fn: &str, recurse_into_scopes: bool) {
+    match stmt {
+        Stmt::FunctionDef(func_def) if recurse_into_scopes => {
+            // Only recurse into function bodies if allowed (for globals)
+            for stmt in &mut func_def.body {
+                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+            }
+        }
+        Stmt::ClassDef(class_def) if recurse_into_scopes => {
+            // Only recurse into class bodies if allowed (for globals)
+            for stmt in &mut class_def.body {
+                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+            }
+        }
+        Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
+            // Don't transform inside function/class definitions for locals()
+        }
+        Stmt::Expr(expr_stmt) => {
+            transform_introspection_in_expr(&mut expr_stmt.value, target_fn, recurse_into_scopes);
+        }
+        Stmt::Assign(assign_stmt) => {
+            transform_introspection_in_expr(&mut assign_stmt.value, target_fn, recurse_into_scopes);
+            for target in &mut assign_stmt.targets {
+                transform_introspection_in_expr(target, target_fn, recurse_into_scopes);
+            }
+        }
+        Stmt::AnnAssign(ann_assign_stmt) => {
+            if let Some(ref mut value) = ann_assign_stmt.value {
+                transform_introspection_in_expr(value, target_fn, recurse_into_scopes);
+            }
+        }
+        Stmt::AugAssign(aug_assign_stmt) => {
+            transform_introspection_in_expr(
+                &mut aug_assign_stmt.value,
+                target_fn,
+                recurse_into_scopes,
+            );
+        }
+        Stmt::Return(return_stmt) => {
+            if let Some(ref mut value) = return_stmt.value {
+                transform_introspection_in_expr(value, target_fn, recurse_into_scopes);
+            }
+        }
+        Stmt::Delete(delete_stmt) => {
+            for target in &mut delete_stmt.targets {
+                transform_introspection_in_expr(target, target_fn, recurse_into_scopes);
+            }
+        }
+        Stmt::If(if_stmt) => {
+            transform_introspection_in_expr(&mut if_stmt.test, target_fn, recurse_into_scopes);
+            for stmt in &mut if_stmt.body {
+                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+            }
+            for clause in &mut if_stmt.elif_else_clauses {
+                if let Some(ref mut test_expr) = clause.test {
+                    transform_introspection_in_expr(test_expr, target_fn, recurse_into_scopes);
+                }
+                for stmt in &mut clause.body {
+                    transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+                }
+            }
+        }
+        Stmt::For(for_stmt) => {
+            transform_introspection_in_expr(&mut for_stmt.iter, target_fn, recurse_into_scopes);
+            transform_introspection_in_expr(&mut for_stmt.target, target_fn, recurse_into_scopes);
+            for stmt in &mut for_stmt.body {
+                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+            }
+            for stmt in &mut for_stmt.orelse {
+                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+            }
+        }
+        Stmt::While(while_stmt) => {
+            transform_introspection_in_expr(&mut while_stmt.test, target_fn, recurse_into_scopes);
+            for stmt in &mut while_stmt.body {
+                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+            }
+            for stmt in &mut while_stmt.orelse {
+                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+            }
+        }
+        Stmt::With(with_stmt) => {
+            for item in &mut with_stmt.items {
+                transform_introspection_in_expr(
+                    &mut item.context_expr,
+                    target_fn,
+                    recurse_into_scopes,
+                );
+            }
+            for stmt in &mut with_stmt.body {
+                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+            }
+        }
+        Stmt::Match(match_stmt) => {
+            transform_introspection_in_expr(
+                &mut match_stmt.subject,
+                target_fn,
+                recurse_into_scopes,
+            );
+            for case in &mut match_stmt.cases {
+                if let Some(ref mut guard) = case.guard {
+                    transform_introspection_in_expr(guard, target_fn, recurse_into_scopes);
+                }
+                for stmt in &mut case.body {
+                    transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+                }
+            }
+        }
+        Stmt::Raise(raise_stmt) => {
+            if let Some(ref mut exc) = raise_stmt.exc {
+                transform_introspection_in_expr(exc, target_fn, recurse_into_scopes);
+            }
+            if let Some(ref mut cause) = raise_stmt.cause {
+                transform_introspection_in_expr(cause, target_fn, recurse_into_scopes);
+            }
+        }
+        Stmt::Try(try_stmt) => {
+            for stmt in &mut try_stmt.body {
+                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+            }
+            for handler in &mut try_stmt.handlers {
+                let ExceptHandler::ExceptHandler(handler) = handler;
+                for stmt in &mut handler.body {
+                    transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+                }
+            }
+            for stmt in &mut try_stmt.orelse {
+                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+            }
+            for stmt in &mut try_stmt.finalbody {
+                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+            }
+        }
+        Stmt::Assert(assert_stmt) => {
+            transform_introspection_in_expr(&mut assert_stmt.test, target_fn, recurse_into_scopes);
+            if let Some(ref mut msg) = assert_stmt.msg {
+                transform_introspection_in_expr(msg, target_fn, recurse_into_scopes);
+            }
+        }
+        // Statements that don't contain expressions or are not supported
         _ => {}
     }
 }
 
 /// Transform `globals()` calls in a statement
 pub fn transform_globals_in_stmt(stmt: &mut Stmt) {
-    match stmt {
-        Stmt::Expr(expr_stmt) => {
-            transform_globals_in_expr(&mut expr_stmt.value);
-        }
-        Stmt::Assign(assign_stmt) => {
-            transform_globals_in_expr(&mut assign_stmt.value);
-            for target in &mut assign_stmt.targets {
-                transform_globals_in_expr(target);
-            }
-        }
-        Stmt::Return(return_stmt) => {
-            if let Some(ref mut value) = return_stmt.value {
-                transform_globals_in_expr(value);
-            }
-        }
-        Stmt::If(if_stmt) => {
-            transform_globals_in_expr(&mut if_stmt.test);
-            for stmt in &mut if_stmt.body {
-                transform_globals_in_stmt(stmt);
-            }
-            for clause in &mut if_stmt.elif_else_clauses {
-                if let Some(ref mut test_expr) = clause.test {
-                    transform_globals_in_expr(test_expr);
-                }
-                for stmt in &mut clause.body {
-                    transform_globals_in_stmt(stmt);
-                }
-            }
-        }
-        Stmt::FunctionDef(func_def) => {
-            // Transform globals() calls in function body
-            for stmt in &mut func_def.body {
-                transform_globals_in_stmt(stmt);
-            }
-        }
-        // Add more statement types as needed
-        _ => {}
-    }
+    // Use unified function with recursion enabled (globals recurses into all scopes)
+    transform_introspection_in_stmt(stmt, "globals", true);
 }
 
 impl GlobalsLifter {
@@ -212,190 +488,8 @@ pub fn process_wrapper_module_globals(
     module_globals.insert(params.module_name.to_string(), global_info);
 }
 
-/// Transform `locals()` references in expressions to `vars(__cribo_module)`
-pub fn transform_locals_in_expr(expr: &mut Expr) {
-    match expr {
-        Expr::Call(call_expr) => {
-            // Check if this is a locals() call
-            if let Expr::Name(name_expr) = &*call_expr.func
-                && name_expr.id.as_str() == "locals"
-                && call_expr.arguments.args.is_empty()
-                && call_expr.arguments.keywords.is_empty()
-            {
-                // Replace the entire expression with vars(__cribo_module)
-                *expr = expressions::call(
-                    expressions::name("vars", ExprContext::Load),
-                    vec![expressions::name(
-                        crate::code_generator::module_registry::MODULE_VAR,
-                        ExprContext::Load,
-                    )],
-                    vec![],
-                );
-                return;
-            }
-
-            // Recursively transform in function and arguments
-            transform_locals_in_expr(&mut call_expr.func);
-            for arg in &mut call_expr.arguments.args {
-                transform_locals_in_expr(arg);
-            }
-            for keyword in &mut call_expr.arguments.keywords {
-                transform_locals_in_expr(&mut keyword.value);
-            }
-        }
-        Expr::Attribute(attr_expr) => {
-            transform_locals_in_expr(&mut attr_expr.value);
-        }
-        Expr::Subscript(subscript_expr) => {
-            transform_locals_in_expr(&mut subscript_expr.value);
-            transform_locals_in_expr(&mut subscript_expr.slice);
-        }
-        Expr::List(list_expr) => {
-            for elem in &mut list_expr.elts {
-                transform_locals_in_expr(elem);
-            }
-        }
-        Expr::Dict(dict_expr) => {
-            for item in &mut dict_expr.items {
-                if let Some(ref mut key) = item.key {
-                    transform_locals_in_expr(key);
-                }
-                transform_locals_in_expr(&mut item.value);
-            }
-        }
-        Expr::If(if_expr) => {
-            transform_locals_in_expr(&mut if_expr.test);
-            transform_locals_in_expr(&mut if_expr.body);
-            transform_locals_in_expr(&mut if_expr.orelse);
-        }
-        Expr::ListComp(comp_expr) => {
-            transform_locals_in_expr(&mut comp_expr.elt);
-            for generator in &mut comp_expr.generators {
-                transform_locals_in_expr(&mut generator.iter);
-                transform_locals_in_expr(&mut generator.target);
-                for if_clause in &mut generator.ifs {
-                    transform_locals_in_expr(if_clause);
-                }
-            }
-        }
-        Expr::DictComp(comp_expr) => {
-            transform_locals_in_expr(&mut comp_expr.key);
-            transform_locals_in_expr(&mut comp_expr.value);
-            for generator in &mut comp_expr.generators {
-                transform_locals_in_expr(&mut generator.iter);
-                transform_locals_in_expr(&mut generator.target);
-                for if_clause in &mut generator.ifs {
-                    transform_locals_in_expr(if_clause);
-                }
-            }
-        }
-        Expr::Compare(compare_expr) => {
-            transform_locals_in_expr(&mut compare_expr.left);
-            for comparator in &mut compare_expr.comparators {
-                transform_locals_in_expr(comparator);
-            }
-        }
-        Expr::BoolOp(bool_op_expr) => {
-            for value in &mut bool_op_expr.values {
-                transform_locals_in_expr(value);
-            }
-        }
-        Expr::BinOp(bin_op_expr) => {
-            transform_locals_in_expr(&mut bin_op_expr.left);
-            transform_locals_in_expr(&mut bin_op_expr.right);
-        }
-        Expr::UnaryOp(unary_op_expr) => {
-            transform_locals_in_expr(&mut unary_op_expr.operand);
-        }
-        Expr::Tuple(tuple_expr) => {
-            for elem in &mut tuple_expr.elts {
-                transform_locals_in_expr(elem);
-            }
-        }
-        Expr::Set(set_expr) => {
-            for elem in &mut set_expr.elts {
-                transform_locals_in_expr(elem);
-            }
-        }
-        Expr::SetComp(comp_expr) => {
-            transform_locals_in_expr(&mut comp_expr.elt);
-            for generator in &mut comp_expr.generators {
-                transform_locals_in_expr(&mut generator.iter);
-                transform_locals_in_expr(&mut generator.target);
-                for if_clause in &mut generator.ifs {
-                    transform_locals_in_expr(if_clause);
-                }
-            }
-        }
-        // Add more expression types as needed
-        _ => {}
-    }
-}
-
 /// Transform `locals()` calls to `vars(__cribo_module)` in a statement
 pub fn transform_locals_in_stmt(stmt: &mut Stmt) {
-    match stmt {
-        Stmt::Expr(expr_stmt) => {
-            transform_locals_in_expr(&mut expr_stmt.value);
-        }
-        Stmt::Assign(assign_stmt) => {
-            transform_locals_in_expr(&mut assign_stmt.value);
-            for target in &mut assign_stmt.targets {
-                transform_locals_in_expr(target);
-            }
-        }
-        Stmt::AnnAssign(ann_assign_stmt) => {
-            if let Some(ref mut value) = ann_assign_stmt.value {
-                transform_locals_in_expr(value);
-            }
-        }
-        Stmt::Return(return_stmt) => {
-            if let Some(ref mut value) = return_stmt.value {
-                transform_locals_in_expr(value);
-            }
-        }
-        Stmt::If(if_stmt) => {
-            transform_locals_in_expr(&mut if_stmt.test);
-            for stmt in &mut if_stmt.body {
-                transform_locals_in_stmt(stmt);
-            }
-            for clause in &mut if_stmt.elif_else_clauses {
-                if let Some(ref mut test_expr) = clause.test {
-                    transform_locals_in_expr(test_expr);
-                }
-                for stmt in &mut clause.body {
-                    transform_locals_in_stmt(stmt);
-                }
-            }
-        }
-        Stmt::For(for_stmt) => {
-            transform_locals_in_expr(&mut for_stmt.iter);
-            transform_locals_in_expr(&mut for_stmt.target);
-            for stmt in &mut for_stmt.body {
-                transform_locals_in_stmt(stmt);
-            }
-            for stmt in &mut for_stmt.orelse {
-                transform_locals_in_stmt(stmt);
-            }
-        }
-        Stmt::While(while_stmt) => {
-            transform_locals_in_expr(&mut while_stmt.test);
-            for stmt in &mut while_stmt.body {
-                transform_locals_in_stmt(stmt);
-            }
-            for stmt in &mut while_stmt.orelse {
-                transform_locals_in_stmt(stmt);
-            }
-        }
-        Stmt::FunctionDef(_) => {
-            // Don't transform locals() inside function definitions
-            // locals() inside functions should refer to the function's local scope
-        }
-        Stmt::ClassDef(_) => {
-            // Don't transform locals() inside class definitions
-            // locals() inside classes should refer to the class's local scope
-        }
-        // Add more statement types as needed
-        _ => {}
-    }
+    // Use unified function with recursion disabled (locals stops at function/class boundaries)
+    transform_introspection_in_stmt(stmt, "locals", false);
 }
