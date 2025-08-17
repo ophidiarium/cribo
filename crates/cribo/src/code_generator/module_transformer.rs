@@ -84,6 +84,8 @@ pub fn transform_module_to_init_function<'a>(
     // - inlined_import_bindings: local binding names created by explicit from-imports (asname if present)
     let mut imports_from_inlined: Vec<(String, String)> = Vec::new();
     let mut inlined_import_bindings = Vec::new();
+    // Track wrapper module symbols that need placeholders (symbol_name, value_name)
+    let mut wrapper_module_symbols_global_only: Vec<(String, String)> = Vec::new();
 
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
@@ -117,13 +119,22 @@ pub fn transform_module_to_init_function<'a>(
                         let imported_name = alias.name.as_str();
                         // For wildcard imports, we need to track all symbols that will be imported
                         if imported_name == "*" {
-                            process_wildcard_import(
+                            let wrapper_symbols = process_wildcard_import(
                                 bundler,
                                 module,
                                 symbol_renames,
                                 &mut imports_from_inlined,
                                 ctx.module_name,
                             );
+
+                            // Collect wrapper module symbols that need special handling
+                            // We need to track them separately to create placeholder assignments
+                            for (symbol_name, value_name) in wrapper_symbols {
+                                debug!(
+                                    "Collecting wrapper module symbol '{symbol_name}' for special handling"
+                                );
+                                wrapper_module_symbols_global_only.push((symbol_name, value_name));
+                            }
                         } else {
                             let local_binding_name = alias
                                 .asname
@@ -155,11 +166,17 @@ pub fn transform_module_to_init_function<'a>(
     // Add global declarations for symbols imported from inlined modules
     // This is necessary because the symbols are defined in the global scope
     // but we need to access them inside the init function
-    if !imports_from_inlined.is_empty() {
+    // Also include wrapper module symbols that will be defined later
+    if !imports_from_inlined.is_empty() || !wrapper_module_symbols_global_only.is_empty() {
         // Deduplicate by value name (what's actually in global scope) and sort for deterministic output
         let mut unique_imports: Vec<String> = imports_from_inlined
             .iter()
             .map(|(_, value_name)| value_name.clone())
+            .chain(
+                wrapper_module_symbols_global_only
+                    .iter()
+                    .map(|(_, value_name)| value_name.clone()),
+            )
             .collect::<FxIndexSet<_>>()
             .into_iter()
             .collect();
@@ -219,6 +236,35 @@ pub fn transform_module_to_init_function<'a>(
                 body.push(stmt.clone());
             }
         }
+    }
+
+    // Add placeholder assignments for wrapper module symbols
+    // These symbols will be properly assigned later when wrapper modules are initialized,
+    // but we need them to exist in the local scope (not as module attributes yet)
+    // We use a sentinel object that can have attributes set on it
+    for (symbol_name, _value_name) in &wrapper_module_symbols_global_only {
+        debug!("Adding placeholder assignment for wrapper module symbol '{symbol_name}'");
+        // Create assignment: symbol_name = types.SimpleNamespace()
+        // This creates a placeholder that can have attributes set on it
+        body.push(ast_builder::statements::simple_assign(
+            symbol_name,
+            ast_builder::expressions::call(
+                ast_builder::expressions::attribute(
+                    ast_builder::expressions::name("types", ExprContext::Load),
+                    "SimpleNamespace",
+                    ExprContext::Load,
+                ),
+                vec![],
+                vec![],
+            ),
+        ));
+        // Also add as module attribute so it's visible in vars(__cribo_module)
+        body.push(
+            crate::code_generator::module_registry::create_module_attr_assignment(
+                MODULE_VAR,
+                symbol_name,
+            ),
+        );
     }
 
     // CRITICAL: Add wildcard-imported symbols as module attributes NOW
@@ -2080,14 +2126,18 @@ fn renamed_symbol_exists(
 }
 
 /// Process wildcard import from an inlined module
+/// Returns a list of symbols from wrapper modules that need deferred assignment
 fn process_wildcard_import(
     bundler: &Bundler,
     module: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     imports_from_inlined: &mut Vec<(String, String)>,
     _current_module: &str,
-) {
+) -> Vec<(String, String)> {
     debug!("Processing wildcard import from inlined module '{module}'");
+
+    // Track symbols from wrapper modules that need deferred handling
+    let mut wrapper_module_symbols = Vec::new();
 
     // Get all exported symbols from this module
     let exports = bundler.module_exports.get(module);
@@ -2122,9 +2172,15 @@ fn process_wildcard_import(
                     // because the wrapper module hasn't been initialized yet
                     if symbol_comes_from_wrapper_module(bundler, module, symbol) {
                         debug!(
-                            "Symbol '{symbol}' from inlined module '{module}' comes from a wrapper module - will be handled later"
+                            "Symbol '{symbol}' from inlined module '{module}' comes from a wrapper module - deferring assignment"
                         );
-                        // Don't add to imports_from_inlined - it will be handled when the wrapper module is initialized
+                        // Track for deferred assignment after wrapper module initialization
+                        let value_name = symbol_renames
+                            .get(module)
+                            .and_then(|m| m.get(symbol))
+                            .cloned()
+                            .unwrap_or_else(|| symbol.clone());
+                        wrapper_module_symbols.push((symbol.clone(), value_name));
                         continue;
                     }
 
@@ -2146,7 +2202,7 @@ fn process_wildcard_import(
                 }
             }
         }
-        return;
+        return wrapper_module_symbols;
     }
 
     if exports.is_some() {
@@ -2161,8 +2217,11 @@ fn process_wildcard_import(
                         // Check if this symbol comes from a wrapper module
                         if symbol_comes_from_wrapper_module(bundler, module, original_name) {
                             debug!(
-                                "Symbol '{original_name}' from inlined module '{module}' comes from a wrapper module - will be handled later"
+                                "Symbol '{original_name}' from inlined module '{module}' comes from a wrapper module - deferring assignment"
                             );
+                            // Track for deferred assignment
+                            wrapper_module_symbols
+                                .push((original_name.clone(), renamed_name.clone()));
                             continue;
                         }
 
@@ -2178,7 +2237,7 @@ fn process_wildcard_import(
                     }
                 }
             }
-            return;
+            return wrapper_module_symbols;
         }
 
         // Fallback to semantic exports when no renames are available
@@ -2190,8 +2249,10 @@ fn process_wildcard_import(
                         // Check if this symbol comes from a wrapper module
                         if symbol_comes_from_wrapper_module(bundler, module, symbol) {
                             debug!(
-                                "Symbol '{symbol}' from inlined module '{module}' comes from a wrapper module - will be handled later"
+                                "Symbol '{symbol}' from inlined module '{module}' comes from a wrapper module - deferring assignment"
                             );
+                            // Track for deferred assignment
+                            wrapper_module_symbols.push((symbol.clone(), symbol.clone()));
                             continue;
                         }
 
@@ -2207,7 +2268,7 @@ fn process_wildcard_import(
                     }
                 }
             }
-            return;
+            return wrapper_module_symbols;
         }
 
         log::warn!(
@@ -2216,6 +2277,8 @@ fn process_wildcard_import(
     } else {
         log::warn!("Could not find exports for inlined module '{module}'");
     }
+
+    wrapper_module_symbols
 }
 
 /// Check if a symbol from an inlined module actually comes from a wrapper module
@@ -2245,11 +2308,17 @@ fn symbol_comes_from_wrapper_module(
                             // Relative import - need to resolve it
                             bundler.resolver.resolve_relative_to_absolute_module_name(
                                 import_from.level,
-                                import_from.module.as_ref().map(ruff_python_ast::Identifier::as_str),
+                                import_from
+                                    .module
+                                    .as_ref()
+                                    .map(ruff_python_ast::Identifier::as_str),
                                 module_path,
                             )
                         } else {
-                            import_from.module.as_ref().map(std::string::ToString::to_string)
+                            import_from
+                                .module
+                                .as_ref()
+                                .map(std::string::ToString::to_string)
                         };
 
                         if let Some(ref source_module) = resolved_module {
@@ -2263,12 +2332,13 @@ fn symbol_comes_from_wrapper_module(
                                     // Check if the source module exports this symbol
                                     if let Some(Some(exports)) =
                                         bundler.module_exports.get(source_module)
-                                        && exports.iter().any(|s| s == symbol_name) {
-                                            debug!(
-                                                "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}' via wildcard import"
-                                            );
-                                            return true;
-                                        }
+                                        && exports.iter().any(|s| s == symbol_name)
+                                    {
+                                        debug!(
+                                            "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}' via wildcard import"
+                                        );
+                                        return true;
+                                    }
                                 } else {
                                     // Direct import - we know this symbol comes from the wrapper module
                                     debug!(
