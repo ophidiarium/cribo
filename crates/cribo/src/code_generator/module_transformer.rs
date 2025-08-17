@@ -29,7 +29,7 @@ use crate::{
         globals::{GlobalsLifter, transform_globals_in_stmt, transform_locals_in_stmt},
         import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry::{self, sanitize_module_name_for_identifier},
+        module_registry::{self, MODULE_VAR, sanitize_module_name_for_identifier},
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -433,7 +433,7 @@ pub fn transform_module_to_init_function<'a>(
                 ) {
                     body.push(
                         crate::code_generator::module_registry::create_module_attr_assignment(
-                            crate::code_generator::module_registry::MODULE_VAR,
+                            MODULE_VAR,
                             &symbol_name,
                         ),
                     );
@@ -464,7 +464,7 @@ pub fn transform_module_to_init_function<'a>(
                 ) {
                     body.push(
                         crate::code_generator::module_registry::create_module_attr_assignment(
-                            crate::code_generator::module_registry::MODULE_VAR,
+                            MODULE_VAR,
                             &symbol_name,
                         ),
                     );
@@ -544,7 +544,7 @@ pub fn transform_module_to_init_function<'a>(
                                 if should_include {
                                     debug!("Exporting '{name}' as it's used by exported functions");
                                     body.push(crate::code_generator::module_registry::create_module_attr_assignment(
-                                    crate::code_generator::module_registry::MODULE_VAR,
+                                    MODULE_VAR,
                                     &name,
                                 ));
                                 }
@@ -624,8 +624,7 @@ pub fn transform_module_to_init_function<'a>(
                     {
                         body.push(
                             crate::code_generator::module_registry::create_module_attr_assignment(
-                                crate::code_generator::module_registry::MODULE_VAR,
-                                &target.id,
+                                MODULE_VAR, &target.id,
                             ),
                         );
                     }
@@ -736,7 +735,7 @@ pub fn transform_module_to_init_function<'a>(
                 let namespace_var = sanitize_module_name_for_identifier(&full_name);
                 body.push(
                     crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-                        crate::code_generator::module_registry::MODULE_VAR,
+                        MODULE_VAR,
                         &relative_name,
                         &namespace_var,
                     ),
@@ -811,8 +810,7 @@ pub fn transform_module_to_init_function<'a>(
                     && let [Expr::Attribute(attr)] = assign.targets.as_slice()
                     && let Expr::Name(name) = &*attr.value
                 {
-                    return name.id == crate::code_generator::module_registry::MODULE_VAR
-                        && attr.attr == imported_name;
+                    return name.id == MODULE_VAR && attr.attr == imported_name;
                 }
                 false
             });
@@ -820,7 +818,7 @@ pub fn transform_module_to_init_function<'a>(
             if !already_assigned {
                 body.push(
                     crate::code_generator::module_registry::create_module_attr_assignment(
-                        crate::code_generator::module_registry::MODULE_VAR,
+                        MODULE_VAR,
                         &imported_name,
                     ),
                 );
@@ -837,10 +835,7 @@ pub fn transform_module_to_init_function<'a>(
 
     // Return the module object
     body.push(ast_builder::statements::return_stmt(Some(
-        ast_builder::expressions::name(
-            crate::code_generator::module_registry::MODULE_VAR,
-            ExprContext::Load,
-        ),
+        ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
     )));
 
     // Create the init function WITHOUT decorator - we're not using module cache
@@ -876,10 +871,7 @@ fn transform_expr_for_module_vars(
             if name.id.as_str() == "__name__" {
                 // Transform __name__ -> module.__name__
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(
-                        crate::code_generator::module_registry::MODULE_VAR,
-                        ExprContext::Load,
-                    ),
+                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
                     "__name__",
                     ExprContext::Load,
                 );
@@ -895,10 +887,7 @@ fn transform_expr_for_module_vars(
             {
                 // Transform to module.var
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(
-                        crate::code_generator::module_registry::MODULE_VAR,
-                        ExprContext::Load,
-                    ),
+                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
                     name.id.as_str(),
                     ExprContext::Load,
                 );
@@ -1551,10 +1540,7 @@ fn transform_expr_for_module_vars_with_locals(
             if name_str == "__name__" && matches!(name_expr.ctx, ExprContext::Load) {
                 // Transform __name__ -> module.__name__
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(
-                        crate::code_generator::module_registry::MODULE_VAR,
-                        ExprContext::Load,
-                    ),
+                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
                     "__name__",
                     ExprContext::Load,
                 );
@@ -1568,10 +1554,7 @@ fn transform_expr_for_module_vars_with_locals(
             {
                 // Transform foo -> module.foo
                 *expr = ast_builder::expressions::attribute(
-                    ast_builder::expressions::name(
-                        crate::code_generator::module_registry::MODULE_VAR,
-                        ExprContext::Load,
-                    ),
+                    ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
                     name_str,
                     ExprContext::Load,
                 );
@@ -1681,13 +1664,10 @@ pub fn create_module_object_stmt(module_name: &str, _module_path: &Path) -> Vec<
 
     vec![
         // __cribo_module = types.SimpleNamespace()
-        ast_builder::statements::simple_assign(
-            crate::code_generator::module_registry::MODULE_VAR,
-            module_call,
-        ),
+        ast_builder::statements::simple_assign(MODULE_VAR, module_call),
         // __cribo_module.__name__ = "module_name"
         ast_builder::statements::assign_attribute(
-            crate::code_generator::module_registry::MODULE_VAR,
+            MODULE_VAR,
             "__name__",
             ast_builder::expressions::string_literal(module_name),
         ),
@@ -1907,8 +1887,7 @@ fn add_module_attr_if_exported(
     {
         body.push(
             crate::code_generator::module_registry::create_module_attr_assignment(
-                crate::code_generator::module_registry::MODULE_VAR,
-                &name,
+                MODULE_VAR, &name,
             ),
         );
     }
@@ -2040,7 +2019,7 @@ fn create_namespace_for_inlined_submodule(
     // This allows the parent module to access the submodule via the expected attribute name
     stmts.push(
         crate::code_generator::module_registry::create_module_attr_assignment_with_value(
-            crate::code_generator::module_registry::MODULE_VAR,
+            MODULE_VAR,
             attr_name,
             &namespace_var,
         ),
