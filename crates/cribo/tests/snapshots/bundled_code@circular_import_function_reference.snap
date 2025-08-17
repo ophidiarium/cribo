@@ -24,7 +24,7 @@ class BaseModel:
 
     def get_adapter_class(self):
         """Reference to adapter class (creates circular dependency)."""
-        return _adapters_module.Adapter if hasattr(_adapters_module, 'Adapter') else None
+        return _adapters_module.Adapter if hasattr(_adapters_module, "Adapter") else None
 class Adapter(BaseModel):
     """Adapter class that uses auth functionality."""
 
