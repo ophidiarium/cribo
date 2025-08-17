@@ -44,6 +44,8 @@ def __cribo_init___cribo_cca96f_package():
     __cribo_module._subpackage = package__subpackage
     return __cribo_module
 package = __cribo_init___cribo_cca96f_package()
+package__subpackage.MyClass = MyClass
+package__subpackage.my_function = my_function
 package__subpackage_module_b.my_function = my_function
 package__subpackage_module_a.MyClass = MyClass
 """Test wildcard imports with __all__ and setattr pattern."""

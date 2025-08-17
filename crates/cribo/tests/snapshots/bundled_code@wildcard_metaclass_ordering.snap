@@ -24,6 +24,12 @@ class Dumper(BaseDumper):
     def __init__(self):
         super().__init__()
         self.name = "Dumper"
+class SafeDumper(BaseDumper):
+    """Safe YAML dumper"""
+
+    def __init__(self):
+        super().__init__()
+        self.name = "SafeDumper"
 class BaseLoader:
     """Base loader class"""
 
@@ -47,22 +53,32 @@ class UnsafeLoader(BaseLoader):
     def __init__(self):
         super().__init__()
         self.name = "UnsafeLoader"
+class SafeLoader(BaseLoader):
+    """Safe loader with limited functionality"""
+
+    def __init__(self):
+        super().__init__()
+        self.name = "SafeLoader"
 BaseDumper.__module__ = 'yaml_module.dumper'
 Dumper.__module__ = 'yaml_module.dumper'
+SafeDumper.__module__ = 'yaml_module.dumper'
 BaseLoader.__module__ = 'yaml_module.loader'
 Loader.__module__ = 'yaml_module.loader'
 FullLoader.__module__ = 'yaml_module.loader'
 UnsafeLoader.__module__ = 'yaml_module.loader'
+SafeLoader.__module__ = 'yaml_module.loader'
 @functools.cache
 def __cribo_init___cribo_952a76_yaml_module():
     __cribo_module = types.SimpleNamespace()
     __cribo_module.__name__ = 'yaml_module'
-    global BaseDumper, BaseLoader, Dumper, FullLoader, Loader, UnsafeLoader
+    global BaseDumper, BaseLoader, Dumper, FullLoader, Loader, SafeDumper, SafeLoader, UnsafeLoader
     __cribo_module.BaseDumper = BaseDumper
     __cribo_module.BaseLoader = BaseLoader
     __cribo_module.Dumper = Dumper
     __cribo_module.FullLoader = FullLoader
     __cribo_module.Loader = Loader
+    __cribo_module.SafeDumper = SafeDumper
+    __cribo_module.SafeLoader = SafeLoader
     __cribo_module.UnsafeLoader = UnsafeLoader
 
     class YAMLObjectMetaclass(type):
