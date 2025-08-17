@@ -5856,7 +5856,6 @@ impl<'a> Bundler<'a> {
             if self.circular_modules.contains(module_name)
                 && symbol_name.starts_with('_')
                 && !symbol_name.starts_with("__")
-                && kept_by_tree_shaking
             {
                 log::debug!(
                     "Including private symbol '{symbol_name}' from circular module '{module_name}' because it's kept by tree-shaking"
