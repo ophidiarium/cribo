@@ -893,7 +893,7 @@ impl TreeShaker {
                 for target in targets {
                     if target == "__all__" {
                         // Mark all symbols listed in __all__
-                        for symbol in &item.read_vars {
+                        for symbol in &item.eventual_read_vars {
                             if !symbol.starts_with('_') {
                                 debug!(
                                     "Marking {symbol} from star import of {resolved_from_module} \
