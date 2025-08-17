@@ -14,7 +14,9 @@ use crate::{
     analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{expressions, statements},
     code_generator::{
-        bundler::Bundler, import_deduplicator, module_registry::sanitize_module_name_for_identifier,
+        bundler::Bundler,
+        import_deduplicator,
+        module_registry::{MODULE_VAR, sanitize_module_name_for_identifier},
     },
     types::{FxIndexMap, FxIndexSet},
 };
@@ -1341,9 +1343,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.is_wrapper_init,
                     );
 
-                    // Only defer if we're not in the entry module
-                    if self.is_entry_module {
-                        // For entry module, return the imports immediately
+                    // Only defer if we're not in the entry module or wrapper init
+                    if self.is_entry_module || self.is_wrapper_init {
+                        // For entry module and wrapper init functions, return the imports immediately
+                        // In wrapper init functions, module attributes need to be set where the import was
                         if !import_stmts.is_empty() {
                             return import_stmts;
                         }
@@ -1352,7 +1355,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // handle it differently
                         log::debug!(
                             "  handle_imports_from_inlined_module returned empty for entry \
-                             module, checking for submodule imports"
+                             module or wrapper init, checking for submodule imports"
                         );
                     } else {
                         self.deferred_imports.extend(import_stmts);
@@ -2931,8 +2934,29 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
             continue;
         }
 
-        // Only create assignment if the names are different
-        if local_name != renamed_symbol {
+        // Handle wrapper init functions specially
+        if is_wrapper_init {
+            // In wrapper init functions, always set the module attribute to the resolved symbol
+            log::debug!(
+                "Creating module attribute assignment in wrapper init: {MODULE_VAR}.{local_name} = {renamed_symbol}"
+            );
+            result_stmts.push(
+                crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                    MODULE_VAR,
+                    local_name,
+                    &renamed_symbol,
+                ),
+            );
+            // Keep a local alias only when renamed, to preserve intra-init references
+            if local_name != renamed_symbol {
+                log::debug!("Creating local alias: {local_name} = {renamed_symbol}");
+                result_stmts.push(statements::simple_assign(
+                    local_name,
+                    expressions::name(&renamed_symbol, ExprContext::Load),
+                ));
+            }
+        } else if local_name != renamed_symbol {
+            // For non-wrapper contexts, only create assignment if names differ
             log::debug!("Creating assignment: {local_name} = {renamed_symbol}");
             result_stmts.push(statements::simple_assign(
                 local_name,

@@ -132,6 +132,33 @@ impl VariableCollector {
         function_globals
     }
 
+    /// Check if a statement references a specific variable
+    pub fn statement_references_variable(stmt: &Stmt, var_name: &str) -> bool {
+        struct VarChecker<'a> {
+            var_name: &'a str,
+            found: bool,
+        }
+
+        impl<'a> Visitor<'a> for VarChecker<'_> {
+            fn visit_expr(&mut self, expr: &'a Expr) {
+                if let Expr::Name(name) = expr
+                    && name.id.as_str() == self.var_name
+                {
+                    self.found = true;
+                    return;
+                }
+                walk_expr(self, expr);
+            }
+        }
+
+        let mut checker = VarChecker {
+            var_name,
+            found: false,
+        };
+        checker.visit_stmt(stmt);
+        checker.found
+    }
+
     /// Collect variables referenced in statements (static helper for compatibility)
     pub fn collect_referenced_vars(stmts: &[Stmt], vars: &mut FxIndexSet<String>) {
         struct SimpleStmtCollector<'a> {

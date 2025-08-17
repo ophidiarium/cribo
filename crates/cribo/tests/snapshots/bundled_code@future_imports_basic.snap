@@ -17,55 +17,55 @@ mypackage.submodule = mypackage_submodule
 """Package initialization with future import."""
 @functools.cache
 def __cribo_init___cribo_c3d681_mypackage_submodule_utils():
-    module = types.SimpleNamespace()
-    module.__name__ = 'mypackage.submodule.utils'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'mypackage.submodule.utils'
     Dict = typing.Dict
-    module.Dict = Dict
+    __cribo_module.Dict = Dict
     Any = typing.Any
-    module.Any = Any
+    __cribo_module.Any = Any
     Union = typing.Union
-    module.Union = Union
+    __cribo_module.Union = Union
 
     def validate_input(data: InputData) -> bool:
         """Validate input data structure.\n\n    Uses forward reference that requires future import.\n    """
         if not isinstance(data, dict):
             return False
         return "key" in data and isinstance(data.get("numbers"), list)
-    module.validate_input = validate_input
+    __cribo_module.validate_input = validate_input
 
     def format_output(data: typing.Any) -> FormattedOutput:
         """Format data for output."""
         return f"Formatted: {data}"
-    module.format_output = format_output
+    __cribo_module.format_output = format_output
     InputData = typing.Dict[str, typing.Any]
-    module.InputData = InputData
+    __cribo_module.InputData = InputData
     FormattedOutput = typing.Union[str, typing.Dict[str, typing.Any]]
-    module.FormattedOutput = FormattedOutput
-    return module
+    __cribo_module.FormattedOutput = FormattedOutput
+    return __cribo_module
 @functools.cache
 def __cribo_init___cribo_41d36f_mypackage_core():
-    module = types.SimpleNamespace()
-    module.__name__ = 'mypackage.core'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'mypackage.core'
     Dict = typing.Dict
-    module.Dict = Dict
+    __cribo_module.Dict = Dict
     List = typing.List
-    module.List = List
+    __cribo_module.List = List
     Any = typing.Any
-    module.Any = Any
+    __cribo_module.Any = Any
 
     def process_data(data: typing.Dict[str, typing.Any]) -> typing.Dict[str, typing.Any]:
         """Process input data and return results.\n\n    This function uses forward references in type hints.\n    """
         result: ProcessingResult = {"input": data, "processed": True, "output": _transform_data(data)}
         return result
-    module.process_data = process_data
+    __cribo_module.process_data = process_data
 
     def _transform_data(data: typing.Dict[str, typing.Any]) -> typing.List[str]:
         """Transform data into list format."""
         return [f"{k}={v}" for k, v in data.items()]
-    module._transform_data = _transform_data
+    __cribo_module._transform_data = _transform_data
     ProcessingResult = typing.Dict[str, typing.Any]
-    module.ProcessingResult = ProcessingResult
-    return module
+    __cribo_module.ProcessingResult = ProcessingResult
+    return __cribo_module
 mypackage.core = __cribo_init___cribo_41d36f_mypackage_core()
 process_data = mypackage.core.process_data
 mypackage.submodule.utils = __cribo_init___cribo_c3d681_mypackage_submodule_utils()

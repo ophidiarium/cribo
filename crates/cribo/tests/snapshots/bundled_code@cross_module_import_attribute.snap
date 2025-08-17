@@ -11,28 +11,28 @@ import types
 my_package = types.SimpleNamespace(__name__='my_package')
 @functools.cache
 def __cribo_init___cribo_699da1_my_package___version__():
-    module = types.SimpleNamespace()
-    module.__name__ = 'my_package.__version__'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'my_package.__version__'
     """Version information for my_package"""
     __version__ = "1.2.3"
-    module.__version__ = __version__
+    __cribo_module.__version__ = __version__
     print("Loading version module...")
-    return module
+    return __cribo_module
 @functools.cache
 def __cribo_init___cribo_1f0580_my_package_utils():
-    module = types.SimpleNamespace()
-    module.__name__ = 'my_package.utils'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'my_package.utils'
     """Utility module that imports version from another module"""
     my_package.__version__ = __cribo_init___cribo_699da1_my_package___version__()
     __version__ = my_package.__version__.__version__
-    module.__version__ = __version__
+    __cribo_module.__version__ = __version__
     print("Loading utils module...")
 
     def get_version():
         """Return the package version"""
         return __version__
-    module.get_version = get_version
-    return module
+    __cribo_module.get_version = get_version
+    return __cribo_module
 """Test cross-module attribute imports like requests.__version__"""
 my_package.utils = __cribo_init___cribo_1f0580_my_package_utils()
 utils = my_package.utils

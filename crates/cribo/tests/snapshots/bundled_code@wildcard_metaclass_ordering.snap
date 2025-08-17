@@ -55,8 +55,8 @@ FullLoader.__module__ = 'yaml_module.loader'
 UnsafeLoader.__module__ = 'yaml_module.loader'
 @functools.cache
 def __cribo_init___cribo_952a76_yaml_module():
-    module = types.SimpleNamespace()
-    module.__name__ = 'yaml_module'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'yaml_module'
     global BaseDumper, BaseLoader, Dumper, FullLoader, Loader, UnsafeLoader
 
     class YAMLObjectMetaclass(type):
@@ -73,7 +73,7 @@ def __cribo_init___cribo_952a76_yaml_module():
                     else:
                         print(f"  - Would register with {cls.yaml_loader.__name__}")
     YAMLObjectMetaclass.__module__ = 'yaml_module'
-    module.YAMLObjectMetaclass = YAMLObjectMetaclass
+    __cribo_module.YAMLObjectMetaclass = YAMLObjectMetaclass
 
     class YAMLObject(metaclass=YAMLObjectMetaclass):
         """\n    An object that can be serialized to/from YAML.\n    Uses wildcard-imported symbols in class body.\n    """
@@ -94,16 +94,16 @@ def __cribo_init___cribo_952a76_yaml_module():
         def to_yaml(cls, dumper, data):
             return f"Dumping {cls.__name__} to YAML"
     YAMLObject.__module__ = 'yaml_module'
-    module.YAMLObject = YAMLObject
-    module.dumper = yaml_module_dumper
-    module.loader = yaml_module_loader
-    module.BaseLoader = BaseLoader
-    module.Loader = Loader
-    module.FullLoader = FullLoader
-    module.UnsafeLoader = UnsafeLoader
-    module.BaseDumper = BaseDumper
-    module.Dumper = Dumper
-    return module
+    __cribo_module.YAMLObject = YAMLObject
+    __cribo_module.dumper = yaml_module_dumper
+    __cribo_module.loader = yaml_module_loader
+    __cribo_module.BaseLoader = BaseLoader
+    __cribo_module.Loader = Loader
+    __cribo_module.FullLoader = FullLoader
+    __cribo_module.UnsafeLoader = UnsafeLoader
+    __cribo_module.BaseDumper = BaseDumper
+    __cribo_module.Dumper = Dumper
+    return __cribo_module
 """\nTest fixture for wildcard imports with metaclass ordering.\n\nThis tests that when using wildcard imports, symbols from __all__\nare properly included even if not directly used in the class body.\n"""
 yaml_module = __cribo_init___cribo_952a76_yaml_module()
 assert hasattr(yaml_module, "YAMLObject")

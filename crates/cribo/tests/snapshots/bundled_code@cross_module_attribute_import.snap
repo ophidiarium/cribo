@@ -13,18 +13,18 @@ mypackage_core = types.SimpleNamespace(__name__='mypackage.core')
 mypackage.core = mypackage_core
 @functools.cache
 def __cribo_init___cribo_35f1d1_mypackage_utils():
-    module = types.SimpleNamespace()
-    module.__name__ = 'mypackage.utils'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'mypackage.utils'
     """Utils module that imports from __version__ module and uses it at module level."""
+    __cribo_module.__version__ = __version__
     VERSION_PREFIX = f"v{__version__}"
-    module.VERSION_PREFIX = VERSION_PREFIX
+    __cribo_module.VERSION_PREFIX = VERSION_PREFIX
 
     def get_version_info():
         """Return version information using the imported __version__ variable."""
-        return module.VERSION_PREFIX
-    module.get_version_info = get_version_info
-    module.__version__ = __version__
-    return module
+        return __cribo_module.VERSION_PREFIX
+    __cribo_module.get_version_info = get_version_info
+    return __cribo_module
 __version__ = "1.0.0"
 def get_full_info():
     """Combine version and processed data."""

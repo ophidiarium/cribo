@@ -40,20 +40,20 @@ def process_data(data):
 pkg___version__ = types.SimpleNamespace(__name__='pkg.__version__')
 @functools.cache
 def __cribo_init___cribo_5a392a_pkg__internal_utils():
-    module = types.SimpleNamespace()
-    module.__name__ = 'pkg._internal_utils'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'pkg._internal_utils'
     """Internal utils that depends on compat, creating circular dependency."""
+    __cribo_module.builtin_str = builtin_str
     HEADER_VALIDATORS = {"str": lambda x: isinstance(x, builtin_str), "bytes": lambda x: isinstance(x, bytes)}
-    module.HEADER_VALIDATORS = HEADER_VALIDATORS
+    __cribo_module.HEADER_VALIDATORS = HEADER_VALIDATORS
 
     def to_native_string(value):
         """Convert to native string."""
         if isinstance(value, builtin_str):
             return value
         return str(value)
-    module.to_native_string = to_native_string
-    module.builtin_str = builtin_str
-    return module
+    __cribo_module.to_native_string = to_native_string
+    return __cribo_module
 pkg._internal_utils = __cribo_init___cribo_5a392a_pkg__internal_utils()
 utils = pkg_utils
 compat = pkg_compat

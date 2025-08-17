@@ -16,41 +16,41 @@ my_package.mod_l = my_package_mod_l
 C_CONSTANT = 21
 @functools.cache
 def __cribo_init___cribo_c04dc3_my_package():
-    module = types.SimpleNamespace()
-    module.__name__ = 'my_package'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'my_package'
     my_package.mod_a = __cribo_init___cribo_e90488_my_package_mod_a()
     mod_a = my_package.mod_a
-    module.mod_a = mod_a
+    __cribo_module.mod_a = mod_a
     TOP_LEVEL_VAL = mod_a.A_VALUE
-    module.TOP_LEVEL_VAL = TOP_LEVEL_VAL
-    print(module.TOP_LEVEL_VAL)
-    module.mod_l = my_package_mod_l
-    module.mod_c = my_package_mod_c
-    return module
+    __cribo_module.TOP_LEVEL_VAL = TOP_LEVEL_VAL
+    print(__cribo_module.TOP_LEVEL_VAL)
+    __cribo_module.mod_l = my_package_mod_l
+    __cribo_module.mod_c = my_package_mod_c
+    return __cribo_module
 @functools.cache
 def __cribo_init___cribo_e90488_my_package_mod_a():
-    module = types.SimpleNamespace()
-    module.__name__ = 'my_package.mod_a'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'my_package.mod_a'
     my_package.mod_b = __cribo_init___cribo_d862bd_my_package_mod_b()
     mod_b = my_package.mod_b
-    module.mod_b = mod_b
+    __cribo_module.mod_b = mod_b
     A_VALUE = f"A -> {mod_b.B_DERIVED_VALUE}"
-    module.A_VALUE = A_VALUE
-    return module
+    __cribo_module.A_VALUE = A_VALUE
+    return __cribo_module
 @functools.cache
 def __cribo_init___cribo_d862bd_my_package_mod_b():
-    module = types.SimpleNamespace()
-    module.__name__ = 'my_package.mod_b'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'my_package.mod_b'
     mod_c = types.SimpleNamespace()
-    module.mod_c = mod_c
+    __cribo_module.mod_c = mod_c
     mod_c.C_CONSTANT = C_CONSTANT
     B_DERIVED_VALUE = mod_c.C_CONSTANT * 2
-    module.B_DERIVED_VALUE = B_DERIVED_VALUE
+    __cribo_module.B_DERIVED_VALUE = B_DERIVED_VALUE
 
     def get_b_value():
         return f"B using '{LEAF_VALUE}' and derived value '{B_DERIVED_VALUE}'"
-    module.get_b_value = get_b_value
-    return module
+    __cribo_module.get_b_value = get_b_value
+    return __cribo_module
 my_package.mod_a = __cribo_init___cribo_e90488_my_package_mod_a()
 my_package.mod_b = __cribo_init___cribo_d862bd_my_package_mod_b()
 __cribo_init_result = __cribo_init___cribo_c04dc3_my_package()
