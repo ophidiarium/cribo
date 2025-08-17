@@ -22,7 +22,7 @@ use crate::{
         },
         expression_handlers, import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry::{INIT_RESULT_VAR, sanitize_module_name_for_identifier},
+        module_registry::{INIT_RESULT_VAR, MODULE_VAR, sanitize_module_name_for_identifier},
         module_transformer, namespace_manager,
         namespace_manager::{NamespaceContext, NamespaceInfo},
     },
@@ -5206,7 +5206,7 @@ impl<'a> Bundler<'a> {
                                     );
                                     result.push(
                                         crate::code_generator::module_registry::create_module_attr_assignment(
-                                            crate::code_generator::module_registry::MODULE_VAR,
+                                            MODULE_VAR,
                                             local_name,
                                         ),
                                     );
@@ -5229,7 +5229,7 @@ impl<'a> Bundler<'a> {
                                         );
                                         result.push(
                                             crate::code_generator::module_registry::create_module_attr_assignment(
-                                            crate::code_generator::module_registry::MODULE_VAR,
+                                            MODULE_VAR,
                                             local_name,
                                         ),
                                         );
@@ -5270,7 +5270,7 @@ impl<'a> Bundler<'a> {
                                 );
                                 result.push(
                                     crate::code_generator::module_registry::create_module_attr_assignment(
-                                        crate::code_generator::module_registry::MODULE_VAR,
+                                        MODULE_VAR,
                                         local_name
                                     ),
                                 );
@@ -5303,7 +5303,7 @@ impl<'a> Bundler<'a> {
                             );
                             result.push(
                                 crate::code_generator::module_registry::create_module_attr_assignment(
-                                    crate::code_generator::module_registry::MODULE_VAR,
+                                    MODULE_VAR,
                                     &name
                                 ),
                             );
@@ -5521,10 +5521,7 @@ impl<'a> Bundler<'a> {
                 if name_str == "__name__" && matches!(name_expr.ctx, ExprContext::Load) {
                     // Transform __name__ -> module.__name__
                     *expr = expressions::attribute(
-                        expressions::name(
-                            crate::code_generator::module_registry::MODULE_VAR,
-                            ExprContext::Load,
-                        ),
+                        expressions::name(MODULE_VAR, ExprContext::Load),
                         "__name__",
                         ExprContext::Load,
                     );
@@ -5539,10 +5536,7 @@ impl<'a> Bundler<'a> {
                 {
                     // Transform foo -> module.foo
                     *expr = expressions::attribute(
-                        expressions::name(
-                            crate::code_generator::module_registry::MODULE_VAR,
-                            ExprContext::Load,
-                        ),
+                        expressions::name(MODULE_VAR, ExprContext::Load),
                         name_str,
                         ExprContext::Load,
                     );
@@ -7220,10 +7214,7 @@ impl Bundler<'_> {
                         // Add: module.<original_name> = <lifted_name>
                         new_body.push(statements::assign(
                             vec![expressions::attribute(
-                                expressions::name(
-                                    crate::code_generator::module_registry::MODULE_VAR,
-                                    ExprContext::Load,
-                                ),
+                                expressions::name(MODULE_VAR, ExprContext::Load),
                                 original_name,
                                 ExprContext::Store,
                             )],
@@ -7252,10 +7243,7 @@ impl Bundler<'_> {
                         // Add: module.<original_name> = <lifted_name>
                         new_body.push(statements::assign(
                             vec![expressions::attribute(
-                                expressions::name(
-                                    crate::code_generator::module_registry::MODULE_VAR,
-                                    ExprContext::Load,
-                                ),
+                                expressions::name(MODULE_VAR, ExprContext::Load),
                                 original_name,
                                 ExprContext::Store,
                             )],

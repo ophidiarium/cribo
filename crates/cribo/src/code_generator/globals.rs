@@ -4,7 +4,8 @@ use ruff_python_ast::{Comprehension, ExceptHandler, Expr, ExprContext, Stmt};
 use crate::{
     ast_builder::{expressions, statements},
     code_generator::{
-        context::ProcessGlobalsParams, module_registry::sanitize_module_name_for_identifier,
+        context::ProcessGlobalsParams,
+        module_registry::{MODULE_VAR, sanitize_module_name_for_identifier},
     },
     semantic_bundler::ModuleGlobalInfo,
     types::FxIndexMap,
@@ -62,19 +63,13 @@ fn transform_introspection_in_expr(expr: &mut Expr, target_fn: &str, recurse_int
                     // Replace with vars(__cribo_module)
                     *expr = expressions::call(
                         expressions::name("vars", ExprContext::Load),
-                        vec![expressions::name(
-                            crate::code_generator::module_registry::MODULE_VAR,
-                            ExprContext::Load,
-                        )],
+                        vec![expressions::name(MODULE_VAR, ExprContext::Load)],
                         vec![],
                     );
                 } else if target_fn == "globals" {
                     // Replace with __cribo_module.__dict__
                     *expr = expressions::attribute(
-                        expressions::name(
-                            crate::code_generator::module_registry::MODULE_VAR,
-                            ExprContext::Load,
-                        ),
+                        expressions::name(MODULE_VAR, ExprContext::Load),
                         "__dict__",
                         ExprContext::Load,
                     );
