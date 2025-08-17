@@ -2660,12 +2660,13 @@ impl<'a> Bundler<'a> {
 
             for inlined_module in &self.inlined_modules {
                 if let Some((parent, _)) = inlined_module.rsplit_once('.')
-                    && wrapper_module_names.contains(parent) {
-                        log::debug!(
-                            "Found inlined submodule '{inlined_module}' of wrapper module '{parent}'"
-                        );
-                        inlined_submodules_of_wrappers.insert(inlined_module.clone());
-                    }
+                    && wrapper_module_names.contains(parent)
+                {
+                    log::debug!(
+                        "Found inlined submodule '{inlined_module}' of wrapper module '{parent}'"
+                    );
+                    inlined_submodules_of_wrappers.insert(inlined_module.clone());
+                }
             }
 
             // Create namespace objects for these inlined submodules NOW
@@ -2675,49 +2676,29 @@ impl<'a> Bundler<'a> {
                     inlined_submodules_of_wrappers.len()
                 );
 
-                // Ensure types import is available
-                import_deduplicator::add_stdlib_import(self, "types");
+                // Sort for deterministic output order
+                let mut sorted_submodules: Vec<_> =
+                    inlined_submodules_of_wrappers.into_iter().collect();
+                sorted_submodules.sort();
 
-                for inlined_submodule in inlined_submodules_of_wrappers {
-                    let namespace_var =
-                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
-                            &inlined_submodule,
-                        );
+                // Use centralized namespace_manager for consistency
+                // This ensures proper tracking and deduplication
+                for inlined_submodule in sorted_submodules {
                     log::debug!(
-                        "Creating namespace object {namespace_var} for inlined submodule '{inlined_submodule}'"
+                        "Registering early namespace for inlined submodule '{inlined_submodule}'"
                     );
 
-                    // Create: namespace_var = types.SimpleNamespace(__name__='module.name')
-                    let keywords = vec![Keyword {
-                        node_index: AtomicNodeIndex::dummy(),
-                        arg: Some(Identifier::new("__name__", TextRange::default())),
-                        value: expressions::string_literal(&inlined_submodule),
-                        range: TextRange::default(),
-                    }];
+                    // Use centralized namespace management with immediate generation
+                    // This properly tracks both the sanitized name and the dotted path
+                    let stmts = namespace_manager::require_namespace(
+                        self,
+                        &inlined_submodule,
+                        namespace_manager::NamespaceContext::InlinedModule,
+                        namespace_manager::NamespaceParams::immediate(),
+                    );
 
-                    final_body.push(statements::simple_assign(
-                        &namespace_var,
-                        expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
-                    ));
-
-                    // Mark this namespace as created
-                    self.created_namespaces.insert(inlined_submodule.clone());
-
-                    // Also need to set up the parent.child = namespace_var assignment
-                    // But only if the parent already exists at this point
-                    if let Some((parent, child)) = inlined_submodule.rsplit_once('.') {
-                        // Check if parent is a wrapper module that will be initialized
-                        if sorted_wrapper_modules
-                            .iter()
-                            .any(|(name, _, _, _)| name == parent)
-                        {
-                            log::debug!(
-                                "Will set up {parent}.{child} = {namespace_var} assignment after wrapper init"
-                            );
-                            // Don't create the assignment now - the parent wrapper doesn't exist yet
-                            // The assignment will be handled later in generate_submodule_attributes_with_exclusions
-                        }
-                    }
+                    // Add the generated statements to the bundle
+                    final_body.extend(stmts);
                 }
             }
         }
@@ -7547,9 +7528,11 @@ impl Bundler<'_> {
             && let Expr::Attribute(attr) = call.func.as_ref()
             && let Expr::Name(module) = attr.value.as_ref()
         {
-            return module.id.as_str() == "types"
-                && attr.attr.as_str() == "SimpleNamespace"
-                && call.arguments.args.is_empty();
+            return module.id.as_str() == "types" && attr.attr.as_str() == "SimpleNamespace";
+            // Note: We removed the args.is_empty() check to handle both:
+            // - types.SimpleNamespace() - empty creation
+            // - types.SimpleNamespace(__name__='...') - with keyword args
+            // Both are namespace creations that should be deduplicated
         }
         false
     }

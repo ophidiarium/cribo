@@ -9,9 +9,8 @@ input_file: crates/cribo/tests/fixtures/circular_dep_with_version_module/main.py
 import functools
 import types
 package = types.SimpleNamespace(__name__='package')
-package_module_a = types.SimpleNamespace(__name__='package.module_a')
-package.module_a = package_module_a
 package___version__ = types.SimpleNamespace(__name__='package.__version__')
+package_module_a = types.SimpleNamespace(__name__='package.module_a')
 __version__ = "1.0.0"
 __title__ = "Test Package"
 def func_a():
@@ -35,6 +34,9 @@ def __cribo_init___cribo_a4c23d_package():
     __cribo_module.module_a = package_module_a
     return __cribo_module
 package = __cribo_init___cribo_a4c23d_package()
+package_module_a.func_a = func_a
+package___version__.__version__ = __version__
+package___version__.__title__ = __title__
 """Test case for circular dependency with __version__ module import"""
 package = __cribo_init___cribo_a4c23d_package()
 print(f"Package version: {package.__version__}")
