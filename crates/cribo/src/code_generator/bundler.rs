@@ -5831,19 +5831,39 @@ impl<'a> Bundler<'a> {
         module_exports_map: &FxIndexMap<String, Option<Vec<String>>>,
     ) -> bool {
         // First check tree-shaking decisions if available
-        if !self.is_symbol_kept_by_tree_shaking(module_name, symbol_name) {
+        let kept_by_tree_shaking = self.is_symbol_kept_by_tree_shaking(module_name, symbol_name);
+        if !kept_by_tree_shaking {
             log::trace!(
                 "Tree shaking: removing unused symbol '{symbol_name}' from module '{module_name}'"
             );
             return false;
         }
 
+        // If tree-shaking kept the symbol, check if it's in the export list
         let exports = module_exports_map.get(module_name).and_then(|e| e.as_ref());
 
         if let Some(export_list) = exports {
             // Module has exports (either explicit __all__ or extracted symbols)
-            // Only inline if the symbol is in the export list
-            export_list.contains(&symbol_name.to_string())
+            // Check if the symbol is in the export list
+            if export_list.contains(&symbol_name.to_string()) {
+                return true;
+            }
+
+            // Special case for circular modules: If tree-shaking kept a private symbol
+            // (starts with underscore but not dunder) in a circular module,
+            // it means it's explicitly imported by another module and should be included
+            // even if it's not in the regular export list
+            if self.circular_modules.contains(module_name)
+                && symbol_name.starts_with('_')
+                && !symbol_name.starts_with("__")
+            {
+                log::debug!(
+                    "Including private symbol '{symbol_name}' from circular module '{module_name}' because it's kept by tree-shaking"
+                );
+                return true;
+            }
+
+            false
         } else {
             // No exports at all, don't inline anything
             false
