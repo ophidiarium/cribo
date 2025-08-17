@@ -35,6 +35,8 @@ pub struct NamespaceInfo {
     pub parent_module: Option<String>,
     /// Tracks if the `var = types.SimpleNamespace()` statement has been generated
     pub is_created: bool,
+    /// Tracks if the parent attribute assignment has been generated
+    pub parent_assignment_done: bool,
     /// The context in which this namespace was required, with priority
     pub context: NamespaceContext,
     /// Symbols that need to be assigned to this namespace after its creation
@@ -652,6 +654,7 @@ pub fn require_namespace(
                 attributes: Vec::new(),
                 parent_module,
                 is_created: false,
+                parent_assignment_done: false,
                 context,
                 deferred_symbols: Vec::new(),
             }
@@ -683,6 +686,30 @@ pub fn require_namespace(
             "Immediate generation requested for namespace '{sanitized_name}', checking if already \
              created"
         );
+
+        // CRITICAL FIX: Before creating a namespace, ensure its parent exists if needed
+        if path.contains('.')
+            && let Some((parent_path, _)) = path.rsplit_once('.') {
+                let parent_sanitized = sanitize_module_name_for_identifier(parent_path);
+
+                // Check if parent namespace exists in registry but hasn't been created yet
+                if let Some(parent_info) = bundler.namespace_registry.get(&parent_sanitized)
+                    && !parent_info.is_created {
+                        debug!(
+                            "Parent namespace '{parent_path}' needs to be created before child '{path}'"
+                        );
+
+                        // Recursively create parent namespace with immediate generation
+                        let parent_stmts = require_namespace(
+                            bundler,
+                            parent_path,
+                            NamespaceContext::TopLevel, // Parent namespaces are top-level
+                            NamespaceParams::immediate(),
+                        );
+                        result_stmts.extend(parent_stmts);
+                    }
+            }
+
         if let Some(info) = bundler.namespace_registry.get_mut(&sanitized_name) {
             debug!(
                 "Namespace '{}' found in registry, is_created: {}",
@@ -737,6 +764,34 @@ pub fn require_namespace(
                 bundler.created_namespaces.insert(sanitized_name.clone());
 
                 debug!("Generated namespace '{sanitized_name}' with {keyword_count} keywords");
+
+                // CRITICAL: Also generate parent attribute assignment if parent exists
+                if let Some(ref parent_module) = info.parent_module {
+                    let parent_sanitized = sanitize_module_name_for_identifier(parent_module);
+
+                    // Check if parent is already created
+                    if bundler.created_namespaces.contains(&parent_sanitized) {
+                        // Extract the attribute name from the path
+                        let attr_name = path.rsplit_once('.').map_or(path, |(_, name)| name);
+
+                        debug!(
+                            "Generating parent attribute assignment: {parent_sanitized}.{attr_name} = {sanitized_name}"
+                        );
+
+                        result_stmts.push(statements::assign_attribute(
+                            &parent_sanitized,
+                            attr_name,
+                            expressions::name(&sanitized_name, ExprContext::Load),
+                        ));
+
+                        // Mark parent assignment as done
+                        info.parent_assignment_done = true;
+                    } else {
+                        debug!(
+                            "Deferring parent attribute assignment for '{sanitized_name}' - parent '{parent_sanitized}' not created yet"
+                        );
+                    }
+                }
             }
         } else {
             debug!("Namespace '{sanitized_name}' not found in registry");
@@ -751,6 +806,16 @@ pub fn require_namespace(
 pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
     let mut statements = Vec::new();
     let mut created = FxIndexSet::default();
+
+    // Track which namespaces were created BEFORE this function was called
+    // (e.g., via immediate generation)
+    let mut pre_created = FxIndexSet::default();
+    for (sanitized_name, info) in &bundler.namespace_registry {
+        if info.is_created {
+            pre_created.insert(sanitized_name.clone());
+            created.insert(sanitized_name.clone());
+        }
+    }
 
     // 1-3. Get all namespaces and sort by depth (parent namespaces first)
     let mut namespace_entries: Vec<(String, NamespaceInfo)> = bundler
@@ -769,10 +834,20 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
             .then_with(|| info_a.original_path.cmp(&info_b.original_path))
     });
 
-    // 4-5. Generate creation and population statements for each namespace
-    for (sanitized_name, info) in namespace_entries {
+    // Debug: log the sorted order
+    debug!("Sorted namespace order:");
+    for (sanitized_name, info) in &namespace_entries {
+        let depth = info.original_path.matches('.').count();
+        debug!(
+            "  [depth {}] {} -> {} (is_created: {})",
+            depth, info.original_path, sanitized_name, info.is_created
+        );
+    }
+
+    // 4. Generate creation statements for each namespace (without parent assignments)
+    for (sanitized_name, info) in &namespace_entries {
         // Skip if already created
-        if created.contains(&sanitized_name) {
+        if created.contains(sanitized_name) {
             continue;
         }
 
@@ -787,7 +862,14 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         }
 
         // Skip if already marked as created
+        // Actually NO - we need to output a placeholder or the order gets messed up
+        // Parent assignments depend on the parent being created first in the output
         if info.is_created {
+            created.insert(sanitized_name.clone()); // Still track it as created for parent assignments
+
+            // We could output a "pass" statement or comment to maintain order
+            // But that would clutter the output. Instead, we'll handle parent assignments differently.
+            // For now, just skip
             continue;
         }
 
@@ -800,7 +882,7 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         }];
 
         let creation_stmt = statements::assign(
-            vec![expressions::name(&sanitized_name, ExprContext::Store)],
+            vec![expressions::name(sanitized_name, ExprContext::Store)],
             expressions::call(
                 expressions::attribute(
                     expressions::name("types", ExprContext::Load),
@@ -814,11 +896,12 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         statements.push(creation_stmt);
 
         // b. Mark as created
-        if let Some(reg_info) = bundler.namespace_registry.get_mut(&sanitized_name) {
+        if let Some(reg_info) = bundler.namespace_registry.get_mut(sanitized_name) {
             reg_info.is_created = true;
         }
         bundler.created_namespaces.insert(sanitized_name.clone());
         created.insert(sanitized_name.clone());
+        debug!("Added {sanitized_name} to created_namespaces");
 
         // c. Generate alias if needed (e.g., compat = pkg_compat)
         if info.needs_alias
@@ -826,33 +909,25 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         {
             statements.push(statements::simple_assign(
                 alias,
-                expressions::name(&sanitized_name, ExprContext::Load),
+                expressions::name(sanitized_name, ExprContext::Load),
             ));
         }
 
-        // d. Set as attribute on parent module if needed (e.g., pkg.compat = pkg_compat)
-        if let Some(ref parent) = info.parent_module {
-            let parent_sanitized = sanitize_module_name_for_identifier(parent);
-            // Set the attribute if parent namespace exists
-            if bundler.namespace_registry.contains_key(&parent_sanitized) {
-                // Extract the attribute name from the path
-                let attr_name = info
-                    .original_path
-                    .rsplit_once('.')
-                    .map_or(info.original_path.as_str(), |(_, name)| name);
+        // Parent assignments will be handled later by generate_parent_attribute_assignments
+        // This ensures all namespaces exist before any parent assignments are made
+    }
 
-                statements.push(statements::assign_attribute(
-                    &parent_sanitized,
-                    attr_name,
-                    expressions::name(&sanitized_name, ExprContext::Load),
-                ));
-            }
+    // 5. Generate other attributes and deferred symbols for namespaces created here
+    for (sanitized_name, info) in &namespace_entries {
+        // Only process if this namespace was created in this function
+        if !created.contains(sanitized_name) || pre_created.contains(sanitized_name) {
+            continue;
         }
 
         // e. Add any registered attributes (attr_name, value_name)
         for (attr_name, value_name) in &info.attributes {
             statements.push(statements::assign_attribute(
-                &sanitized_name,
+                sanitized_name,
                 attr_name,
                 expressions::name(value_name, ExprContext::Load),
             ));
@@ -862,7 +937,7 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         for (symbol_name, symbol_expr) in &info.deferred_symbols {
             let symbol_stmt = statements::assign(
                 vec![expressions::attribute(
-                    expressions::name(&sanitized_name, ExprContext::Load),
+                    expressions::name(sanitized_name, ExprContext::Load),
                     symbol_name,
                     ExprContext::Store,
                 )],
@@ -873,6 +948,89 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
     }
 
     debug!("Generated {} namespace statements", statements.len());
+    statements
+}
+
+/// Generate parent attribute assignments for all registered namespaces
+/// This should be called AFTER all namespace creation is complete
+pub fn generate_parent_attribute_assignments(bundler: &mut Bundler) -> Vec<Stmt> {
+    let mut statements = Vec::new();
+
+    debug!(
+        "generate_parent_attribute_assignments: created_namespaces contains {} items",
+        bundler.created_namespaces.len()
+    );
+    for ns in &bundler.created_namespaces {
+        debug!("  - {ns}");
+    }
+
+    // Get all namespaces and sort by depth (to ensure deterministic order)
+    let mut namespace_entries: Vec<(String, NamespaceInfo)> = bundler
+        .namespace_registry
+        .iter()
+        .map(|(sanitized, info)| (sanitized.clone(), info.clone()))
+        .collect();
+
+    // Sort by depth and name for deterministic output
+    namespace_entries.sort_by(|(_, info_a), (_, info_b)| {
+        info_a
+            .original_path
+            .matches('.')
+            .count()
+            .cmp(&info_b.original_path.matches('.').count())
+            .then_with(|| info_a.original_path.cmp(&info_b.original_path))
+    });
+
+    // Generate parent attribute assignments for all namespaces that need them
+    for (sanitized_name, info) in namespace_entries {
+        // Skip if parent assignment already done (e.g., by immediate generation)
+        if info.parent_assignment_done {
+            debug!(
+                "Skipping {sanitized_name} - parent assignment already done"
+            );
+            continue;
+        }
+
+        // Skip if namespace wasn't actually created
+        if !bundler.created_namespaces.contains(&sanitized_name) {
+            debug!("Skipping {sanitized_name} - not in created_namespaces");
+            continue;
+        }
+
+        // Generate parent attribute assignment if needed
+        if let Some(ref parent) = info.parent_module {
+            let parent_sanitized = sanitize_module_name_for_identifier(parent);
+
+            // Only generate if parent namespace was also created
+            if bundler.created_namespaces.contains(&parent_sanitized) {
+                // Extract the attribute name from the path
+                let attr_name = info
+                    .original_path
+                    .rsplit_once('.')
+                    .map_or(info.original_path.as_str(), |(_, name)| name);
+
+                debug!(
+                    "Generating parent attribute assignment: {parent_sanitized}.{attr_name} = {sanitized_name}"
+                );
+
+                statements.push(statements::assign_attribute(
+                    &parent_sanitized,
+                    attr_name,
+                    expressions::name(&sanitized_name, ExprContext::Load),
+                ));
+
+                // Mark as done in the registry
+                if let Some(reg_info) = bundler.namespace_registry.get_mut(&sanitized_name) {
+                    reg_info.parent_assignment_done = true;
+                }
+            }
+        }
+    }
+
+    debug!(
+        "Generated {} parent attribute assignments",
+        statements.len()
+    );
     statements
 }
 

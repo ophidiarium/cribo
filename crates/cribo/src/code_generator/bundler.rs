@@ -2703,6 +2703,8 @@ impl<'a> Bundler<'a> {
             }
         }
 
+        // Parent attribute assignments will be generated at the very end
+
         // If there are wrapper modules needed by inlined modules, we need to define their
         // init functions BEFORE inlining the modules that use them
         if !wrapper_modules_needed_by_inlined.is_empty() && has_wrapper_modules {
@@ -4652,6 +4654,14 @@ impl<'a> Bundler<'a> {
         // Only apply reordering if we detect actual inheritance-based forward references
         if self.has_cross_module_inheritance_forward_refs(&final_body) {
             final_body = self.fix_forward_references_in_statements(final_body);
+        }
+
+        // CRITICAL: Generate parent attribute assignments at the VERY END
+        // This must happen after ALL namespaces have been created, including those from wrapper modules
+        if !self.namespace_registry.is_empty() {
+            log::debug!("Generating parent attribute assignments for all namespaces");
+            let parent_assignments = namespace_manager::generate_parent_attribute_assignments(self);
+            final_body.extend(parent_assignments);
         }
 
         // Deduplicate namespace creation statements that were created by different systems
