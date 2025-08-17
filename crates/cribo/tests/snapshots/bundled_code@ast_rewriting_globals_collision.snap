@@ -74,8 +74,8 @@ def __cribo_init___cribo_0a162a_models_base():
     __cribo_module = types.SimpleNamespace()
     __cribo_module.__name__ = 'models.base'
     """Base models module - imports only from core to avoid circular dependencies"""
+    __cribo_module.util_validate = validate_6
     util_validate = validate_6
-    __cribo_module.util_validate = util_validate
     process = lambda x: f"base_process: {x}"
     __cribo_module.process = process
     validate = 123
@@ -132,10 +132,10 @@ def __cribo_init___cribo_1f9e6c_models_user():
     __cribo_module = types.SimpleNamespace()
     __cribo_module.__name__ = 'models.user'
     """User models module - imports from core and base, no circular dependencies"""
+    __cribo_module.util_process = process_7
     util_process = process_7
-    __cribo_module.util_process = util_process
+    __cribo_module.UtilLogger = Logger_6
     UtilLogger = Logger_6
-    __cribo_module.UtilLogger = UtilLogger
     models.base = __cribo_init___cribo_0a162a_models_base()
     BaseLogger = models.base.Logger
     __cribo_module.BaseLogger = BaseLogger

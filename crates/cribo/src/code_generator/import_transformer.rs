@@ -2932,25 +2932,37 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
             continue;
         }
 
-        // Only create assignment if the names are different
-        if local_name != renamed_symbol {
+        // Handle wrapper init functions specially
+        if is_wrapper_init {
+            // In wrapper init functions, always set the module attribute to the resolved symbol
+            log::debug!(
+                "Creating module attribute assignment in wrapper init: {}.{} = {}",
+                crate::code_generator::module_registry::MODULE_VAR,
+                local_name,
+                renamed_symbol
+            );
+            result_stmts.push(
+                crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                    crate::code_generator::module_registry::MODULE_VAR,
+                    local_name,
+                    &renamed_symbol,
+                ),
+            );
+            // Keep a local alias only when renamed, to preserve intra-init references
+            if local_name != renamed_symbol {
+                log::debug!("Creating local alias: {local_name} = {renamed_symbol}");
+                result_stmts.push(statements::simple_assign(
+                    local_name,
+                    expressions::name(&renamed_symbol, ExprContext::Load),
+                ));
+            }
+        } else if local_name != renamed_symbol {
+            // For non-wrapper contexts, only create assignment if names differ
             log::debug!("Creating assignment: {local_name} = {renamed_symbol}");
             result_stmts.push(statements::simple_assign(
                 local_name,
                 expressions::name(&renamed_symbol, ExprContext::Load),
             ));
-        } else if is_wrapper_init {
-            // In wrapper init functions, we need to set module attributes immediately
-            // for imported symbols, even if they're not renamed
-            log::debug!(
-                "Creating module attribute assignment in wrapper init: module.{local_name} = {renamed_symbol}"
-            );
-            result_stmts.push(
-                crate::code_generator::module_registry::create_module_attr_assignment(
-                    crate::code_generator::module_registry::MODULE_VAR,
-                    local_name,
-                ),
-            );
         }
     }
 

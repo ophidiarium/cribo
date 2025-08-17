@@ -548,19 +548,11 @@ pub fn transform_module_to_init_function<'a>(
                         );
                         if inlined_import_bindings.contains(&name) {
                             // This was imported from an inlined module
-                            // Use a special case: if no scope info available, include imported
-                            // symbols
-                            let should_include =
-                                module_scope_symbols.is_none_or(|symbols| symbols.contains(&name));
-
-                            if should_include {
-                                debug!("Exporting imported symbol '{name}' as module attribute");
-                                // Push module attribute assignment immediately after the assignment
-                                body.push(crate::code_generator::module_registry::create_module_attr_assignment(
-                                    crate::code_generator::module_registry::MODULE_VAR,
-                                    &name,
-                                ));
-                            }
+                            // Module attributes for imports are now handled by import_transformer
+                            // to ensure correct value assignment (original_name vs local_name)
+                            debug!(
+                                "Skipping module attribute for imported symbol '{name}' - handled by import_transformer"
+                            );
                         } else if let Some(name) =
                             expression_handlers::extract_simple_assign_target(assign)
                         {

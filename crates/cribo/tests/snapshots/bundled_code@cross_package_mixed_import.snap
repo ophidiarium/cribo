@@ -162,8 +162,8 @@ def __cribo_init___cribo_1f0c3d_core_database_connection():
     __cribo_module.__name__ = 'core.database.connection'
     """Database connection module demonstrating mixed import patterns.\n\nThis module combines:\n1. Absolute import from a different package (models.user)\n2. Relative import from within the same package (..utils.helpers)\n3. Import from parent package's version module (not __init__.py)\n4. No imports from parent package's __init__.py to avoid circular dependencies\n"""
     __cribo_module.process_user = process_user
+    __cribo_module.helper_validate = validate
     helper_validate = validate
-    __cribo_module.helper_validate = helper_validate
     __cribo_module.CORE_MODEL_VERSION = CORE_MODEL_VERSION
     models = __cribo_init___cribo_563ea2_models()
     DEFAULT_MODEL_CONFIG = models.DEFAULT_MODEL_CONFIG
@@ -203,6 +203,7 @@ def __cribo_init___cribo_1f0c3d_core_database_connection():
         __cribo_module.is_debug = is_debug
         info = {"metadata": __cribo_module.CONNECTION_METADATA, "debug_mode": is_debug(), "available_validators": ["validate_db_name", helper_validate.__name__]}
         if is_debug():
+            __cribo_module.get_full_config = get_config
             get_full_config = get_config
             info["config"] = get_full_config()
         return info
