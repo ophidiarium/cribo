@@ -28,7 +28,7 @@ def my_function():
 MyClass.__module__ = 'package._subpackage.module_a'
 """Module A with MyClass."""
 @functools.cache
-def __cribo_init___cribo_f9434f_package():
+def __cribo_init___cribo_cca96f_package():
     __cribo_module = types.SimpleNamespace()
     __cribo_module.__name__ = 'package'
     global MyClass, my_function
@@ -43,11 +43,11 @@ def __cribo_init___cribo_f9434f_package():
             setattr(__locals[__name], "__module__", "package")
     __cribo_module._subpackage = package__subpackage
     return __cribo_module
-package = __cribo_init___cribo_f9434f_package()
+package = __cribo_init___cribo_cca96f_package()
 package__subpackage_module_b.my_function = my_function
 package__subpackage_module_a.MyClass = MyClass
 """Test wildcard imports with __all__ and setattr pattern."""
-package = __cribo_init___cribo_f9434f_package()
+package = __cribo_init___cribo_cca96f_package()
 MyClass = package.MyClass
 my_function = package.my_function
 obj = MyClass()

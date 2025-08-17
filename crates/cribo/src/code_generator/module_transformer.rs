@@ -2083,27 +2083,10 @@ fn process_wildcard_import(
         // Module has explicit __all__, use it
         for symbol in export_list {
             if symbol != "*" {
-                // For re-exported symbols, we need to check if they're kept in the actual source module
-                // or if they're kept as part of a re-export chain
-                let is_kept = if bundler.is_symbol_kept_by_tree_shaking(module, symbol) {
-                    // Symbol is directly kept in this module
-                    true
-                } else {
-                    // Check if this symbol is re-exported and kept through the parent module
-                    // This handles cases like: package imports from package._subpackage which imports from its submodules
-                    // If the parent module that's importing this symbol via wildcard has the symbol marked as kept,
-                    // then we should include it
-                    false
-                };
-
-                // Also check if the symbol is actually defined in a submodule and kept there
-                // This is for symbols that are wildcard-imported from submodules
-                let is_kept_final = if is_kept {
-                    true
-                } else {
-                    // Check each potential source module for this symbol
-                    // For package._subpackage, check package._subpackage.module_a and package._subpackage.module_b
-                    let mut found_kept = false;
+                // A symbol is kept if it's kept in the re-exporting module itself,
+                // or if it's re-exported from a submodule and kept in that source module.
+                let is_kept_final = bundler.is_symbol_kept_by_tree_shaking(module, symbol) || {
+                    let mut found_in_submodule = false;
                     for (potential_module, module_exports) in &bundler.module_exports {
                         if potential_module.starts_with(&format!("{module}."))
                             && let Some(exports) = module_exports
@@ -2113,11 +2096,11 @@ fn process_wildcard_import(
                             debug!(
                                 "Symbol '{symbol}' is kept in source module '{potential_module}'"
                             );
-                            found_kept = true;
+                            found_in_submodule = true;
                             break;
                         }
                     }
-                    found_kept
+                    found_in_submodule
                 };
 
                 if is_kept_final {
