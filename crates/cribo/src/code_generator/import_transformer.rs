@@ -1341,9 +1341,10 @@ impl<'a> RecursiveImportTransformer<'a> {
                         self.is_wrapper_init,
                     );
 
-                    // Only defer if we're not in the entry module
-                    if self.is_entry_module {
-                        // For entry module, return the imports immediately
+                    // Only defer if we're not in the entry module or wrapper init
+                    if self.is_entry_module || self.is_wrapper_init {
+                        // For entry module and wrapper init functions, return the imports immediately
+                        // In wrapper init functions, module attributes need to be set where the import was
                         if !import_stmts.is_empty() {
                             return import_stmts;
                         }
@@ -1352,7 +1353,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         // handle it differently
                         log::debug!(
                             "  handle_imports_from_inlined_module returned empty for entry \
-                             module, checking for submodule imports"
+                             module or wrapper init, checking for submodule imports"
                         );
                     } else {
                         self.deferred_imports.extend(import_stmts);
@@ -2938,6 +2939,18 @@ pub(super) fn handle_imports_from_inlined_module_with_context(
                 local_name,
                 expressions::name(&renamed_symbol, ExprContext::Load),
             ));
+        } else if is_wrapper_init {
+            // In wrapper init functions, we need to set module attributes immediately
+            // for imported symbols, even if they're not renamed
+            log::debug!(
+                "Creating module attribute assignment in wrapper init: module.{local_name} = {renamed_symbol}"
+            );
+            result_stmts.push(
+                crate::code_generator::module_registry::create_module_attr_assignment(
+                    crate::code_generator::module_registry::MODULE_VAR,
+                    local_name,
+                ),
+            );
         }
     }
 

@@ -41,18 +41,18 @@ SafeClass.__module__ = 'explicit_all'
 """Module with no side-effects and explicit __all__."""
 @functools.cache
 def __cribo_init___cribo_9a9871_with_side_effects():
-    module = types.SimpleNamespace()
-    module.__name__ = 'with_side_effects'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'with_side_effects'
     """Module with side-effects and no explicit __all__."""
     print("Loading with_side_effects module")
     _module_state = []
-    module._module_state = _module_state
+    __cribo_module._module_state = _module_state
     _module_state.append("initialized")
 
     def effect_function():
         """Function from module with side-effects."""
         return "effect_function_result"
-    module.effect_function = effect_function
+    __cribo_module.effect_function = effect_function
 
     class EffectClass:
         """Class from module with side-effects."""
@@ -64,29 +64,29 @@ def __cribo_init___cribo_9a9871_with_side_effects():
         def method(self):
             return "EffectClass.method_result"
     EffectClass.__module__ = 'with_side_effects'
-    module.EffectClass = EffectClass
+    __cribo_module.EffectClass = EffectClass
     EFFECT_CONSTANT = "EFFECT_VALUE"
-    module.EFFECT_CONSTANT = EFFECT_CONSTANT
+    __cribo_module.EFFECT_CONSTANT = EFFECT_CONSTANT
     _registry = {}
-    module._registry = _registry
+    __cribo_module._registry = _registry
 
     def register(name):
         """Decorator with side-effects."""
 
         def decorator(func):
-            module._registry[name] = func
+            __cribo_module._registry[name] = func
             return func
         return decorator
-    module.register = register
+    __cribo_module.register = register
 
     @register("sample")
     def registered_function():
         """Function registered as a side-effect."""
         return "registered_result"
-    module.registered_function = registered_function
+    __cribo_module.registered_function = registered_function
     if len(_module_state) > 0:
         print(f"Module state initialized with {len(_module_state)} items")
-    return module
+    return __cribo_module
 """Main module demonstrating various wildcard import patterns."""
 safe_function = safe_function
 SafeClass = SafeClass

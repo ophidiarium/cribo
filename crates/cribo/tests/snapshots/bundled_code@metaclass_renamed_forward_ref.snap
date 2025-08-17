@@ -10,8 +10,8 @@ import functools
 import types
 @functools.cache
 def __cribo_init___cribo_c0fc3d_other():
-    module = types.SimpleNamespace()
-    module.__name__ = 'other'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'other'
     """Another module with similar class names to trigger renaming."""
 
     class MyMetaclass(type):
@@ -21,7 +21,7 @@ def __cribo_init___cribo_c0fc3d_other():
             super(MyMetaclass, cls).__init__(name, bases, kwds)
             cls.other_attr = "from other"
     MyMetaclass.__module__ = 'other'
-    module.MyMetaclass = MyMetaclass
+    __cribo_module.MyMetaclass = MyMetaclass
 
     class MyObject(metaclass=MyMetaclass):
         """Another class with the same name."""
@@ -29,12 +29,12 @@ def __cribo_init___cribo_c0fc3d_other():
         def __repr__(self):
             return f"OtherMyObject(other_attr={self.other_attr})"
     MyObject.__module__ = 'other'
-    module.MyObject = MyObject
-    return module
+    __cribo_module.MyObject = MyObject
+    return __cribo_module
 @functools.cache
 def __cribo_init___cribo_a6386c_base():
-    module = types.SimpleNamespace()
-    module.__name__ = 'base'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'base'
     """Base module with metaclass definitions."""
 
     class MyMetaclass(type):
@@ -44,7 +44,7 @@ def __cribo_init___cribo_a6386c_base():
             super(MyMetaclass, cls).__init__(name, bases, kwds)
             cls.base_attr = "from base"
     MyMetaclass.__module__ = 'base'
-    module.MyMetaclass = MyMetaclass
+    __cribo_module.MyMetaclass = MyMetaclass
 
     class MyObject(metaclass=MyMetaclass):
         """A class using the metaclass."""
@@ -52,8 +52,8 @@ def __cribo_init___cribo_a6386c_base():
         def __repr__(self):
             return f"MyObject(base_attr={self.base_attr})"
     MyObject.__module__ = 'base'
-    module.MyObject = MyObject
-    return module
+    __cribo_module.MyObject = MyObject
+    return __cribo_module
 """\nTest fixture for metaclass forward reference with renaming issue.\n\nThis reproduces the bug where class renaming causes forward references\nto metaclasses, similar to what happens with PyYAML.\n"""
 base = __cribo_init___cribo_a6386c_base()
 MyMetaclass = base.MyMetaclass

@@ -11,15 +11,15 @@ import functools
 import types
 @functools.cache
 def __cribo_init___cribo_f0aa89_compat():
-    module = types.SimpleNamespace()
-    module.__name__ = 'compat'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'compat'
     MutableMapping = collections.abc.MutableMapping
-    module.MutableMapping = MutableMapping
+    __cribo_module.MutableMapping = MutableMapping
     Mapping = collections.abc.Mapping
-    module.Mapping = Mapping
+    __cribo_module.Mapping = Mapping
     """compat.py - Compatibility module with side effects."""
     print("Loading compat module...")
-    return module
+    return __cribo_module
 compat = __cribo_init___cribo_f0aa89_compat()
 class CaseInsensitiveDict(compat.MutableMapping):
     """A case-insensitive dict-like object."""

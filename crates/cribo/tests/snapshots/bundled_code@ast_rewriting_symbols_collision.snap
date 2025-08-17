@@ -350,22 +350,23 @@ Connection_5.__qualname__ = 'Connection'
 """\nDatabase connection module with naming conflicts\n"""
 @functools.cache
 def __cribo_init___cribo_6ccb3a_services_auth_manager():
-    module = types.SimpleNamespace()
-    module.__name__ = 'services.auth.manager'
-    DBConnection = Connection_5
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'services.auth.manager'
     Optional = typing.Optional
-    module.Optional = Optional
+    __cribo_module.Optional = Optional
     Dict = typing.Dict
-    module.Dict = Dict
+    __cribo_module.Dict = Dict
     Any = typing.Any
-    module.Any = Any
+    __cribo_module.Any = Any
     """\nAuthentication manager with complex naming conflicts\n"""
+    DBConnection = Connection_5
+    __cribo_module.DBConnection = DBConnection
     base = models_base
-    module.base = base
+    __cribo_module.base = base
     result = "auth_result"
-    module.result = result
+    __cribo_module.result = result
     validate = lambda x: f"auth_lambda_validate: {x}"
-    module.validate = validate
+    __cribo_module.validate = validate
 
     class User:
         """Auth User class - conflicts with other User classes/variables"""
@@ -393,7 +394,7 @@ def __cribo_init___cribo_6ccb3a_services_auth_manager():
             self.connection = DBConnection()
             return f"User {self.username} connected"
     User.__module__ = 'services.auth.manager'
-    module.User = User
+    __cribo_module.User = User
 
     class Connection:
         """Auth connection class - conflicts with DB Connection"""
@@ -410,7 +411,7 @@ def __cribo_init___cribo_6ccb3a_services_auth_manager():
             """Process with parameter name conflicts"""
             return f"auth_connection_process: {User}"
     Connection.__module__ = 'services.auth.manager'
-    module.Connection = Connection
+    __cribo_module.Connection = Connection
 
     def process(data: typing.Any) -> str:
         """Auth process function - major conflict"""
@@ -423,19 +424,19 @@ def __cribo_init___cribo_6ccb3a_services_auth_manager():
             processed = f"auth_other_{data}"
         new_result = f"{result}_processed"
         return f"auth_processed: {processed}, base: {base_init}"
-    module.process = process
+    __cribo_module.process = process
 
     def validate(data: typing.Any) -> str:
         """Auth validate function - conflicts with other validate functions"""
         if not data:
             return "auth_invalid"
-        module_validate = module.validate
+        module_validate = __cribo_module.validate
         if module_validate and module_validate is not validate and callable(module_validate):
             lambda_result = module_validate(data)
         else:
             lambda_result = f"fallback_{data}"
         return f"auth_valid: {data}, lambda: {lambda_result}"
-    module.validate = validate
+    __cribo_module.validate = validate
 
     def connect(User: typing.Optional["User"]=None) -> Connection:
         """Connect function with parameter conflict"""
@@ -443,7 +444,7 @@ def __cribo_init___cribo_6ccb3a_services_auth_manager():
         if User:
             connection.add_user(User)
         return connection
-    module.connect = connect
+    __cribo_module.connect = connect
 
     class AuthManager:
         """Manager class with extensive conflicts"""
@@ -480,8 +481,8 @@ def __cribo_init___cribo_6ccb3a_services_auth_manager():
                 result.append({"user": User.username, "process": user_result, "validate": validate_result, "connection": connection_process})
             return {"manager_results": result}
     AuthManager.__module__ = 'services.auth.manager'
-    module.AuthManager = AuthManager
-    return module
+    __cribo_module.AuthManager = AuthManager
+    return __cribo_module
 core_validate = validate_5
 UserLogger = Logger_2
 util_process = process_5

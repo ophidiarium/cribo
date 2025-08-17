@@ -40,9 +40,12 @@ pub fn transform_globals_in_expr(expr: &mut Expr) {
                 && call_expr.arguments.args.is_empty()
                 && call_expr.arguments.keywords.is_empty()
             {
-                // Replace the entire expression with module.__dict__
+                // Replace the entire expression with __cribo_module.__dict__
                 *expr = expressions::attribute(
-                    expressions::name("module", ExprContext::Load),
+                    expressions::name(
+                        crate::code_generator::module_registry::MODULE_VAR,
+                        ExprContext::Load,
+                    ),
                     "__dict__",
                     ExprContext::Load,
                 );

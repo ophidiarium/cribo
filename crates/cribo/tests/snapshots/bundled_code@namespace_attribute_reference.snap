@@ -16,11 +16,11 @@ class MyError(Exception):
     pass
 @functools.cache
 def __cribo_init___cribo_19d82f_mypkg_compat():
-    module = types.SimpleNamespace()
-    module.__name__ = 'mypkg.compat'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'mypkg.compat'
     try:
         from json import JSONDecodeError
-        module.JSONDecodeError = JSONDecodeError
+        __cribo_module.JSONDecodeError = JSONDecodeError
     except ImportError:
 
         class JSONDecodeError(ValueError):
@@ -31,10 +31,10 @@ def __cribo_init___cribo_19d82f_mypkg_compat():
                 self.doc = doc
                 self.pos = pos
     bytes = __import__('builtins').bytes
-    module.bytes = bytes
+    __cribo_module.bytes = bytes
     basestring = str
-    module.basestring = basestring
-    return module
+    __cribo_module.basestring = basestring
+    return __cribo_module
 mypkg.compat = __cribo_init___cribo_19d82f_mypkg_compat()
 class MyJSONError(MyError, mypkg.compat.JSONDecodeError):
     """JSON error that inherits from compat JSONDecodeError"""

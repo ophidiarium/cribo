@@ -10,27 +10,27 @@ import functools
 import types
 @functools.cache
 def __cribo_init___cribo_97f65c_compat_module():
-    module = types.SimpleNamespace()
-    module.__name__ = 'compat_module'
+    __cribo_module = types.SimpleNamespace()
+    __cribo_module.__name__ = 'compat_module'
     """Module with side effects that assigns builtin types to variables.\n\nThis minimal test case reproduces the bug where builtin types are incorrectly\ntransformed to module.str, module.int, etc. when the bundler wraps modules\nwith side effects in init functions.\n"""
     print("Loading compat module...")
     str = __import__('builtins').str
-    module.str = str
+    __cribo_module.str = str
     int = __import__('builtins').int
-    module.int = int
+    __cribo_module.int = int
     bytes = __import__('builtins').bytes
-    module.bytes = bytes
+    __cribo_module.bytes = bytes
     builtin_str = __import__('builtins').str
-    module.builtin_str = builtin_str
+    __cribo_module.builtin_str = builtin_str
     builtin_int = __import__('builtins').int
-    module.builtin_int = builtin_int
+    __cribo_module.builtin_int = builtin_int
     builtin_bytes = __import__('builtins').bytes
-    module.builtin_bytes = builtin_bytes
+    __cribo_module.builtin_bytes = builtin_bytes
     basestring = __import__('builtins').str, __import__('builtins').bytes
-    module.basestring = basestring
+    __cribo_module.basestring = basestring
     numeric_types = __import__('builtins').int, float
-    module.numeric_types = numeric_types
-    return module
+    __cribo_module.numeric_types = numeric_types
+    return __cribo_module
 """Test that builtin type assignments work in modules with side effects."""
 compat_module = __cribo_init___cribo_97f65c_compat_module()
 builtin_str = compat_module.builtin_str

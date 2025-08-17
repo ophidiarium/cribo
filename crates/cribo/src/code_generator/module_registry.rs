@@ -406,6 +406,9 @@ const CRIBO_INIT_PREFIX: &str = "__cribo_init_";
 /// The init result variable name
 pub const INIT_RESULT_VAR: &str = "__cribo_init_result";
 
+/// The module `SimpleNamespace` variable name in init functions
+pub const MODULE_VAR: &str = "__cribo_module";
+
 /// Generate init function name from synthetic name
 pub fn get_init_function_name(synthetic_name: &str) -> String {
     format!("{CRIBO_INIT_PREFIX}{synthetic_name}")

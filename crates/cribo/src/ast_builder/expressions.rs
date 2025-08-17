@@ -5,10 +5,9 @@
 //! to indicate their synthetic nature.
 
 use ruff_python_ast::{
-    AtomicNodeIndex, DictItem, Expr, ExprAttribute, ExprCall, ExprContext, ExprDict, ExprList,
-    ExprName, ExprNoneLiteral, ExprStringLiteral, ExprSubscript, ExprUnaryOp, FStringFlags,
-    FStringPart, FStringValue, Keyword, StringLiteral, StringLiteralFlags, StringLiteralValue,
-    UnaryOp,
+    AtomicNodeIndex, Expr, ExprAttribute, ExprCall, ExprContext, ExprList, ExprName,
+    ExprNoneLiteral, ExprStringLiteral, ExprSubscript, ExprUnaryOp, FStringFlags, FStringPart,
+    FStringValue, Keyword, StringLiteral, StringLiteralFlags, StringLiteralValue, UnaryOp,
 };
 use ruff_text_size::TextRange;
 
@@ -251,32 +250,5 @@ pub fn subscript(value: Expr, slice: Expr, ctx: ExprContext) -> Expr {
         slice: Box::new(slice),
         ctx,
         range: TextRange::default(),
-    })
-}
-
-/// Creates a dictionary expression.
-///
-/// # Arguments
-/// * `items` - A vector of key-value pairs where each pair is (Option<key>, value)
-///
-/// # Example
-/// ```rust
-/// // Creates: {"key1": value1, "key2": value2}
-/// let items = vec![
-///     (Some(string_literal("key1")), name("value1", ExprContext::Load)),
-///     (Some(string_literal("key2")), name("value2", ExprContext::Load)),
-/// ];
-/// let dict_expr = dict(items);
-/// ```
-pub fn dict(items: Vec<(Option<Expr>, Expr)>) -> Expr {
-    let dict_items = items
-        .into_iter()
-        .map(|(key, value)| DictItem { key, value })
-        .collect();
-
-    Expr::Dict(ExprDict {
-        items: dict_items,
-        range: TextRange::default(),
-        node_index: AtomicNodeIndex::dummy(),
     })
 }
