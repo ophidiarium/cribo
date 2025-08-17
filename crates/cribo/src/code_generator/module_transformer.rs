@@ -82,7 +82,7 @@ pub fn transform_module_to_init_function<'a>(
     // Track imports from inlined modules before transformation
     // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard imports)
     // - inlined_import_bindings: local binding names created by explicit from-imports (asname if present)
-    let mut imports_from_inlined = Vec::new();
+    let mut imports_from_inlined: Vec<(String, String)> = Vec::new();
     let mut inlined_import_bindings = Vec::new();
 
     for stmt in &ast.body {
@@ -155,12 +155,12 @@ pub fn transform_module_to_init_function<'a>(
     // This is necessary because the symbols are defined in the global scope
     // but we need to access them inside the init function
     if !imports_from_inlined.is_empty() {
-        // Deduplicate and sort the imported names for deterministic output
+        // Deduplicate by value name (what's actually in global scope) and sort for deterministic output
         let mut unique_imports: Vec<String> = imports_from_inlined
             .iter()
+            .map(|(_, value_name)| value_name.clone())
             .collect::<FxIndexSet<_>>()
             .into_iter()
-            .cloned()
             .collect();
         unique_imports.sort();
 
@@ -217,6 +217,32 @@ pub fn transform_module_to_init_function<'a>(
                 // This is an import alias assignment, add it immediately
                 body.push(stmt.clone());
             }
+        }
+    }
+
+    // CRITICAL: Add wildcard-imported symbols as module attributes NOW
+    // This must happen BEFORE processing the body, as the body may contain code that
+    // accesses these symbols via vars(__cribo_module) or locals()
+    // (e.g., the setattr pattern used by httpx and similar libraries)
+
+    // Dedup and sort wildcard imports for deterministic output
+    let mut wildcard_attrs: Vec<(String, String)> = imports_from_inlined
+        .iter()
+        .cloned()
+        .collect::<FxIndexSet<_>>()
+        .into_iter()
+        .collect();
+    wildcard_attrs.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by exported name
+
+    for (exported_name, value_name) in wildcard_attrs {
+        if bundler.should_export_symbol(&exported_name, ctx.module_name) {
+            body.push(
+                crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                    MODULE_VAR,
+                    &exported_name,
+                    &value_name,
+                ),
+            );
         }
     }
 
@@ -796,15 +822,11 @@ pub fn transform_module_to_init_function<'a>(
 
     // Skip __all__ generation - it has no meaning for types.SimpleNamespace objects
 
-    // For imports from inlined modules that don't create assignments,
+    // For explicit imports from inlined modules that don't create assignments,
     // we still need to set them as module attributes if they're exported
-    // Process both wildcard imports (imports_from_inlined) and explicit imports (inlined_import_bindings)
-    let all_imported_names: Vec<String> = imports_from_inlined
-        .into_iter()
-        .chain(inlined_import_bindings)
-        .collect();
-
-    for imported_name in all_imported_names {
+    // Note: wildcard imports (imports_from_inlined) were already handled earlier
+    // before processing the body, so we only need to handle explicit imports here
+    for imported_name in inlined_import_bindings {
         if bundler.should_export_symbol(&imported_name, ctx.module_name) {
             // Check if we already have a module attribute assignment for this
             let already_assigned = body.iter().any(|stmt| {
@@ -2061,7 +2083,7 @@ fn process_wildcard_import(
     bundler: &Bundler,
     module: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-    imports_from_inlined: &mut Vec<String>,
+    imports_from_inlined: &mut Vec<(String, String)>,
 ) {
     debug!("Processing wildcard import from inlined module '{module}'");
 
@@ -2072,12 +2094,38 @@ fn process_wildcard_import(
         // Module has explicit __all__, use it
         for symbol in export_list {
             if symbol != "*" {
-                // Check if the symbol was kept by tree-shaking
-                if bundler.is_symbol_kept_by_tree_shaking(module, symbol) {
+                // A symbol is kept if it's kept in the re-exporting module itself,
+                // or if it's re-exported from a submodule and kept in that source module.
+                let is_kept_final = bundler.is_symbol_kept_by_tree_shaking(module, symbol) || {
+                    let mut found_in_submodule = false;
+                    for (potential_module, module_exports) in &bundler.module_exports {
+                        if potential_module.starts_with(&format!("{module}."))
+                            && let Some(exports) = module_exports
+                            && exports.contains(symbol)
+                            && bundler.is_symbol_kept_by_tree_shaking(potential_module, symbol)
+                        {
+                            debug!(
+                                "Symbol '{symbol}' is kept in source module '{potential_module}'"
+                            );
+                            found_in_submodule = true;
+                            break;
+                        }
+                    }
+                    found_in_submodule
+                };
+
+                if is_kept_final {
+                    // Get the actual value name (might be renamed to avoid collisions)
+                    let value_name = symbol_renames
+                        .get(module)
+                        .and_then(|m| m.get(symbol))
+                        .cloned()
+                        .unwrap_or_else(|| symbol.clone());
+
                     debug!(
-                        "Tracking wildcard-imported symbol '{symbol}' from inlined module '{module}'"
+                        "Tracking wildcard-imported symbol '{symbol}' (value: '{value_name}') from inlined module '{module}'"
                     );
-                    imports_from_inlined.push(symbol.clone());
+                    imports_from_inlined.push((symbol.clone(), value_name));
                 } else {
                     debug!(
                         "Skipping wildcard-imported symbol '{symbol}' from inlined module '{module}' - removed by tree-shaking"
@@ -2100,7 +2148,8 @@ fn process_wildcard_import(
                         debug!(
                             "Tracking wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}'"
                         );
-                        imports_from_inlined.push(renamed_name.clone());
+                        // For renamed symbols, use original as exported name, renamed as value
+                        imports_from_inlined.push((original_name.clone(), renamed_name.clone()));
                     } else {
                         debug!(
                             "Skipping wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}' - removed by tree-shaking"
@@ -2120,7 +2169,8 @@ fn process_wildcard_import(
                         debug!(
                             "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}'"
                         );
-                        imports_from_inlined.push(symbol.clone());
+                        // No rename, so exported name and value are the same
+                        imports_from_inlined.push((symbol.clone(), symbol.clone()));
                     } else {
                         debug!(
                             "Skipping wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}' - removed by tree-shaking"
