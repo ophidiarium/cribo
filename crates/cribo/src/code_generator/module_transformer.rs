@@ -483,28 +483,6 @@ pub fn transform_module_to_init_function<'a>(
                     continue;
                 }
 
-                // Special handling for module-level locals() calls
-                // Since we're in a wrapped module with SimpleNamespace, replace locals() with vars(__cribo_module)
-                if let Expr::Call(call) = &*assign.value
-                    && let Expr::Name(func_name) = &*call.func
-                    && func_name.id == "locals"
-                    && call.arguments.args.is_empty()
-                    && call.arguments.keywords.is_empty()
-                {
-                    // Replace locals() with vars(__cribo_module)
-                    let mut assign_clone = assign.clone();
-                    assign_clone.value = Box::new(ast_builder::expressions::call(
-                        ast_builder::expressions::name("vars", ExprContext::Load),
-                        vec![ast_builder::expressions::name(
-                            crate::code_generator::module_registry::MODULE_VAR,
-                            ExprContext::Load,
-                        )],
-                        vec![],
-                    ));
-                    body.push(Stmt::Assign(assign_clone));
-                    continue;
-                }
-
                 // Skip self-referential assignments like `process = process`
                 // These are meaningless in the init function context and cause errors
                 if expression_handlers::is_self_referential_assignment(assign, ctx.python_version) {
