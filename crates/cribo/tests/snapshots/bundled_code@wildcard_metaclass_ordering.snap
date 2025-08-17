@@ -58,12 +58,12 @@ def __cribo_init___cribo_952a76_yaml_module():
     __cribo_module = types.SimpleNamespace()
     __cribo_module.__name__ = 'yaml_module'
     global BaseDumper, BaseLoader, Dumper, FullLoader, Loader, UnsafeLoader
-    __cribo_module.BaseLoader = BaseLoader
-    __cribo_module.Loader = Loader
-    __cribo_module.FullLoader = FullLoader
-    __cribo_module.UnsafeLoader = UnsafeLoader
     __cribo_module.BaseDumper = BaseDumper
+    __cribo_module.BaseLoader = BaseLoader
     __cribo_module.Dumper = Dumper
+    __cribo_module.FullLoader = FullLoader
+    __cribo_module.Loader = Loader
+    __cribo_module.UnsafeLoader = UnsafeLoader
 
     class YAMLObjectMetaclass(type):
         """The metaclass for YAMLObject."""

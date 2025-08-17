@@ -45,8 +45,8 @@ def __cribo_init___cribo_1309dd_yaml_module():
     __cribo_module = types.SimpleNamespace()
     __cribo_module.__name__ = 'yaml_module'
     global Dumper, Loader
-    __cribo_module.Loader = Loader
     __cribo_module.Dumper = Dumper
+    __cribo_module.Loader = Loader
     """\nModule that mimics PyYAML's pattern where:\n1. It uses wildcard imports\n2. It defines YAMLObjectMetaclass and YAMLObject (causing collisions with other.py)\n3. YAMLObject references symbols from wildcard imports in its class body\n4. When bundled, the renamed class still references the original metaclass name\n"""
     yaml_module.other = __cribo_init___cribo_1fd8cb_yaml_module_other()
     OtherYAMLObject = yaml_module.other.YAMLObject
