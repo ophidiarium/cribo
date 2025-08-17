@@ -280,18 +280,3 @@ pub fn dict(items: Vec<(Option<Expr>, Expr)>) -> Expr {
         node_index: AtomicNodeIndex::dummy(),
     })
 }
-
-/// Creates a dictionary item for use in dict construction.
-///
-/// # Arguments
-/// * `key` - Optional key expression (None for dictionary unpacking)
-/// * `value` - The value expression
-///
-/// # Example
-/// ```rust
-/// // Creates a dict item: "key": value
-/// let item = dict_item(Some(string_literal("key")), name("value", ExprContext::Load));
-/// ```
-pub fn dict_item(key: Option<Expr>, value: Expr) -> DictItem {
-    DictItem { key, value }
-}
