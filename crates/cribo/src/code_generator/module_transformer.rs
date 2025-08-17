@@ -220,6 +220,21 @@ pub fn transform_module_to_init_function<'a>(
         }
     }
 
+    // CRITICAL: Add wildcard-imported symbols as module attributes NOW
+    // This must happen BEFORE processing the body, as the body may contain code that
+    // accesses these symbols via vars(__cribo_module) or locals()
+    // (e.g., the setattr pattern used by httpx and similar libraries)
+    for imported_name in &imports_from_inlined {
+        if bundler.should_export_symbol(imported_name, ctx.module_name) {
+            body.push(
+                crate::code_generator::module_registry::create_module_attr_assignment(
+                    MODULE_VAR,
+                    imported_name,
+                ),
+            );
+        }
+    }
+
     // Check if __all__ is referenced in the module body
     let mut all_is_referenced = false;
     for stmt in &ast.body {
@@ -796,15 +811,11 @@ pub fn transform_module_to_init_function<'a>(
 
     // Skip __all__ generation - it has no meaning for types.SimpleNamespace objects
 
-    // For imports from inlined modules that don't create assignments,
+    // For explicit imports from inlined modules that don't create assignments,
     // we still need to set them as module attributes if they're exported
-    // Process both wildcard imports (imports_from_inlined) and explicit imports (inlined_import_bindings)
-    let all_imported_names: Vec<String> = imports_from_inlined
-        .into_iter()
-        .chain(inlined_import_bindings)
-        .collect();
-
-    for imported_name in all_imported_names {
+    // Note: wildcard imports (imports_from_inlined) were already handled earlier
+    // before processing the body, so we only need to handle explicit imports here
+    for imported_name in inlined_import_bindings {
         if bundler.should_export_symbol(&imported_name, ctx.module_name) {
             // Check if we already have a module attribute assignment for this
             let already_assigned = body.iter().any(|stmt| {
@@ -2072,8 +2083,44 @@ fn process_wildcard_import(
         // Module has explicit __all__, use it
         for symbol in export_list {
             if symbol != "*" {
-                // Check if the symbol was kept by tree-shaking
-                if bundler.is_symbol_kept_by_tree_shaking(module, symbol) {
+                // For re-exported symbols, we need to check if they're kept in the actual source module
+                // or if they're kept as part of a re-export chain
+                let is_kept = if bundler.is_symbol_kept_by_tree_shaking(module, symbol) {
+                    // Symbol is directly kept in this module
+                    true
+                } else {
+                    // Check if this symbol is re-exported and kept through the parent module
+                    // This handles cases like: package imports from package._subpackage which imports from its submodules
+                    // If the parent module that's importing this symbol via wildcard has the symbol marked as kept,
+                    // then we should include it
+                    false
+                };
+
+                // Also check if the symbol is actually defined in a submodule and kept there
+                // This is for symbols that are wildcard-imported from submodules
+                let is_kept_final = if is_kept {
+                    true
+                } else {
+                    // Check each potential source module for this symbol
+                    // For package._subpackage, check package._subpackage.module_a and package._subpackage.module_b
+                    let mut found_kept = false;
+                    for (potential_module, module_exports) in &bundler.module_exports {
+                        if potential_module.starts_with(&format!("{module}."))
+                            && let Some(exports) = module_exports
+                            && exports.contains(symbol)
+                            && bundler.is_symbol_kept_by_tree_shaking(potential_module, symbol)
+                        {
+                            debug!(
+                                "Symbol '{symbol}' is kept in source module '{potential_module}'"
+                            );
+                            found_kept = true;
+                            break;
+                        }
+                    }
+                    found_kept
+                };
+
+                if is_kept_final {
                     debug!(
                         "Tracking wildcard-imported symbol '{symbol}' from inlined module '{module}'"
                     );
