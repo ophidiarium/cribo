@@ -229,6 +229,12 @@ pub fn transform_module_to_init_function<'a>(
             && name == "__all__"
         {
             continue;
+        } else if let Stmt::AnnAssign(ann_assign) = stmt
+            && let Expr::Name(target) = ann_assign.target.as_ref()
+            && target.id.as_str() == "__all__"
+        {
+            // Skip annotated assignments to __all__ as a "reference"
+            continue;
         }
         // Check if __all__ is referenced in this statement
         if crate::visitors::VariableCollector::statement_references_variable(stmt, "__all__") {
