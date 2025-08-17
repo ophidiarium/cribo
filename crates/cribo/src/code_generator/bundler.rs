@@ -2652,15 +2652,20 @@ impl<'a> Bundler<'a> {
             let mut inlined_submodules_of_wrappers = FxIndexSet::default();
 
             // Find all inlined submodules that are children of any wrapper module
-            for (wrapper_module, _, _, _) in &sorted_wrapper_modules {
-                for inlined_module in &self.inlined_modules {
-                    if inlined_module.starts_with(&format!("{wrapper_module}.")) {
+            // Using HashSet for O(1) lookups instead of nested loop
+            let wrapper_module_names: FxHashSet<_> = sorted_wrapper_modules
+                .iter()
+                .map(|(name, _, _, _)| name.as_str())
+                .collect();
+
+            for inlined_module in &self.inlined_modules {
+                if let Some((parent, _)) = inlined_module.rsplit_once('.')
+                    && wrapper_module_names.contains(parent) {
                         log::debug!(
-                            "Found inlined submodule '{inlined_module}' of wrapper module '{wrapper_module}'"
+                            "Found inlined submodule '{inlined_module}' of wrapper module '{parent}'"
                         );
                         inlined_submodules_of_wrappers.insert(inlined_module.clone());
                     }
-                }
             }
 
             // Create namespace objects for these inlined submodules NOW
