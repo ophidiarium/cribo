@@ -82,10 +82,8 @@ pub fn transform_module_to_init_function<'a>(
     // Track imports from inlined modules before transformation
     // - imports_from_inlined: symbols that exist in global scope (primarily for wildcard imports)
     // - inlined_import_bindings: local binding names created by explicit from-imports (asname if present)
-    // - import_alias_bindings: simple import alias assignments added early (target names)
     let mut imports_from_inlined = Vec::new();
     let mut inlined_import_bindings = Vec::new();
-    let mut import_alias_bindings = Vec::new();
 
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
@@ -213,11 +211,9 @@ pub fn transform_module_to_init_function<'a>(
     for stmt in &deferred_imports_to_add {
         if let Stmt::Assign(assign) = stmt {
             // Check if this is a simple name-to-name assignment (import alias)
-            if let [Expr::Name(target)] = assign.targets.as_slice()
-                && let Expr::Name(_value) = &*assign.value
+            if let [Expr::Name(_)] = assign.targets.as_slice()
+                && let Expr::Name(_) = &*assign.value
             {
-                // Track the alias target name for locals() reconstruction
-                import_alias_bindings.push(target.id.to_string());
                 // This is an import alias assignment, add it immediately
                 body.push(stmt.clone());
             }
