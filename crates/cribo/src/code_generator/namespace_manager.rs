@@ -296,9 +296,7 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
             let skip_assignment = if let Some(Some(parent_exports)) =
                 bundler.module_exports.get(&parent)
             {
-                // Only skip if this is NOT actually a submodule
-                // Just because something is exported doesn't mean it's not a submodule
-                // We need to check if the full module path exists as a module
+                // Check if the parent exports a symbol with the same name as the submodule
                 if parent_exports.contains(&attr) {
                     // Check if this is actually a submodule or just a re-exported symbol
                     let is_actual_submodule = bundler.bundled_modules.contains(&module_name)
@@ -306,11 +304,16 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                         || bundler.module_registry.contains_key(&module_name);
 
                     if is_actual_submodule {
-                        // This IS a submodule, don't skip the assignment
+                        // This IS a submodule, but the parent also exports a symbol with the same name
+                        // This happens when a module imports a symbol from a submodule with the same name
+                        // e.g., package/__init__.py imports __version__ from .__version__
+                        // In this case, we should skip the namespace assignment to avoid overwriting
+                        // the imported symbol with the namespace object
                         debug!(
-                            "Module {parent}.{attr} is a real submodule, will create assignment"
+                            "Skipping submodule namespace assignment for {parent}.{attr} - \
+                             parent imports a symbol with the same name from the submodule"
                         );
-                        false
+                        true
                     } else {
                         // This is a re-exported symbol, not the submodule itself
                         debug!(

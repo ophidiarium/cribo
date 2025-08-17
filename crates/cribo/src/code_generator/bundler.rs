@@ -2645,6 +2645,78 @@ impl<'a> Bundler<'a> {
             // Note: Module cache infrastructure removed - we don't use sys.modules anymore
         }
 
+        // CRITICAL FIX: Create namespace objects for ALL inlined submodules of wrapper modules
+        // This must happen BEFORE any wrapper module init functions are defined
+        // Otherwise wrapper init functions will reference undefined namespace variables
+        if has_wrapper_modules {
+            let mut inlined_submodules_of_wrappers = FxIndexSet::default();
+
+            // Find all inlined submodules that are children of any wrapper module
+            for (wrapper_module, _, _, _) in &sorted_wrapper_modules {
+                for inlined_module in &self.inlined_modules {
+                    if inlined_module.starts_with(&format!("{wrapper_module}.")) {
+                        log::debug!(
+                            "Found inlined submodule '{inlined_module}' of wrapper module '{wrapper_module}'"
+                        );
+                        inlined_submodules_of_wrappers.insert(inlined_module.clone());
+                    }
+                }
+            }
+
+            // Create namespace objects for these inlined submodules NOW
+            if !inlined_submodules_of_wrappers.is_empty() {
+                log::debug!(
+                    "Creating early namespace objects for {} inlined submodules of wrapper modules",
+                    inlined_submodules_of_wrappers.len()
+                );
+
+                // Ensure types import is available
+                import_deduplicator::add_stdlib_import(self, "types");
+
+                for inlined_submodule in inlined_submodules_of_wrappers {
+                    let namespace_var =
+                        crate::code_generator::module_registry::sanitize_module_name_for_identifier(
+                            &inlined_submodule,
+                        );
+                    log::debug!(
+                        "Creating namespace object {namespace_var} for inlined submodule '{inlined_submodule}'"
+                    );
+
+                    // Create: namespace_var = types.SimpleNamespace(__name__='module.name')
+                    let keywords = vec![Keyword {
+                        node_index: AtomicNodeIndex::dummy(),
+                        arg: Some(Identifier::new("__name__", TextRange::default())),
+                        value: expressions::string_literal(&inlined_submodule),
+                        range: TextRange::default(),
+                    }];
+
+                    final_body.push(statements::simple_assign(
+                        &namespace_var,
+                        expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
+                    ));
+
+                    // Mark this namespace as created
+                    self.created_namespaces.insert(inlined_submodule.clone());
+
+                    // Also need to set up the parent.child = namespace_var assignment
+                    // But only if the parent already exists at this point
+                    if let Some((parent, child)) = inlined_submodule.rsplit_once('.') {
+                        // Check if parent is a wrapper module that will be initialized
+                        if sorted_wrapper_modules
+                            .iter()
+                            .any(|(name, _, _, _)| name == parent)
+                        {
+                            log::debug!(
+                                "Will set up {parent}.{child} = {namespace_var} assignment after wrapper init"
+                            );
+                            // Don't create the assignment now - the parent wrapper doesn't exist yet
+                            // The assignment will be handled later in generate_submodule_attributes_with_exclusions
+                        }
+                    }
+                }
+            }
+        }
+
         // If there are wrapper modules needed by inlined modules, we need to define their
         // init functions BEFORE inlining the modules that use them
         if !wrapper_modules_needed_by_inlined.is_empty() && has_wrapper_modules {
@@ -3809,6 +3881,15 @@ impl<'a> Bundler<'a> {
             "About to generate submodule attributes, current body length: {}",
             final_body.len()
         );
+        // CRITICAL: This generates namespace objects for inlined submodules (e.g., package___version__)
+        // These namespace objects MUST be created BEFORE wrapper module init functions that reference them.
+        // For example, if package.__init__ imports from .__version__, the wrapper init function will try to
+        // reference package___version__ namespace object. If this is called too late, you'll get:
+        // "NameError: name 'package___version__' is not defined"
+        // This creates statements like:
+        //   package___version__ = types.SimpleNamespace(__name__='package.__version__')
+        //   package.__version__ = package___version__
+        //   package___version__.__version__ = __version__  # assigns symbols from inlined module
         namespace_manager::generate_submodule_attributes_with_exclusions(
             self,
             params.sorted_modules,
