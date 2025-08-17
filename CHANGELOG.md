@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.17](https://github.com/ophidiarium/cribo/compare/v0.5.16...v0.5.17) (2025-08-17)
+
+
+### Features
+
+* add httpx to ecosystem tests and type_checking_imports fixture ([#306](https://github.com/ophidiarium/cribo/issues/306)) ([bb6401c](https://github.com/ophidiarium/cribo/commit/bb6401cbfad8b0e786e5d5cbfd0cee65b0f89400))
+
+
+### Bug Fixes
+
+* handle locals() calls in wrapped modules by static analysis ([#308](https://github.com/ophidiarium/cribo/issues/308)) ([50ebf75](https://github.com/ophidiarium/cribo/commit/50ebf751f08ef988fa3cbbba650b94815015f3cc))
+* handle wildcard imports from inlined modules that re-export wrapper module symbols ([#311](https://github.com/ophidiarium/cribo/issues/311)) ([b797bd5](https://github.com/ophidiarium/cribo/commit/b797bd5b2d2b2e568bfd67fb25b42de40864d5f9))
+* handle wildcard imports in wrapper modules with setattr pattern ([#310](https://github.com/ophidiarium/cribo/issues/310)) ([9d5a4f0](https://github.com/ophidiarium/cribo/commit/9d5a4f0027c4a9df924f89d2acff3a7c5c6fc244))
+
 ## [0.5.16](https://github.com/ophidiarium/cribo/compare/v0.5.15...v0.5.16) (2025-08-16)
 
 
