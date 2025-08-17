@@ -604,6 +604,14 @@ pub fn transform_module_to_init_function<'a>(
             Stmt::AnnAssign(ann_assign) => {
                 // Handle annotated assignments similar to regular assignments
                 if ann_assign.value.is_some() {
+                    // Skip __all__ annotated assignments unless it's referenced elsewhere
+                    if let Expr::Name(target) = ann_assign.target.as_ref()
+                        && target.id.as_str() == "__all__"
+                        && !all_is_referenced
+                    {
+                        continue;
+                    }
+
                     let mut ann_assign_clone = ann_assign.clone();
 
                     // Use actual module-level variables if available, but filter to only exported
