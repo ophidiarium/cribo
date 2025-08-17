@@ -220,6 +220,23 @@ pub fn transform_module_to_init_function<'a>(
         }
     }
 
+    // Check if __all__ is referenced in the module body
+    let mut all_is_referenced = false;
+    for stmt in &ast.body {
+        // Skip checking __all__ assignment itself
+        if let Stmt::Assign(assign) = stmt
+            && let Some(name) = expression_handlers::extract_simple_assign_target(assign)
+            && name == "__all__"
+        {
+            continue;
+        }
+        // Check if __all__ is referenced in this statement
+        if crate::visitors::VariableCollector::statement_references_variable(stmt, "__all__") {
+            all_is_referenced = true;
+            break;
+        }
+    }
+
     // Collect all variables that are referenced by exported functions
     let mut vars_used_by_exported_functions: FxIndexSet<String> = FxIndexSet::default();
     for stmt in &ast.body {
@@ -435,10 +452,48 @@ pub fn transform_module_to_init_function<'a>(
                 }
             }
             Stmt::Assign(assign) => {
-                // Skip __all__ assignments - they have no meaning for types.SimpleNamespace
+                // Handle __all__ assignments - skip unless it's referenced elsewhere
                 if let Some(name) = expression_handlers::extract_simple_assign_target(assign)
                     && name == "__all__"
                 {
+                    if all_is_referenced {
+                        // __all__ is referenced elsewhere, include the assignment
+                        body.push(stmt.clone());
+                    }
+                    // Skip further processing for __all__ assignments
+                    continue;
+                }
+
+                // Special handling for module-level locals() calls
+                // Replace locals() with a statically determined dict of module-level symbols
+                if let Expr::Call(call) = &*assign.value
+                    && let Expr::Name(func_name) = &*call.func
+                    && func_name.id == "locals"
+                    && call.arguments.args.is_empty()
+                {
+                    // Build a dict with all module-level symbols that would be in locals()
+                    let mut dict_items = Vec::new();
+
+                    // Add imported symbols (from inlined modules)
+                    for binding in &inlined_import_bindings {
+                        dict_items.push((
+                            Some(ast_builder::expressions::string_literal(binding)),
+                            ast_builder::expressions::name(binding, ExprContext::Load),
+                        ));
+                    }
+
+                    // Add __all__ if it exists and is referenced
+                    if all_is_referenced {
+                        dict_items.push((
+                            Some(ast_builder::expressions::string_literal("__all__")),
+                            ast_builder::expressions::name("__all__", ExprContext::Load),
+                        ));
+                    }
+
+                    // Create the assignment with the dict
+                    let mut assign_clone = assign.clone();
+                    assign_clone.value = Box::new(ast_builder::expressions::dict(dict_items));
+                    body.push(Stmt::Assign(assign_clone));
                     continue;
                 }
 

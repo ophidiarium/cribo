@@ -145,6 +145,7 @@ def __cribo_init___cribo_563ea2_models():
         module.HAS_ADVANCED = HAS_ADVANCED
         AdvancedModel = None
         module.AdvancedModel = AdvancedModel
+    __all__ = ["get_model_version", "process_user", "get_base_model", "ModelID", "DEFAULT_MODEL_CONFIG", "HAS_ADVANCED"]
     if HAS_ADVANCED:
         __all__.append("AdvancedModel")
     global _cribo_models__base_model
