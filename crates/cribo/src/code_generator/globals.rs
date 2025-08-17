@@ -1,5 +1,8 @@
 use log::debug;
-use ruff_python_ast::{Comprehension, ExceptHandler, Expr, ExprContext, Stmt};
+use ruff_python_ast::{
+    AtomicNodeIndex, Comprehension, ExceptHandler, Expr, ExprContext, ExprFString, FString,
+    FStringValue, InterpolatedElement, InterpolatedStringElement, InterpolatedStringElements, Stmt,
+};
 
 use crate::{
     ast_builder::{expressions, statements},
@@ -216,6 +219,68 @@ fn transform_introspection_in_expr(expr: &mut Expr, target_fn: &str, recurse_int
         Expr::Named(named_expr) => {
             transform_introspection_in_expr(&mut named_expr.target, target_fn, recurse_into_scopes);
             transform_introspection_in_expr(&mut named_expr.value, target_fn, recurse_into_scopes);
+        }
+        Expr::FString(fstring_expr) => {
+            // Transform expressions within f-string interpolations
+            // We need to rebuild the f-string if any expressions are transformed
+            let mut transformed_elements = Vec::new();
+            let mut any_transformed = false;
+
+            for element in fstring_expr.value.elements() {
+                match element {
+                    InterpolatedStringElement::Literal(lit_elem) => {
+                        // Literal strings don't need transformation
+                        transformed_elements
+                            .push(InterpolatedStringElement::Literal(lit_elem.clone()));
+                    }
+                    InterpolatedStringElement::Interpolation(expr_elem) => {
+                        // Transform the embedded expression
+                        let mut new_expr = expr_elem.expression.clone();
+                        let old_expr = new_expr.clone();
+                        transform_introspection_in_expr(
+                            &mut new_expr,
+                            target_fn,
+                            recurse_into_scopes,
+                        );
+
+                        if !matches!(&new_expr, other if other == &old_expr) {
+                            any_transformed = true;
+                        }
+
+                        let new_element = InterpolatedElement {
+                            node_index: AtomicNodeIndex::dummy(),
+                            expression: new_expr,
+                            debug_text: expr_elem.debug_text.clone(),
+                            conversion: expr_elem.conversion,
+                            format_spec: expr_elem.format_spec.clone(),
+                            range: expr_elem.range,
+                        };
+                        transformed_elements
+                            .push(InterpolatedStringElement::Interpolation(new_element));
+                    }
+                }
+            }
+
+            // If any expressions were transformed, rebuild the f-string
+            if any_transformed {
+                let original_flags =
+                    crate::ast_builder::expressions::get_fstring_flags(&fstring_expr.value);
+
+                let new_fstring = FString {
+                    node_index: AtomicNodeIndex::dummy(),
+                    elements: InterpolatedStringElements::from(transformed_elements),
+                    range: fstring_expr.range,
+                    flags: original_flags,
+                };
+
+                let new_value = FStringValue::single(new_fstring);
+
+                *expr = Expr::FString(ExprFString {
+                    node_index: AtomicNodeIndex::dummy(),
+                    value: new_value,
+                    range: fstring_expr.range,
+                });
+            }
         }
         // Base cases that don't need transformation
         _ => {}
