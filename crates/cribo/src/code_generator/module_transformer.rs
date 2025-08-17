@@ -26,7 +26,7 @@ use crate::{
         bundler::Bundler,
         context::{ModuleTransformContext, ProcessGlobalsParams, SemanticContext},
         expression_handlers,
-        globals::{GlobalsLifter, transform_globals_in_stmt},
+        globals::{GlobalsLifter, transform_globals_in_stmt, transform_locals_in_stmt},
         import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{self, sanitize_module_name_for_identifier},
@@ -853,6 +853,8 @@ pub fn transform_module_to_init_function<'a>(
     // Transform globals() calls to module.__dict__ in the entire body
     for stmt in &mut body {
         transform_globals_in_stmt(stmt);
+        // Transform locals() calls to vars(__cribo_module) in the entire body
+        transform_locals_in_stmt(stmt);
     }
 
     // Return the module object

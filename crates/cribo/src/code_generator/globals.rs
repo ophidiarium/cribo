@@ -211,3 +211,191 @@ pub fn process_wrapper_module_globals(
 
     module_globals.insert(params.module_name.to_string(), global_info);
 }
+
+/// Transform `locals()` references in expressions to `vars(__cribo_module)`
+pub fn transform_locals_in_expr(expr: &mut Expr) {
+    match expr {
+        Expr::Call(call_expr) => {
+            // Check if this is a locals() call
+            if let Expr::Name(name_expr) = &*call_expr.func
+                && name_expr.id.as_str() == "locals"
+                && call_expr.arguments.args.is_empty()
+                && call_expr.arguments.keywords.is_empty()
+            {
+                // Replace the entire expression with vars(__cribo_module)
+                *expr = expressions::call(
+                    expressions::name("vars", ExprContext::Load),
+                    vec![expressions::name(
+                        crate::code_generator::module_registry::MODULE_VAR,
+                        ExprContext::Load,
+                    )],
+                    vec![],
+                );
+                return;
+            }
+
+            // Recursively transform in function and arguments
+            transform_locals_in_expr(&mut call_expr.func);
+            for arg in &mut call_expr.arguments.args {
+                transform_locals_in_expr(arg);
+            }
+            for keyword in &mut call_expr.arguments.keywords {
+                transform_locals_in_expr(&mut keyword.value);
+            }
+        }
+        Expr::Attribute(attr_expr) => {
+            transform_locals_in_expr(&mut attr_expr.value);
+        }
+        Expr::Subscript(subscript_expr) => {
+            transform_locals_in_expr(&mut subscript_expr.value);
+            transform_locals_in_expr(&mut subscript_expr.slice);
+        }
+        Expr::List(list_expr) => {
+            for elem in &mut list_expr.elts {
+                transform_locals_in_expr(elem);
+            }
+        }
+        Expr::Dict(dict_expr) => {
+            for item in &mut dict_expr.items {
+                if let Some(ref mut key) = item.key {
+                    transform_locals_in_expr(key);
+                }
+                transform_locals_in_expr(&mut item.value);
+            }
+        }
+        Expr::If(if_expr) => {
+            transform_locals_in_expr(&mut if_expr.test);
+            transform_locals_in_expr(&mut if_expr.body);
+            transform_locals_in_expr(&mut if_expr.orelse);
+        }
+        Expr::ListComp(comp_expr) => {
+            transform_locals_in_expr(&mut comp_expr.elt);
+            for generator in &mut comp_expr.generators {
+                transform_locals_in_expr(&mut generator.iter);
+                transform_locals_in_expr(&mut generator.target);
+                for if_clause in &mut generator.ifs {
+                    transform_locals_in_expr(if_clause);
+                }
+            }
+        }
+        Expr::DictComp(comp_expr) => {
+            transform_locals_in_expr(&mut comp_expr.key);
+            transform_locals_in_expr(&mut comp_expr.value);
+            for generator in &mut comp_expr.generators {
+                transform_locals_in_expr(&mut generator.iter);
+                transform_locals_in_expr(&mut generator.target);
+                for if_clause in &mut generator.ifs {
+                    transform_locals_in_expr(if_clause);
+                }
+            }
+        }
+        Expr::Compare(compare_expr) => {
+            transform_locals_in_expr(&mut compare_expr.left);
+            for comparator in &mut compare_expr.comparators {
+                transform_locals_in_expr(comparator);
+            }
+        }
+        Expr::BoolOp(bool_op_expr) => {
+            for value in &mut bool_op_expr.values {
+                transform_locals_in_expr(value);
+            }
+        }
+        Expr::BinOp(bin_op_expr) => {
+            transform_locals_in_expr(&mut bin_op_expr.left);
+            transform_locals_in_expr(&mut bin_op_expr.right);
+        }
+        Expr::UnaryOp(unary_op_expr) => {
+            transform_locals_in_expr(&mut unary_op_expr.operand);
+        }
+        Expr::Tuple(tuple_expr) => {
+            for elem in &mut tuple_expr.elts {
+                transform_locals_in_expr(elem);
+            }
+        }
+        Expr::Set(set_expr) => {
+            for elem in &mut set_expr.elts {
+                transform_locals_in_expr(elem);
+            }
+        }
+        Expr::SetComp(comp_expr) => {
+            transform_locals_in_expr(&mut comp_expr.elt);
+            for generator in &mut comp_expr.generators {
+                transform_locals_in_expr(&mut generator.iter);
+                transform_locals_in_expr(&mut generator.target);
+                for if_clause in &mut generator.ifs {
+                    transform_locals_in_expr(if_clause);
+                }
+            }
+        }
+        // Add more expression types as needed
+        _ => {}
+    }
+}
+
+/// Transform `locals()` calls to `vars(__cribo_module)` in a statement
+pub fn transform_locals_in_stmt(stmt: &mut Stmt) {
+    match stmt {
+        Stmt::Expr(expr_stmt) => {
+            transform_locals_in_expr(&mut expr_stmt.value);
+        }
+        Stmt::Assign(assign_stmt) => {
+            transform_locals_in_expr(&mut assign_stmt.value);
+            for target in &mut assign_stmt.targets {
+                transform_locals_in_expr(target);
+            }
+        }
+        Stmt::AnnAssign(ann_assign_stmt) => {
+            if let Some(ref mut value) = ann_assign_stmt.value {
+                transform_locals_in_expr(value);
+            }
+        }
+        Stmt::Return(return_stmt) => {
+            if let Some(ref mut value) = return_stmt.value {
+                transform_locals_in_expr(value);
+            }
+        }
+        Stmt::If(if_stmt) => {
+            transform_locals_in_expr(&mut if_stmt.test);
+            for stmt in &mut if_stmt.body {
+                transform_locals_in_stmt(stmt);
+            }
+            for clause in &mut if_stmt.elif_else_clauses {
+                if let Some(ref mut test_expr) = clause.test {
+                    transform_locals_in_expr(test_expr);
+                }
+                for stmt in &mut clause.body {
+                    transform_locals_in_stmt(stmt);
+                }
+            }
+        }
+        Stmt::For(for_stmt) => {
+            transform_locals_in_expr(&mut for_stmt.iter);
+            transform_locals_in_expr(&mut for_stmt.target);
+            for stmt in &mut for_stmt.body {
+                transform_locals_in_stmt(stmt);
+            }
+            for stmt in &mut for_stmt.orelse {
+                transform_locals_in_stmt(stmt);
+            }
+        }
+        Stmt::While(while_stmt) => {
+            transform_locals_in_expr(&mut while_stmt.test);
+            for stmt in &mut while_stmt.body {
+                transform_locals_in_stmt(stmt);
+            }
+            for stmt in &mut while_stmt.orelse {
+                transform_locals_in_stmt(stmt);
+            }
+        }
+        Stmt::FunctionDef(_) => {
+            // Don't transform locals() inside function definitions
+            // locals() inside functions should refer to the function's local scope
+        }
+        Stmt::ClassDef(_) => {
+            // Don't transform locals() inside class definitions
+            // locals() inside classes should refer to the class's local scope
+        }
+        // Add more statement types as needed
+        _ => {}
+    }
+}
