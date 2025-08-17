@@ -123,26 +123,34 @@ fn transform_introspection_in_expr(expr: &mut Expr, target_fn: &str, recurse_int
             transform_introspection_in_expr(&mut if_expr.body, target_fn, recurse_into_scopes);
             transform_introspection_in_expr(&mut if_expr.orelse, target_fn, recurse_into_scopes);
         }
-        Expr::ListComp(comp_expr) if recurse_into_scopes => {
+        Expr::ListComp(comp_expr) => {
+            // List comprehensions: at module level they see module scope,
+            // inside functions they see function scope
             transform_introspection_in_expr(&mut comp_expr.elt, target_fn, recurse_into_scopes);
             transform_generators(&mut comp_expr.generators, target_fn, recurse_into_scopes);
         }
-        Expr::DictComp(comp_expr) if recurse_into_scopes => {
+        Expr::DictComp(comp_expr) => {
+            // Dict comprehensions: at module level they see module scope,
+            // inside functions they see function scope
             transform_introspection_in_expr(&mut comp_expr.key, target_fn, recurse_into_scopes);
             transform_introspection_in_expr(&mut comp_expr.value, target_fn, recurse_into_scopes);
             transform_generators(&mut comp_expr.generators, target_fn, recurse_into_scopes);
         }
-        Expr::SetComp(comp_expr) if recurse_into_scopes => {
+        Expr::SetComp(comp_expr) => {
+            // Set comprehensions: at module level they see module scope,
+            // inside functions they see function scope
             transform_introspection_in_expr(&mut comp_expr.elt, target_fn, recurse_into_scopes);
             transform_generators(&mut comp_expr.generators, target_fn, recurse_into_scopes);
         }
         Expr::Generator(gen_expr) if recurse_into_scopes => {
+            // Generator expressions have truly isolated scopes (like functions)
+            // Only transform when doing globals() (recurse_into_scopes = true)
             transform_introspection_in_expr(&mut gen_expr.elt, target_fn, recurse_into_scopes);
             transform_generators(&mut gen_expr.generators, target_fn, recurse_into_scopes);
         }
-        Expr::ListComp(_) | Expr::DictComp(_) | Expr::SetComp(_) | Expr::Generator(_) => {
-            // Don't transform inside comprehensions/generators when recurse_into_scopes is false
-            // These have their own local scopes in Python 3
+        Expr::Generator(_) => {
+            // Don't transform locals() inside generators at module level
+            // They have their own isolated scope
         }
         Expr::Compare(compare_expr) => {
             transform_introspection_in_expr(&mut compare_expr.left, target_fn, recurse_into_scopes);
@@ -219,20 +227,75 @@ fn transform_introspection_in_expr(expr: &mut Expr, target_fn: &str, recurse_int
 /// For `globals()`: recurses into all contexts
 fn transform_introspection_in_stmt(stmt: &mut Stmt, target_fn: &str, recurse_into_scopes: bool) {
     match stmt {
-        Stmt::FunctionDef(func_def) if recurse_into_scopes => {
-            // Only recurse into function bodies if allowed (for globals)
-            for stmt in &mut func_def.body {
-                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+        Stmt::FunctionDef(func_def) => {
+            // Decorators are evaluated at definition time in the enclosing scope
+            for decorator in &mut func_def.decorator_list {
+                transform_introspection_in_expr(
+                    &mut decorator.expression,
+                    target_fn,
+                    recurse_into_scopes,
+                );
+            }
+
+            // Return type annotation is evaluated at definition time
+            if let Some(ref mut returns) = func_def.returns {
+                transform_introspection_in_expr(returns, target_fn, recurse_into_scopes);
+            }
+
+            // Parameter defaults are evaluated at definition time
+            for param in func_def
+                .parameters
+                .posonlyargs
+                .iter_mut()
+                .chain(func_def.parameters.args.iter_mut())
+                .chain(func_def.parameters.kwonlyargs.iter_mut())
+            {
+                if let Some(ref mut default) = param.default {
+                    transform_introspection_in_expr(default, target_fn, recurse_into_scopes);
+                }
+                // Note: parameter annotations are also evaluated at definition time
+                if let Some(ref mut annotation) = param.parameter.annotation {
+                    transform_introspection_in_expr(annotation, target_fn, recurse_into_scopes);
+                }
+            }
+
+            // Only recurse into function body if allowed
+            if recurse_into_scopes {
+                for stmt in &mut func_def.body {
+                    transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+                }
             }
         }
-        Stmt::ClassDef(class_def) if recurse_into_scopes => {
-            // Only recurse into class bodies if allowed (for globals)
-            for stmt in &mut class_def.body {
-                transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+        Stmt::ClassDef(class_def) => {
+            // Decorators are evaluated at definition time in the enclosing scope
+            for decorator in &mut class_def.decorator_list {
+                transform_introspection_in_expr(
+                    &mut decorator.expression,
+                    target_fn,
+                    recurse_into_scopes,
+                );
             }
-        }
-        Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
-            // Don't transform inside function/class definitions for locals()
+
+            // Base classes and keywords are evaluated at definition time
+            if let Some(ref mut arguments) = class_def.arguments {
+                for base in &mut arguments.args {
+                    transform_introspection_in_expr(base, target_fn, recurse_into_scopes);
+                }
+                for keyword in &mut arguments.keywords {
+                    transform_introspection_in_expr(
+                        &mut keyword.value,
+                        target_fn,
+                        recurse_into_scopes,
+                    );
+                }
+            }
+
+            // Only recurse into class body if allowed
+            if recurse_into_scopes {
+                for stmt in &mut class_def.body {
+                    transform_introspection_in_stmt(stmt, target_fn, recurse_into_scopes);
+                }
+            }
         }
         Stmt::Expr(expr_stmt) => {
             transform_introspection_in_expr(&mut expr_stmt.value, target_fn, recurse_into_scopes);
