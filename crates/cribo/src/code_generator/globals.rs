@@ -1,5 +1,5 @@
 use log::debug;
-use ruff_python_ast::{ExceptHandler, Expr, ExprContext, Stmt};
+use ruff_python_ast::{Comprehension, ExceptHandler, Expr, ExprContext, Stmt};
 
 use crate::{
     ast_builder::{expressions, statements},
@@ -28,6 +28,21 @@ pub struct GlobalsLifter {
     pub lifted_names: FxIndexMap<String, String>,
     /// Statements to add at module top level
     pub lifted_declarations: Vec<Stmt>,
+}
+
+/// Helper function to transform generators in comprehensions
+fn transform_generators(
+    generators: &mut [Comprehension],
+    target_fn: &str,
+    recurse_into_scopes: bool,
+) {
+    for generator in generators {
+        transform_introspection_in_expr(&mut generator.iter, target_fn, recurse_into_scopes);
+        transform_introspection_in_expr(&mut generator.target, target_fn, recurse_into_scopes);
+        for if_clause in &mut generator.ifs {
+            transform_introspection_in_expr(if_clause, target_fn, recurse_into_scopes);
+        }
+    }
 }
 
 /// Unified function to transform module-level introspection calls
@@ -115,76 +130,20 @@ fn transform_introspection_in_expr(expr: &mut Expr, target_fn: &str, recurse_int
         }
         Expr::ListComp(comp_expr) => {
             transform_introspection_in_expr(&mut comp_expr.elt, target_fn, recurse_into_scopes);
-            for generator in &mut comp_expr.generators {
-                transform_introspection_in_expr(
-                    &mut generator.iter,
-                    target_fn,
-                    recurse_into_scopes,
-                );
-                transform_introspection_in_expr(
-                    &mut generator.target,
-                    target_fn,
-                    recurse_into_scopes,
-                );
-                for if_clause in &mut generator.ifs {
-                    transform_introspection_in_expr(if_clause, target_fn, recurse_into_scopes);
-                }
-            }
+            transform_generators(&mut comp_expr.generators, target_fn, recurse_into_scopes);
         }
         Expr::DictComp(comp_expr) => {
             transform_introspection_in_expr(&mut comp_expr.key, target_fn, recurse_into_scopes);
             transform_introspection_in_expr(&mut comp_expr.value, target_fn, recurse_into_scopes);
-            for generator in &mut comp_expr.generators {
-                transform_introspection_in_expr(
-                    &mut generator.iter,
-                    target_fn,
-                    recurse_into_scopes,
-                );
-                transform_introspection_in_expr(
-                    &mut generator.target,
-                    target_fn,
-                    recurse_into_scopes,
-                );
-                for if_clause in &mut generator.ifs {
-                    transform_introspection_in_expr(if_clause, target_fn, recurse_into_scopes);
-                }
-            }
+            transform_generators(&mut comp_expr.generators, target_fn, recurse_into_scopes);
         }
         Expr::SetComp(comp_expr) => {
             transform_introspection_in_expr(&mut comp_expr.elt, target_fn, recurse_into_scopes);
-            for generator in &mut comp_expr.generators {
-                transform_introspection_in_expr(
-                    &mut generator.iter,
-                    target_fn,
-                    recurse_into_scopes,
-                );
-                transform_introspection_in_expr(
-                    &mut generator.target,
-                    target_fn,
-                    recurse_into_scopes,
-                );
-                for if_clause in &mut generator.ifs {
-                    transform_introspection_in_expr(if_clause, target_fn, recurse_into_scopes);
-                }
-            }
+            transform_generators(&mut comp_expr.generators, target_fn, recurse_into_scopes);
         }
         Expr::Generator(gen_expr) => {
             transform_introspection_in_expr(&mut gen_expr.elt, target_fn, recurse_into_scopes);
-            for generator in &mut gen_expr.generators {
-                transform_introspection_in_expr(
-                    &mut generator.iter,
-                    target_fn,
-                    recurse_into_scopes,
-                );
-                transform_introspection_in_expr(
-                    &mut generator.target,
-                    target_fn,
-                    recurse_into_scopes,
-                );
-                for if_clause in &mut generator.ifs {
-                    transform_introspection_in_expr(if_clause, target_fn, recurse_into_scopes);
-                }
-            }
+            transform_generators(&mut gen_expr.generators, target_fn, recurse_into_scopes);
         }
         Expr::Compare(compare_expr) => {
             transform_introspection_in_expr(&mut compare_expr.left, target_fn, recurse_into_scopes);
