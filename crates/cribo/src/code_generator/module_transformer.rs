@@ -122,6 +122,7 @@ pub fn transform_module_to_init_function<'a>(
                                 module,
                                 symbol_renames,
                                 &mut imports_from_inlined,
+                                ctx.module_name,
                             );
                         } else {
                             let local_binding_name = alias
@@ -2084,6 +2085,7 @@ fn process_wildcard_import(
     module: &str,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     imports_from_inlined: &mut Vec<(String, String)>,
+    _current_module: &str,
 ) {
     debug!("Processing wildcard import from inlined module '{module}'");
 
@@ -2115,6 +2117,17 @@ fn process_wildcard_import(
                 };
 
                 if is_kept_final {
+                    // Check if this symbol comes from a wrapper module
+                    // If it does, we should NOT add it as a module attribute immediately
+                    // because the wrapper module hasn't been initialized yet
+                    if symbol_comes_from_wrapper_module(bundler, module, symbol) {
+                        debug!(
+                            "Symbol '{symbol}' from inlined module '{module}' comes from a wrapper module - will be handled later"
+                        );
+                        // Don't add to imports_from_inlined - it will be handled when the wrapper module is initialized
+                        continue;
+                    }
+
                     // Get the actual value name (might be renamed to avoid collisions)
                     let value_name = symbol_renames
                         .get(module)
@@ -2145,6 +2158,14 @@ fn process_wildcard_import(
                 if !renamed_name.starts_with('_') {
                     // Check if the original symbol was kept by tree-shaking
                     if bundler.is_symbol_kept_by_tree_shaking(module, original_name) {
+                        // Check if this symbol comes from a wrapper module
+                        if symbol_comes_from_wrapper_module(bundler, module, original_name) {
+                            debug!(
+                                "Symbol '{original_name}' from inlined module '{module}' comes from a wrapper module - will be handled later"
+                            );
+                            continue;
+                        }
+
                         debug!(
                             "Tracking wildcard-imported symbol '{renamed_name}' (renamed from '{original_name}') from inlined module '{module}'"
                         );
@@ -2166,6 +2187,14 @@ fn process_wildcard_import(
                 if !symbol.starts_with('_') {
                     // Check if the symbol was kept by tree-shaking
                     if bundler.is_symbol_kept_by_tree_shaking(module, symbol) {
+                        // Check if this symbol comes from a wrapper module
+                        if symbol_comes_from_wrapper_module(bundler, module, symbol) {
+                            debug!(
+                                "Symbol '{symbol}' from inlined module '{module}' comes from a wrapper module - will be handled later"
+                            );
+                            continue;
+                        }
+
                         debug!(
                             "Tracking wildcard-imported symbol '{symbol}' (from semantic exports) from inlined module '{module}'"
                         );
@@ -2187,6 +2216,75 @@ fn process_wildcard_import(
     } else {
         log::warn!("Could not find exports for inlined module '{module}'");
     }
+}
+
+/// Check if a symbol from an inlined module actually comes from a wrapper module
+fn symbol_comes_from_wrapper_module(
+    bundler: &Bundler,
+    inlined_module: &str,
+    symbol_name: &str,
+) -> bool {
+    // Find the module's AST in the module_asts if available
+    let module_data = bundler
+        .module_asts
+        .as_ref()
+        .and_then(|asts| asts.iter().find(|(name, _, _, _)| name == inlined_module));
+
+    if let Some((_, ast, module_path, _)) = module_data {
+        // Check all import statements in the module
+        for stmt in &ast.body {
+            if let Stmt::ImportFrom(import_from) = stmt {
+                // Check if this import includes our symbol
+                for alias in &import_from.names {
+                    let is_wildcard = alias.name.as_str() == "*";
+                    let is_direct_import = alias.name.as_str() == symbol_name;
+
+                    if is_wildcard || is_direct_import {
+                        // Resolve the module this import is from
+                        let resolved_module = if import_from.level > 0 {
+                            // Relative import - need to resolve it
+                            bundler.resolver.resolve_relative_to_absolute_module_name(
+                                import_from.level,
+                                import_from.module.as_ref().map(ruff_python_ast::Identifier::as_str),
+                                module_path,
+                            )
+                        } else {
+                            import_from.module.as_ref().map(std::string::ToString::to_string)
+                        };
+
+                        if let Some(ref source_module) = resolved_module {
+                            // Check if the source module is a wrapper module
+                            if bundler.module_registry.contains_key(source_module)
+                                && !bundler.inlined_modules.contains(source_module)
+                            {
+                                // For wildcard imports, we need to check if this specific symbol
+                                // is actually exported by the source module
+                                if is_wildcard {
+                                    // Check if the source module exports this symbol
+                                    if let Some(Some(exports)) =
+                                        bundler.module_exports.get(source_module)
+                                        && exports.iter().any(|s| s == symbol_name) {
+                                            debug!(
+                                                "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}' via wildcard import"
+                                            );
+                                            return true;
+                                        }
+                                } else {
+                                    // Direct import - we know this symbol comes from the wrapper module
+                                    debug!(
+                                        "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}'"
+                                    );
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }
 
 /// Transform module to cache init function by adding @functools.cache decorator
