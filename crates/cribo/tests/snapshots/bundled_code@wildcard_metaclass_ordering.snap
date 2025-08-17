@@ -58,6 +58,12 @@ def __cribo_init___cribo_952a76_yaml_module():
     __cribo_module = types.SimpleNamespace()
     __cribo_module.__name__ = 'yaml_module'
     global BaseDumper, BaseLoader, Dumper, FullLoader, Loader, UnsafeLoader
+    __cribo_module.BaseDumper = BaseDumper
+    __cribo_module.BaseLoader = BaseLoader
+    __cribo_module.Dumper = Dumper
+    __cribo_module.FullLoader = FullLoader
+    __cribo_module.Loader = Loader
+    __cribo_module.UnsafeLoader = UnsafeLoader
 
     class YAMLObjectMetaclass(type):
         """The metaclass for YAMLObject."""
@@ -97,12 +103,6 @@ def __cribo_init___cribo_952a76_yaml_module():
     __cribo_module.YAMLObject = YAMLObject
     __cribo_module.dumper = yaml_module_dumper
     __cribo_module.loader = yaml_module_loader
-    __cribo_module.BaseLoader = BaseLoader
-    __cribo_module.Loader = Loader
-    __cribo_module.FullLoader = FullLoader
-    __cribo_module.UnsafeLoader = UnsafeLoader
-    __cribo_module.BaseDumper = BaseDumper
-    __cribo_module.Dumper = Dumper
     return __cribo_module
 """\nTest fixture for wildcard imports with metaclass ordering.\n\nThis tests that when using wildcard imports, symbols from __all__\nare properly included even if not directly used in the class body.\n"""
 yaml_module = __cribo_init___cribo_952a76_yaml_module()
