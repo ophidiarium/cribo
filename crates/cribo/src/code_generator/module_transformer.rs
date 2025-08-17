@@ -2321,32 +2321,33 @@ fn symbol_comes_from_wrapper_module(
                                 .map(std::string::ToString::to_string)
                         };
 
-                        if let Some(ref source_module) = resolved_module {
-                            // Check if the source module is a wrapper module
-                            if bundler.module_registry.contains_key(source_module)
-                                && !bundler.inlined_modules.contains(source_module)
+                        let Some(ref source_module) = resolved_module else {
+                            continue;
+                        };
+
+                        // Check if the source module is a wrapper module
+                        if !bundler.module_registry.contains_key(source_module)
+                            || bundler.inlined_modules.contains(source_module)
+                        {
+                            continue;
+                        }
+
+                        // For wildcard imports, verify the symbol is actually exported
+                        if is_wildcard {
+                            if let Some(Some(exports)) = bundler.module_exports.get(source_module)
+                                && exports.iter().any(|s| s == symbol_name)
                             {
-                                // For wildcard imports, we need to check if this specific symbol
-                                // is actually exported by the source module
-                                if is_wildcard {
-                                    // Check if the source module exports this symbol
-                                    if let Some(Some(exports)) =
-                                        bundler.module_exports.get(source_module)
-                                        && exports.iter().any(|s| s == symbol_name)
-                                    {
-                                        debug!(
-                                            "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}' via wildcard import"
-                                        );
-                                        return true;
-                                    }
-                                } else {
-                                    // Direct import - we know this symbol comes from the wrapper module
-                                    debug!(
-                                        "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}'"
-                                    );
-                                    return true;
-                                }
+                                debug!(
+                                    "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}' via wildcard import"
+                                );
+                                return true;
                             }
+                        } else {
+                            // Direct import - we know this symbol comes from the wrapper module
+                            debug!(
+                                "Symbol '{symbol_name}' in inlined module '{inlined_module}' comes from wrapper module '{source_module}'"
+                            );
+                            return true;
                         }
                     }
                 }
