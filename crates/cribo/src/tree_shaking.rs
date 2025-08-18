@@ -938,13 +938,16 @@ impl TreeShaker {
         }
     }
 
+    /// Helper method to check if an item is an __all__ assignment
+    fn is_all_assignment(item: &ItemData) -> bool {
+        matches!(&item.item_type, ItemType::Assignment { targets, .. } if targets.contains(&"__all__".to_string()))
+    }
+
     /// Check if a module uses the dynamic __all__ access pattern
     /// This pattern involves using `locals()` or `globals()` with a loop over __all__ and setattr
     fn module_uses_dynamic_all_access(&self, items: &[ItemData]) -> bool {
         // Check if the module has __all__ defined
-        let has_all = items.iter().any(|item| {
-            matches!(&item.item_type, ItemType::Assignment { targets, .. } if targets.contains(&"__all__".to_string()))
-        });
+        let has_all = items.iter().any(Self::is_all_assignment);
 
         if !has_all {
             return false;
@@ -990,9 +993,7 @@ impl TreeShaker {
     ) {
         if let Some(items) = self.module_items.get(module_name) {
             for item in items {
-                if let ItemType::Assignment { targets, .. } = &item.item_type
-                    && targets.contains(&"__all__".to_string())
-                {
+                if Self::is_all_assignment(item) {
                     // Mark all symbols listed in __all__ (stored in eventual_read_vars)
                     for symbol in &item.eventual_read_vars {
                         debug!(
