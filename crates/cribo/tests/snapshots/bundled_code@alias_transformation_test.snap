@@ -1,5 +1,6 @@
 ---
 source: crates/cribo/tests/test_bundling_snapshots.rs
+assertion_line: 546
 input_file: crates/cribo/tests/fixtures/alias_transformation_test/main.py
 ---
 #!/usr/bin/env python3
@@ -12,13 +13,6 @@ import math
 import os
 import sys
 import types
-utils = types.SimpleNamespace(__name__='utils')
-utils_config_manager = types.SimpleNamespace(__name__='utils.config_manager')
-utils.config_manager = utils_config_manager
-utils_data_processor = types.SimpleNamespace(__name__='utils.data_processor')
-utils.data_processor = utils_data_processor
-utils_helpers = types.SimpleNamespace(__name__='utils.helpers')
-utils.helpers = utils_helpers
 def helper_func(input_str):
     """A helper function that processes a string."""
     return f"Processed: {input_str.upper()}"
@@ -37,6 +31,13 @@ def format_output(processed_data):
 """\nHelper utilities module.\nUsed to test mixed from-import scenarios (some aliased, some not).\n"""
 """\nConfiguration management utilities.\nUsed to test from-import alias transformations.\n"""
 """\nData processing utilities module.\nUsed to test from-import alias transformations.\n"""
+utils = types.SimpleNamespace(__name__='utils')
+utils_helpers = types.SimpleNamespace(__name__='utils.helpers')
+utils.helpers = utils_helpers
+utils_config_manager = types.SimpleNamespace(__name__='utils.config_manager')
+utils.config_manager = utils_config_manager
+utils_data_processor = types.SimpleNamespace(__name__='utils.data_processor')
+utils.data_processor = utils_data_processor
 utils_helpers.helper_func = helper_func
 utils_helpers.debug_print = debug_print
 utils_config_manager.load_config = load_config

@@ -9,9 +9,7 @@ input_file: crates/cribo/tests/fixtures/all_variable_handling/main.py
 import types
 nested_package = types.SimpleNamespace(__name__='nested_package')
 nested_package_submodule = types.SimpleNamespace(__name__='nested_package.submodule')
-nested_package.submodule = nested_package_submodule
 nested_package_utils = types.SimpleNamespace(__name__='nested_package.utils')
-nested_package.utils = nested_package_utils
 message_1 = "from conflict_module"
 SUB_CONSTANT = "submodule_value"
 CONSTANT = 42
@@ -49,3 +47,5 @@ sub.__all__ = ['sub_function', 'SUB_CONSTANT']
 sub.sub_function = sub_function
 sub.SUB_CONSTANT = SUB_CONSTANT
 print(f"\n'sub_function' in submodule.__all__ = {'sub_function' in sub.__all__}")
+nested_package.submodule = nested_package_submodule
+nested_package.utils = nested_package_utils

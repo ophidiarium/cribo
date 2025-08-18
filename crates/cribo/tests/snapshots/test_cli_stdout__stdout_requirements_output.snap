@@ -12,9 +12,7 @@ import typing
 models = types.SimpleNamespace(__name__='models')
 utils = types.SimpleNamespace(__name__='utils')
 models_user = types.SimpleNamespace(__name__='models.user')
-models.user = models_user
 utils_helpers = types.SimpleNamespace(__name__='utils.helpers')
-utils.helpers = utils_helpers
 dataclass = dataclasses.dataclass
 @dataclass
 class User:
@@ -57,3 +55,5 @@ def main():
     print(f"User: {user.name}, Age: {user.age}")
 if __name__ == "__main__":
     main()
+models.user = models_user
+utils.helpers = utils_helpers

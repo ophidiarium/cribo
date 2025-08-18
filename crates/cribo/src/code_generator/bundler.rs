@@ -2136,6 +2136,24 @@ impl<'a> Bundler<'a> {
             let namespace_statements = namespace_manager::generate_required_namespaces(self);
             final_body.extend(namespace_statements);
 
+            // Generate parent attribute assignments right after namespace creation
+            // This ensures parent.child = child assignments happen before any code that uses them
+            if self.namespace_registry.is_empty() {
+                log::debug!("Skipping parent attribute assignments - namespace_registry is empty");
+            } else {
+                log::debug!(
+                    "Generating parent attribute assignments after namespace creation - registry has {} entries",
+                    self.namespace_registry.len()
+                );
+                let parent_assignments =
+                    namespace_manager::generate_parent_attribute_assignments(self);
+                log::debug!(
+                    "Generated {} parent attribute assignments",
+                    parent_assignments.len()
+                );
+                final_body.extend(parent_assignments);
+            }
+
             // For wrapper modules that are submodules (e.g., requests.compat),
             // we need to create placeholder attributes on their parent namespaces
             // so that inlined code can reference them before they're initialized
@@ -2683,6 +2701,8 @@ impl<'a> Bundler<'a> {
 
                 // Use centralized namespace_manager for consistency
                 // This ensures proper tracking and deduplication
+                // Ensure 'types' is available for SimpleNamespace construction (idempotent)
+                import_deduplicator::add_stdlib_import(self, "types");
                 for inlined_submodule in sorted_submodules {
                     log::debug!(
                         "Registering early namespace for inlined submodule '{inlined_submodule}'"
@@ -3343,6 +3363,9 @@ impl<'a> Bundler<'a> {
                         // references
                         let has_forward_references = self
                             .check_module_has_forward_references(module_name, module_rename_map);
+
+                        // Ensure 'types' is imported for SimpleNamespace creation
+                        import_deduplicator::add_stdlib_import(self, "types");
 
                         // Create a SimpleNamespace for this module only if it doesn't exist
                         let namespace_stmts =
@@ -4654,14 +4677,6 @@ impl<'a> Bundler<'a> {
         // Only apply reordering if we detect actual inheritance-based forward references
         if self.has_cross_module_inheritance_forward_refs(&final_body) {
             final_body = self.fix_forward_references_in_statements(final_body);
-        }
-
-        // CRITICAL: Generate parent attribute assignments at the VERY END
-        // This must happen after ALL namespaces have been created, including those from wrapper modules
-        if !self.namespace_registry.is_empty() {
-            log::debug!("Generating parent attribute assignments for all namespaces");
-            let parent_assignments = namespace_manager::generate_parent_attribute_assignments(self);
-            final_body.extend(parent_assignments);
         }
 
         // Deduplicate namespace creation statements that were created by different systems

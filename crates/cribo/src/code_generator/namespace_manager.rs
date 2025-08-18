@@ -689,26 +689,28 @@ pub fn require_namespace(
 
         // CRITICAL FIX: Before creating a namespace, ensure its parent exists if needed
         if path.contains('.')
-            && let Some((parent_path, _)) = path.rsplit_once('.') {
-                let parent_sanitized = sanitize_module_name_for_identifier(parent_path);
+            && let Some((parent_path, _)) = path.rsplit_once('.')
+        {
+            let parent_sanitized = sanitize_module_name_for_identifier(parent_path);
 
-                // Check if parent namespace exists in registry but hasn't been created yet
-                if let Some(parent_info) = bundler.namespace_registry.get(&parent_sanitized)
-                    && !parent_info.is_created {
-                        debug!(
-                            "Parent namespace '{parent_path}' needs to be created before child '{path}'"
-                        );
+            // Check if parent namespace exists in registry but hasn't been created yet
+            if let Some(parent_info) = bundler.namespace_registry.get(&parent_sanitized)
+                && !parent_info.is_created
+            {
+                debug!(
+                    "Parent namespace '{parent_path}' needs to be created before child '{path}'"
+                );
 
-                        // Recursively create parent namespace with immediate generation
-                        let parent_stmts = require_namespace(
-                            bundler,
-                            parent_path,
-                            NamespaceContext::TopLevel, // Parent namespaces are top-level
-                            NamespaceParams::immediate(),
-                        );
-                        result_stmts.extend(parent_stmts);
-                    }
+                // Recursively create parent namespace with immediate generation
+                let parent_stmts = require_namespace(
+                    bundler,
+                    parent_path,
+                    NamespaceContext::TopLevel, // Parent namespaces are top-level
+                    NamespaceParams::immediate(),
+                );
+                result_stmts.extend(parent_stmts);
             }
+        }
 
         if let Some(info) = bundler.namespace_registry.get_mut(&sanitized_name) {
             debug!(
@@ -778,11 +780,16 @@ pub fn require_namespace(
                             "Generating parent attribute assignment: {parent_sanitized}.{attr_name} = {sanitized_name}"
                         );
 
-                        result_stmts.push(statements::assign_attribute(
+                        let parent_assign_stmt = statements::assign_attribute(
                             &parent_sanitized,
                             attr_name,
                             expressions::name(&sanitized_name, ExprContext::Load),
-                        ));
+                        );
+                        result_stmts.push(parent_assign_stmt);
+
+                        debug!(
+                            "Added parent assignment to result_stmts: {parent_sanitized}.{attr_name} = {sanitized_name}"
+                        );
 
                         // Mark parent assignment as done
                         info.parent_assignment_done = true;
@@ -985,9 +992,7 @@ pub fn generate_parent_attribute_assignments(bundler: &mut Bundler) -> Vec<Stmt>
     for (sanitized_name, info) in namespace_entries {
         // Skip if parent assignment already done (e.g., by immediate generation)
         if info.parent_assignment_done {
-            debug!(
-                "Skipping {sanitized_name} - parent assignment already done"
-            );
+            debug!("Skipping {sanitized_name} - parent assignment already done");
             continue;
         }
 
@@ -1116,12 +1121,15 @@ pub(super) fn create_namespace_for_inlined_module_static(
     module_name: &str,
     module_renames: &FxIndexMap<String, String>,
 ) -> Vec<Stmt> {
-    // If this namespace was already created directly (e.g., core.utils), skip creating underscore
-    // variable
+    // If this namespace was already CREATED (not just registered), skip
     let sanitized = sanitize_module_name_for_identifier(module_name);
-    if bundler.namespace_registry.contains_key(&sanitized) {
-        debug!("Module '{module_name}' namespace already created directly, skipping");
-        return Vec::new();
+    if let Some(info) = bundler.namespace_registry.get(&sanitized) {
+        if info.is_created {
+            debug!("Module '{module_name}' namespace already created, skipping");
+            return Vec::new();
+        }
+        // Namespace is registered but not created yet, we'll handle it below
+        debug!("Module '{module_name}' namespace is registered but not created yet");
     }
 
     // Check if this module has forward references that would cause NameError
@@ -1226,12 +1234,20 @@ pub(super) fn create_namespace_for_inlined_module_static(
     );
 
     // Use centralized namespace management with immediate generation and attributes
-    require_namespace(
+    let stmts = require_namespace(
         bundler,
         module_name,
         NamespaceContext::InlinedModule,
         NamespaceParams::immediate_with_attributes(attributes),
-    )
+    );
+
+    debug!(
+        "create_namespace_for_inlined_module_static returning {} statements for module '{}'",
+        stmts.len(),
+        module_name
+    );
+
+    stmts
 }
 
 /// Handle assignment for inlined modules that are not wrapper modules.
