@@ -146,6 +146,9 @@ pub struct Bundler<'a> {
     /// Global cache of all kept symbols for O(1) lookup
     /// Populated from `tree_shaking_keep_symbols` for efficient symbol existence checks
     pub(crate) kept_symbols_global: Option<FxIndexSet<String>>,
+    /// Track which namespace modules have been populated with their exported symbols
+    /// This prevents duplicate population and ensures child modules are populated before parent init
+    pub(crate) populated_namespaces: FxIndexSet<String>,
 }
 
 impl std::fmt::Debug for Bundler<'_> {
@@ -260,6 +263,7 @@ impl<'a> Bundler<'a> {
             symbols_populated_after_deferred: FxIndexSet::default(),
             modules_with_accessed_all: FxIndexSet::default(),
             kept_symbols_global: None,
+            populated_namespaces: FxIndexSet::default(),
         }
     }
 
@@ -3600,6 +3604,101 @@ impl<'a> Bundler<'a> {
                             continue;
                         }
 
+                        // CRITICAL FIX: Before initializing a module, populate any child module
+                        // namespaces that it references. This is particularly important for circular
+                        // modules where a parent module's init function references child modules.
+                        // For example, requests.__init__ references requests.exceptions, so we need
+                        // to populate requests_exceptions with its symbols BEFORE calling the
+                        // requests init function.
+                        if self.circular_modules.contains(module_name) {
+                            log::debug!(
+                                "Module {module_name} is in circular dependencies, checking for child module references"
+                            );
+
+                            // Find child modules that this module might reference
+                            // Check both wrapped modules and inlined modules
+                            let all_child_modules: Vec<String> = sorted_wrapped
+                                .iter()
+                                .cloned()
+                                .chain(self.inlined_modules.iter().cloned())
+                                .collect();
+
+                            for child_module_name in &all_child_modules {
+                                if child_module_name != module_name
+                                    && child_module_name.starts_with(&format!("{module_name}."))
+                                {
+                                    log::debug!(
+                                        "Found child module {child_module_name} of {module_name}"
+                                    );
+
+                                    // For inlined modules, check if they're in the symbol_renames
+                                    // For wrapper modules, check module_exports
+                                    let exports_to_populate: Option<Vec<String>> =
+                                        if self.inlined_modules.contains(child_module_name) {
+                                            // For inlined modules, get the symbols from symbol_renames
+                                            symbol_renames
+                                                .get(child_module_name)
+                                                .map(|renames| renames.keys().cloned().collect())
+                                        } else if let Some(module_exports) =
+                                            self.module_exports.get(child_module_name)
+                                        {
+                                            module_exports.clone()
+                                        } else {
+                                            None
+                                        };
+
+                                    // Generate population statements for this child module
+                                    // We need to populate its namespace with exported symbols
+                                    if let Some(exports) = exports_to_populate {
+                                        let child_sanitized =
+                                            sanitize_module_name_for_identifier(child_module_name);
+
+                                        // Only populate if the namespace exists and hasn't been populated yet
+                                        if self.created_namespaces.contains(&child_sanitized)
+                                            && !self.populated_namespaces.contains(&child_sanitized)
+                                        {
+                                            log::debug!(
+                                                "Populating namespace {child_sanitized} with {} exports before parent init",
+                                                exports.len()
+                                            );
+
+                                            // Generate population statements for each export
+                                            for export in exports {
+                                                // Find the renamed name for this export
+                                                let renamed_name = if let Some(renames) =
+                                                    symbol_renames.get(child_module_name)
+                                                {
+                                                    renames.get(&export).unwrap_or(&export).clone()
+                                                } else {
+                                                    export.clone()
+                                                };
+
+                                                // Generate: child_namespace.export = renamed_name
+                                                let populate_stmt = statements::assign(
+                                                    vec![expressions::attribute(
+                                                        expressions::name(
+                                                            &child_sanitized,
+                                                            ExprContext::Load,
+                                                        ),
+                                                        &export,
+                                                        ExprContext::Store,
+                                                    )],
+                                                    expressions::name(
+                                                        &renamed_name,
+                                                        ExprContext::Load,
+                                                    ),
+                                                );
+                                                final_body.push(populate_stmt);
+                                            }
+
+                                            // Mark as populated
+                                            self.populated_namespaces.insert(child_sanitized);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         let init_func_name = &self.init_functions[synthetic_name];
 
                         // Generate init call and assignment
@@ -4401,6 +4500,88 @@ impl<'a> Bundler<'a> {
                             &entry_module_renames,
                             &mut final_body,
                         );
+                    }
+                }
+            }
+
+            // CRITICAL FIX: Expose child modules at module level for entry module
+            // When the entry module is a package that has child modules (like requests.exceptions),
+            // those child modules need to be exposed at the module level so they can be accessed
+            // when the module is imported via importlib.
+            // For example, after `import requests`, you should be able to access `requests.exceptions`.
+            // This adds statements like: exceptions = requests.exceptions
+            if module_name == params.entry_module_name {
+                log::debug!(
+                    "Adding module-level exposure for child modules of entry module {module_name}"
+                );
+
+                // For __init__ modules, we need to find the actual package name
+                // The package name is the wrapper module without __init__
+                let package_name = if module_name == "__init__" {
+                    // Find the wrapper module that represents the package
+                    self.module_registry
+                        .keys()
+                        .find(|m| !m.contains('.') && self.module_registry.contains_key(*m))
+                        .cloned()
+                        .unwrap_or_else(|| module_name.to_string())
+                } else {
+                    module_name.to_string()
+                };
+
+                log::debug!("Package name for exposure: {package_name}");
+
+                // Find all child modules of the entry module's package
+                let entry_child_modules: Vec<String> = self
+                    .bundled_modules
+                    .iter()
+                    .filter(|m| m.starts_with(&format!("{package_name}.")) && m.contains('.'))
+                    .cloned()
+                    .collect();
+
+                // First, collect all existing variable names to avoid conflicts
+                let existing_variables: FxIndexSet<String> = final_body
+                    .iter()
+                    .filter_map(|stmt| {
+                        if let Stmt::Assign(assign) = stmt
+                            && let [Expr::Name(name)] = assign.targets.as_slice()
+                        {
+                            Some(name.id.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                for child_module in entry_child_modules {
+                    // Get the child module's local name (e.g., "exceptions" from "requests.exceptions")
+                    if let Some(local_name) =
+                        child_module.strip_prefix(&format!("{package_name}."))
+                    {
+                        // Only add top-level children, not nested ones
+                        if !local_name.contains('.') {
+                            // CRITICAL: Don't expose child modules that would overwrite existing variables
+                            // For example, don't overwrite __version__ = "2.32.4" with __version__ = requests.__version__
+                            if existing_variables.contains(local_name) {
+                                log::debug!(
+                                    "Skipping exposure of child module {child_module} as {local_name} - would overwrite existing variable"
+                                );
+                                continue;
+                            }
+
+                            log::debug!("Exposing child module {child_module} as {local_name}");
+
+                            // Generate: local_name = package_name.local_name
+                            // e.g., exceptions = requests.exceptions
+                            let expose_stmt = statements::simple_assign(
+                                local_name,
+                                expressions::attribute(
+                                    expressions::name(&package_name, ExprContext::Load),
+                                    local_name,
+                                    ExprContext::Load,
+                                ),
+                            );
+                            final_body.push(expose_stmt);
+                        }
                     }
                 }
             }
