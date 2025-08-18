@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use log::{debug, warn};
+use log::{debug, trace, warn};
 use ruff_python_ast::{
     AtomicNodeIndex, Expr, ExprContext, Identifier, Keyword, ModModule, Stmt, StmtImportFrom,
 };
@@ -933,11 +933,11 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
     let sorted_keys = get_sorted_namespace_keys(&bundler.namespace_registry);
 
     // Debug: log the sorted order
-    debug!("Sorted namespace order:");
+    trace!("Sorted namespace order:");
     for sanitized_name in &sorted_keys {
         let info = &bundler.namespace_registry[sanitized_name];
         let depth = info.original_path.matches('.').count();
-        debug!(
+        trace!(
             "  [depth {}] {} -> {} (is_created: {})",
             depth, info.original_path, sanitized_name, info.is_created
         );
