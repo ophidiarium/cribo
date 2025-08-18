@@ -85,7 +85,6 @@ def test_requirements_generation(bundled_requests):
     assert not missing_deps, f"Missing required dependencies: {missing_deps}"
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_module_loading(bundled_requests):
     """Test that the bundled module can be loaded."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
@@ -95,7 +94,6 @@ def test_bundled_module_loading(bundled_requests):
         assert hasattr(requests, "Session")
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_get_request(bundled_requests):
     """Test basic GET request with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
@@ -106,7 +104,6 @@ def test_bundled_get_request(bundled_requests):
         assert "origin" in data
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_post_request(bundled_requests):
     """Test POST request with JSON data using bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
@@ -117,7 +114,6 @@ def test_bundled_post_request(bundled_requests):
         assert response_data["json"] == test_data
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_custom_headers(bundled_requests):
     """Test custom headers with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
@@ -129,7 +125,6 @@ def test_bundled_custom_headers(bundled_requests):
         assert response_headers.get("X-Test-Header") == "test-value"
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_query_params(bundled_requests):
     """Test query parameters with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
@@ -140,7 +135,6 @@ def test_bundled_query_params(bundled_requests):
         assert args == params
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_timeout(bundled_requests):
     """Test timeout handling with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
@@ -148,7 +142,6 @@ def test_bundled_timeout(bundled_requests):
             requests.get("https://httpbin.org/delay/10", timeout=1)
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_status_codes(bundled_requests):
     """Test various status codes with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
