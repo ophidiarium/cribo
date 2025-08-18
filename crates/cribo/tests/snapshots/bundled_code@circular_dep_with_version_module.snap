@@ -10,7 +10,9 @@ import functools
 import types
 package = types.SimpleNamespace(__name__='package')
 package___version__ = types.SimpleNamespace(__name__='package.__version__')
+package.__version__ = package___version__
 package_module_a = types.SimpleNamespace(__name__='package.module_a')
+package.module_a = package_module_a
 __version__ = "1.0.0"
 __title__ = "Test Package"
 def func_a():

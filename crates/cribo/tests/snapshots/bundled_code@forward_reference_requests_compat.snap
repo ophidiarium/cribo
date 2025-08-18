@@ -13,12 +13,8 @@ import http.cookiejar
 import types
 import urllib.parse
 myrequests = types.SimpleNamespace(__name__='myrequests')
-myrequests_cookies = types.SimpleNamespace(__name__='myrequests.cookies')
-myrequests.cookies = myrequests_cookies
-myrequests_exceptions = types.SimpleNamespace(__name__='myrequests.exceptions')
-myrequests.exceptions = myrequests_exceptions
-myrequests_utils = types.SimpleNamespace(__name__='myrequests.utils')
-myrequests.utils = myrequests_utils
+myrequests_compat = types.SimpleNamespace(__name__='myrequests.compat')
+myrequests.compat = myrequests_compat
 InvalidJSONError = None
 class RequestException(Exception):
     """Base exception for all request errors."""
@@ -111,6 +107,12 @@ JSONDecodeError.__module__ = 'myrequests.exceptions'
 """Exceptions module that uses compat types in class inheritance."""
 CookieJar.__module__ = 'myrequests.cookies'
 """Cookies module that uses compat's MutableMapping in class inheritance."""
+myrequests_utils = types.SimpleNamespace(__name__='myrequests.utils')
+myrequests.utils = myrequests_utils
+myrequests_exceptions = types.SimpleNamespace(__name__='myrequests.exceptions')
+myrequests.exceptions = myrequests_exceptions
+myrequests_cookies = types.SimpleNamespace(__name__='myrequests.cookies')
+myrequests.cookies = myrequests_cookies
 myrequests.compat = __cribo_init___cribo_5ad29b_myrequests_compat()
 CompatJSONDecodeError = myrequests.compat.JSONDecodeError
 cookielib = myrequests.compat.cookielib

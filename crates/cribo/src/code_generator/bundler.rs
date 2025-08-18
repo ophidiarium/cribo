@@ -2119,83 +2119,49 @@ impl<'a> Bundler<'a> {
         // Namespace requirements are now handled by the centralized registry
         // The identification of required namespaces happens via require_namespace calls
 
-        // If we need to create namespace statements, ensure types import is available
-        if !self.namespace_registry.is_empty() {
-            log::debug!(
-                "Need to create {} namespace statements - adding types import",
-                self.namespace_registry.len()
-            );
-            import_deduplicator::add_stdlib_import(self, "types");
+        // Namespace generation will be done after all namespace requirements are detected
 
-            // Generate all namespace statements through the centralized method
-            // This ensures namespaces exist before any module code that might reference them
-            log::debug!(
-                "Generating namespace statements for {} registered namespaces",
-                self.namespace_registry.len()
-            );
-            let namespace_statements = namespace_manager::generate_required_namespaces(self);
-            final_body.extend(namespace_statements);
+        // For wrapper modules that are submodules (e.g., requests.compat),
+        // we need to create placeholder attributes on their parent namespaces
+        // so that inlined code can reference them before they're initialized
+        for (module_name, _, _, _) in &modules {
+            if module_name.contains('.') && module_name != "__init__" {
+                // Check if this is a wrapper module
+                let is_wrapper = modules
+                    .iter()
+                    .any(|(name, ast, _, _)| name == module_name && module_has_side_effects(ast));
 
-            // Generate parent attribute assignments right after namespace creation
-            // This ensures parent.child = child assignments happen before any code that uses them
-            if self.namespace_registry.is_empty() {
-                log::debug!("Skipping parent attribute assignments - namespace_registry is empty");
-            } else {
-                log::debug!(
-                    "Generating parent attribute assignments after namespace creation - registry has {} entries",
-                    self.namespace_registry.len()
-                );
-                let parent_assignments =
-                    namespace_manager::generate_parent_attribute_assignments(self);
-                log::debug!(
-                    "Generated {} parent attribute assignments",
-                    parent_assignments.len()
-                );
-                final_body.extend(parent_assignments);
-            }
+                if is_wrapper {
+                    // Create a placeholder namespace attribute for this wrapper module
+                    let parts: Vec<&str> = module_name.split('.').collect();
+                    if parts.len() == 2 {
+                        // Simple case like "requests.compat"
+                        let parent = parts[0];
+                        let child = parts[1];
 
-            // For wrapper modules that are submodules (e.g., requests.compat),
-            // we need to create placeholder attributes on their parent namespaces
-            // so that inlined code can reference them before they're initialized
-            for (module_name, _, _, _) in &modules {
-                if module_name.contains('.') && module_name != "__init__" {
-                    // Check if this is a wrapper module
-                    let is_wrapper = modules.iter().any(|(name, ast, _, _)| {
-                        name == module_name && module_has_side_effects(ast)
-                    });
-
-                    if is_wrapper {
-                        // Create a placeholder namespace attribute for this wrapper module
-                        let parts: Vec<&str> = module_name.split('.').collect();
-                        if parts.len() == 2 {
-                            // Simple case like "requests.compat"
-                            let parent = parts[0];
-                            let child = parts[1];
-
-                            // Check if the full namespace was already created
-                            let sanitized = sanitize_module_name_for_identifier(module_name);
-                            if self.namespace_registry.contains_key(&sanitized) {
-                                log::debug!(
-                                    "Skipping placeholder namespace attribute {parent}.{child} - \
+                        // Check if the full namespace was already created
+                        let sanitized = sanitize_module_name_for_identifier(module_name);
+                        if self.namespace_registry.contains_key(&sanitized) {
+                            log::debug!(
+                                "Skipping placeholder namespace attribute {parent}.{child} - \
                                      already created as full namespace"
-                                );
-                            } else {
-                                log::debug!(
-                                    "Registering namespace attribute {parent}.{child} for wrapper \
+                            );
+                        } else {
+                            log::debug!(
+                                "Registering namespace attribute {parent}.{child} for wrapper \
                                      module"
-                                );
-                                // Register the full namespace path for the wrapper module
-                                let full_path = format!("{parent}.{child}");
-                                let context = NamespaceContext::Attribute {
-                                    parent: parent.to_string(),
-                                };
-                                namespace_manager::require_namespace(
-                                    self,
-                                    &full_path,
-                                    context,
-                                    namespace_manager::NamespaceParams::default(),
-                                );
-                            }
+                            );
+                            // Register the full namespace path for the wrapper module
+                            let full_path = format!("{parent}.{child}");
+                            let context = NamespaceContext::Attribute {
+                                parent: parent.to_string(),
+                            };
+                            namespace_manager::require_namespace(
+                                self,
+                                &full_path,
+                                context,
+                                namespace_manager::NamespaceParams::default(),
+                            );
                         }
                     }
                 }
@@ -2346,6 +2312,34 @@ impl<'a> Bundler<'a> {
                     );
                 }
             }
+        }
+
+        // Now that all namespace requirements have been registered, generate the namespace statements
+        // and parent attribute assignments at the beginning of the bundle
+        if !self.namespace_registry.is_empty() {
+            log::debug!(
+                "Generating namespace statements for {} registered namespaces",
+                self.namespace_registry.len()
+            );
+            import_deduplicator::add_stdlib_import(self, "types");
+
+            // Generate all namespace statements through the centralized method
+            // This ensures namespaces exist before any module code that might reference them
+            let namespace_statements = namespace_manager::generate_required_namespaces(self);
+            final_body.extend(namespace_statements);
+
+            // Generate parent attribute assignments right after namespace creation
+            // This ensures parent.child = child assignments happen before any code that uses them
+            log::debug!(
+                "Generating parent attribute assignments after namespace creation - registry has {} entries",
+                self.namespace_registry.len()
+            );
+            let parent_assignments = namespace_manager::generate_parent_attribute_assignments(self);
+            log::debug!(
+                "Generated {} parent attribute assignments",
+                parent_assignments.len()
+            );
+            final_body.extend(parent_assignments);
         }
 
         // Sort wrapper modules by their dependencies
@@ -4993,33 +4987,6 @@ impl<'a> Bundler<'a> {
         false
     }
 
-    /// Create a dotted attribute assignment
-    pub(super) fn create_dotted_attribute_assignment(
-        &self,
-        parent_module: &str,
-        attr_name: &str,
-        full_module_name: &str,
-    ) -> Stmt {
-        // Create the value expression - handle dotted names properly
-        let value_expr = if full_module_name.contains('.') {
-            // For dotted names like "myrequests.compat", create a proper dotted expression
-            let parts: Vec<&str> = full_module_name.split('.').collect();
-            expressions::dotted_name(&parts, ExprContext::Load)
-        } else {
-            // Simple name
-            expressions::name(full_module_name, ExprContext::Load)
-        };
-
-        statements::assign(
-            vec![expressions::attribute(
-                expressions::name(parent_module, ExprContext::Load),
-                attr_name,
-                ExprContext::Store,
-            )],
-            value_expr,
-        )
-    }
-
     /// Process a function definition in the entry module
     fn process_entry_module_function(
         &self,
@@ -7041,31 +7008,6 @@ impl Bundler<'_> {
             }
             false
         })
-    }
-
-    /// Create dotted attribute assignments for imports
-    pub(super) fn create_dotted_assignments(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
-        // For import a.b.c.d, we need:
-        // a.b = <module a.b>
-        // a.b.c = <module a.b.c>
-        // a.b.c.d = <module a.b.c.d>
-        for i in 2..=parts.len() {
-            let parent = parts[..i - 1].join(".");
-            let attr = parts[i - 1];
-            let full_path = parts[..i].join(".");
-
-            // Check if this would be a redundant self-assignment
-            let full_target = format!("{parent}.{attr}");
-            if full_target == full_path {
-                debug!(
-                    "Skipping redundant self-assignment in create_dotted_assignments: \
-                     {parent}.{attr} = {full_path}"
-                );
-            } else {
-                result_stmts
-                    .push(self.create_dotted_attribute_assignment(&parent, attr, &full_path));
-            }
-        }
     }
 
     /// Create all namespace objects including the leaf for a dotted import

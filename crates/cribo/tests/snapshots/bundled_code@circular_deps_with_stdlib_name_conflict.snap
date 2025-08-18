@@ -11,14 +11,8 @@ import functools
 import types
 import typing
 pkg = types.SimpleNamespace(__name__='pkg')
-pkg_abc = types.SimpleNamespace(__name__='pkg.abc')
-pkg.abc = pkg_abc
-pkg_color = types.SimpleNamespace(__name__='pkg.color')
-pkg.color = pkg_color
-pkg_console = types.SimpleNamespace(__name__='pkg.console')
-pkg.console = pkg_console
-pkg_style = types.SimpleNamespace(__name__='pkg.style')
-pkg.style = pkg_style
+pkg_pretty = types.SimpleNamespace(__name__='pkg.pretty')
+pkg.pretty = pkg_pretty
 @functools.cache
 def __cribo_init___cribo_2353ad_pkg_pretty():
     __cribo_module = types.SimpleNamespace()
@@ -144,6 +138,14 @@ Color.__module__ = 'pkg.color'
 """Color module that participates in circular dependencies."""
 Style.__module__ = 'pkg.style'
 """Style module that participates in circular dependencies."""
+pkg_abc = types.SimpleNamespace(__name__='pkg.abc')
+pkg.abc = pkg_abc
+pkg_console = types.SimpleNamespace(__name__='pkg.console')
+pkg.console = pkg_console
+pkg_color = types.SimpleNamespace(__name__='pkg.color')
+pkg.color = pkg_color
+pkg_style = types.SimpleNamespace(__name__='pkg.style')
+pkg.style = pkg_style
 pkg.pretty = __cribo_init___cribo_2353ad_pkg_pretty()
 pkg_abc.RichRenderable = RichRenderable
 pkg_abc.abstractmethod = abstractmethod

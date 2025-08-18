@@ -103,6 +103,37 @@ impl NamespacePopulationContext<'_> {
     }
 }
 
+/// Create an attribute assignment statement, using namespace variables when available.
+///
+/// This function creates `parent.attr = value` statements, but intelligently uses
+/// namespace variables when they exist. For example, if assigning `services.auth`,
+/// it will use the `services_auth` namespace variable if it exists.
+pub fn create_attribute_assignment(
+    bundler: &Bundler,
+    parent: &str,
+    attr: &str,
+    module_name: &str,
+) -> Stmt {
+    // Check if there's a namespace variable for the module
+    let sanitized_module = sanitize_module_name_for_identifier(module_name);
+
+    let value_expr = if bundler.created_namespaces.contains(&sanitized_module) {
+        // Use the namespace variable (e.g., services_auth instead of services.auth)
+        debug!("Using namespace variable '{sanitized_module}' for {parent}.{attr} = {module_name}");
+        expressions::name(&sanitized_module, ExprContext::Load)
+    } else if module_name.contains('.') {
+        // Create a dotted expression for the module path
+        let parts: Vec<&str> = module_name.split('.').collect();
+        expressions::dotted_name(&parts, ExprContext::Load)
+    } else {
+        // Simple name
+        expressions::name(module_name, ExprContext::Load)
+    };
+
+    // Create the assignment: parent.attr = value
+    statements::assign_attribute(parent, attr, value_expr)
+}
+
 /// Generates submodule attributes with exclusions for namespace organization.
 ///
 /// This function analyzes module hierarchies and creates namespace modules and assignments
@@ -362,25 +393,43 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
                     );
                 } else {
                     debug!("Module '{module_name}' is not in inlined_modules, checking assignment");
-                    // Check if this would be a redundant self-assignment
-                    let full_target = format!("{parent}.{attr}");
-                    if full_target == module_name {
-                        debug!(
-                            "Skipping redundant self-assignment: {parent}.{attr} = {module_name}"
-                        );
-                    } else {
-                        // This is a wrapper module - assign direct reference
-                        debug!("Assigning wrapper module: {parent}.{attr} = {module_name}");
 
-                        // DEBUGGING: Check what assignment is being created
-                        let assignment = bundler.create_dotted_attribute_assignment(
+                    // For wrapper modules, we need to check if there's a namespace variable
+                    // registered (not necessarily created yet) that should be assigned
+                    let sanitized_module = sanitize_module_name_for_identifier(&module_name);
+
+                    // Check namespace_registry instead of created_namespaces since namespaces
+                    // might be registered but not created yet at this point
+                    if bundler.namespace_registry.contains_key(&sanitized_module) {
+                        // This module will have a namespace variable, assign it
+                        debug!(
+                            "Assigning namespace variable: {parent}.{attr} = {sanitized_module}"
+                        );
+
+                        let assignment = statements::assign_attribute(
                             &parent,
                             &attr,
-                            &module_name,
+                            expressions::name(&sanitized_module, ExprContext::Load),
                         );
-                        debug!("Created assignment: {assignment:?}");
-
                         final_body.push(assignment);
+                    } else {
+                        // Check if this would be a redundant self-assignment
+                        let full_target = format!("{parent}.{attr}");
+                        if full_target == module_name {
+                            debug!(
+                                "Skipping redundant self-assignment: {parent}.{attr} = {module_name}"
+                            );
+                        } else {
+                            // This is a wrapper module without a namespace - assign direct reference
+                            debug!("Assigning wrapper module: {parent}.{attr} = {module_name}");
+
+                            // Use centralized assignment creation
+                            let assignment =
+                                create_attribute_assignment(bundler, &parent, &attr, &module_name);
+                            debug!("Created assignment: {assignment:?}");
+
+                            final_body.push(assignment);
+                        }
                     }
                 }
             }
@@ -990,6 +1039,13 @@ pub fn generate_parent_attribute_assignments(bundler: &mut Bundler) -> Vec<Stmt>
 
     // Generate parent attribute assignments for all namespaces that need them
     for (sanitized_name, info) in namespace_entries {
+        debug!(
+            "Checking parent assignment for {sanitized_name}: parent_assignment_done={}, in_created_namespaces={}, parent_module={:?}",
+            info.parent_assignment_done,
+            bundler.created_namespaces.contains(&sanitized_name),
+            info.parent_module
+        );
+
         // Skip if parent assignment already done (e.g., by immediate generation)
         if info.parent_assignment_done {
             debug!("Skipping {sanitized_name} - parent assignment already done");
@@ -1302,7 +1358,12 @@ fn handle_inlined_module_assignment(
     }
 
     // Create assignment: parent.attr = namespace_var
-    final_body.push(bundler.create_dotted_attribute_assignment(parent, attr, &namespace_var));
+    // Note: namespace_var is already the sanitized name, so we pass it directly
+    final_body.push(statements::assign_attribute(
+        parent,
+        attr,
+        expressions::name(&namespace_var, ExprContext::Load),
+    ));
 }
 
 /// Populate a namespace object with all symbols from a given module, applying renames.

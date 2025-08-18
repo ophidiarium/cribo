@@ -11,7 +11,9 @@ import functools
 import types
 import typing
 mypackage = types.SimpleNamespace(__name__='mypackage')
+mypackage_core = types.SimpleNamespace(__name__='mypackage.core')
 mypackage_submodule = types.SimpleNamespace(__name__='mypackage.submodule')
+mypackage.core = mypackage_core
 mypackage.submodule = mypackage_submodule
 """Submodule with future imports."""
 """Package initialization with future import."""

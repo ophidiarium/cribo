@@ -7,9 +7,6 @@ input_file: crates/cribo/tests/fixtures/all_variable_handling/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-nested_package = types.SimpleNamespace(__name__='nested_package')
-nested_package_submodule = types.SimpleNamespace(__name__='nested_package.submodule')
-nested_package_utils = types.SimpleNamespace(__name__='nested_package.utils')
 message_1 = "from conflict_module"
 SUB_CONSTANT = "submodule_value"
 CONSTANT = 42
@@ -25,10 +22,15 @@ def helper_func():
 def public_func():
     """A public function that should be exported."""
     return "Hello from public_func"
+nested_package = types.SimpleNamespace(__name__='nested_package')
+nested_package_submodule = types.SimpleNamespace(__name__='nested_package.submodule')
+nested_package.submodule = nested_package_submodule
+nested_package.exported_from_init = exported_from_init
+nested_package_utils = types.SimpleNamespace(__name__='nested_package.utils')
+nested_package.utils = nested_package_utils
 simple_module = types.SimpleNamespace(__name__='simple_module', CONSTANT=CONSTANT, public_func=public_func)
 nested_package_submodule.SUB_CONSTANT = SUB_CONSTANT
 nested_package_submodule.sub_function = sub_function
-nested_package.exported_from_init = exported_from_init
 nested_package_utils.helper_func = helper_func
 message = message_1
 print("Testing simple module exports:")
@@ -47,5 +49,3 @@ sub.__all__ = ['sub_function', 'SUB_CONSTANT']
 sub.sub_function = sub_function
 sub.SUB_CONSTANT = SUB_CONSTANT
 print(f"\n'sub_function' in submodule.__all__ = {'sub_function' in sub.__all__}")
-nested_package.submodule = nested_package_submodule
-nested_package.utils = nested_package_utils

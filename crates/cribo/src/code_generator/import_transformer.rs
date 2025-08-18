@@ -2291,7 +2291,29 @@ fn rewrite_import_with_renames(
                     // If there's no alias, we need to handle the dotted name specially
                     if alias.asname.is_none() {
                         // Create assignments for each level of nesting
-                        bundler.create_dotted_assignments(&parts, &mut result_stmts);
+                        // For import a.b.c.d, we need:
+                        // a.b = <module a.b>
+                        // a.b.c = <module a.b.c>
+                        // a.b.c.d = <module a.b.c.d>
+                        for i in 2..=parts.len() {
+                            let parent = parts[..i - 1].join(".");
+                            let attr = parts[i - 1];
+                            let full_path = parts[..i].join(".");
+
+                            // Check if this would be a redundant self-assignment
+                            let full_target = format!("{parent}.{attr}");
+                            if full_target != full_path {
+                                // Use centralized namespace-aware assignment creation
+                                result_stmts.push(
+                                    crate::code_generator::namespace_manager::create_attribute_assignment(
+                                        bundler,
+                                        &parent,
+                                        attr,
+                                        &full_path,
+                                    )
+                                );
+                            }
+                        }
                     } else {
                         // For aliased imports or non-dotted imports, just assign to the target
                         // Skip self-assignments - the module is already initialized
