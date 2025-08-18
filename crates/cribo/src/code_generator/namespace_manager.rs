@@ -103,6 +103,52 @@ impl NamespacePopulationContext<'_> {
     }
 }
 
+/// Check if a parent module exports a symbol that would conflict with a submodule assignment.
+///
+/// This determines whether a parent attribute assignment (e.g., `parent.attr = namespace`)
+/// should be skipped to avoid clobbering an explicitly exported symbol from the parent module.
+///
+/// The function checks if:
+/// 1. The parent exports a symbol with the same name as the attribute
+/// 2. The full module path is NOT a bundled/inlined module (meaning it's a re-exported symbol, not the module itself)
+///
+/// # Arguments
+/// * `bundler` - The bundler containing module export and bundling information
+/// * `parent_module` - The parent module to check for exports
+/// * `attribute_name` - The attribute name to check for conflicts
+/// * `full_module_path` - The full path of the module being assigned (e.g., "package.__version__")
+///
+/// # Returns
+/// `true` if there's an export conflict that should prevent the assignment, `false` otherwise
+fn has_export_conflict(
+    bundler: &Bundler,
+    parent_module: &str,
+    attribute_name: &str,
+    full_module_path: &str,
+) -> bool {
+    // First check if the parent exports a symbol with this name
+    let parent_exports_symbol = bundler
+        .module_exports
+        .get(parent_module)
+        .and_then(|e| e.as_ref())
+        .is_some_and(|exports| exports.contains(&attribute_name.to_string()));
+
+    if !parent_exports_symbol {
+        // No export with this name, no conflict
+        return false;
+    }
+
+    // The parent exports something with this name.
+    // Now check if the full module path is an actual module or just a re-exported symbol.
+    let is_actual_module = bundler.bundled_modules.contains(full_module_path)
+        || bundler.module_registry.contains_key(full_module_path)
+        || bundler.inlined_modules.contains(full_module_path);
+
+    // Only skip if parent exports the symbol AND it's not an actual submodule
+    // (i.e., it's a re-exported symbol from the submodule)
+    !is_actual_module
+}
+
 /// Create an attribute assignment statement, using namespace variables when available.
 ///
 /// This function creates `parent.attr = value` statements, but intelligently uses
@@ -325,53 +371,15 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         if bundler.module_registry.contains_key(&module_name)
             || bundler.inlined_modules.contains(&module_name)
         {
-            // Check if we should skip this assignment
-            let skip_assignment = if let Some(Some(parent_exports)) =
-                bundler.module_exports.get(&parent)
-            {
-                // Check if the parent exports a symbol with the same name as the submodule
-                if parent_exports.contains(&attr) {
-                    // Check if this is actually a submodule or just a re-exported symbol
-                    let is_actual_submodule = bundler.bundled_modules.contains(&module_name)
-                        || bundler.inlined_modules.contains(&module_name)
-                        || bundler.module_registry.contains_key(&module_name);
+            // Check if we should skip this assignment.
+            // We skip if the parent exports a symbol with the same name AND it's not an actual submodule.
+            let skip_assignment = has_export_conflict(bundler, &parent, &attr, &module_name);
 
-                    if is_actual_submodule {
-                        // This IS a submodule, but the parent also exports a symbol with the same name
-                        // This happens when a module imports a symbol from a submodule with the same name
-                        // e.g., package/__init__.py imports __version__ from .__version__
-                        // In this case, we should skip the namespace assignment to avoid overwriting
-                        // the imported symbol with the namespace object
-                        debug!(
-                            "Skipping submodule namespace assignment for {parent}.{attr} - \
-                             parent imports a symbol with the same name from the submodule"
-                        );
-                        true
-                    } else {
-                        // This is a re-exported symbol, not the submodule itself
-                        debug!(
-                            "Skipping submodule assignment for {parent}.{attr} - it's a \
-                             re-exported attribute (not the module itself)"
-                        );
-                        true
-                    }
-                } else {
-                    false
-                }
-            } else if bundler.module_registry.contains_key(&parent) {
-                // Parent is a wrapper module - check if it already has this attribute defined
-                // This handles cases where the wrapper module imports a symbol with the same
-                // name as a submodule (e.g., from .config import config)
+            if skip_assignment {
                 debug!(
-                    "Parent {parent} is a wrapper module, checking if {attr} is already defined \
-                     there"
+                    "Skipping submodule assignment for {parent}.{attr} - parent exports same-named symbol (not the module itself)"
                 );
-                // For now, we'll check if the attribute is in parent_exports
-                // This may need refinement based on more complex cases
-                false
-            } else {
-                false
-            };
+            }
 
             if !skip_assignment {
                 // Check if this module was imported in the entry module
@@ -771,12 +779,17 @@ pub fn require_namespace(
         // Ensure types module is imported before using SimpleNamespace
         crate::code_generator::import_deduplicator::add_stdlib_import(bundler, "types");
 
-        if let Some(info) = bundler.namespace_registry.get_mut(&sanitized_name) {
+        // Check namespace info and gather necessary data before mutable borrow
+        let namespace_info = bundler
+            .namespace_registry
+            .get(&sanitized_name)
+            .map(|info| (info.is_created, info.parent_module.clone()));
+
+        if let Some((is_created, parent_module)) = namespace_info {
             debug!(
-                "Namespace '{}' found in registry, is_created: {}",
-                sanitized_name, info.is_created
+                "Namespace '{sanitized_name}' found in registry, is_created: {is_created}"
             );
-            if info.is_created {
+            if is_created {
                 debug!("Namespace '{sanitized_name}' already created, skipping");
             } else {
                 // Build keywords for the namespace constructor
@@ -812,45 +825,37 @@ pub fn require_namespace(
                 );
                 result_stmts.push(creation_stmt);
 
-                // Mark as created
-                info.is_created = true;
+                // Mark as created in both the registry and the runtime tracker
+                if let Some(info) = bundler.namespace_registry.get_mut(&sanitized_name) {
+                    info.is_created = true;
+                }
                 bundler.created_namespaces.insert(sanitized_name.clone());
 
                 debug!("Generated namespace '{sanitized_name}' with {keyword_count} keywords");
 
                 // CRITICAL: Also generate parent attribute assignment if parent exists
-                if let Some(ref parent_module) = info.parent_module {
-                    let parent_sanitized = sanitize_module_name_for_identifier(parent_module);
+                if let Some(parent_module) = parent_module {
+                    let parent_sanitized = sanitize_module_name_for_identifier(&parent_module);
 
                     // Check if parent is already created
                     if bundler.created_namespaces.contains(&parent_sanitized) {
                         // Extract the attribute name from the path
                         let attr_name = path.rsplit_once('.').map_or(path, |(_, name)| name);
 
-                        // Check if we should skip this assignment
-                        // We skip if parent exports a symbol with the same name AND it's not a submodule
-                        let is_actual_submodule = bundler.bundled_modules.contains(path)
-                            || bundler.module_registry.contains_key(path)
-                            || bundler.inlined_modules.contains(path);
-
-                        let export_conflict = if is_actual_submodule {
-                            // Never skip for actual submodules - they need their namespace assignments
-                            false
-                        } else {
-                            // Check if parent exports a symbol with this name
-                            bundler
-                                .module_exports
-                                .get(parent_module)
-                                .and_then(|e| e.as_ref())
-                                .is_some_and(|exports| exports.contains(&attr_name.to_string()))
-                        };
+                        // Check if we should skip this assignment.
+                        // We skip if the parent exports a symbol with the same name AND it's not an actual submodule.
+                        let export_conflict =
+                            has_export_conflict(bundler, &parent_module, attr_name, path);
 
                         if export_conflict {
                             debug!(
                                 "Skipping parent attribute assignment for '{parent_sanitized}.{attr_name}' - parent exports same-named symbol"
                             );
                             // Mark as done to avoid later duplication attempts
-                            info.parent_assignment_done = true;
+                            if let Some(info) = bundler.namespace_registry.get_mut(&sanitized_name)
+                            {
+                                info.parent_assignment_done = true;
+                            }
                         } else {
                             debug!(
                                 "Generating parent attribute assignment: {parent_sanitized}.{attr_name} = {sanitized_name}"
@@ -868,7 +873,10 @@ pub fn require_namespace(
                             );
 
                             // Mark parent assignment as done
-                            info.parent_assignment_done = true;
+                            if let Some(info) = bundler.namespace_registry.get_mut(&sanitized_name)
+                            {
+                                info.parent_assignment_done = true;
+                            }
                         }
                     } else {
                         debug!(
@@ -1105,23 +1113,10 @@ pub fn generate_parent_attribute_assignments(bundler: &mut Bundler) -> Vec<Stmt>
                     .rsplit_once('.')
                     .map_or(info.original_path.as_str(), |(_, name)| name);
 
-                // Check if we should skip this assignment
-                // We skip if parent exports a symbol with the same name AND it's not a submodule
-                let is_actual_submodule = bundler.bundled_modules.contains(&info.original_path)
-                    || bundler.module_registry.contains_key(&info.original_path)
-                    || bundler.inlined_modules.contains(&info.original_path);
-
-                let export_conflict = if is_actual_submodule {
-                    // Never skip for actual submodules - they need their namespace assignments
-                    false
-                } else {
-                    // Check if parent exports a symbol with this name
-                    bundler
-                        .module_exports
-                        .get(parent)
-                        .and_then(|e| e.as_ref())
-                        .is_some_and(|exports| exports.contains(&attr_name.to_string()))
-                };
+                // Check if we should skip this assignment.
+                // We skip if the parent exports a symbol with the same name AND it's not an actual submodule.
+                let export_conflict =
+                    has_export_conflict(bundler, parent, attr_name, &info.original_path);
 
                 if export_conflict {
                     debug!(
