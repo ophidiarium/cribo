@@ -2723,8 +2723,6 @@ impl<'a> Bundler<'a> {
             }
         }
 
-        // Parent attribute assignments will be generated at the very end
-
         // If there are wrapper modules needed by inlined modules, we need to define their
         // init functions BEFORE inlining the modules that use them
         if !wrapper_modules_needed_by_inlined.is_empty() && has_wrapper_modules {
