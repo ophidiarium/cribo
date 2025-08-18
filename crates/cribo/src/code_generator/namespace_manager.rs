@@ -639,6 +639,18 @@ impl NamespaceParams {
     }
 }
 
+/// Determines the appropriate namespace context for a given path.
+/// Returns Attribute context if the path has a parent, otherwise `TopLevel`.
+fn determine_namespace_context(path: &str) -> NamespaceContext {
+    if let Some((parent, _)) = path.rsplit_once('.') {
+        NamespaceContext::Attribute {
+            parent: parent.to_string(),
+        }
+    } else {
+        NamespaceContext::TopLevel
+    }
+}
+
 /// Registers a request for a namespace, creating or updating its info.
 /// This is the ONLY function that should be called to request a namespace.
 /// It is idempotent and handles parent registration recursively.
@@ -654,14 +666,8 @@ pub fn require_namespace(
 ) -> Vec<Stmt> {
     // 1. Recursively require parent namespaces if `path` is dotted
     if let Some((parent_path, _)) = path.rsplit_once('.') {
-        // Determine the context for the parent based on whether it has a parent itself
-        let parent_context = if let Some((grandparent, _)) = parent_path.rsplit_once('.') {
-            NamespaceContext::Attribute {
-                parent: grandparent.to_string(),
-            }
-        } else {
-            NamespaceContext::TopLevel
-        };
+        // Determine the context for the parent using the helper function
+        let parent_context = determine_namespace_context(parent_path);
         // Parent namespaces are never immediate - they should be part of centralized generation
         require_namespace(
             bundler,
@@ -751,10 +757,11 @@ pub fn require_namespace(
                 );
 
                 // Recursively create parent namespace with immediate generation
+                let parent_context = determine_namespace_context(parent_path);
                 let parent_stmts = require_namespace(
                     bundler,
                     parent_path,
-                    NamespaceContext::TopLevel, // Parent namespaces are top-level
+                    parent_context,
                     NamespaceParams::immediate(),
                 );
                 result_stmts.extend(parent_stmts);
