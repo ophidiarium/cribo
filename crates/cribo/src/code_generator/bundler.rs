@@ -628,6 +628,22 @@ impl<'a> Bundler<'a> {
                     "Created wildcard import assignment: {symbol_name} = \
                      {module_name}.{symbol_name}"
                 );
+
+                // If we're inside a wrapper init, also add the module namespace assignment
+                // This is critical for wildcard imports to work with vars(__cribo_module)
+                if inside_wrapper_init {
+                    log::debug!(
+                        "Creating module attribute assignment in wrapper init for wildcard import: \
+                         {MODULE_VAR}.{symbol_name} = {symbol_name}"
+                    );
+                    assignments.push(
+                        crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                            MODULE_VAR,
+                            symbol_name,
+                            symbol_name,
+                        ),
+                    );
+                }
             }
 
             return assignments;
