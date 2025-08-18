@@ -950,10 +950,11 @@ impl TreeShaker {
             return false;
         }
 
-        // Check if the module uses setattr and (locals() or globals()) in a single pass
+        // Check if the module uses setattr, (locals() or globals()), and reads __all__ in a single pass
         // Note: We don't check for vars() because that's our transformation that happens after tree-shaking
         let mut uses_setattr = false;
         let mut uses_locals_or_globals = false;
+        let mut reads_all = false;
 
         for item in items {
             if !uses_setattr {
@@ -966,13 +967,19 @@ impl TreeShaker {
                     || item.read_vars.contains("globals")
                     || item.eventual_read_vars.contains("globals");
             }
-            // Early return if both conditions are met
-            if uses_setattr && uses_locals_or_globals {
+            if !reads_all {
+                // Check if __all__ is actually accessed (not just defined)
+                reads_all = item.read_vars.contains("__all__")
+                    || item.eventual_read_vars.contains("__all__");
+            }
+            // Early return if all conditions are met
+            if uses_setattr && uses_locals_or_globals && reads_all {
                 return true;
             }
         }
 
-        false
+        // All conditions must be met for this to be the dynamic __all__ access pattern
+        uses_setattr && uses_locals_or_globals && reads_all
     }
 
     /// Mark all symbols from a module's __all__ as used
