@@ -11,8 +11,6 @@ import functools
 import types
 import typing
 pkg = types.SimpleNamespace(__name__='pkg')
-pkg_pretty = types.SimpleNamespace(__name__='pkg.pretty')
-pkg.pretty = pkg_pretty
 @functools.cache
 def __cribo_init___cribo_2353ad_pkg_pretty():
     __cribo_module = types.SimpleNamespace()

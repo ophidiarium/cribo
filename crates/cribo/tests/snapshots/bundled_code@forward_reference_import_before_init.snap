@@ -10,8 +10,6 @@ import collections.abc
 import functools
 import types
 mypkg = types.SimpleNamespace(__name__='mypkg')
-mypkg_compat = types.SimpleNamespace(__name__='mypkg.compat')
-mypkg.compat = mypkg_compat
 class BaseException(Exception):
     """Base exception class"""
     pass

@@ -12,12 +12,8 @@ core = types.SimpleNamespace(__name__='core')
 models = types.SimpleNamespace(__name__='models')
 services = types.SimpleNamespace(__name__='services')
 core_database = types.SimpleNamespace(__name__='core.database')
-models_base = types.SimpleNamespace(__name__='models.base')
-models_user = types.SimpleNamespace(__name__='models.user')
 services_auth = types.SimpleNamespace(__name__='services.auth')
 core.database = core_database
-models.base = models_base
-models.user = models_user
 services.auth = services_auth
 process_count = 0
 validate_cache = {}

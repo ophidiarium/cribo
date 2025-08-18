@@ -13,8 +13,6 @@ import http.cookiejar
 import types
 import urllib.parse
 myrequests = types.SimpleNamespace(__name__='myrequests')
-myrequests_compat = types.SimpleNamespace(__name__='myrequests.compat')
-myrequests.compat = myrequests_compat
 InvalidJSONError = None
 class RequestException(Exception):
     """Base exception for all request errors."""

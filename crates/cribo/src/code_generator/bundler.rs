@@ -2122,47 +2122,53 @@ impl<'a> Bundler<'a> {
         // Namespace generation will be done after all namespace requirements are detected
 
         // For wrapper modules that are submodules (e.g., requests.compat),
-        // we need to create placeholder attributes on their parent namespaces
-        // so that inlined code can reference them before they're initialized
-        for (module_name, _, _, _) in &modules {
-            if module_name.contains('.') && module_name != "__init__" {
-                // Check if this is a wrapper module
-                let is_wrapper = modules
-                    .iter()
-                    .any(|(name, ast, _, _)| name == module_name && module_has_side_effects(ast));
+        // we need to ensure their parent namespaces exist, but we must NOT create
+        // namespace variables for the wrapper modules themselves as that would cause
+        // them to be overwritten with empty SimpleNamespace objects.
+        // Use the classification results (not side-effect heuristic) and support any depth.
+        for (module_name, _, _, _) in &wrapper_modules {
+            // Skip modules that end with __init__ (e.g., "pkg.__init__")
+            if module_name.ends_with(".__init__") {
+                continue;
+            }
 
-                if is_wrapper {
-                    // Create a placeholder namespace attribute for this wrapper module
-                    let parts: Vec<&str> = module_name.split('.').collect();
-                    if parts.len() == 2 {
-                        // Simple case like "requests.compat"
-                        let parent = parts[0];
-                        let child = parts[1];
+            if let Some((parent, _child)) = module_name.rsplit_once('.') {
+                // We need to ensure the parent namespace exists, but NOT register
+                // the wrapper module itself as a namespace.
+                // For example, for "core.database.connection":
+                // - We need "core" and "core.database" namespaces to exist
+                // - But we must NOT register "core.database.connection" as a namespace
 
-                        // Check if the full namespace was already created
-                        let sanitized = sanitize_module_name_for_identifier(module_name);
-                        if self.namespace_registry.contains_key(&sanitized) {
-                            log::debug!(
-                                "Skipping placeholder namespace attribute {parent}.{child} - \
-                                     already created as full namespace"
-                            );
+                // Ensure all parent namespaces exist by walking up the hierarchy
+                let parts: Vec<&str> = parent.split('.').collect();
+                for i in 1..=parts.len() {
+                    let namespace_path = parts[..i].join(".");
+                    let sanitized = sanitize_module_name_for_identifier(&namespace_path);
+
+                    // Only register if not already registered
+                    if !self.namespace_registry.contains_key(&sanitized) {
+                        log::debug!(
+                            "Registering parent namespace '{namespace_path}' for wrapper module '{module_name}'"
+                        );
+
+                        // Determine the context for this namespace
+                        let context = if i == 1 {
+                            // Top-level namespace
+                            NamespaceContext::TopLevel
                         } else {
-                            log::debug!(
-                                "Registering namespace attribute {parent}.{child} for wrapper \
-                                     module"
-                            );
-                            // Register the full namespace path for the wrapper module
-                            let full_path = format!("{parent}.{child}");
-                            let context = NamespaceContext::Attribute {
-                                parent: parent.to_string(),
-                            };
-                            namespace_manager::require_namespace(
-                                self,
-                                &full_path,
-                                context,
-                                namespace_manager::NamespaceParams::default(),
-                            );
-                        }
+                            // Nested namespace - needs parent reference
+                            let parent_path = parts[..i - 1].join(".");
+                            NamespaceContext::Attribute {
+                                parent: parent_path,
+                            }
+                        };
+
+                        namespace_manager::require_namespace(
+                            self,
+                            &namespace_path,
+                            context,
+                            namespace_manager::NamespaceParams::default(),
+                        );
                     }
                 }
             }

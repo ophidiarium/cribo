@@ -9,8 +9,6 @@ input_file: crates/cribo/tests/fixtures/wrapper_module_builtin_types/main.py
 import functools
 import types
 pkg = types.SimpleNamespace(__name__='pkg')
-pkg__internal_utils = types.SimpleNamespace(__name__='pkg._internal_utils')
-pkg._internal_utils = pkg__internal_utils
 bytes = bytes
 str = str
 builtin_str = str

@@ -9,8 +9,6 @@ input_file: crates/cribo/tests/fixtures/submodule_imports_parent_function/main.p
 import functools
 import types
 pkg = types.SimpleNamespace(__name__='pkg')
-pkg_submodule = types.SimpleNamespace(__name__='pkg.submodule')
-pkg.submodule = pkg_submodule
 base_value = "base"
 def get_base():
     return base_value

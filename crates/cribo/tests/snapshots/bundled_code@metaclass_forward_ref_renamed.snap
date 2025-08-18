@@ -9,8 +9,6 @@ input_file: crates/cribo/tests/fixtures/metaclass_forward_ref_renamed/main.py
 import functools
 import types
 yaml_module = types.SimpleNamespace(__name__='yaml_module')
-yaml_module_other = types.SimpleNamespace(__name__='yaml_module.other')
-yaml_module.other = yaml_module_other
 yaml_module_loader = types.SimpleNamespace(__name__='yaml_module.loader')
 yaml_module.loader = yaml_module_loader
 class Loader:

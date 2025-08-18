@@ -9,8 +9,6 @@ input_file: crates/cribo/tests/fixtures/cross_module_attribute_import/main.py
 import functools
 import types
 mypackage = types.SimpleNamespace(__name__='mypackage')
-mypackage_utils = types.SimpleNamespace(__name__='mypackage.utils')
-mypackage.utils = mypackage_utils
 @functools.cache
 def __cribo_init___cribo_35f1d1_mypackage_utils():
     __cribo_module = types.SimpleNamespace()

@@ -11,8 +11,6 @@ import re
 import types
 import typing
 schemas = types.SimpleNamespace(__name__='schemas')
-schemas_user = types.SimpleNamespace(__name__='schemas.user')
-schemas.user = schemas_user
 @functools.cache
 def __cribo_init___cribo_f275a8_schemas_user():
     __cribo_module = types.SimpleNamespace()

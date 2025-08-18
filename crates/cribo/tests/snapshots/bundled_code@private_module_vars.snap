@@ -10,8 +10,6 @@ import functools
 import re
 import types
 pkg = types.SimpleNamespace(__name__='pkg')
-pkg__internal = types.SimpleNamespace(__name__='pkg._internal')
-pkg._internal = pkg__internal
 @functools.cache
 def __cribo_init___cribo_73cafd_pkg__internal():
     __cribo_module = types.SimpleNamespace()
