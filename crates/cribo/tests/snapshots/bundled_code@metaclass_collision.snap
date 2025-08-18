@@ -44,6 +44,7 @@ def __cribo_init___cribo_9c0ae3_pkg():
     __cribo_module.MyObject = MyObject
     __cribo_module.submodule = pkg_submodule
     return __cribo_module
+pkg_submodule.create_object = create_object
 pkg = __cribo_init___cribo_9c0ae3_pkg()
 MyObject = pkg.MyObject
 create_object = create_object

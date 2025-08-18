@@ -7,17 +7,6 @@ input_file: crates/cribo/tests/fixtures/forward_reference_from_parent_init/main.
 # https://github.com/ophidiarium/cribo
 
 import types
-parent = types.SimpleNamespace(__name__='parent')
-parent_another = types.SimpleNamespace(__name__='parent.another')
-parent.another = parent_another
-parent_base = types.SimpleNamespace(__name__='parent.base')
-parent.base = parent_base
-parent_child = types.SimpleNamespace(__name__='parent.child')
-parent.child = parent_child
-parent_subpkg = types.SimpleNamespace(__name__='parent.subpkg')
-parent.subpkg = parent_subpkg
-parent_subpkg_submodule = types.SimpleNamespace(__name__='parent.subpkg.submodule')
-parent_subpkg.submodule = parent_subpkg_submodule
 class SubpkgClass:
     """A class from subpackage."""
 
@@ -51,6 +40,17 @@ AnotherClass.__module__ = 'parent.another'
 """Another module."""
 BaseClass.__module__ = 'parent.base'
 """Base module defining base classes."""
+parent = types.SimpleNamespace(__name__='parent')
+parent_subpkg = types.SimpleNamespace(__name__='parent.subpkg')
+parent.subpkg = parent_subpkg
+parent_subpkg_submodule = types.SimpleNamespace(__name__='parent.subpkg.submodule')
+parent_subpkg.submodule = parent_subpkg_submodule
+parent_child = types.SimpleNamespace(__name__='parent.child')
+parent.child = parent_child
+parent_another = types.SimpleNamespace(__name__='parent.another')
+parent.another = parent_another
+parent_base = types.SimpleNamespace(__name__='parent.base')
+parent.base = parent_base
 parent_subpkg.SubpkgClass = SubpkgClass
 parent_subpkg_submodule.SubpkgClass = SubpkgClass
 parent_child.MyClass = MyClass

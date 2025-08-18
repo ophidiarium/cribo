@@ -10,8 +10,6 @@ import collections.abc
 import functools
 import types
 mypkg = types.SimpleNamespace(__name__='mypkg')
-mypkg_exceptions = types.SimpleNamespace(__name__='mypkg.exceptions')
-mypkg.exceptions = mypkg_exceptions
 class BaseException(Exception):
     """Base exception class"""
     pass
@@ -40,6 +38,8 @@ class CustomJSONError(BaseException, mypkg.compat.JSONDecodeError):
         return mypkg.compat.JSONDecodeError.__reduce__(self)
 BaseException.__module__ = 'mypkg.exceptions'
 CustomJSONError.__module__ = 'mypkg.exceptions'
+mypkg_exceptions = types.SimpleNamespace(__name__='mypkg.exceptions')
+mypkg.exceptions = mypkg_exceptions
 mypkg.compat = __cribo_init___cribo_4089db_mypkg_compat()
 JSONDecodeError = mypkg.compat.JSONDecodeError
 mypkg_exceptions.BaseException = BaseException

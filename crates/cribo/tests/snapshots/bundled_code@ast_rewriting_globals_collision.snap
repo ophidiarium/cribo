@@ -12,13 +12,9 @@ core = types.SimpleNamespace(__name__='core')
 models = types.SimpleNamespace(__name__='models')
 services = types.SimpleNamespace(__name__='services')
 core_database = types.SimpleNamespace(__name__='core.database')
-core.database = core_database
-core_utils = types.SimpleNamespace(__name__='core.utils')
-core.utils = core_utils
 services_auth = types.SimpleNamespace(__name__='services.auth')
+core.database = core_database
 services.auth = services_auth
-core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
-core_utils.helpers = core_utils_helpers
 process_count = 0
 validate_cache = {}
 Logger_6 = str
@@ -68,6 +64,10 @@ Connection_6.__module__ = 'core.utils.helpers'
 Connection_6.__name__ = 'Connection'
 Connection_6.__qualname__ = 'Connection'
 """Core utility helpers module - NO external dependencies to avoid circular imports"""
+core_utils = types.SimpleNamespace(__name__='core.utils')
+core.utils = core_utils
+core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
+core_utils.helpers = core_utils_helpers
 _cribo_models_base_Connection = None
 @functools.cache
 def __cribo_init___cribo_0a162a_models_base():

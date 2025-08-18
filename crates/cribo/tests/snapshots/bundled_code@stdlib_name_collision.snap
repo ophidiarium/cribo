@@ -7,11 +7,6 @@ input_file: crates/cribo/tests/fixtures/stdlib_name_collision/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-mypackage = types.SimpleNamespace(__name__='mypackage')
-mypackage_abc = types.SimpleNamespace(__name__='mypackage.abc')
-mypackage.abc = mypackage_abc
-mypackage_pretty = types.SimpleNamespace(__name__='mypackage.pretty')
-mypackage.pretty = mypackage_pretty
 class MyClass:
     """A class defined in the local abc module."""
 
@@ -26,6 +21,11 @@ def format_object(obj: MyClass) -> str:
 """Module that imports from local abc module."""
 MyClass.__module__ = 'mypackage.abc'
 """Local module named 'abc' - should not be confused with stdlib abc."""
+mypackage = types.SimpleNamespace(__name__='mypackage')
+mypackage_pretty = types.SimpleNamespace(__name__='mypackage.pretty')
+mypackage.pretty = mypackage_pretty
+mypackage_abc = types.SimpleNamespace(__name__='mypackage.abc')
+mypackage.abc = mypackage_abc
 mypackage_pretty.format_object = format_object
 mypackage_abc.MyClass = MyClass
 """Test case for modules with same name as stdlib modules."""

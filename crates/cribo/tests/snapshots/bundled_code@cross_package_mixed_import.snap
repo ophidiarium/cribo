@@ -10,21 +10,17 @@ import functools
 import sys
 import types
 core = types.SimpleNamespace(__name__='core')
-models = types.SimpleNamespace(__name__='models')
 core_database = types.SimpleNamespace(__name__='core.database')
 core.database = core_database
 core_utils = types.SimpleNamespace(__name__='core.utils')
 core.utils = core_utils
 core_version = types.SimpleNamespace(__name__='core.version')
 core.version = core_version
+models = types.SimpleNamespace(__name__='models')
 models_base = types.SimpleNamespace(__name__='models.base')
 models.base = models_base
 models_user = types.SimpleNamespace(__name__='models.user')
 models.user = models_user
-core_utils_config = types.SimpleNamespace(__name__='core.utils.config')
-core_utils.config = core_utils_config
-core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
-core_utils.helpers = core_utils_helpers
 CORE_MODEL_VERSION = "1.0.0"
 class BaseModel:
     """Base model class."""
@@ -64,6 +60,10 @@ BaseModel.__module__ = 'models.base'
 """Configuration utilities for the core package."""
 """Version module separate from __init__ to avoid circular imports."""
 """Helper utilities for the core package."""
+core_utils_config = types.SimpleNamespace(__name__='core.utils.config')
+core_utils.config = core_utils_config
+core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
+core_utils.helpers = core_utils_helpers
 _cribo_core__initialized = None
 _cribo_core__config = None
 _cribo_models__base_model = None
@@ -250,9 +250,12 @@ def __cribo_init___cribo_782908_core_database():
         return connect(database_name)
     __cribo_module.safe_connect = safe_connect
     return __cribo_module
+models_user.process_user = process_user
+models_base.BaseModel = BaseModel
 core_utils_config.set_config_reference = set_config_reference
 core_utils_config.get_config = get_config
 core_utils_config.is_debug = is_debug
+core_version.CORE_MODEL_VERSION = CORE_MODEL_VERSION
 core_utils_helpers.validate = validate
 """Test fixture demonstrating cross-package mixed import patterns.\n\nThis tests the specific pattern where a module uses both:\n1. Deep absolute imports crossing package boundaries (e.g., from models.user)\n2. Relative imports within its package (e.g., from ..utils.helpers)\n3. Import order dependencies with __init__.py files\n"""
 __cribo_init_result = __cribo_init___cribo_f00e4b_core()

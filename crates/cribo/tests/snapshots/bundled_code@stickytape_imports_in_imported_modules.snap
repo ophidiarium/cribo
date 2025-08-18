@@ -7,9 +7,9 @@ input_file: crates/cribo/tests/fixtures/stickytape_imports_in_imported_modules/m
 # https://github.com/ophidiarium/cribo
 
 import types
+message = "Hello"
 greetings = types.SimpleNamespace(__name__='greetings')
 greetings_english = types.SimpleNamespace(__name__='greetings.english')
 greetings.english = greetings_english
-message = "Hello"
 greetings_english.message = message
 print(message)

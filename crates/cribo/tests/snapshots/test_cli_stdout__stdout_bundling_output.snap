@@ -9,12 +9,6 @@ expression: stdout
 import dataclasses
 import types
 import typing
-models = types.SimpleNamespace(__name__='models')
-utils = types.SimpleNamespace(__name__='utils')
-models_user = types.SimpleNamespace(__name__='models.user')
-models.user = models_user
-utils_helpers = types.SimpleNamespace(__name__='utils.helpers')
-utils.helpers = utils_helpers
 dataclass = dataclasses.dataclass
 @dataclass
 class User:
@@ -43,6 +37,12 @@ User.__module__ = 'models.user'
 """User model for the test project."""
 """Utils package initialization."""
 """Utility functions for the test project."""
+models = types.SimpleNamespace(__name__='models')
+models_user = types.SimpleNamespace(__name__='models.user')
+models.user = models_user
+utils = types.SimpleNamespace(__name__='utils')
+utils_helpers = types.SimpleNamespace(__name__='utils.helpers')
+utils.helpers = utils_helpers
 models_user.dataclass = dataclass
 models_user.User = User
 utils_helpers.greet = greet

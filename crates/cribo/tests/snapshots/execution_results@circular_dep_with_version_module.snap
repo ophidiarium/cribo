@@ -1,0 +1,9 @@
+---
+source: crates/cribo/tests/test_bundling_snapshots.rs
+input_file: crates/cribo/tests/fixtures/circular_dep_with_version_module/main.py
+---
+ExecutionResults {
+    status: Success,
+    stdout: "Package initialized with version 1.0.0\nPackage version: 1.0.0\nPackage title: Test Package\nSuccess!",
+    stderr: "",
+}

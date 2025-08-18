@@ -7,12 +7,6 @@ input_file: crates/cribo/tests/fixtures/import_shadowing/main.py
 # https://github.com/ophidiarium/cribo
 
 import types
-package_a = types.SimpleNamespace(__name__='package_a')
-package_b = types.SimpleNamespace(__name__='package_b')
-package_a_processor = types.SimpleNamespace(__name__='package_a.processor')
-package_a.processor = package_a_processor
-package_b_processor = types.SimpleNamespace(__name__='package_b.processor')
-package_b.processor = package_b_processor
 def process_b(data):
     return transform(data)
 def transform(text):
@@ -21,7 +15,13 @@ def process_a(data):
     return transform(data)
 """Package B processor that imports utils expecting package_b.utils"""
 """Package A processor that imports utils expecting package_a.utils"""
+package_b = types.SimpleNamespace(__name__='package_b')
+package_b_processor = types.SimpleNamespace(__name__='package_b.processor')
+package_b.processor = package_b_processor
 utils = types.SimpleNamespace(__name__='utils', transform=transform)
+package_a = types.SimpleNamespace(__name__='package_a')
+package_a_processor = types.SimpleNamespace(__name__='package_a.processor')
+package_a.processor = package_a_processor
 package_b_processor.process_b = process_b
 package_a_processor.process_a = process_a
 """Test case demonstrating import shadowing issue.\n\nThis shows how the same import 'utils' resolves to the same top-level\nfile for all modules, even though package_a and package_b each have\ntheir own utils.py that they might expect to use.\n\nIn Python, this behavior is \"correct\" - when running from the fixture\ndirectory, 'import utils' finds the top-level utils.py for everyone.\n\nBut for a bundler, this demonstrates the challenge: without proper\ncontext, it can't know whether 'import utils' in package_a/processor.py\nwas intended to import package_a/utils.py or the top-level utils.py.\n"""

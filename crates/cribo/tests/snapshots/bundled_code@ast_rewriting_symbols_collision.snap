@@ -9,25 +9,12 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_symbols_collision/main.py
 import functools
 import types
 import typing
-core = types.SimpleNamespace(__name__='core')
 models = types.SimpleNamespace(__name__='models')
 services = types.SimpleNamespace(__name__='services')
-core_database = types.SimpleNamespace(__name__='core.database')
-core.database = core_database
-core_utils = types.SimpleNamespace(__name__='core.utils')
-core.utils = core_utils
 models_base = types.SimpleNamespace(__name__='models.base')
-models.base = models_base
-models_user = types.SimpleNamespace(__name__='models.user')
-UserLogger = models_user
-models.user = models_user
 services_auth = types.SimpleNamespace(__name__='services.auth')
+models.base = models_base
 services.auth = services_auth
-core_database_connection = types.SimpleNamespace(__name__='core.database.connection')
-core_database.connection = core_database_connection
-core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
-core_validate = core_utils_helpers
-core_utils.helpers = core_utils_helpers
 result_2 = "base_result"
 process_2 = "base_process_string"
 result_3 = {"model": "user"}
@@ -348,6 +335,25 @@ Connection_5.__module__ = 'core.database.connection'
 Connection_5.__name__ = 'Connection'
 Connection_5.__qualname__ = 'Connection'
 """\nDatabase connection module with naming conflicts\n"""
+models_base.result = result_2
+models_base.process = process_2
+models_base.BaseModel = BaseModel
+models_base.Logger = Logger_1
+models_base.initialize = initialize
+models_base.validate = validate_2
+models_base.connect = connect_1
+models_base.shadow_test = shadow_test
+models_user = types.SimpleNamespace(__name__='models.user')
+models.user = models_user
+core = types.SimpleNamespace(__name__='core')
+core_utils = types.SimpleNamespace(__name__='core.utils')
+core.utils = core_utils
+core_utils_helpers = types.SimpleNamespace(__name__='core.utils.helpers')
+core_utils.helpers = core_utils_helpers
+core_database = types.SimpleNamespace(__name__='core.database')
+core.database = core_database
+core_database_connection = types.SimpleNamespace(__name__='core.database.connection')
+core_database.connection = core_database_connection
 @functools.cache
 def __cribo_init___cribo_6ccb3a_services_auth_manager():
     __cribo_module = types.SimpleNamespace()
@@ -488,14 +494,6 @@ UserLogger = Logger_2
 util_process = process_5
 UtilLogger = Logger_3
 helper_validate = validate_5
-models_base.result = result_2
-models_base.process = process_2
-models_base.BaseModel = BaseModel
-models_base.Logger = Logger_1
-models_base.initialize = initialize
-models_base.validate = validate_2
-models_base.connect = connect_1
-models_base.shadow_test = shadow_test
 models_user.result = result_3
 models_user.connection = connection_2
 models_user.Logger = Logger_2

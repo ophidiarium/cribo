@@ -9,15 +9,6 @@ input_file: crates/cribo/tests/fixtures/ast_rewriting_happy_path/main.py
 import enum
 import types
 import typing
-models = types.SimpleNamespace(__name__='models')
-services = types.SimpleNamespace(__name__='services')
-utils = types.SimpleNamespace(__name__='utils')
-models_user = types.SimpleNamespace(__name__='models.user')
-models.user = models_user
-services_database = types.SimpleNamespace(__name__='services.database')
-services.database = services_database
-utils_helpers = types.SimpleNamespace(__name__='utils.helpers')
-utils.helpers = utils_helpers
 class DatabaseConnection:
     """Represents a database connection."""
 
@@ -94,6 +85,15 @@ UserRole.__module__ = 'models.user'
 User.__module__ = 'models.user'
 """\nUser model with role enumeration.\nNo naming conflicts with other modules.\n"""
 """\nUtility helper functions for the happy path test.\nThese functions have unique names that shouldn't conflict.\n"""
+services = types.SimpleNamespace(__name__='services')
+services_database = types.SimpleNamespace(__name__='services.database')
+services.database = services_database
+models = types.SimpleNamespace(__name__='models')
+models_user = types.SimpleNamespace(__name__='models.user')
+models.user = models_user
+utils = types.SimpleNamespace(__name__='utils')
+utils_helpers = types.SimpleNamespace(__name__='utils.helpers')
+utils.helpers = utils_helpers
 services_database.DatabaseConnection = DatabaseConnection
 services_database.DatabaseService = DatabaseService
 models_user.UserRole = UserRole
