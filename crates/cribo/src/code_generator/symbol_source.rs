@@ -29,7 +29,7 @@ pub fn find_symbol_source_from_wrapper_module(
     module_name: &str,
     symbol_name: &str,
 ) -> Option<(String, String)> {
-    log::debug!(
+    log::trace!(
         "find_symbol_source_from_wrapper_module: looking for symbol '{symbol_name}' in module '{module_name}'"
     );
 
