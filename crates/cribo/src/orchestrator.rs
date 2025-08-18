@@ -832,14 +832,19 @@ impl BundleOrchestrator {
 
     /// Helper method to find module name in source directories
     fn find_module_in_src_dirs(&self, entry_path: &Path) -> Option<String> {
+        log::debug!("find_module_in_src_dirs: src dirs = {:?}", self.config.src);
         for src_dir in &self.config.src {
+            log::debug!("Checking if {entry_path:?} starts with {src_dir:?}");
             let Ok(relative_path) = entry_path.strip_prefix(src_dir) else {
                 continue;
             };
+            log::debug!("Relative path: {relative_path:?}");
             if let Some(module_name) = self.path_to_module_name(relative_path) {
+                log::debug!("Module name from relative path: {module_name}");
                 return Some(module_name);
             }
         }
+        log::debug!("No module name found in src dirs");
         None
     }
 
@@ -849,8 +854,19 @@ impl BundleOrchestrator {
         entry_path: &Path,
         _resolver: &ModuleResolver,
     ) -> Result<String> {
+        log::debug!("find_entry_module_name: entry_path = {entry_path:?}");
+
+        // Special case: If the entry is __init__.py, always use __init__ as the module name
+        // to avoid conflicts with wrapper modules that might have the same name as the package
+        if let Some(file_name) = entry_path.file_name()
+            && file_name == "__init__.py" {
+                log::debug!("Entry is __init__.py, using '__init__' as module name");
+                return Ok("__init__".to_string());
+            }
+
         // Try to find which src directory contains the entry file
         if let Some(module_name) = self.find_module_in_src_dirs(entry_path) {
+            log::debug!("Found module name from src dirs: {module_name}");
             return Ok(module_name);
         }
 
@@ -865,6 +881,7 @@ impl BundleOrchestrator {
                 )
             })?;
 
+        log::debug!("Using file stem as module name: {module_name}");
         Ok(module_name.to_owned())
     }
 
