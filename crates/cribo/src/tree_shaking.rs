@@ -999,15 +999,11 @@ impl TreeShaker {
                         debug!(
                             "Marking {symbol} from module {module_name} as used due to dynamic __all__ access"
                         );
-                        // First check if the symbol is imported from another module
-                        if let Some((source_module, original_name)) =
-                            self.resolve_import_alias(module_name, symbol)
-                        {
-                            worklist.push_back((source_module, original_name));
-                        } else {
-                            // It's defined in this module
-                            worklist.push_back((module_name.to_string(), symbol.clone()));
-                        }
+                        // Resolve the symbol's source module or use the current module
+                        let (source_module, original_name) = self
+                            .resolve_import_alias(module_name, symbol)
+                            .unwrap_or_else(|| (module_name.to_string(), symbol.clone()));
+                        worklist.push_back((source_module, original_name));
                     }
                     break;
                 }
