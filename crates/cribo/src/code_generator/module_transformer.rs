@@ -107,8 +107,9 @@ pub fn transform_module_to_init_function<'a>(
                         local_name, ctx.module_name
                     );
                 }
-                // Note: For wildcard imports, we'd need to know all exported symbols from the source module
-                // For now, we'll handle the specific case of __version__ and __title__ that we know about
+                // Note: Wildcard imports aren't expanded here to avoid false positives.
+                // Resolution is handled elsewhere (module export analysis); we intentionally skip
+                // adding names from '*' here.
             }
 
             // Resolve the module to check if it's inlined
@@ -170,6 +171,26 @@ pub fn transform_module_to_init_function<'a>(
                         }
                     }
                 }
+            }
+        }
+
+        // Also handle plain import statements to avoid name collisions
+        if let Stmt::Import(import_stmt) = stmt {
+            for alias in &import_stmt.names {
+                // Local binding is either `asname` or the top-level package segment (`pkg` in `pkg.sub`)
+                let local_name = alias
+                    .asname
+                    .as_ref()
+                    .map(Identifier::as_str)
+                    .unwrap_or_else(|| {
+                        let full = alias.name.as_str();
+                        full.split('.').next().unwrap_or(full)
+                    });
+                imported_symbols.insert(local_name.to_string());
+                debug!(
+                    "Collected imported symbol '{}' via 'import' in module '{}'",
+                    local_name, ctx.module_name
+                );
             }
         }
     }
