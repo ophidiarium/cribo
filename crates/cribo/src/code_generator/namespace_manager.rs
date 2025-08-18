@@ -1930,31 +1930,15 @@ fn is_symbol_imported_from_wrapper_module(
                 continue;
             };
 
-            // Resolve the module name, handling both relative and absolute imports
-            let source_module = if import_from.level > 0 {
-                // Relative import - use the robust resolver
-                bundler
-                    .resolver
-                    .resolve_relative_to_absolute_module_name(
-                        import_from.level,
-                        import_from
-                            .module
-                            .as_ref()
-                            .map(ruff_python_ast::Identifier::as_str),
-                        module_path,
-                    )
-                    .unwrap_or_default()
-            } else if let Some(module) = &import_from.module {
-                // Absolute import
-                module.to_string()
-            } else {
-                // No module (shouldn't happen in our case)
-                String::new()
-            };
-
-            if source_module.is_empty() {
+            // Resolve the module name (absolute or relative) using centralized helper
+            let source_module_opt = crate::code_generator::symbol_source::resolve_import_module(
+                bundler.resolver,
+                import_from,
+                module_path,
+            );
+            let Some(source_module) = source_module_opt else {
                 continue;
-            }
+            };
 
             // Check if this import statement imports our symbol
             for alias in &import_from.names {
