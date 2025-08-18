@@ -786,9 +786,7 @@ pub fn require_namespace(
             .map(|info| (info.is_created, info.parent_module.clone()));
 
         if let Some((is_created, parent_module)) = namespace_info {
-            debug!(
-                "Namespace '{sanitized_name}' found in registry, is_created: {is_created}"
-            );
+            debug!("Namespace '{sanitized_name}' found in registry, is_created: {is_created}");
             if is_created {
                 debug!("Namespace '{sanitized_name}' already created, skipping");
             } else {
