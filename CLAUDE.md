@@ -59,12 +59,15 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
    - **Namespace Manager** (`namespace_manager.rs`): **CENTRALIZED** namespace registry system
      - **CRITICAL**: All namespace creation MUST go through this centralized system
      - Key methods:
-       - `require_namespace(path, immediate)`: Register namespace requirements
-       - `generate_required_namespaces()`: Generate namespace creation statements in correct order
-       - `generate_parent_attribute_assignments()`: Generate parent.child assignments after all namespaces exist
-     - Handles parent-child dependencies automatically (parent namespaces created before children)
-     - Tracks namespace creation state to prevent duplicates
-     - **NEVER** manually create `types.SimpleNamespace()` objects - always use this registry
+       - `require_namespace(path, context: NamespaceContext, params: NamespaceParams)`: Register namespace requirements with explicit context (e.g., `InlinedModule`, `TopLevel`) and creation parameters (e.g., `NamespaceParams::immediate()`)
+       - `generate_required_namespaces()`: Generate namespace creation statements in deterministic, dependency-aware order
+       - `generate_parent_attribute_assignments()`: Generate `parent.child = child` assignments after all namespaces exist
+     - Behavior:
+       - Handles parent-child dependencies automatically (parents created before children)
+       - Two-phase flow: (1) create namespace objects (no parent assignments), (2) populate attributes; parent-child assignments are finalized in a dedicated pass
+       - Skips emitting `parent.child` assignments when the parent already exports a symbol with the same name (including re-exports), avoiding unintended overwrites
+       - Tracks namespace creation state to prevent duplicates
+     - **NEVER** manually create `types.SimpleNamespace()` objects—always use this registry (internal helpers handle construction)
    - **Module Registry** (`module_registry.rs`): Module naming, registration, and cache generation
    - **Import Deduplicator** (`import_deduplicator.rs`): Import cleanup and deduplication
    - **Circular Deps** (`circular_deps.rs`): Circular dependency detection helpers
