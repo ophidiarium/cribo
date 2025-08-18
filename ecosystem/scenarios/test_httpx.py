@@ -98,7 +98,6 @@ def test_requirements_generation(bundled_httpx):
         print(f"   ℹ️  Optional dependencies detected: {detected_optional}")
 
 
-@pytest.mark.xfail(reason="Known issue with namespace handling in bundled code")
 def test_bundled_module_loading(bundled_httpx):
     """Test that the bundled module can be loaded."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
