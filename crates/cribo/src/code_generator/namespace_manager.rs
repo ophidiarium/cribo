@@ -1435,11 +1435,12 @@ fn handle_inlined_module_assignment(
     }
 
     // Create assignment: parent.attr = namespace_var
-    // Note: namespace_var is already the sanitized name, so we pass it directly
-    final_body.push(statements::assign_attribute(
+    // Use centralized helper for consistency
+    final_body.push(create_attribute_assignment(
+        bundler,
         parent,
         attr,
-        expressions::name(&namespace_var, ExprContext::Load),
+        module_name,
     ));
 }
 
