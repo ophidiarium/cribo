@@ -2290,36 +2290,6 @@ impl<'a> Bundler<'a> {
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
 
-        // Register namespaces for wrapper modules that are submodules
-        // This ensures parent namespaces exist for module.child = init() assignments
-        for (module_name, _, _, _) in &wrapper_modules_saved {
-            if module_name.contains('.') {
-                // This is a submodule, ensure parent namespaces exist
-                // The parent namespaces are needed for assignment like parent.child = init()
-                if let Some((parent, _)) = module_name.rsplit_once('.') {
-                    // Register parent namespace through centralized system
-                    let context = if let Some((grandparent, _)) = parent.rsplit_once('.') {
-                        NamespaceContext::Attribute {
-                            parent: grandparent.to_string(),
-                        }
-                    } else {
-                        NamespaceContext::TopLevel
-                    };
-
-                    namespace_manager::require_namespace(
-                        self,
-                        parent,
-                        context,
-                        namespace_manager::NamespaceParams::default(),
-                    );
-                    log::debug!(
-                        "Registered parent namespace '{parent}' for wrapper submodule: \
-                         {module_name}"
-                    );
-                }
-            }
-        }
-
         // Now that all namespace requirements have been registered, generate the namespace statements
         // and parent attribute assignments at the beginning of the bundle
         if !self.namespace_registry.is_empty() {
