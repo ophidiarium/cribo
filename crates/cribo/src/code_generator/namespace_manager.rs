@@ -768,6 +768,9 @@ pub fn require_namespace(
             }
         }
 
+        // Ensure types module is imported before using SimpleNamespace
+        crate::code_generator::import_deduplicator::add_stdlib_import(bundler, "types");
+
         if let Some(info) = bundler.namespace_registry.get_mut(&sanitized_name) {
             debug!(
                 "Namespace '{}' found in registry, is_created: {}",
@@ -805,15 +808,7 @@ pub fn require_namespace(
                 // Generate the namespace creation statement with keywords
                 let creation_stmt = statements::assign(
                     vec![expressions::name(&sanitized_name, ExprContext::Store)],
-                    expressions::call(
-                        expressions::attribute(
-                            expressions::name("types", ExprContext::Load),
-                            "SimpleNamespace",
-                            ExprContext::Load,
-                        ),
-                        vec![],
-                        keywords,
-                    ),
+                    expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
                 );
                 result_stmts.push(creation_stmt);
 
