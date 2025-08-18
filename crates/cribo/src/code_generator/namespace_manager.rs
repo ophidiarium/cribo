@@ -1110,19 +1110,47 @@ pub fn generate_parent_attribute_assignments(bundler: &mut Bundler) -> Vec<Stmt>
                     .rsplit_once('.')
                     .map_or(info.original_path.as_str(), |(_, name)| name);
 
-                debug!(
-                    "Generating parent attribute assignment: {parent_sanitized}.{attr_name} = {sanitized_name}"
-                );
+                // Check if we should skip this assignment
+                // We skip if parent exports a symbol with the same name AND it's not a submodule
+                let is_actual_submodule = bundler.bundled_modules.contains(&info.original_path)
+                    || bundler.module_registry.contains_key(&info.original_path)
+                    || bundler.inlined_modules.contains(&info.original_path);
 
-                statements.push(statements::assign_attribute(
-                    &parent_sanitized,
-                    attr_name,
-                    expressions::name(&sanitized_name, ExprContext::Load),
-                ));
+                let export_conflict = if is_actual_submodule {
+                    // Never skip for actual submodules - they need their namespace assignments
+                    false
+                } else {
+                    // Check if parent exports a symbol with this name
+                    bundler
+                        .module_exports
+                        .get(parent)
+                        .and_then(|e| e.as_ref())
+                        .is_some_and(|exports| exports.contains(&attr_name.to_string()))
+                };
 
-                // Mark as done in the registry
-                if let Some(reg_info) = bundler.namespace_registry.get_mut(&sanitized_name) {
-                    reg_info.parent_assignment_done = true;
+                if export_conflict {
+                    debug!(
+                        "Skipping parent attribute assignment for {parent_sanitized}.{attr_name} - parent exports same-named symbol"
+                    );
+                    // Mark as done to avoid later duplication attempts
+                    if let Some(reg_info) = bundler.namespace_registry.get_mut(&sanitized_name) {
+                        reg_info.parent_assignment_done = true;
+                    }
+                } else {
+                    debug!(
+                        "Generating parent attribute assignment: {parent_sanitized}.{attr_name} = {sanitized_name}"
+                    );
+
+                    statements.push(statements::assign_attribute(
+                        &parent_sanitized,
+                        attr_name,
+                        expressions::name(&sanitized_name, ExprContext::Load),
+                    ));
+
+                    // Mark as done in the registry
+                    if let Some(reg_info) = bundler.namespace_registry.get_mut(&sanitized_name) {
+                        reg_info.parent_assignment_done = true;
+                    }
                 }
             }
         }
