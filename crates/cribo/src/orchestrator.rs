@@ -859,10 +859,11 @@ impl BundleOrchestrator {
         // Special case: If the entry is __init__.py, always use __init__ as the module name
         // to avoid conflicts with wrapper modules that might have the same name as the package
         if let Some(file_name) = entry_path.file_name()
-            && file_name == "__init__.py" {
-                log::debug!("Entry is __init__.py, using '__init__' as module name");
-                return Ok("__init__".to_string());
-            }
+            && file_name == "__init__.py"
+        {
+            log::debug!("Entry is __init__.py, using '__init__' as module name");
+            return Ok("__init__".to_string());
+        }
 
         // Try to find which src directory contains the entry file
         if let Some(module_name) = self.find_module_in_src_dirs(entry_path) {

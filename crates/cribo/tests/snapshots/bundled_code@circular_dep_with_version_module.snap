@@ -16,6 +16,7 @@ package.module_a = package_module_a
 __version__ = "1.0.0"
 __title__ = "Test Package"
 def func_a():
+    package = __cribo_init___cribo_a4c23d_package()
     return "func_a"
 """Module A that creates circular dependency"""
 """Version information for the package"""
