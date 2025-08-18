@@ -120,6 +120,14 @@ def __cribo_init___cribo_952a76_yaml_module():
     __cribo_module.dumper = yaml_module_dumper
     __cribo_module.loader = yaml_module_loader
     return __cribo_module
+yaml_module_dumper.BaseDumper = BaseDumper
+yaml_module_dumper.Dumper = Dumper
+yaml_module_dumper.SafeDumper = SafeDumper
+yaml_module_loader.BaseLoader = BaseLoader
+yaml_module_loader.Loader = Loader
+yaml_module_loader.FullLoader = FullLoader
+yaml_module_loader.UnsafeLoader = UnsafeLoader
+yaml_module_loader.SafeLoader = SafeLoader
 """\nTest fixture for wildcard imports with metaclass ordering.\n\nThis tests that when using wildcard imports, symbols from __all__\nare properly included even if not directly used in the class body.\n"""
 yaml_module = __cribo_init___cribo_952a76_yaml_module()
 assert hasattr(yaml_module, "YAMLObject")

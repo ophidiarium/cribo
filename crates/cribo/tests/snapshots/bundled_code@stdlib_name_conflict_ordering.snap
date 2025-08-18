@@ -9,11 +9,6 @@ input_file: crates/cribo/tests/fixtures/stdlib_name_conflict_ordering/main.py
 import abc
 import types
 import typing
-complex_pkg = types.SimpleNamespace(__name__='complex_pkg')
-complex_pkg_abc = types.SimpleNamespace(__name__='complex_pkg.abc')
-complex_pkg.abc = complex_pkg_abc
-complex_pkg_console = types.SimpleNamespace(__name__='complex_pkg.console')
-complex_pkg.console = complex_pkg_console
 abstractmethod = abc.abstractmethod
 class Base(abc.ABC):
     """Base class like rich.abc.RichRenderable"""
@@ -42,6 +37,11 @@ def main():
     console.print("Testing")
 Console.__module__ = 'complex_pkg.console'
 Base.__module__ = 'complex_pkg.abc'
+complex_pkg = types.SimpleNamespace(__name__='complex_pkg')
+complex_pkg_console = types.SimpleNamespace(__name__='complex_pkg.console')
+complex_pkg.console = complex_pkg_console
+complex_pkg_abc = types.SimpleNamespace(__name__='complex_pkg.abc')
+complex_pkg.abc = complex_pkg_abc
 complex_pkg.main = main
 complex_pkg_console.Console = Console
 complex_pkg_abc.abstractmethod = abstractmethod

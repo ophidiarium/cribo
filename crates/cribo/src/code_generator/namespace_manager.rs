@@ -1177,6 +1177,11 @@ pub(super) fn create_namespace_for_inlined_module_static(
     module_name: &str,
     module_renames: &FxIndexMap<String, String>,
 ) -> Vec<Stmt> {
+    debug!(
+        "create_namespace_for_inlined_module_static called for module '{module_name}' with {} renames",
+        module_renames.len()
+    );
+
     // If this namespace was already CREATED (not just registered), skip
     let sanitized = sanitize_module_name_for_identifier(module_name);
     if let Some(info) = bundler.namespace_registry.get(&sanitized) {
@@ -1231,6 +1236,73 @@ pub(super) fn create_namespace_for_inlined_module_static(
         }
 
         seen_args.insert(original_name.clone());
+
+        // For now, we'll skip symbols that are re-exports from wrapper modules
+        // These will be handled later when the wrapper module is initialized
+        // This prevents NameError when trying to reference symbols that don't exist yet
+
+        // Check if this symbol is imported from a wrapper module
+        // We need to check the module's AST to see if this is a from-import
+        let mut is_wrapper_import = false;
+        if let Some(modules) = bundler.module_asts.as_ref() {
+            for (mod_name, ast, _, _) in modules {
+                if mod_name == module_name {
+                    // Check if this symbol is imported from another module
+                    for stmt in &ast.body {
+                        if let ruff_python_ast::Stmt::ImportFrom(import_from) = stmt
+                            && let Some(module) = &import_from.module {
+                                let source_module = if module.as_str().starts_with('.') {
+                                    // Relative import - resolve it
+                                    let parts: Vec<&str> = module_name.split('.').collect();
+                                    if parts.len() > 1 {
+                                        let parent_parts = &parts[..parts.len() - 1];
+                                        let parent = parent_parts.join(".");
+                                        let relative = module.as_str().trim_start_matches('.');
+                                        if relative.is_empty() {
+                                            parent
+                                        } else {
+                                            format!("{parent}.{relative}")
+                                        }
+                                    } else {
+                                        module.to_string()
+                                    }
+                                } else {
+                                    module.to_string()
+                                };
+
+                                // Check if this import statement imports our symbol
+                                for alias in &import_from.names {
+                                    let imported_name = alias.name.as_str();
+                                    let local_name = alias
+                                        .asname
+                                        .as_ref()
+                                        .map_or(imported_name, ruff_python_ast::Identifier::as_str);
+
+                                    if local_name == original_name
+                                        && bundler.module_registry.contains_key(&source_module)
+                                    {
+                                        // This symbol is imported from a wrapper module
+                                        is_wrapper_import = true;
+                                        debug!(
+                                            "Symbol '{original_name}' in module '{module_name}' is imported from wrapper module '{source_module}', skipping from initial namespace"
+                                        );
+                                        break;
+                                    }
+                                }
+                            }
+                        if is_wrapper_import {
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        if is_wrapper_import {
+            // Skip this symbol - it will be added later after the wrapper module is initialized
+            continue;
+        }
 
         keywords.push(Keyword {
             node_index: AtomicNodeIndex::dummy(),

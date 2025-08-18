@@ -29,6 +29,10 @@ pub fn find_symbol_source_from_wrapper_module(
     module_name: &str,
     symbol_name: &str,
 ) -> Option<(String, String)> {
+    log::debug!(
+        "find_symbol_source_from_wrapper_module: looking for symbol '{symbol_name}' in module '{module_name}'"
+    );
+
     // Find the module's AST to check its imports
     let (_, ast, module_path, _) = module_asts
         .iter()
@@ -59,11 +63,23 @@ pub fn find_symbol_source_from_wrapper_module(
                 .map_or_else(|| alias.name.as_str(), ruff_python_ast::Identifier::as_str);
 
             if local_name == symbol_name {
+                log::debug!(
+                    "Found import: '{local_name}' (original: '{}') from module '{resolved_module}'",
+                    alias.name
+                );
+
                 // Check if the source module is a wrapper module
                 if module_registry.contains_key(&resolved_module) {
+                    log::debug!(
+                        "Source module '{resolved_module}' is a wrapper module - returning ({resolved_module}, {})",
+                        alias.name
+                    );
                     // Return the immediate source from the wrapper module
                     return Some((resolved_module, alias.name.to_string()));
                 }
+                log::debug!(
+                    "Source module '{resolved_module}' is NOT a wrapper module - skipping"
+                );
                 // For non-wrapper modules, don't return anything (original behavior)
                 break;
             }

@@ -12,6 +12,8 @@ import os
 import tempfile
 import types
 mypackage = types.SimpleNamespace(__name__='mypackage')
+mypackage_utils = types.SimpleNamespace(__name__='mypackage.utils')
+mypackage.utils = mypackage_utils
 @functools.cache
 def __cribo_init___cribo_7c69fc_mypackage_utils():
     __cribo_module = types.SimpleNamespace()

@@ -10,8 +10,8 @@ import functools
 import re
 import types
 pkg = types.SimpleNamespace(__name__='pkg')
-pkg_consumer = types.SimpleNamespace(__name__='pkg.consumer')
-pkg.consumer = pkg_consumer
+pkg__internal = types.SimpleNamespace(__name__='pkg._internal')
+pkg._internal = pkg__internal
 @functools.cache
 def __cribo_init___cribo_73cafd_pkg__internal():
     __cribo_module = types.SimpleNamespace()
@@ -52,6 +52,8 @@ def validate_header(header_type, header_data):
     name_re, value_re = validators
     return f"Validated with {name_re.pattern}"
 """Consumer module that imports private variables from _internal module."""
+pkg_consumer = types.SimpleNamespace(__name__='pkg.consumer')
+pkg.consumer = pkg_consumer
 pkg_consumer.get_validators = get_validators
 pkg_consumer.validate_header = validate_header
 """Test case for bundling modules that have private module variables accessed by other modules."""

@@ -6738,6 +6738,17 @@ impl Bundler<'_> {
             return true;
         }
 
+        // Check if this symbol is imported from a wrapper module
+        // This handles cases like 'from .base import YAMLObject as YO' where base is a wrapper
+        if let Some((source_module, _original_name)) =
+            self.find_symbol_source_from_wrapper_module(module_name, symbol_name)
+        {
+            log::debug!(
+                "  Symbol '{symbol_name}' in module '{module_name}' is imported from wrapper module '{source_module}'"
+            );
+            return true;
+        }
+
         // Check if symbol is actually defined in a child module
         // by examining ASTs of child modules
         let result = if let Some(module_asts) = &self.module_asts {

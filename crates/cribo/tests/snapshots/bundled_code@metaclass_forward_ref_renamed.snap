@@ -9,6 +9,8 @@ input_file: crates/cribo/tests/fixtures/metaclass_forward_ref_renamed/main.py
 import functools
 import types
 yaml_module = types.SimpleNamespace(__name__='yaml_module')
+yaml_module_other = types.SimpleNamespace(__name__='yaml_module.other')
+yaml_module.other = yaml_module_other
 yaml_module_loader = types.SimpleNamespace(__name__='yaml_module.loader')
 yaml_module.loader = yaml_module_loader
 class Loader:
@@ -84,6 +86,8 @@ def __cribo_init___cribo_1309dd_yaml_module():
     __cribo_module.YAMLObject = YAMLObject
     __cribo_module.loader = yaml_module_loader
     return __cribo_module
+yaml_module_loader.Loader = Loader
+yaml_module_loader.Dumper = Dumper
 """\nTest case that reproduces the PyYAML metaclass renaming bug.\n\nExpected behavior: The bundled code should work correctly.\nActual behavior: NameError because renamed class references original metaclass name.\n"""
 __cribo_init_result = __cribo_init___cribo_1309dd_yaml_module()
 for attr in dir(__cribo_init_result):

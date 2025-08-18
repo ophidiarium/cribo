@@ -10,8 +10,8 @@ import types
 lib = types.SimpleNamespace(__name__='lib')
 shared = types.SimpleNamespace(__name__='shared')
 lib_helpers = types.SimpleNamespace(__name__='lib.helpers')
-lib.helpers = lib_helpers
 shared_common = types.SimpleNamespace(__name__='shared.common')
+lib.helpers = lib_helpers
 shared.common = shared_common
 counter_1 = 0
 counter_2 = 0

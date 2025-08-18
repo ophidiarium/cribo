@@ -10,6 +10,8 @@ import functools
 import os
 import types
 mypackage = types.SimpleNamespace(__name__='mypackage')
+mypackage_utils = types.SimpleNamespace(__name__='mypackage.utils')
+mypackage.utils = mypackage_utils
 mypackage_exceptions = types.SimpleNamespace(__name__='mypackage.exceptions')
 mypackage.exceptions = mypackage_exceptions
 class CustomError(Exception):
@@ -43,4 +45,5 @@ __cribo_init_result = __cribo_init___cribo_ddd935_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))
+mypackage_exceptions.CustomError = CustomError
 print("Test completed")

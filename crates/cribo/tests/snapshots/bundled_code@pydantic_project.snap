@@ -11,9 +11,8 @@ import re
 import types
 import typing
 schemas = types.SimpleNamespace(__name__='schemas')
-utils = types.SimpleNamespace(__name__='utils')
-utils_validation = types.SimpleNamespace(__name__='utils.validation')
-utils.validation = utils_validation
+schemas_user = types.SimpleNamespace(__name__='schemas.user')
+schemas.user = schemas_user
 @functools.cache
 def __cribo_init___cribo_f275a8_schemas_user():
     __cribo_module = types.SimpleNamespace()
@@ -80,6 +79,9 @@ def validate_age(age: typing.Union[int, str]) -> bool:
 """Utils package initialization."""
 """Validation utilities."""
 """Schemas package initialization."""
+utils = types.SimpleNamespace(__name__='utils')
+utils_validation = types.SimpleNamespace(__name__='utils.validation')
+utils.validation = utils_validation
 utils_validation.validate_email = validate_email
 utils_validation.sanitize_input = sanitize_input
 utils_validation.validate_age = validate_age
