@@ -40,22 +40,17 @@ def run_cribo(entry_point: str, output_path: str, emit_requirements: bool = True
     Returns:
         CompletedProcess instance with the result of running cribo
     """
-    # Find cribo executable relative to this file's location
-    # ecosystem/scenarios/utils.py -> ../../target/release/cribo
-    cribo_path = Path(__file__).resolve().parent.parent.parent / "target" / "release" / "cribo"
-
-    # Fall back to PATH if the release binary doesn't exist (e.g., in CI)
-    if not cribo_path.exists():
-        cribo_cmd = "cribo"
-        if verbose:
-            print(f"  Using cribo from PATH (release binary not found at {cribo_path})")
-    else:
-        cribo_cmd = str(cribo_path)
-        if verbose:
-            print(f"  Using cribo from: {cribo_path}")
+    # Always use cargo run to ensure we're using the latest development version
+    # This is important for local development to test changes immediately
+    if verbose:
+        print(f"  Using cargo run --bin cribo for latest development version")
 
     cmd: List[str] = [
-        cribo_cmd,
+        "cargo",
+        "run",
+        "--bin",
+        "cribo",
+        "--",
         "--entry",
         entry_point,
         "--output",
@@ -70,6 +65,9 @@ def run_cribo(entry_point: str, output_path: str, emit_requirements: bool = True
 
     if verbose:
         cmd.append("-v")
+
+    # Debug: print the command being run
+    print(f"  Running command: {' '.join(cmd)}")
 
     result = subprocess.run(cmd, capture_output=True, text=True)
 
