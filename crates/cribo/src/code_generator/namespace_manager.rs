@@ -857,6 +857,29 @@ pub fn require_namespace(
     result_stmts
 }
 
+/// Helper function to get sorted namespace keys by depth and name.
+/// This avoids cloning the entire `namespace_registry` for better memory efficiency.
+fn get_sorted_namespace_keys(
+    namespace_registry: &FxIndexMap<String, NamespaceInfo>,
+) -> Vec<String> {
+    let mut keys: Vec<String> = namespace_registry.keys().cloned().collect();
+
+    // Sort by depth (number of dots) and then by name for deterministic output
+    keys.sort_by(|a, b| {
+        let info_a = &namespace_registry[a];
+        let info_b = &namespace_registry[b];
+
+        info_a
+            .original_path
+            .matches('.')
+            .count()
+            .cmp(&info_b.original_path.matches('.').count())
+            .then_with(|| info_a.original_path.cmp(&info_b.original_path))
+    });
+
+    keys
+}
+
 /// Generates all required namespace creation and population statements.
 /// This function guarantees correct, dependency-aware ordering.
 pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
@@ -873,26 +896,13 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         }
     }
 
-    // 1-3. Get all namespaces and sort by depth (parent namespaces first)
-    let mut namespace_entries: Vec<(String, NamespaceInfo)> = bundler
-        .namespace_registry
-        .iter()
-        .map(|(sanitized, info)| (sanitized.clone(), info.clone()))
-        .collect();
-
-    // Sort by depth (number of dots) to ensure parent namespaces are created first
-    namespace_entries.sort_by(|(_, info_a), (_, info_b)| {
-        info_a
-            .original_path
-            .matches('.')
-            .count()
-            .cmp(&info_b.original_path.matches('.').count())
-            .then_with(|| info_a.original_path.cmp(&info_b.original_path))
-    });
+    // 1-3. Get sorted namespace keys by depth (parent namespaces first)
+    let sorted_keys = get_sorted_namespace_keys(&bundler.namespace_registry);
 
     // Debug: log the sorted order
     debug!("Sorted namespace order:");
-    for (sanitized_name, info) in &namespace_entries {
+    for sanitized_name in &sorted_keys {
+        let info = &bundler.namespace_registry[sanitized_name];
         let depth = info.original_path.matches('.').count();
         debug!(
             "  [depth {}] {} -> {} (is_created: {})",
@@ -901,7 +911,11 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
     }
 
     // 4. Generate creation statements for each namespace (without parent assignments)
-    for (sanitized_name, info) in &namespace_entries {
+    // Collect namespaces that need to be marked as created
+    let mut namespaces_to_mark_created = Vec::new();
+
+    for sanitized_name in &sorted_keys {
+        let info = &bundler.namespace_registry[sanitized_name];
         // Skip if already created
         if created.contains(sanitized_name) {
             continue;
@@ -951,10 +965,8 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         );
         statements.push(creation_stmt);
 
-        // b. Mark as created
-        if let Some(reg_info) = bundler.namespace_registry.get_mut(sanitized_name) {
-            reg_info.is_created = true;
-        }
+        // b. Track that this needs to be marked as created (defer mutation)
+        namespaces_to_mark_created.push(sanitized_name.clone());
         bundler.created_namespaces.insert(sanitized_name.clone());
         created.insert(sanitized_name.clone());
         debug!("Added {sanitized_name} to created_namespaces");
@@ -973,8 +985,16 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         // This ensures all namespaces exist before any parent assignments are made
     }
 
+    // Now mark all the namespaces as created (after the loop to avoid borrow issues)
+    for sanitized_name in namespaces_to_mark_created {
+        if let Some(reg_info) = bundler.namespace_registry.get_mut(&sanitized_name) {
+            reg_info.is_created = true;
+        }
+    }
+
     // 5. Generate other attributes and deferred symbols for namespaces created here
-    for (sanitized_name, info) in &namespace_entries {
+    for sanitized_name in &sorted_keys {
+        let info = &bundler.namespace_registry[sanitized_name];
         // Only process if this namespace was created in this function
         if !created.contains(sanitized_name) || pre_created.contains(sanitized_name) {
             continue;
@@ -1020,25 +1040,12 @@ pub fn generate_parent_attribute_assignments(bundler: &mut Bundler) -> Vec<Stmt>
         debug!("  - {ns}");
     }
 
-    // Get all namespaces and sort by depth (to ensure deterministic order)
-    let mut namespace_entries: Vec<(String, NamespaceInfo)> = bundler
-        .namespace_registry
-        .iter()
-        .map(|(sanitized, info)| (sanitized.clone(), info.clone()))
-        .collect();
-
-    // Sort by depth and name for deterministic output
-    namespace_entries.sort_by(|(_, info_a), (_, info_b)| {
-        info_a
-            .original_path
-            .matches('.')
-            .count()
-            .cmp(&info_b.original_path.matches('.').count())
-            .then_with(|| info_a.original_path.cmp(&info_b.original_path))
-    });
+    // Get sorted namespace keys by depth (to ensure deterministic order)
+    let sorted_keys = get_sorted_namespace_keys(&bundler.namespace_registry);
 
     // Generate parent attribute assignments for all namespaces that need them
-    for (sanitized_name, info) in namespace_entries {
+    for sanitized_name in sorted_keys {
+        let info = bundler.namespace_registry[&sanitized_name].clone();
         debug!(
             "Checking parent assignment for {sanitized_name}: parent_assignment_done={}, in_created_namespaces={}, parent_module={:?}",
             info.parent_assignment_done,
