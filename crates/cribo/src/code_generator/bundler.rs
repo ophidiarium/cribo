@@ -628,6 +628,22 @@ impl<'a> Bundler<'a> {
                     "Created wildcard import assignment: {symbol_name} = \
                      {module_name}.{symbol_name}"
                 );
+
+                // If we're inside a wrapper init, also add the module namespace assignment
+                // This is critical for wildcard imports to work with vars(__cribo_module)
+                if inside_wrapper_init {
+                    log::debug!(
+                        "Creating module attribute assignment in wrapper init for wildcard import: \
+                         {MODULE_VAR}.{symbol_name} = {symbol_name}"
+                    );
+                    assignments.push(
+                        crate::code_generator::module_registry::create_module_attr_assignment_with_value(
+                            MODULE_VAR,
+                            symbol_name,
+                            symbol_name,
+                        ),
+                    );
+                }
             }
 
             return assignments;
@@ -4385,6 +4401,87 @@ impl<'a> Bundler<'a> {
                             &entry_module_renames,
                             &mut final_body,
                         );
+                    }
+                }
+            }
+
+            // CRITICAL FIX: Expose child modules at module level for entry module
+            // When the entry module is a package that has child modules (like requests.exceptions),
+            // those child modules need to be exposed at the module level so they can be accessed
+            // when the module is imported via importlib.
+            // For example, after `import requests`, you should be able to access `requests.exceptions`.
+            // This adds statements like: exceptions = requests.exceptions
+            if module_name == params.entry_module_name {
+                log::debug!(
+                    "Adding module-level exposure for child modules of entry module {module_name}"
+                );
+
+                // For __init__ modules, we need to find the actual package name
+                // The package name is the wrapper module without __init__
+                let package_name = if module_name == "__init__" {
+                    // Find the wrapper module that represents the package
+                    self.module_registry
+                        .keys()
+                        .find(|m| !m.contains('.') && self.module_registry.contains_key(*m))
+                        .cloned()
+                        .unwrap_or_else(|| module_name.to_string())
+                } else {
+                    module_name.to_string()
+                };
+
+                log::debug!("Package name for exposure: {package_name}");
+
+                // Find all child modules of the entry module's package
+                let entry_child_modules: Vec<String> = self
+                    .bundled_modules
+                    .iter()
+                    .filter(|m| m.starts_with(&format!("{package_name}.")) && m.contains('.'))
+                    .cloned()
+                    .collect();
+
+                // First, collect all existing variable names to avoid conflicts
+                let existing_variables: FxIndexSet<String> = final_body
+                    .iter()
+                    .filter_map(|stmt| {
+                        if let Stmt::Assign(assign) = stmt
+                            && let [Expr::Name(name)] = assign.targets.as_slice()
+                        {
+                            Some(name.id.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                for child_module in entry_child_modules {
+                    // Get the child module's local name (e.g., "exceptions" from "requests.exceptions")
+                    if let Some(local_name) = child_module.strip_prefix(&format!("{package_name}."))
+                    {
+                        // Only add top-level children, not nested ones
+                        if !local_name.contains('.') {
+                            // CRITICAL: Don't expose child modules that would overwrite existing variables
+                            // For example, don't overwrite __version__ = "2.32.4" with __version__ = requests.__version__
+                            if existing_variables.contains(local_name) {
+                                log::debug!(
+                                    "Skipping exposure of child module {child_module} as {local_name} - would overwrite existing variable"
+                                );
+                                continue;
+                            }
+
+                            log::debug!("Exposing child module {child_module} as {local_name}");
+
+                            // Generate: local_name = package_name.local_name
+                            // e.g., exceptions = requests.exceptions
+                            let expose_stmt = statements::simple_assign(
+                                local_name,
+                                expressions::attribute(
+                                    expressions::name(&package_name, ExprContext::Load),
+                                    local_name,
+                                    ExprContext::Load,
+                                ),
+                            );
+                            final_body.push(expose_stmt);
+                        }
                     }
                 }
             }
