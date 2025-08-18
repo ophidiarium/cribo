@@ -1241,68 +1241,7 @@ pub(super) fn create_namespace_for_inlined_module_static(
         // These will be handled later when the wrapper module is initialized
         // This prevents NameError when trying to reference symbols that don't exist yet
 
-        // Check if this symbol is imported from a wrapper module
-        // We need to check the module's AST to see if this is a from-import
-        let mut is_wrapper_import = false;
-        if let Some(modules) = bundler.module_asts.as_ref() {
-            for (mod_name, ast, module_path, _) in modules {
-                if mod_name == module_name {
-                    // Check if this symbol is imported from another module
-                    for stmt in &ast.body {
-                        if let ruff_python_ast::Stmt::ImportFrom(import_from) = stmt {
-                            // Resolve the module name, handling both relative and absolute imports
-                            let source_module = if import_from.level > 0 {
-                                // Relative import - use the robust resolver
-                                bundler
-                                    .resolver
-                                    .resolve_relative_to_absolute_module_name(
-                                        import_from.level,
-                                        import_from.module.as_ref().map(ruff_python_ast::Identifier::as_str),
-                                        module_path,
-                                    )
-                                    .unwrap_or_default()
-                            } else if let Some(module) = &import_from.module {
-                                // Absolute import
-                                module.to_string()
-                            } else {
-                                // No module (shouldn't happen in our case)
-                                String::new()
-                            };
-
-                            if source_module.is_empty() {
-                                continue;
-                            }
-
-                            // Check if this import statement imports our symbol
-                            for alias in &import_from.names {
-                                let imported_name = alias.name.as_str();
-                                let local_name = alias
-                                    .asname
-                                    .as_ref()
-                                    .map_or(imported_name, ruff_python_ast::Identifier::as_str);
-
-                                if local_name == original_name
-                                    && bundler.module_registry.contains_key(&source_module)
-                                {
-                                    // This symbol is imported from a wrapper module
-                                    is_wrapper_import = true;
-                                    debug!(
-                                        "Symbol '{original_name}' in module '{module_name}' is imported from wrapper module '{source_module}', skipping from initial namespace"
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-                        if is_wrapper_import {
-                            break;
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-
-        if is_wrapper_import {
+        if is_symbol_imported_from_wrapper_module(bundler, module_name, original_name) {
             // Skip this symbol - it will be added later after the wrapper module is initialized
             continue;
         }
@@ -1900,6 +1839,79 @@ fn is_symbol_from_inlined_submodule(
                 }
             }
         }
+    }
+
+    false
+}
+
+/// Helper function to check if a symbol is imported from a wrapper module.
+/// This reduces nesting complexity in `create_namespace_for_inlined_module_static`.
+fn is_symbol_imported_from_wrapper_module(
+    bundler: &Bundler,
+    module_name: &str,
+    original_name: &str,
+) -> bool {
+    let Some(modules) = bundler.module_asts.as_ref() else {
+        return false;
+    };
+
+    for (mod_name, ast, module_path, _) in modules {
+        if mod_name != module_name {
+            continue;
+        }
+
+        // Check if this symbol is imported from another module
+        for stmt in &ast.body {
+            let ruff_python_ast::Stmt::ImportFrom(import_from) = stmt else {
+                continue;
+            };
+
+            // Resolve the module name, handling both relative and absolute imports
+            let source_module = if import_from.level > 0 {
+                // Relative import - use the robust resolver
+                bundler
+                    .resolver
+                    .resolve_relative_to_absolute_module_name(
+                        import_from.level,
+                        import_from
+                            .module
+                            .as_ref()
+                            .map(ruff_python_ast::Identifier::as_str),
+                        module_path,
+                    )
+                    .unwrap_or_default()
+            } else if let Some(module) = &import_from.module {
+                // Absolute import
+                module.to_string()
+            } else {
+                // No module (shouldn't happen in our case)
+                String::new()
+            };
+
+            if source_module.is_empty() {
+                continue;
+            }
+
+            // Check if this import statement imports our symbol
+            for alias in &import_from.names {
+                let imported_name = alias.name.as_str();
+                let local_name = alias
+                    .asname
+                    .as_ref()
+                    .map_or(imported_name, ruff_python_ast::Identifier::as_str);
+
+                if local_name == original_name
+                    && bundler.module_registry.contains_key(&source_module)
+                {
+                    // This symbol is imported from a wrapper module
+                    debug!(
+                        "Symbol '{original_name}' in module '{module_name}' is imported from wrapper module '{source_module}', skipping from initial namespace"
+                    );
+                    return true;
+                }
+            }
+        }
+        break; // Found the module, no need to continue
     }
 
     false

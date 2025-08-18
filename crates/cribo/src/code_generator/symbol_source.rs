@@ -77,9 +77,7 @@ pub fn find_symbol_source_from_wrapper_module(
                     // Return the immediate source from the wrapper module
                     return Some((resolved_module, alias.name.to_string()));
                 }
-                log::debug!(
-                    "Source module '{resolved_module}' is NOT a wrapper module - skipping"
-                );
+                log::debug!("Source module '{resolved_module}' is NOT a wrapper module - skipping");
                 // For non-wrapper modules, don't return anything (original behavior)
                 break;
             }
