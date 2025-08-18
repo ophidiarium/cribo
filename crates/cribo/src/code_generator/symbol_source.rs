@@ -65,19 +65,19 @@ pub fn find_symbol_source_from_wrapper_module(
             if local_name == symbol_name {
                 log::debug!(
                     "Found import: '{local_name}' (original: '{}') from module '{resolved_module}'",
-                    alias.name
+                    alias.name.as_str()
                 );
 
                 // Check if the source module is a wrapper module
                 if module_registry.contains_key(&resolved_module) {
                     log::debug!(
                         "Source module '{resolved_module}' is a wrapper module - returning ({resolved_module}, {})",
-                        alias.name
+                        alias.name.as_str()
                     );
                     // Return the immediate source from the wrapper module
                     return Some((resolved_module, alias.name.to_string()));
                 }
-                log::debug!("Source module '{resolved_module}' is NOT a wrapper module - skipping");
+                log::trace!("Source module '{resolved_module}' is NOT a wrapper module - skipping");
                 // For non-wrapper modules, don't return anything (original behavior)
                 break;
             }
