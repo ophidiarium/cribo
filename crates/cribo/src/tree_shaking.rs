@@ -322,7 +322,19 @@ impl TreeShaker {
         let mut directly_imported_modules = FxIndexSet::default();
 
         // First pass: find all direct module imports across all modules
+        // Also detect dynamic access patterns that require keeping all __all__ symbols
         for (module_name, items) in &self.module_items {
+            // Check if this module uses dynamic access pattern (locals()/vars() with __all__)
+            let uses_dynamic_access = self.module_uses_dynamic_all_access(items);
+
+            if uses_dynamic_access {
+                debug!(
+                    "Module {module_name} uses dynamic __all__ access pattern (locals/globals with setattr loop)"
+                );
+                // Mark all symbols in __all__ as used for this module
+                self.mark_all_symbols_from_module_all_as_used(module_name, &mut worklist);
+            }
+
             for item in items {
                 match &item.item_type {
                     // Check for direct module imports (import module_name)
@@ -921,6 +933,68 @@ impl TreeShaker {
                 if !symbol.starts_with('_') {
                     debug!("Marking {symbol} from star import of {resolved_from_module} as used");
                     worklist.push_back((resolved_from_module.to_string(), symbol.clone()));
+                }
+            }
+        }
+    }
+
+    /// Check if a module uses the dynamic __all__ access pattern
+    /// This pattern involves using `locals()` or `globals()` with a loop over __all__ and setattr
+    fn module_uses_dynamic_all_access(&self, items: &[ItemData]) -> bool {
+        // Check if the module has __all__ defined
+        let has_all = items.iter().any(|item| {
+            matches!(&item.item_type, ItemType::Assignment { targets, .. } if targets.contains(&"__all__".to_string()))
+        });
+
+        if !has_all {
+            return false;
+        }
+
+        // Check if the module uses setattr (indicates dynamic attribute setting)
+        let uses_setattr = items.iter().any(|item| {
+            item.read_vars.contains("setattr") || item.eventual_read_vars.contains("setattr")
+        });
+
+        // Check if the module uses locals() or globals()
+        // Note: We don't check for vars() because that's our transformation that happens after tree-shaking
+        let uses_locals_or_globals = items.iter().any(|item| {
+            item.read_vars.contains("locals")
+                || item.eventual_read_vars.contains("locals")
+                || item.read_vars.contains("globals")
+                || item.eventual_read_vars.contains("globals")
+        });
+
+        // If all conditions are met, this module uses dynamic __all__ access
+        uses_setattr && uses_locals_or_globals
+    }
+
+    /// Mark all symbols from a module's __all__ as used
+    fn mark_all_symbols_from_module_all_as_used(
+        &self,
+        module_name: &str,
+        worklist: &mut VecDeque<(String, String)>,
+    ) {
+        if let Some(items) = self.module_items.get(module_name) {
+            for item in items {
+                if let ItemType::Assignment { targets, .. } = &item.item_type
+                    && targets.contains(&"__all__".to_string())
+                {
+                    // Mark all symbols listed in __all__ (stored in eventual_read_vars)
+                    for symbol in &item.eventual_read_vars {
+                        debug!(
+                            "Marking {symbol} from module {module_name} as used due to dynamic __all__ access"
+                        );
+                        // First check if the symbol is imported from another module
+                        if let Some((source_module, original_name)) =
+                            self.resolve_import_alias(module_name, symbol)
+                        {
+                            worklist.push_back((source_module, original_name));
+                        } else {
+                            // It's defined in this module
+                            worklist.push_back((module_name.to_string(), symbol.clone()));
+                        }
+                    }
+                    break;
                 }
             }
         }
