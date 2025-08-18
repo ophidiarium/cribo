@@ -2291,7 +2291,43 @@ fn rewrite_import_with_renames(
                     // If there's no alias, we need to handle the dotted name specially
                     if alias.asname.is_none() {
                         // Create assignments for each level of nesting
-                        bundler.create_dotted_assignments(&parts, &mut result_stmts);
+                        // For import a.b.c.d, we need:
+                        // a.b = <module a.b>
+                        // a.b.c = <module a.b.c>
+                        // a.b.c.d = <module a.b.c.d>
+                        for i in 2..=parts.len() {
+                            let parent = parts[..i - 1].join(".");
+                            let attr = parts[i - 1];
+                            let full_path = parts[..i].join(".");
+
+                            // Determine what the RHS will be for this assignment
+                            let sanitized = sanitize_module_name_for_identifier(&full_path);
+                            let has_namespace_var = bundler.created_namespaces.contains(&sanitized);
+                            let is_wrapper = bundler.module_registry.contains_key(&full_path);
+
+                            // Skip only if this would be a true no-op self-assignment
+                            // A self-assignment is only redundant if:
+                            // 1. There's no namespace variable (so RHS would be the dotted path)
+                            // 2. It's not a wrapper module (which needs the assignment for linkage)
+                            // 3. The LHS and RHS would be identical dotted paths
+                            if !has_namespace_var && !is_wrapper {
+                                // In this case, create_attribute_assignment would generate
+                                // parent.attr = parent.attr (a no-op), so we can skip it
+                                log::debug!(
+                                    "Skipping redundant self-assignment: {parent}.{attr} = {full_path}"
+                                );
+                            } else {
+                                // Use centralized namespace-aware assignment creation
+                                result_stmts.push(
+                                    crate::code_generator::namespace_manager::create_attribute_assignment(
+                                        bundler,
+                                        &parent,
+                                        attr,
+                                        &full_path,
+                                    )
+                                );
+                            }
+                        }
                     } else {
                         // For aliased imports or non-dotted imports, just assign to the target
                         // Skip self-assignments - the module is already initialized

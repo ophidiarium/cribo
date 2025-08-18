@@ -9,8 +9,6 @@ input_file: crates/cribo/tests/fixtures/metaclass_forward_ref_wildcard/main.py
 import functools
 import types
 wildcard_pkg = types.SimpleNamespace(__name__='wildcard_pkg')
-wildcard_pkg_meta = types.SimpleNamespace(__name__='wildcard_pkg.meta')
-wildcard_pkg.meta = wildcard_pkg_meta
 @functools.cache
 def __cribo_init___cribo_5d409b_wildcard_pkg_base():
     __cribo_module = types.SimpleNamespace()
@@ -34,6 +32,8 @@ class WildcardMetaclass(type):
         if not hasattr(cls, "yaml_tag") or cls.yaml_tag is None:
             cls.yaml_tag = f"!{name}"
 WildcardMetaclass.__module__ = 'wildcard_pkg.meta'
+wildcard_pkg_meta = types.SimpleNamespace(__name__='wildcard_pkg.meta')
+wildcard_pkg.meta = wildcard_pkg_meta
 wildcard_pkg.base = __cribo_init___cribo_5d409b_wildcard_pkg_base()
 WildcardObject = wildcard_pkg.base.WildcardObject
 WildcardMetaclass = wildcard_pkg.base.WildcardMetaclass

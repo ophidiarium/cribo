@@ -2119,66 +2119,56 @@ impl<'a> Bundler<'a> {
         // Namespace requirements are now handled by the centralized registry
         // The identification of required namespaces happens via require_namespace calls
 
-        // If we need to create namespace statements, ensure types import is available
-        if !self.namespace_registry.is_empty() {
-            log::debug!(
-                "Need to create {} namespace statements - adding types import",
-                self.namespace_registry.len()
-            );
-            import_deduplicator::add_stdlib_import(self, "types");
+        // Namespace generation will be done after all namespace requirements are detected
 
-            // Generate all namespace statements through the centralized method
-            // This ensures namespaces exist before any module code that might reference them
-            log::debug!(
-                "Generating namespace statements for {} registered namespaces",
-                self.namespace_registry.len()
-            );
-            let namespace_statements = namespace_manager::generate_required_namespaces(self);
-            final_body.extend(namespace_statements);
+        // For wrapper modules that are submodules (e.g., requests.compat),
+        // we need to ensure their parent namespaces exist, but we must NOT create
+        // namespace variables for the wrapper modules themselves as that would cause
+        // them to be overwritten with empty SimpleNamespace objects.
+        // Use the classification results (not side-effect heuristic) and support any depth.
+        for (module_name, _, _, _) in &wrapper_modules {
+            // Skip modules that end with __init__ (e.g., "pkg.__init__")
+            if module_name.ends_with(".__init__") {
+                continue;
+            }
 
-            // For wrapper modules that are submodules (e.g., requests.compat),
-            // we need to create placeholder attributes on their parent namespaces
-            // so that inlined code can reference them before they're initialized
-            for (module_name, _, _, _) in &modules {
-                if module_name.contains('.') && module_name != "__init__" {
-                    // Check if this is a wrapper module
-                    let is_wrapper = modules.iter().any(|(name, ast, _, _)| {
-                        name == module_name && module_has_side_effects(ast)
-                    });
+            if let Some((parent, _child)) = module_name.rsplit_once('.') {
+                // We need to ensure the parent namespace exists, but NOT register
+                // the wrapper module itself as a namespace.
+                // For example, for "core.database.connection":
+                // - We need "core" and "core.database" namespaces to exist
+                // - But we must NOT register "core.database.connection" as a namespace
 
-                    if is_wrapper {
-                        // Create a placeholder namespace attribute for this wrapper module
-                        let parts: Vec<&str> = module_name.split('.').collect();
-                        if parts.len() == 2 {
-                            // Simple case like "requests.compat"
-                            let parent = parts[0];
-                            let child = parts[1];
+                // Ensure all parent namespaces exist by walking up the hierarchy
+                let parts: Vec<&str> = parent.split('.').collect();
+                for i in 1..=parts.len() {
+                    let namespace_path = parts[..i].join(".");
+                    let sanitized = sanitize_module_name_for_identifier(&namespace_path);
 
-                            // Check if the full namespace was already created
-                            let sanitized = sanitize_module_name_for_identifier(module_name);
-                            if self.namespace_registry.contains_key(&sanitized) {
-                                log::debug!(
-                                    "Skipping placeholder namespace attribute {parent}.{child} - \
-                                     already created as full namespace"
-                                );
-                            } else {
-                                log::debug!(
-                                    "Registering namespace attribute {parent}.{child} for wrapper \
-                                     module"
-                                );
-                                // Register the full namespace path for the wrapper module
-                                let full_path = format!("{parent}.{child}");
-                                let context = NamespaceContext::Attribute {
-                                    parent: parent.to_string(),
-                                };
-                                namespace_manager::require_namespace(
-                                    self,
-                                    &full_path,
-                                    context,
-                                    namespace_manager::NamespaceParams::default(),
-                                );
+                    // Only register if not already registered
+                    if !self.namespace_registry.contains_key(&sanitized) {
+                        log::debug!(
+                            "Registering parent namespace '{namespace_path}' for wrapper module '{module_name}'"
+                        );
+
+                        // Determine the context for this namespace
+                        let context = if i == 1 {
+                            // Top-level namespace
+                            NamespaceContext::TopLevel
+                        } else {
+                            // Nested namespace - needs parent reference
+                            let parent_path = parts[..i - 1].join(".");
+                            NamespaceContext::Attribute {
+                                parent: parent_path,
                             }
-                        }
+                        };
+
+                        namespace_manager::require_namespace(
+                            self,
+                            &namespace_path,
+                            context,
+                            namespace_manager::NamespaceParams::default(),
+                        );
                     }
                 }
             }
@@ -2300,34 +2290,32 @@ impl<'a> Bundler<'a> {
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
 
-        // Register namespaces for wrapper modules that are submodules
-        // This ensures parent namespaces exist for module.child = init() assignments
-        for (module_name, _, _, _) in &wrapper_modules_saved {
-            if module_name.contains('.') {
-                // This is a submodule, ensure parent namespaces exist
-                // The parent namespaces are needed for assignment like parent.child = init()
-                if let Some((parent, _)) = module_name.rsplit_once('.') {
-                    // Register parent namespace through centralized system
-                    let context = if let Some((grandparent, _)) = parent.rsplit_once('.') {
-                        NamespaceContext::Attribute {
-                            parent: grandparent.to_string(),
-                        }
-                    } else {
-                        NamespaceContext::TopLevel
-                    };
+        // Now that all namespace requirements have been registered, generate the namespace statements
+        // and parent attribute assignments at the beginning of the bundle
+        if !self.namespace_registry.is_empty() {
+            log::debug!(
+                "Generating namespace statements for {} registered namespaces",
+                self.namespace_registry.len()
+            );
+            import_deduplicator::add_stdlib_import(self, "types");
 
-                    namespace_manager::require_namespace(
-                        self,
-                        parent,
-                        context,
-                        namespace_manager::NamespaceParams::default(),
-                    );
-                    log::debug!(
-                        "Registered parent namespace '{parent}' for wrapper submodule: \
-                         {module_name}"
-                    );
-                }
-            }
+            // Generate all namespace statements through the centralized method
+            // This ensures namespaces exist before any module code that might reference them
+            let namespace_statements = namespace_manager::generate_required_namespaces(self);
+            final_body.extend(namespace_statements);
+
+            // Generate parent attribute assignments right after namespace creation
+            // This ensures parent.child = child assignments happen before any code that uses them
+            log::debug!(
+                "Generating parent attribute assignments after namespace creation - registry has {} entries",
+                self.namespace_registry.len()
+            );
+            let parent_assignments = namespace_manager::generate_parent_attribute_assignments(self);
+            log::debug!(
+                "Generated {} parent attribute assignments",
+                parent_assignments.len()
+            );
+            final_body.extend(parent_assignments);
         }
 
         // Sort wrapper modules by their dependencies
@@ -2643,6 +2631,66 @@ impl<'a> Bundler<'a> {
         // If we're using module cache, add the infrastructure early
         if use_module_cache_for_wrappers {
             // Note: Module cache infrastructure removed - we don't use sys.modules anymore
+        }
+
+        // CRITICAL FIX: Create namespace objects for ALL inlined submodules of wrapper modules
+        // This must happen BEFORE any wrapper module init functions are defined
+        // Otherwise wrapper init functions will reference undefined namespace variables
+        if has_wrapper_modules {
+            let mut inlined_submodules_of_wrappers = FxIndexSet::default();
+
+            // Find all inlined submodules that are children of any wrapper module
+            // Using HashSet for O(1) lookups instead of nested loop
+            let wrapper_module_names: FxHashSet<_> = sorted_wrapper_modules
+                .iter()
+                .map(|(name, _, _, _)| name.as_str())
+                .collect();
+
+            for inlined_module in &self.inlined_modules {
+                if let Some((parent, _)) = inlined_module.rsplit_once('.')
+                    && wrapper_module_names.contains(parent)
+                {
+                    log::debug!(
+                        "Found inlined submodule '{inlined_module}' of wrapper module '{parent}'"
+                    );
+                    inlined_submodules_of_wrappers.insert(inlined_module.clone());
+                }
+            }
+
+            // Create namespace objects for these inlined submodules NOW
+            if !inlined_submodules_of_wrappers.is_empty() {
+                log::debug!(
+                    "Creating early namespace objects for {} inlined submodules of wrapper modules",
+                    inlined_submodules_of_wrappers.len()
+                );
+
+                // Sort for deterministic output order
+                let mut sorted_submodules: Vec<_> =
+                    inlined_submodules_of_wrappers.into_iter().collect();
+                sorted_submodules.sort();
+
+                // Use centralized namespace_manager for consistency
+                // This ensures proper tracking and deduplication
+                // Ensure 'types' is available for SimpleNamespace construction (idempotent)
+                import_deduplicator::add_stdlib_import(self, "types");
+                for inlined_submodule in sorted_submodules {
+                    log::debug!(
+                        "Registering early namespace for inlined submodule '{inlined_submodule}'"
+                    );
+
+                    // Use centralized namespace management with immediate generation
+                    // This properly tracks both the sanitized name and the dotted path
+                    let stmts = namespace_manager::require_namespace(
+                        self,
+                        &inlined_submodule,
+                        namespace_manager::NamespaceContext::InlinedModule,
+                        namespace_manager::NamespaceParams::immediate(),
+                    );
+
+                    // Add the generated statements to the bundle
+                    final_body.extend(stmts);
+                }
+            }
         }
 
         // If there are wrapper modules needed by inlined modules, we need to define their
@@ -3284,6 +3332,9 @@ impl<'a> Bundler<'a> {
                         let has_forward_references = self
                             .check_module_has_forward_references(module_name, module_rename_map);
 
+                        // Ensure 'types' is imported for SimpleNamespace creation
+                        import_deduplicator::add_stdlib_import(self, "types");
+
                         // Create a SimpleNamespace for this module only if it doesn't exist
                         let namespace_stmts =
                             namespace_manager::create_namespace_for_inlined_module_static(
@@ -3809,6 +3860,15 @@ impl<'a> Bundler<'a> {
             "About to generate submodule attributes, current body length: {}",
             final_body.len()
         );
+        // CRITICAL: This generates namespace objects for inlined submodules (e.g., package___version__)
+        // These namespace objects MUST be created BEFORE wrapper module init functions that reference them.
+        // For example, if package.__init__ imports from .__version__, the wrapper init function will try to
+        // reference package___version__ namespace object. If this is called too late, you'll get:
+        // "NameError: name 'package___version__' is not defined"
+        // This creates statements like:
+        //   package___version__ = types.SimpleNamespace(__name__='package.__version__')
+        //   package.__version__ = package___version__
+        //   package___version__.__version__ = __version__  # assigns symbols from inlined module
         namespace_manager::generate_submodule_attributes_with_exclusions(
             self,
             params.sorted_modules,
@@ -4899,33 +4959,6 @@ impl<'a> Bundler<'a> {
         }
 
         false
-    }
-
-    /// Create a dotted attribute assignment
-    pub(super) fn create_dotted_attribute_assignment(
-        &self,
-        parent_module: &str,
-        attr_name: &str,
-        full_module_name: &str,
-    ) -> Stmt {
-        // Create the value expression - handle dotted names properly
-        let value_expr = if full_module_name.contains('.') {
-            // For dotted names like "myrequests.compat", create a proper dotted expression
-            let parts: Vec<&str> = full_module_name.split('.').collect();
-            expressions::dotted_name(&parts, ExprContext::Load)
-        } else {
-            // Simple name
-            expressions::name(full_module_name, ExprContext::Load)
-        };
-
-        statements::assign(
-            vec![expressions::attribute(
-                expressions::name(parent_module, ExprContext::Load),
-                attr_name,
-                ExprContext::Store,
-            )],
-            value_expr,
-        )
     }
 
     /// Process a function definition in the entry module
@@ -6679,6 +6712,17 @@ impl Bundler<'_> {
             return true;
         }
 
+        // Check if this symbol is imported from a wrapper module
+        // This handles cases like 'from .base import YAMLObject as YO' where base is a wrapper
+        if let Some((source_module, _original_name)) =
+            self.find_symbol_source_from_wrapper_module(module_name, symbol_name)
+        {
+            log::debug!(
+                "  Symbol '{symbol_name}' in module '{module_name}' is imported from wrapper module '{source_module}'"
+            );
+            return true;
+        }
+
         // Check if symbol is actually defined in a child module
         // by examining ASTs of child modules
         let result = if let Some(module_asts) = &self.module_asts {
@@ -6949,31 +6993,6 @@ impl Bundler<'_> {
             }
             false
         })
-    }
-
-    /// Create dotted attribute assignments for imports
-    pub(super) fn create_dotted_assignments(&self, parts: &[&str], result_stmts: &mut Vec<Stmt>) {
-        // For import a.b.c.d, we need:
-        // a.b = <module a.b>
-        // a.b.c = <module a.b.c>
-        // a.b.c.d = <module a.b.c.d>
-        for i in 2..=parts.len() {
-            let parent = parts[..i - 1].join(".");
-            let attr = parts[i - 1];
-            let full_path = parts[..i].join(".");
-
-            // Check if this would be a redundant self-assignment
-            let full_target = format!("{parent}.{attr}");
-            if full_target == full_path {
-                debug!(
-                    "Skipping redundant self-assignment in create_dotted_assignments: \
-                     {parent}.{attr} = {full_path}"
-                );
-            } else {
-                result_stmts
-                    .push(self.create_dotted_attribute_assignment(&parent, attr, &full_path));
-            }
-        }
     }
 
     /// Create all namespace objects including the leaf for a dotted import
@@ -7461,9 +7480,11 @@ impl Bundler<'_> {
             && let Expr::Attribute(attr) = call.func.as_ref()
             && let Expr::Name(module) = attr.value.as_ref()
         {
-            return module.id.as_str() == "types"
-                && attr.attr.as_str() == "SimpleNamespace"
-                && call.arguments.args.is_empty();
+            return module.id.as_str() == "types" && attr.attr.as_str() == "SimpleNamespace";
+            // Note: We removed the args.is_empty() check to handle both:
+            // - types.SimpleNamespace() - empty creation
+            // - types.SimpleNamespace(__name__='...') - with keyword args
+            // Both are namespace creations that should be deduplicated
         }
         false
     }

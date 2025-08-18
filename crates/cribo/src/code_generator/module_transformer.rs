@@ -87,8 +87,31 @@ pub fn transform_module_to_init_function<'a>(
     // Track wrapper module symbols that need placeholders (symbol_name, value_name)
     let mut wrapper_module_symbols_global_only: Vec<(String, String)> = Vec::new();
 
+    // Track ALL imported symbols to avoid overwriting them with submodule namespaces
+    let mut imported_symbols = FxIndexSet::default();
+
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
+            // Collect ALL imported symbols (not just from inlined modules)
+            for alias in &import_from.names {
+                let imported_name = alias.name.as_str();
+                if imported_name != "*" {
+                    // Use the local binding name (asname if present, otherwise the imported name)
+                    let local_name = alias
+                        .asname
+                        .as_ref()
+                        .map_or(imported_name, ruff_python_ast::Identifier::as_str);
+                    imported_symbols.insert(local_name.to_string());
+                    debug!(
+                        "Collected imported symbol '{}' in module '{}'",
+                        local_name, ctx.module_name
+                    );
+                }
+                // Note: Wildcard imports aren't expanded here to avoid false positives.
+                // Resolution is handled elsewhere (module export analysis); we intentionally skip
+                // adding names from '*' here.
+            }
+
             // Resolve the module to check if it's inlined
             let resolved_module = if import_from.level > 0 {
                 bundler.resolver.resolve_relative_to_absolute_module_name(
@@ -148,6 +171,26 @@ pub fn transform_module_to_init_function<'a>(
                         }
                     }
                 }
+            }
+        }
+
+        // Also handle plain import statements to avoid name collisions
+        if let Stmt::Import(import_stmt) = stmt {
+            for alias in &import_stmt.names {
+                // Local binding is either `asname` or the top-level package segment (`pkg` in `pkg.sub`)
+                let local_name = alias
+                    .asname
+                    .as_ref()
+                    .map(Identifier::as_str)
+                    .unwrap_or_else(|| {
+                        let full = alias.name.as_str();
+                        full.split('.').next().unwrap_or(full)
+                    });
+                imported_symbols.insert(local_name.to_string());
+                debug!(
+                    "Collected imported symbol '{}' via 'import' in module '{}'",
+                    local_name, ctx.module_name
+                );
             }
         }
     }
@@ -790,6 +833,19 @@ pub fn transform_module_to_init_function<'a>(
         ctx.module_name, submodules_to_add
     );
     for (full_name, relative_name) in submodules_to_add {
+        // CRITICAL: Check if this wrapper module already imports a symbol with the same name
+        // as the submodule. If it does, skip setting the submodule namespace to avoid overwriting
+        // the imported symbol. For example, if package.__init__ imports `__version__` from `.__version__`,
+        // we should NOT overwrite that with the namespace object for package.__version__.
+        let symbol_already_imported = imported_symbols.contains(&relative_name);
+
+        if symbol_already_imported {
+            debug!(
+                "Skipping submodule namespace assignment for {full_name} because symbol '{relative_name}' is already imported"
+            );
+            continue;
+        }
+
         debug!(
             "Setting submodule {} as attribute {} on {}",
             full_name, relative_name, ctx.module_name
@@ -807,6 +863,11 @@ pub fn transform_module_to_init_function<'a>(
                 );
                 // Bind existing global namespace object to module.<relative_name>
                 // Example: module.submodule = pkg_submodule
+                // IMPORTANT: This references a namespace variable (e.g., package___version__) that MUST
+                // already exist at the global scope. These namespace objects are pre-created earlier
+                // in the bundling pipeline via namespace_manager::generate_submodule_attributes_with_exclusions()
+                // (invoked from bundler.rs). If you get "NameError: name 'package___version__' is not defined",
+                // the pre-creation step likely ran too late.
                 let namespace_var = sanitize_module_name_for_identifier(&full_name);
                 body.push(
                     crate::code_generator::module_registry::create_module_attr_assignment_with_value(

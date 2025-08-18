@@ -90,6 +90,10 @@ def __cribo_init___cribo_5b2acd_yaml_pkg():
     __cribo_module.dumper = yaml_pkg_dumper
     __cribo_module.loader = yaml_pkg_loader
     return __cribo_module
+yaml_pkg_dumper.Dumper = Dumper
+yaml_pkg_loader.BaseLoader = BaseLoader
+yaml_pkg_loader.Loader = Loader
+yaml_pkg_loader.FullLoader = FullLoader
 """\nTest case for metaclass forward reference issue with wildcard imports.\n\nThis reproduces the PyYAML bundling issue where:\n1. A class uses a metaclass that's defined later in the same module\n2. The class body references symbols imported via wildcard imports\n3. When bundled, the metaclass definition gets placed after its usage\n"""
 yaml_pkg = __cribo_init___cribo_5b2acd_yaml_pkg()
 print("Module loaded successfully")

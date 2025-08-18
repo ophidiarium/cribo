@@ -9,8 +9,6 @@ input_file: crates/cribo/tests/fixtures/namespace_attribute_reference/main.py
 import functools
 import types
 mypkg = types.SimpleNamespace(__name__='mypkg')
-mypkg_exceptions = types.SimpleNamespace(__name__='mypkg.exceptions')
-mypkg.exceptions = mypkg_exceptions
 class MyError(Exception):
     """Base exception class"""
     pass
@@ -44,6 +42,8 @@ class MyJSONError(MyError, mypkg.compat.JSONDecodeError):
         MyError.__init__(self, str(args[0]) if args else "")
 MyError.__module__ = 'mypkg.exceptions'
 MyJSONError.__module__ = 'mypkg.exceptions'
+mypkg_exceptions = types.SimpleNamespace(__name__='mypkg.exceptions')
+mypkg.exceptions = mypkg_exceptions
 mypkg.compat = __cribo_init___cribo_19d82f_mypkg_compat()
 exceptions = mypkg_exceptions
 mypkg_exceptions.MyError = MyError

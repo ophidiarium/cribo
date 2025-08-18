@@ -8,11 +8,6 @@ input_file: crates/cribo/tests/fixtures/namespace_forward_reference/main.py
 
 import json
 import types
-mypkg = types.SimpleNamespace(__name__='mypkg')
-mypkg_compat = types.SimpleNamespace(__name__='mypkg.compat')
-mypkg.compat = mypkg_compat
-mypkg_exceptions = types.SimpleNamespace(__name__='mypkg.exceptions')
-mypkg.exceptions = mypkg_exceptions
 JSONDecodeError = json.JSONDecodeError
 class MyJSONError(JSONDecodeError, Exception):
     """Error class that inherits from JSONDecodeError"""
@@ -21,6 +16,11 @@ class MyJSONError(JSONDecodeError, Exception):
         JSONDecodeError.__init__(self, *args)
         Exception.__init__(self, str(args[0]) if args else "")
 MyJSONError.__module__ = 'mypkg.exceptions'
+mypkg = types.SimpleNamespace(__name__='mypkg')
+mypkg_exceptions = types.SimpleNamespace(__name__='mypkg.exceptions')
+mypkg.exceptions = mypkg_exceptions
+mypkg_compat = types.SimpleNamespace(__name__='mypkg.compat')
+mypkg.compat = mypkg_compat
 mypkg_exceptions.MyJSONError = MyJSONError
 mypkg_compat.JSONDecodeError = JSONDecodeError
 try:
