@@ -864,10 +864,10 @@ pub fn transform_module_to_init_function<'a>(
                 // Bind existing global namespace object to module.<relative_name>
                 // Example: module.submodule = pkg_submodule
                 // IMPORTANT: This references a namespace variable (e.g., package___version__) that MUST
-                // already exist at the global scope. These namespace objects are created by
-                // namespace_manager::generate_submodule_attributes_with_exclusions() in bundler.rs.
-                // If you get "NameError: name 'package___version__' is not defined", it means
-                // the namespace objects are being created too late in the bundling process.
+                // already exist at the global scope. These namespace objects are pre-created earlier
+                // in the bundling pipeline via namespace_manager::generate_submodule_attributes_with_exclusions()
+                // (invoked from bundler.rs). If you get "NameError: name 'package___version__' is not defined",
+                // the pre-creation step likely ran too late.
                 let namespace_var = sanitize_module_name_for_identifier(&full_name);
                 body.push(
                     crate::code_generator::module_registry::create_module_attr_assignment_with_value(
