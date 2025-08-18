@@ -56,7 +56,15 @@ The project is organized as a Rust workspace with the main crate in `crates/crib
    - **Module Transformer** (`module_transformer.rs`): Module-level AST transformations
    - **Import Transformer** (`import_transformer.rs`): Import rewriting and resolution
    - **Expression Handlers** (`expression_handlers.rs`): Expression creation, analysis, and transformation
-   - **Namespace Manager** (`namespace_manager.rs`): Namespace object creation and management
+   - **Namespace Manager** (`namespace_manager.rs`): **CENTRALIZED** namespace registry system
+     - **CRITICAL**: All namespace creation MUST go through this centralized system
+     - Key methods:
+       - `require_namespace(path, immediate)`: Register namespace requirements
+       - `generate_required_namespaces()`: Generate namespace creation statements in correct order
+       - `generate_parent_attribute_assignments()`: Generate parent.child assignments after all namespaces exist
+     - Handles parent-child dependencies automatically (parent namespaces created before children)
+     - Tracks namespace creation state to prevent duplicates
+     - **NEVER** manually create `types.SimpleNamespace()` objects - always use this registry
    - **Module Registry** (`module_registry.rs`): Module naming, registration, and cache generation
    - **Import Deduplicator** (`import_deduplicator.rs`): Import cleanup and deduplication
    - **Circular Deps** (`circular_deps.rs`): Circular dependency detection helpers
