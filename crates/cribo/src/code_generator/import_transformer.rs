@@ -15,6 +15,7 @@ use crate::{
     ast_builder::{expressions, statements},
     code_generator::{
         bundler::Bundler,
+        globals::{transform_globals_in_stmts, transform_locals_in_stmts},
         import_deduplicator,
         module_registry::{MODULE_VAR, sanitize_module_name_for_identifier},
     },
@@ -248,6 +249,10 @@ impl<'a> RecursiveImportTransformer<'a> {
         );
         // Transform all statements recursively
         self.transform_statements(&mut module.body);
+
+        // Transform locals() and globals() calls with proper shadowing detection
+        transform_globals_in_stmts(&mut module.body);
+        transform_locals_in_stmts(&mut module.body);
     }
 
     /// Transform a list of statements recursively

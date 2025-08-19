@@ -26,7 +26,7 @@ use crate::{
         bundler::Bundler,
         context::{ModuleTransformContext, ProcessGlobalsParams, SemanticContext},
         expression_handlers,
-        globals::{GlobalsLifter, transform_globals_in_stmt, transform_locals_in_stmt},
+        globals::{GlobalsLifter, transform_globals_in_stmts, transform_locals_in_stmts},
         import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
         module_registry::{self, MODULE_VAR, sanitize_module_name_for_identifier},
@@ -958,12 +958,9 @@ pub fn transform_module_to_init_function<'a>(
         }
     }
 
-    // Transform globals() calls to module.__dict__ in the entire body
-    for stmt in &mut body {
-        transform_globals_in_stmt(stmt);
-        // Transform locals() calls to vars(__cribo_module) in the entire body
-        transform_locals_in_stmt(stmt);
-    }
+    // Transform globals() and locals() calls with proper shadowing detection
+    transform_globals_in_stmts(&mut body);
+    transform_locals_in_stmts(&mut body);
 
     // Return the module object
     body.push(ast_builder::statements::return_stmt(Some(
