@@ -1,6 +1,12 @@
 # yaml-language-server: $schema=https://json.schemastore.org/commitlintrc.json
 
 rules:
+  # Scope rules
+  # Make scope optional by disabling the scope-empty rule
+  scope-empty:
+    - 0 # disabled
+    - always
+
   # Body rules
   body-leading-blank:
     - 1 # warning
