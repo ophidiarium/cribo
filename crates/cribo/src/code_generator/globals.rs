@@ -1036,9 +1036,7 @@ fn add_statement_shadowed_names(stmt: &Stmt, shadowed_names: &mut FxHashSet<Stri
                 if let Expr::Name(name) = target {
                     let name_str = name.id.as_str();
                     if name_str == "locals" || name_str == "globals" {
-                        debug!(
-                            "Found assignment that shadows introspection function: {name_str}"
-                        );
+                        debug!("Found assignment that shadows introspection function: {name_str}");
                         shadowed_names.insert(name.id.to_string());
                     }
                 }
@@ -1061,9 +1059,7 @@ fn add_statement_shadowed_names(stmt: &Stmt, shadowed_names: &mut FxHashSet<Stri
             if let Expr::Name(name) = for_stmt.target.as_ref() {
                 let name_str = name.id.as_str();
                 if name_str == "locals" || name_str == "globals" {
-                    debug!(
-                        "Found for loop target that shadows introspection function: {name_str}"
-                    );
+                    debug!("Found for loop target that shadows introspection function: {name_str}");
                     shadowed_names.insert(name.id.to_string());
                 }
             }
@@ -1103,9 +1099,7 @@ fn add_statement_shadowed_names(stmt: &Stmt, shadowed_names: &mut FxHashSet<Stri
             // Function definitions create local names
             let name_str = func_def.name.as_str();
             if name_str == "locals" || name_str == "globals" {
-                debug!(
-                    "Found function definition that shadows introspection function: {name_str}"
-                );
+                debug!("Found function definition that shadows introspection function: {name_str}");
                 shadowed_names.insert(func_def.name.to_string());
             }
         }
@@ -1113,9 +1107,7 @@ fn add_statement_shadowed_names(stmt: &Stmt, shadowed_names: &mut FxHashSet<Stri
             // Class definitions create local names
             let name_str = class_def.name.as_str();
             if name_str == "locals" || name_str == "globals" {
-                debug!(
-                    "Found class definition that shadows introspection function: {name_str}"
-                );
+                debug!("Found class definition that shadows introspection function: {name_str}");
                 shadowed_names.insert(class_def.name.to_string());
             }
         }
