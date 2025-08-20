@@ -5,7 +5,6 @@
 
 use std::path::PathBuf;
 
-use anyhow::Result;
 use ruff_python_ast::{Alias, Expr, ModModule, Stmt, StmtImport, StmtImportFrom};
 
 use super::{bundler::Bundler, expression_handlers};
@@ -692,7 +691,7 @@ pub(super) fn trim_unused_imports_from_modules(
     modules: &[(String, ModModule, PathBuf, String)],
     graph: &DependencyGraph,
     tree_shaker: Option<&TreeShaker>,
-) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
+) -> Vec<(String, ModModule, PathBuf, String)> {
     let mut trimmed_modules = Vec::new();
 
     for (module_name, ast, module_path, content_hash) in modules {
@@ -951,7 +950,7 @@ pub(super) fn trim_unused_imports_from_modules(
         "Successfully trimmed unused imports from {} modules",
         trimmed_modules.len()
     );
-    Ok(trimmed_modules)
+    trimmed_modules
 }
 
 /// Check if an import is used by any surviving symbol after tree-shaking

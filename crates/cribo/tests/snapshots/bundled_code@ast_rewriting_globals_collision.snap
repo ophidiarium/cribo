@@ -311,12 +311,16 @@ def _cribo_init___cribo_df9c8d_core_database_connection():
 
     def process(data):
         """Process function in database module"""
+        _cribo_module.sanitize = sanitize
+        _cribo_module.format_result = format_result
         clean_data = sanitize(data)
         return f"db_process: {clean_data}"
     _cribo_module.process = process
 
     def validate(data):
         """Validate function in database module"""
+        _cribo_module.sanitize = sanitize
+        _cribo_module.format_result = format_result
         return f"db_validate: {data} (overrides lambda)"
     _cribo_module.validate = validate
 
@@ -351,6 +355,8 @@ def _cribo_init___cribo_df9c8d_core_database_connection():
 
     def create_connection(db_name):
         """Factory function"""
+        _cribo_module.sanitize = sanitize
+        _cribo_module.format_result = format_result
         conn = Connection(db_name)
         conn.connect()
         return conn

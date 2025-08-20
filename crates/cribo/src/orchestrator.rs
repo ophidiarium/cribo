@@ -442,7 +442,7 @@ impl BundleOrchestrator {
         }
 
         // Initialize resolver with the updated config
-        let mut resolver = ModuleResolver::new(self.config.clone())?;
+        let mut resolver = ModuleResolver::new(self.config.clone());
 
         // Set the entry file to establish the primary search path
         resolver.set_entry_file(entry_path);
@@ -555,7 +555,7 @@ impl BundleOrchestrator {
             }
 
             // Analyze from entry module
-            shaker.analyze(&entry_module_name)?;
+            shaker.analyze(&entry_module_name);
 
             // Log tree-shaking results
             for module_name in modules_for_tree_shaking {
@@ -595,7 +595,7 @@ impl BundleOrchestrator {
         let module_ids = if let Some(analysis) = circular_dep_analysis {
             // We have circular dependencies but they're potentially resolvable
             // Use a custom ordering that attempts to break cycles
-            self.get_modules_with_cycle_resolution(graph, analysis)?
+            self.get_modules_with_cycle_resolution(graph, analysis)
         } else {
             graph.topological_sort()?
         };
@@ -751,7 +751,7 @@ impl BundleOrchestrator {
         &self,
         graph: &CriboGraph,
         analysis: &crate::analyzers::types::CircularDependencyAnalysis,
-    ) -> Result<Vec<crate::cribo_graph::ModuleId>> {
+    ) -> Vec<crate::cribo_graph::ModuleId> {
         // For simple function-level cycles, we can use a modified topological sort
         // that breaks cycles by removing edges within strongly connected components
 
@@ -809,7 +809,7 @@ impl BundleOrchestrator {
 
         result.extend(cycle_ids);
 
-        Ok(result)
+        result
     }
 
     /// Extract imports from module items
@@ -937,7 +937,7 @@ impl BundleOrchestrator {
 
             // Extract imports from the processed AST
             let imports_with_context =
-                self.extract_imports_from_ast(&processed.ast, &module_path, Some(params.resolver))?;
+                self.extract_imports_from_ast(&processed.ast, &module_path, Some(params.resolver));
             let imports: Vec<String> = imports_with_context
                 .iter()
                 .map(|(m, _, _, _)| m.clone())
@@ -1074,7 +1074,7 @@ impl BundleOrchestrator {
         ast: &ModModule,
         file_path: &Path,
         mut resolver: Option<&ModuleResolver>,
-    ) -> Result<ImportExtractionResult> {
+    ) -> ImportExtractionResult {
         let mut visitor = ImportDiscoveryVisitor::new();
         for stmt in &ast.body {
             visitor.visit_stmt(stmt);
@@ -1152,7 +1152,7 @@ impl BundleOrchestrator {
             }
         }
 
-        Ok(imports_with_context)
+        imports_with_context
     }
 
     /// Check if an import is in an error-handling context (try/except or with suppress)
@@ -1360,7 +1360,7 @@ impl BundleOrchestrator {
             debug!("Processing ImportlibStatic import: {import}");
 
             // Try to resolve ImportlibStatic with package context
-            if let Ok(Some((resolved_name, import_path))) = params
+            if let Some((resolved_name, import_path)) = params
                 .resolver
                 .resolve_importlib_static_with_context(import, package_context.as_deref())
             {
@@ -1511,7 +1511,7 @@ impl BundleOrchestrator {
         sorted_modules: &[(String, PathBuf, Vec<String>)],
         resolver: &ModuleResolver,
     ) -> Result<()> {
-        let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
+        let requirements_content = self.generate_requirements(sorted_modules, resolver);
         if requirements_content.is_empty() {
             info!("No third-party dependencies found, skipping requirements.txt");
         } else {
@@ -1536,7 +1536,7 @@ impl BundleOrchestrator {
         resolver: &ModuleResolver,
         output_path: &Path,
     ) -> Result<()> {
-        let requirements_content = self.generate_requirements(sorted_modules, resolver)?;
+        let requirements_content = self.generate_requirements(sorted_modules, resolver);
         if requirements_content.is_empty() {
             info!("No third-party dependencies found, skipping requirements.txt");
         } else {
@@ -1627,7 +1627,7 @@ impl BundleOrchestrator {
                 &analysis.resolvable_cycles,
                 &self.semantic_bundler,
                 &module_ast_pairs,
-            )?;
+            );
 
             debug!(
                 "Found {} imports that can be moved to function scope using semantic analysis",
@@ -1636,7 +1636,7 @@ impl BundleOrchestrator {
 
             // Apply rewriting to each module AST
             for (module_name, ast, _, _) in &mut module_asts {
-                import_rewriter.rewrite_module(ast, &movable_imports, module_name)?;
+                import_rewriter.rewrite_module(ast, &movable_imports, module_name);
             }
         }
 
@@ -1650,7 +1650,7 @@ impl BundleOrchestrator {
             circular_dep_analysis: params.circular_dep_analysis,
             tree_shaker: params.tree_shaker,
             python_version: self.config.python_version().unwrap_or(10),
-        })?;
+        });
 
         // Generate Python code from AST
         let empty_parsed = get_empty_parsed_module();
@@ -1680,7 +1680,7 @@ impl BundleOrchestrator {
         &self,
         modules: &[(String, PathBuf, Vec<String>)],
         resolver: &ModuleResolver,
-    ) -> Result<String> {
+    ) -> String {
         let mut third_party_imports = IndexSet::new();
 
         // TODO: Use TYPE_CHECKING information from the dependency graph to filter out
@@ -1703,6 +1703,6 @@ impl BundleOrchestrator {
         let mut requirements: Vec<String> = third_party_imports.into_iter().collect();
         requirements.sort();
 
-        Ok(requirements.join("\n"))
+        requirements.join("\n")
     }
 }

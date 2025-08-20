@@ -5,7 +5,6 @@
 
 use std::path::Path;
 
-use anyhow::Result;
 use log::debug;
 use ruff_python_ast::{Expr, Identifier, ModModule, Stmt, StmtAssign, StmtClassDef};
 use ruff_text_size::TextRange;
@@ -69,7 +68,7 @@ impl Bundler<'_> {
         mut ast: ModModule,
         module_path: &Path,
         ctx: &mut InlineContext,
-    ) -> Result<Vec<Stmt>> {
+    ) {
         let mut module_renames = FxIndexMap::default();
 
         // Apply hard dependency rewriting BEFORE import transformation
@@ -266,7 +265,7 @@ impl Bundler<'_> {
                 .insert(module_name.to_string(), module_renames);
         }
 
-        Ok(Vec::new()) // Statements are accumulated in ctx.inlined_stmts
+        // Statements are accumulated in ctx.inlined_stmts
     }
 
     /// Rewrite a class argument expression (base class or keyword value)
@@ -551,7 +550,7 @@ pub fn inline_all_modules(
     symbol_renames: &mut FxIndexMap<String, FxIndexMap<String, String>>,
     global_symbols: &mut FxIndexSet<String>,
     python_version: u8,
-) -> Result<InliningResult> {
+) -> InliningResult {
     let mut all_deferred_imports = Vec::new();
     let mut all_inlined_stmts = Vec::new();
 
@@ -570,7 +569,7 @@ pub fn inline_all_modules(
             import_sources: FxIndexMap::default(),
             python_version,
         };
-        bundler.inline_module(module_name, ast.clone(), module_path, &mut inline_ctx)?;
+        bundler.inline_module(module_name, ast.clone(), module_path, &mut inline_ctx);
         debug!(
             "Inlined {} statements from module '{}'",
             inlined_stmts.len(),
@@ -665,8 +664,8 @@ pub fn inline_all_modules(
         }
     }
 
-    Ok(InliningResult {
+    InliningResult {
         statements: all_inlined_stmts,
         deferred_imports: all_deferred_imports,
-    })
+    }
 }

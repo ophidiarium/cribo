@@ -2,7 +2,6 @@
 
 use std::path::PathBuf;
 
-use anyhow::Result;
 use log::debug;
 use ruff_python_ast::{
     Alias, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier,
@@ -2001,7 +2000,7 @@ impl<'a> Bundler<'a> {
     fn prepare_modules(
         &mut self,
         params: &BundleParams<'a>,
-    ) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
+    ) -> Vec<(String, ModModule, PathBuf, String)> {
         // Trim unused imports from all modules
         // Note: stdlib import normalization now happens in the orchestrator
         // before dependency graph building, so imports are already normalized
@@ -2009,7 +2008,7 @@ impl<'a> Bundler<'a> {
             params.modules,
             params.graph,
             params.tree_shaker,
-        )?;
+        );
 
         // Index all module ASTs to assign node indices and initialize transformation context
         log::debug!("Indexing {} modules", modules.len());
@@ -2087,11 +2086,11 @@ impl<'a> Bundler<'a> {
             log::debug!("No circular dependency analysis provided");
         }
 
-        Ok(modules)
+        modules
     }
 
     /// Bundle multiple modules using the hybrid approach
-    pub fn bundle_modules(&mut self, params: &BundleParams<'a>) -> Result<ModModule> {
+    pub fn bundle_modules(&mut self, params: &BundleParams<'a>) -> ModModule {
         let mut final_body = Vec::new();
 
         // Extract the Python version from params
@@ -2104,7 +2103,7 @@ impl<'a> Bundler<'a> {
         self.initialize_bundler(params);
 
         // Prepare modules: trim imports, index ASTs, detect circular dependencies
-        let modules = self.prepare_modules(params)?;
+        let modules = self.prepare_modules(params);
 
         // Check if entry module requires namespace types for its imports
         let needs_types_for_entry_imports = self.check_entry_needs_namespace_types(params);
@@ -2233,8 +2232,8 @@ impl<'a> Bundler<'a> {
             import_deduplicator::collect_imports_from_module(self, ast, module_name);
         }
 
-        // If we have wrapper modules, inject types as stdlib dependency
-        // functools will be added later only if we use module cache
+        // If we have wrapper modules, inject types as stdlib dependency.
+        // Also add functools, as wrapper init functions are cached with @functools.cache.
         if !wrapper_modules.is_empty() {
             log::debug!("Adding types import for wrapper modules");
             import_deduplicator::add_stdlib_import(self, "types");
@@ -2336,7 +2335,7 @@ impl<'a> Bundler<'a> {
         let sorted_wrapper_modules = module_transformer::sort_wrapper_modules_by_dependencies(
             &wrapper_modules_saved,
             params.graph,
-        )?;
+        );
 
         // Build symbol-level dependency graph for circular modules if needed
         if !self.circular_modules.is_empty() {
@@ -2762,13 +2761,12 @@ impl<'a> Bundler<'a> {
                     // Generate init function with empty symbol_renames for now
                     let empty_renames = FxIndexMap::default();
                     // Always use cached init functions to ensure modules are only initialized once
-                    let init_function =
-                        module_transformer::transform_module_to_cache_init_function(
-                            self,
-                            &ctx,
-                            ast.clone(),
-                            &empty_renames,
-                        )?;
+                    let init_function = module_transformer::transform_module_to_cache_init_function(
+                        self,
+                        &ctx,
+                        ast.clone(),
+                        &empty_renames,
+                    );
                     final_body.push(init_function);
 
                     // Initialize the wrapper module immediately after defining it
@@ -2934,7 +2932,7 @@ impl<'a> Bundler<'a> {
             &mut symbol_renames,
             &mut global_symbols,
             python_version,
-        )?;
+        );
         let all_inlined_stmts = inlining_result.statements;
         let mut all_deferred_imports = inlining_result.deferred_imports;
 
@@ -3546,7 +3544,7 @@ impl<'a> Bundler<'a> {
                 &symbol_renames,
                 &semantic_ctx,
                 python_version,
-            )?;
+            );
             final_body.extend(wrapper_stmts);
         }
 
@@ -4778,7 +4776,7 @@ impl<'a> Bundler<'a> {
         log::info!("  Total transformations: {}", stats.total_transformations);
         log::info!("  New nodes created: {}", stats.new_nodes);
 
-        Ok(result)
+        result
     }
 
     /// Register a namespace that needs to be created

@@ -116,7 +116,7 @@ fn benchmark_module_resolution(c: &mut Criterion) {
         let mut config = Config::default();
         config.src.push(temp_dir.path().to_path_buf());
 
-        let resolver = ModuleResolver::new(config).expect("Failed to create resolver");
+        let resolver = ModuleResolver::new(config);
 
         b.iter(|| {
             // Benchmark module resolution
