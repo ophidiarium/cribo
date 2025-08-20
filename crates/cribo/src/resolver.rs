@@ -403,7 +403,6 @@ impl ModuleResolver {
         }
 
         let mut current_path = root.to_path_buf();
-        let mut resolved_paths = Vec::new();
 
         // Process all parts except the last one
         for (i, part) in descriptor.name_parts.iter().enumerate() {
@@ -446,7 +445,6 @@ impl ModuleResolver {
                 let package_init = package_dir.join("__init__.py");
 
                 if package_init.is_file() {
-                    resolved_paths.push(package_init);
                     current_path = package_dir;
                 } else if package_dir.is_dir() {
                     // Namespace package - continue but don't add to resolved paths
