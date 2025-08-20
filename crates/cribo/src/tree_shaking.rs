@@ -317,7 +317,6 @@ impl TreeShaker {
     /// Mark all symbols transitively used from entry module
     pub fn mark_used_symbols(&mut self, entry_module: &str) {
         let mut worklist = VecDeque::new();
-        let mut directly_imported_modules = FxIndexSet::default();
 
         // First pass: find all direct module imports across all modules
         // Also detect dynamic access patterns that require keeping all __all__ symbols
@@ -337,7 +336,6 @@ impl TreeShaker {
                 match &item.item_type {
                     // Check for direct module imports (import module_name)
                     ItemType::Import { module, .. } => {
-                        directly_imported_modules.insert(module.clone());
                         debug!("Found direct import of module {module} in {module_name}");
                     }
                     // Check for from imports that import the module itself (from x import module)
@@ -390,7 +388,6 @@ impl TreeShaker {
                                 let potential_module = format!("{resolved_from_module}.{name}");
                                 // Check if this module exists
                                 if self.module_items.contains_key(&potential_module) {
-                                    directly_imported_modules.insert(potential_module.clone());
                                     debug!(
                                         "Found from import of module {potential_module} in \
                                          {module_name}"
