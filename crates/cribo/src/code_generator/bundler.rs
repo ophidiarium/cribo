@@ -2232,8 +2232,8 @@ impl<'a> Bundler<'a> {
             import_deduplicator::collect_imports_from_module(self, ast, module_name);
         }
 
-        // If we have wrapper modules, inject types as stdlib dependency
-        // functools will be added later only if we use module cache
+        // If we have wrapper modules, inject types as stdlib dependency.
+        // Also add functools, as wrapper init functions are cached with @functools.cache.
         if !wrapper_modules.is_empty() {
             log::debug!("Adding types import for wrapper modules");
             import_deduplicator::add_stdlib_import(self, "types");
