@@ -31,6 +31,7 @@ def bundled_httpx():
     package_root = Path(__file__).resolve().parent.parent / "packages" / "httpx"
     httpx_init = package_root / "httpx"
     bundled_output = tmp_dir / "httpx_bundled.py"
+    bundled_output.unlink(missing_ok=True)  # Remove if exists
 
     print("\n🔧 Bundling httpx library...")
     result = run_cribo(

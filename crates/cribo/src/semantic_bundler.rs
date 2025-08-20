@@ -45,7 +45,7 @@ impl<'a> SemanticModelBuilder<'a> {
         source: &'a str,
         file_path: &'a Path,
         ast: &'a ModModule,
-    ) -> Result<(SemanticModel<'a>, Vec<EnhancedFromImport>)> {
+    ) -> (SemanticModel<'a>, Vec<EnhancedFromImport>) {
         // Step 1: Parse source and create infrastructure
         let source_kind = SourceKind::Python(source.to_string());
         let source_type = PySourceType::from(file_path);
@@ -74,9 +74,9 @@ impl<'a> SemanticModelBuilder<'a> {
             from_imports: Vec::new(),
         };
         builder.bind_builtins();
-        builder.traverse_and_bind(&ast.body)?;
+        builder.traverse_and_bind(&ast.body);
 
-        Ok((builder.semantic, builder.from_imports))
+        (builder.semantic, builder.from_imports)
     }
 
     /// Bind builtin symbols to the semantic model
@@ -89,18 +89,16 @@ impl<'a> SemanticModelBuilder<'a> {
     }
 
     /// Traverse AST and create bindings for module-level definitions
-    fn traverse_and_bind(&mut self, statements: &'a [Stmt]) -> Result<()> {
+    fn traverse_and_bind(&mut self, statements: &'a [Stmt]) {
         log::trace!("Traversing {} statements", statements.len());
 
         for stmt in statements {
-            self.visit_stmt(stmt)?;
+            self.visit_stmt(stmt);
         }
-
-        Ok(())
     }
 
     /// Visit a statement and create appropriate bindings
-    fn visit_stmt(&mut self, stmt: &'a Stmt) -> Result<()> {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
             Stmt::ClassDef(class_def) => {
                 log::trace!("Processing class definition: {}", class_def.name.id);
@@ -109,7 +107,7 @@ impl<'a> SemanticModelBuilder<'a> {
                     class_def.name.range,
                     BindingKind::ClassDefinition(self.semantic.scope_id),
                     BindingFlags::empty(),
-                )?;
+                );
             }
             Stmt::FunctionDef(func_def) => {
                 log::trace!("Processing function definition: {}", func_def.name.id);
@@ -118,7 +116,7 @@ impl<'a> SemanticModelBuilder<'a> {
                     func_def.name.range,
                     BindingKind::FunctionDefinition(self.semantic.scope_id),
                     BindingFlags::empty(),
-                )?;
+                );
             }
             Stmt::Assign(assign) => {
                 // Handle assignments to create variable bindings
@@ -130,7 +128,7 @@ impl<'a> SemanticModelBuilder<'a> {
                             name_expr.range(),
                             BindingKind::Assignment,
                             BindingFlags::empty(),
-                        )?;
+                        );
                     }
                 }
             }
@@ -160,7 +158,7 @@ impl<'a> SemanticModelBuilder<'a> {
                             ),
                         }),
                         BindingFlags::EXTERNAL,
-                    )?;
+                    );
                 }
             }
             Stmt::ImportFrom(import_from) => {
@@ -203,7 +201,7 @@ impl<'a> SemanticModelBuilder<'a> {
                                 ),
                             }),
                             BindingFlags::EXTERNAL,
-                        )?;
+                        );
                     }
                 }
             }
@@ -211,8 +209,6 @@ impl<'a> SemanticModelBuilder<'a> {
                 // Skip other statement types for now
             }
         }
-
-        Ok(())
     }
 
     /// Add a binding to the semantic model
@@ -222,7 +218,7 @@ impl<'a> SemanticModelBuilder<'a> {
         range: TextRange,
         kind: BindingKind<'a>,
         flags: BindingFlags,
-    ) -> Result<BindingId> {
+    ) -> BindingId {
         // Mark private declarations
         let mut binding_flags = flags;
         if name.starts_with('_') && !name.starts_with("__") {
@@ -235,11 +231,11 @@ impl<'a> SemanticModelBuilder<'a> {
         scope.add(name, binding_id);
 
         log::trace!("Added binding '{name}' with ID {binding_id:?}");
-        Ok(binding_id)
+        binding_id
     }
 
     /// Extract symbols from a populated semantic model
-    fn extract_symbols_from_semantic_model(semantic: &SemanticModel) -> Result<FxIndexSet<String>> {
+    fn extract_symbols_from_semantic_model(semantic: &SemanticModel) -> FxIndexSet<String> {
         let mut symbols = FxIndexSet::default();
 
         // Get the global scope (module scope)
@@ -300,12 +296,12 @@ impl<'a> SemanticModelBuilder<'a> {
         }
 
         log::trace!("Final extracted symbols: {symbols:?}");
-        Ok(symbols)
+        symbols
     }
 
     /// Extract ALL module-scope symbols that need to be exposed in the module namespace
     /// This includes symbols defined in conditional blocks (if/else, try/except) and imports
-    fn extract_all_module_scope_symbols(semantic: &SemanticModel) -> Result<FxIndexSet<String>> {
+    fn extract_all_module_scope_symbols(semantic: &SemanticModel) -> FxIndexSet<String> {
         let mut symbols = FxIndexSet::default();
 
         // Get the global scope (module scope)
@@ -335,7 +331,7 @@ impl<'a> SemanticModelBuilder<'a> {
         }
 
         log::trace!("All module-scope symbols: {symbols:?}");
-        Ok(symbols)
+        symbols
     }
 }
 
@@ -474,11 +470,11 @@ impl SemanticBundler {
 
         // Build semantic model and extract information
         let (semantic_model, from_imports) =
-            SemanticModelBuilder::build_semantic_model(source, path, ast)?;
+            SemanticModelBuilder::build_semantic_model(source, path, ast);
 
         // Extract exported symbols (public API)
         let exported_symbols =
-            SemanticModelBuilder::extract_symbols_from_semantic_model(&semantic_model)?;
+            SemanticModelBuilder::extract_symbols_from_semantic_model(&semantic_model);
         log::debug!(
             "Module {} has exported symbols: {:?}",
             module_id.as_u32(),
@@ -487,7 +483,7 @@ impl SemanticBundler {
 
         // Extract ALL module-scope symbols (including conditional imports)
         let module_scope_symbols =
-            SemanticModelBuilder::extract_all_module_scope_symbols(&semantic_model)?;
+            SemanticModelBuilder::extract_all_module_scope_symbols(&semantic_model);
         log::debug!(
             "Module {} has all module-scope symbols: {:?}",
             module_id.as_u32(),

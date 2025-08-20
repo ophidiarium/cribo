@@ -2,7 +2,6 @@
 
 use std::collections::VecDeque;
 
-use anyhow::Result;
 use log::{debug, trace};
 
 use crate::{
@@ -49,20 +48,19 @@ impl TreeShaker {
     }
 
     /// Analyze which symbols should be kept based on entry point
-    pub fn analyze(&mut self, entry_module: &str) -> Result<()> {
+    pub fn analyze(&mut self, entry_module: &str) {
         debug!("Starting tree-shaking analysis from entry module: {entry_module}");
 
         // First, build cross-module reference information
         self.build_cross_module_refs();
 
         // Then, mark symbols used from the entry module
-        self.mark_used_symbols(entry_module)?;
+        self.mark_used_symbols(entry_module);
 
         debug!(
             "Tree-shaking complete. Keeping {} symbols",
             self.used_symbols.len()
         );
-        Ok(())
     }
 
     /// Build cross-module reference information
@@ -317,9 +315,8 @@ impl TreeShaker {
     }
 
     /// Mark all symbols transitively used from entry module
-    pub fn mark_used_symbols(&mut self, entry_module: &str) -> Result<()> {
+    pub fn mark_used_symbols(&mut self, entry_module: &str) {
         let mut worklist = VecDeque::new();
-        let mut directly_imported_modules = FxIndexSet::default();
 
         // First pass: find all direct module imports across all modules
         // Also detect dynamic access patterns that require keeping all __all__ symbols
@@ -339,7 +336,6 @@ impl TreeShaker {
                 match &item.item_type {
                     // Check for direct module imports (import module_name)
                     ItemType::Import { module, .. } => {
-                        directly_imported_modules.insert(module.clone());
                         debug!("Found direct import of module {module} in {module_name}");
                     }
                     // Check for from imports that import the module itself (from x import module)
@@ -392,7 +388,6 @@ impl TreeShaker {
                                 let potential_module = format!("{resolved_from_module}.{name}");
                                 // Check if this module exists
                                 if self.module_items.contains_key(&potential_module) {
-                                    directly_imported_modules.insert(potential_module.clone());
                                     debug!(
                                         "Found from import of module {potential_module} in \
                                          {module_name}"
@@ -548,8 +543,6 @@ impl TreeShaker {
                 );
             }
         }
-
-        Ok(())
     }
 
     /// Process a symbol definition and add its dependencies to the worklist
@@ -1095,7 +1088,7 @@ mod tests {
 
         // Run tree shaking
         let mut shaker = TreeShaker::from_graph(&graph);
-        shaker.analyze("__main__").expect("analyze should succeed");
+        shaker.analyze("__main__");
 
         // Check results
         assert!(shaker.is_symbol_used("test_module", "used_func"));
