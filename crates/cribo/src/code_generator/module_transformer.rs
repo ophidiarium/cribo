@@ -2471,7 +2471,6 @@ pub fn sort_wrapper_modules_by_dependencies(
         .collect();
 
     // Map sorted names back to full modules
-    
 
     sorted_names
         .into_iter()
