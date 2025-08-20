@@ -2,10 +2,8 @@
 /// to resolve circular dependencies
 use log::{debug, trace};
 use ruff_python_ast::{
-    self as ast, AtomicNodeIndex, Identifier, ModModule, Stmt, StmtFunctionDef, StmtImport,
-    StmtImportFrom, visitor::Visitor,
+    self as ast, ModModule, Stmt, StmtFunctionDef, StmtImportFrom, visitor::Visitor,
 };
-use ruff_text_size::TextRange;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
@@ -469,10 +467,12 @@ impl ImportRewriter {
         match self.dedup_strategy {
             ImportDeduplicationStrategy::FunctionStart => {
                 // Insert imports after a leading docstring, if present
-                let insert_at = usize::from(func_def
-                    .body
-                    .first()
-                    .is_some_and(ruff_python_ast::helpers::is_docstring_stmt));
+                let insert_at = usize::from(
+                    func_def
+                        .body
+                        .first()
+                        .is_some_and(ruff_python_ast::helpers::is_docstring_stmt),
+                );
                 func_def.body.splice(insert_at..insert_at, import_stmts);
             }
         }
@@ -480,49 +480,24 @@ impl ImportRewriter {
 
     /// Create an AST import statement from our normalized representation
     fn create_import_statement(&self, import: &ImportStatement) -> Stmt {
+        use crate::ast_builder::{other, statements};
+
         match import {
             ImportStatement::Import { module, alias } => {
-                let alias_stmt = ast::Alias {
-                    node_index: AtomicNodeIndex::dummy(),
-                    name: Identifier::new(module.clone(), TextRange::default()),
-                    asname: alias
-                        .as_ref()
-                        .map(|a| Identifier::new(a.clone(), TextRange::default())),
-                    range: TextRange::default(),
-                };
-
-                Stmt::Import(StmtImport {
-                    node_index: AtomicNodeIndex::dummy(),
-                    names: vec![alias_stmt],
-                    range: TextRange::default(),
-                })
+                let alias_stmt = other::alias(module, alias.as_deref());
+                statements::import(vec![alias_stmt])
             }
             ImportStatement::FromImport {
                 module,
                 names,
                 level,
             } => {
-                let aliases: Vec<_> = names
+                let aliases = names
                     .iter()
-                    .map(|(name, alias)| ast::Alias {
-                        node_index: AtomicNodeIndex::dummy(),
-                        name: Identifier::new(name.clone(), TextRange::default()),
-                        asname: alias
-                            .as_ref()
-                            .map(|a| Identifier::new(a.clone(), TextRange::default())),
-                        range: TextRange::default(),
-                    })
+                    .map(|(name, alias)| other::alias(name, alias.as_deref()))
                     .collect();
 
-                Stmt::ImportFrom(StmtImportFrom {
-                    node_index: AtomicNodeIndex::dummy(),
-                    module: module
-                        .as_ref()
-                        .map(|m| Identifier::new(m.clone(), TextRange::default())),
-                    names: aliases,
-                    level: *level,
-                    range: TextRange::default(),
-                })
+                statements::import_from(module.as_deref(), aliases, *level)
             }
         }
     }
