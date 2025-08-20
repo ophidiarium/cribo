@@ -13,24 +13,24 @@ base_value = "base"
 def get_base():
     return base_value
 def get_result():
-    pkg.submodule = __cribo_init___cribo_dca395_pkg_submodule()
+    pkg.submodule = _cribo_init___cribo_dca395_pkg_submodule()
     return pkg.submodule.process()
 """Package __init__ that gets inlined (not wrapped)."""
 pkg.base_value = base_value
 pkg.get_base = get_base
 pkg.get_result = get_result
 @functools.cache
-def __cribo_init___cribo_dca395_pkg_submodule():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'pkg.submodule'
+def _cribo_init___cribo_dca395_pkg_submodule():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'pkg.submodule'
     """Submodule that becomes a wrapper module due to module-level import from parent."""
-    __cribo_module.get_base = get_base
+    _cribo_module.get_base = get_base
     computed_value = f"computed: {get_base()}"
-    __cribo_module.computed_value = computed_value
+    _cribo_module.computed_value = computed_value
 
     def process():
-        return __cribo_module.computed_value
-    __cribo_module.process = process
-    return __cribo_module
+        return _cribo_module.computed_value
+    _cribo_module.process = process
+    return _cribo_module
 """Test where submodule imports function from parent package.\n\nThis test works in Python but fails when bundled because:\n1. pkg.submodule imports get_base from parent at module level\n2. pkg.submodule uses the imported function at module level\n3. The bundler fails to properly initialize pkg.submodule\n4. When get_result() tries to access pkg.submodule.process(), it fails\n"""
 print(pkg.get_result())

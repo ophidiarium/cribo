@@ -10,49 +10,49 @@ import functools
 import types
 package = types.SimpleNamespace(__name__='package')
 @functools.cache
-def __cribo_init___cribo_75ebb7_package_submodule():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'package.submodule'
+def _cribo_init___cribo_75ebb7_package_submodule():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'package.submodule'
     print("package/submodule.py is being executed!")
     sub_counter = 10
-    __cribo_module.sub_counter = sub_counter
-    return __cribo_module
+    _cribo_module.sub_counter = sub_counter
+    return _cribo_module
 @functools.cache
-def __cribo_init___cribo_20ca72_package():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'package'
+def _cribo_init___cribo_20ca72_package():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'package'
     print("package/__init__.py is being executed!")
-    return __cribo_module
+    return _cribo_module
 @functools.cache
-def __cribo_init___cribo_26ef78_mymodule():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'mymodule'
+def _cribo_init___cribo_26ef78_mymodule():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'mymodule'
     print("mymodule.py is being executed!")
     counter = 1
-    __cribo_module.counter = counter
+    _cribo_module.counter = counter
     test_value = "Original"
-    __cribo_module.test_value = test_value
-    return __cribo_module
+    _cribo_module.test_value = test_value
+    return _cribo_module
 """Test how importlib.import_module handles sys.modules and deduplication"""
 print("=== Testing importlib.import_module deduplication ===\n")
-mymodule = __cribo_init___cribo_26ef78_mymodule()
-mymodule2 = __cribo_init___cribo_26ef78_mymodule()
+mymodule = _cribo_init___cribo_26ef78_mymodule()
+mymodule2 = _cribo_init___cribo_26ef78_mymodule()
 print(f"   Are they the same object? {mymodule is mymodule2}")
-__cribo_init_result = __cribo_init___cribo_20ca72_package()
+__cribo_init_result = _cribo_init___cribo_20ca72_package()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(package, attr, getattr(__cribo_init_result, attr))
-package.submodule = __cribo_init___cribo_75ebb7_package_submodule()
+package.submodule = _cribo_init___cribo_75ebb7_package_submodule()
 submodule = package.submodule
-submodule2 = __cribo_init___cribo_75ebb7_package_submodule()
+submodule2 = _cribo_init___cribo_75ebb7_package_submodule()
 print(f"   Are they the same object? {submodule is submodule2}")
-submodule3 = __cribo_init___cribo_75ebb7_package_submodule()
+submodule3 = _cribo_init___cribo_75ebb7_package_submodule()
 print(f"   Are they the same object? {submodule is submodule3}")
 print("\n=== Testing modification propagation ===")
 mymodule.test_value = "Modified!"
 print(f"Set mymodule.test_value = 'Modified!'")
 print(f"mymodule2.test_value = {mymodule2.test_value}")
-mymodule_new = __cribo_init___cribo_26ef78_mymodule()
+mymodule_new = _cribo_init___cribo_26ef78_mymodule()
 print(f"After reimport mymodule_new.counter = {mymodule_new.counter}")
 print(f"Are they the same object? {mymodule is mymodule_new}")
 print(f"Original mymodule still has counter = {mymodule.counter}")

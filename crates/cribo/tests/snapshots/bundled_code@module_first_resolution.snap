@@ -9,15 +9,15 @@ input_file: crates/cribo/tests/fixtures/module_first_resolution/main.py
 import functools
 import types
 @functools.cache
-def __cribo_init___cribo_e25798_foo():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'foo'
+def _cribo_init___cribo_e25798_foo():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'foo'
     source = "foo/__init__.py (package)"
-    __cribo_module.source = source
+    _cribo_module.source = source
     value = "CORRECT - package"
-    __cribo_module.value = value
+    _cribo_module.value = value
     print("Successfully imported foo package")
-    return __cribo_module
-foo = __cribo_init___cribo_e25798_foo()
+    return _cribo_module
+foo = _cribo_init___cribo_e25798_foo()
 print(f"Imported foo from: {foo.source}")
 print(f"foo.value = {foo.value}")

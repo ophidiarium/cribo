@@ -22,7 +22,9 @@ use crate::{
         },
         expression_handlers, import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry::{INIT_RESULT_VAR, MODULE_VAR, sanitize_module_name_for_identifier},
+        module_registry::{
+            INIT_RESULT_VAR, MODULE_VAR, is_init_function, sanitize_module_name_for_identifier,
+        },
         module_transformer, namespace_manager,
         namespace_manager::{NamespaceContext, NamespaceInfo},
     },
@@ -985,7 +987,7 @@ impl<'a> Bundler<'a> {
         ruff_python_stdlib::identifiers::is_identifier(name)
     }
 
-    /// Check if a symbol is re-exported from an inlined submodule  
+    /// Check if a symbol is re-exported from an inlined submodule
     pub(crate) fn is_symbol_from_inlined_submodule(
         &self,
         module_name: &str,
@@ -7420,7 +7422,7 @@ impl Bundler<'_> {
                         && let Expr::Attribute(attr) = &assign.targets[0]
                         && let Expr::Call(call) = assign.value.as_ref()
                         && let Expr::Name(func_name) = call.func.as_ref()
-                        && func_name.id.starts_with("__cribo_init_")
+                        && is_init_function(&func_name.id)
                     {
                         // Extract the namespace path (e.g., "mypkg.compat")
                         let namespace_path = expr_to_dotted_name(&Expr::Attribute(attr.clone()));
@@ -7633,7 +7635,7 @@ impl Bundler<'_> {
         for (idx, stmt) in statements.iter().enumerate() {
             // Track namespace init function definitions
             if let Stmt::FunctionDef(func_def) = stmt
-                && func_def.name.starts_with("__cribo_init_")
+                && is_init_function(&func_def.name)
             {
                 namespace_functions.insert(func_def.name.to_string(), idx);
             }
@@ -7642,7 +7644,7 @@ impl Bundler<'_> {
                 && assign.targets.len() == 1
                 && let Expr::Call(call) = assign.value.as_ref()
                 && let Expr::Name(func_name) = call.func.as_ref()
-                && func_name.id.starts_with("__cribo_init_")
+                && is_init_function(&func_name.id)
             {
                 if let Expr::Attribute(attr) = &assign.targets[0] {
                     let namespace_path = expr_to_dotted_name(&Expr::Attribute(attr.clone()));
