@@ -73,8 +73,14 @@ impl<'a> GraphBuilder<'a> {
         // Skip other statements as they're tracked via eventual_read_vars
         if matches!(self.current_scope, ScopeType::Function) {
             match stmt {
-                Stmt::Import(import_stmt) => return self.process_import(import_stmt),
-                Stmt::ImportFrom(import_from) => return self.process_import_from(import_from),
+                Stmt::Import(import_stmt) => {
+                    self.process_import(import_stmt);
+                    return Ok(());
+                }
+                Stmt::ImportFrom(import_from) => {
+                    self.process_import_from(import_from);
+                    return Ok(());
+                }
                 Stmt::FunctionDef(func_def) => return self.process_function_def(func_def),
                 Stmt::ClassDef(class_def) => return self.process_class_def(class_def),
                 // Recurse into control flow blocks that may contain imports
@@ -88,27 +94,46 @@ impl<'a> GraphBuilder<'a> {
         match stmt {
             Stmt::Import(import_stmt) => {
                 log::debug!("Processing import statement");
-                self.process_import(import_stmt)
+                self.process_import(import_stmt);
+                Ok(())
             }
-            Stmt::ImportFrom(import_from) => self.process_import_from(import_from),
+            Stmt::ImportFrom(import_from) => {
+                self.process_import_from(import_from);
+                Ok(())
+            }
             Stmt::FunctionDef(func_def) => self.process_function_def(func_def),
             Stmt::ClassDef(class_def) => self.process_class_def(class_def),
-            Stmt::Assign(assign) => self.process_assign(assign),
-            Stmt::AnnAssign(ann_assign) => self.process_ann_assign(ann_assign),
-            Stmt::Expr(expr_stmt) => self.process_expr_stmt(&expr_stmt.value),
-            Stmt::Assert(assert_stmt) => self.process_assert_stmt(assert_stmt),
+            Stmt::Assign(assign) => {
+                self.process_assign(assign);
+                Ok(())
+            }
+            Stmt::AnnAssign(ann_assign) => {
+                self.process_ann_assign(ann_assign);
+                Ok(())
+            }
+            Stmt::Expr(expr_stmt) => {
+                self.process_expr_stmt(&expr_stmt.value);
+                Ok(())
+            }
+            Stmt::Assert(assert_stmt) => {
+                self.process_assert_stmt(assert_stmt);
+                Ok(())
+            }
             Stmt::If(if_stmt) => self.process_if_stmt(if_stmt),
             Stmt::For(for_stmt) => self.process_for_stmt(for_stmt),
             Stmt::While(while_stmt) => self.process_while_stmt(while_stmt),
             Stmt::With(with_stmt) => self.process_with_stmt(with_stmt),
             Stmt::Try(try_stmt) => self.process_try_stmt(try_stmt),
-            Stmt::Raise(raise_stmt) => self.process_raise_stmt(raise_stmt),
+            Stmt::Raise(raise_stmt) => {
+                self.process_raise_stmt(raise_stmt);
+                Ok(())
+            }
             _ => Ok(()), // Other statements
         }
     }
 
     /// Process an import statement
-    fn process_import(&mut self, import_stmt: &ast::StmtImport) -> Result<()> {
+    fn process_import(&mut self, import_stmt: &ast::StmtImport) {
         for alias in &import_stmt.names {
             let module_name = alias.name.as_str();
             let local_name = alias
@@ -182,11 +207,10 @@ impl<'a> GraphBuilder<'a> {
 
             self.graph.add_item(item_data);
         }
-        Ok(())
     }
 
     /// Process a from-import statement
-    fn process_import_from(&mut self, import_from: &ast::StmtImportFrom) -> Result<()> {
+    fn process_import_from(&mut self, import_from: &ast::StmtImportFrom) {
         let module_name = import_from
             .module
             .as_ref()
@@ -194,7 +218,7 @@ impl<'a> GraphBuilder<'a> {
 
         // Skip __future__ imports as they're handled separately
         if module_name == "__future__" {
-            return Ok(());
+            return;
         }
 
         // For relative imports, we should not store the raw module name
@@ -279,7 +303,6 @@ impl<'a> GraphBuilder<'a> {
         };
 
         self.graph.add_item(item_data);
-        Ok(())
     }
 
     /// Process a function definition
@@ -460,7 +483,7 @@ impl<'a> GraphBuilder<'a> {
     }
 
     /// Process an assignment statement
-    fn process_assign(&mut self, assign: &ast::StmtAssign) -> Result<()> {
+    fn process_assign(&mut self, assign: &ast::StmtAssign) {
         let mut targets = Vec::new();
         let mut var_decls = FxIndexSet::default();
 
@@ -523,8 +546,6 @@ impl<'a> GraphBuilder<'a> {
 
                 self.graph.add_item(item_data);
             }
-
-            Ok(())
         } else {
             // Regular assignment
             // Check if this is an __all__ assignment
@@ -583,12 +604,11 @@ impl<'a> GraphBuilder<'a> {
             };
 
             self.graph.add_item(item_data);
-            Ok(())
         }
     }
 
     /// Process an annotated assignment statement
-    fn process_ann_assign(&mut self, ann_assign: &ast::StmtAnnAssign) -> Result<()> {
+    fn process_ann_assign(&mut self, ann_assign: &ast::StmtAnnAssign) {
         let mut var_decls = FxIndexSet::default();
         let mut read_vars = FxIndexSet::default();
 
@@ -627,11 +647,10 @@ impl<'a> GraphBuilder<'a> {
         };
 
         self.graph.add_item(item_data);
-        Ok(())
     }
 
     /// Process an expression statement
-    fn process_expr_stmt(&mut self, expr: &Expr) -> Result<()> {
+    fn process_expr_stmt(&mut self, expr: &Expr) {
         let mut read_vars = FxIndexSet::default();
         let mut attribute_accesses = FxIndexMap::default();
         self.collect_vars_in_expr_with_attrs(expr, &mut read_vars, &mut attribute_accesses);
@@ -671,11 +690,10 @@ impl<'a> GraphBuilder<'a> {
         };
 
         self.graph.add_item(item_data);
-        Ok(())
     }
 
     /// Process assert statement
-    fn process_assert_stmt(&mut self, assert_stmt: &ast::StmtAssert) -> Result<()> {
+    fn process_assert_stmt(&mut self, assert_stmt: &ast::StmtAssert) {
         let mut read_vars = FxIndexSet::default();
         let mut attribute_accesses = FxIndexMap::default();
 
@@ -714,7 +732,6 @@ impl<'a> GraphBuilder<'a> {
         };
 
         self.graph.add_item(item_data);
-        Ok(())
     }
 
     /// Process if statement
@@ -876,7 +893,7 @@ impl<'a> GraphBuilder<'a> {
     }
 
     /// Process raise statement
-    fn process_raise_stmt(&mut self, raise_stmt: &ast::StmtRaise) -> Result<()> {
+    fn process_raise_stmt(&mut self, raise_stmt: &ast::StmtRaise) {
         log::debug!("Processing raise statement");
 
         let mut read_vars = FxIndexSet::default();
@@ -914,7 +931,6 @@ impl<'a> GraphBuilder<'a> {
         };
 
         self.graph.add_item(item_data);
-        Ok(())
     }
 
     /// Process try statement

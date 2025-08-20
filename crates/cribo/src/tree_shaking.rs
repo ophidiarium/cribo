@@ -2,7 +2,6 @@
 
 use std::collections::VecDeque;
 
-use anyhow::Result;
 use log::{debug, trace};
 
 use crate::{
@@ -49,20 +48,19 @@ impl TreeShaker {
     }
 
     /// Analyze which symbols should be kept based on entry point
-    pub fn analyze(&mut self, entry_module: &str) -> Result<()> {
+    pub fn analyze(&mut self, entry_module: &str) {
         debug!("Starting tree-shaking analysis from entry module: {entry_module}");
 
         // First, build cross-module reference information
         self.build_cross_module_refs();
 
         // Then, mark symbols used from the entry module
-        self.mark_used_symbols(entry_module)?;
+        self.mark_used_symbols(entry_module);
 
         debug!(
             "Tree-shaking complete. Keeping {} symbols",
             self.used_symbols.len()
         );
-        Ok(())
     }
 
     /// Build cross-module reference information
@@ -317,7 +315,7 @@ impl TreeShaker {
     }
 
     /// Mark all symbols transitively used from entry module
-    pub fn mark_used_symbols(&mut self, entry_module: &str) -> Result<()> {
+    pub fn mark_used_symbols(&mut self, entry_module: &str) {
         let mut worklist = VecDeque::new();
         let mut directly_imported_modules = FxIndexSet::default();
 
@@ -548,8 +546,6 @@ impl TreeShaker {
                 );
             }
         }
-
-        Ok(())
     }
 
     /// Process a symbol definition and add its dependencies to the worklist
@@ -1095,7 +1091,7 @@ mod tests {
 
         // Run tree shaking
         let mut shaker = TreeShaker::from_graph(&graph);
-        shaker.analyze("__main__").expect("analyze should succeed");
+        shaker.analyze("__main__");
 
         // Check results
         assert!(shaker.is_symbol_used("test_module", "used_func"));

@@ -5,7 +5,6 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
 use log::debug;
 #[allow(unused_imports)] // These imports are used in pattern matching
 use ruff_python_ast::{
@@ -40,7 +39,7 @@ pub fn transform_module_to_init_function<'a>(
     ctx: &ModuleTransformContext,
     mut ast: ModModule,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-) -> Result<Stmt> {
+) -> Stmt {
     let init_func_name = &bundler.init_functions[ctx.synthetic_name];
     let mut body = Vec::new();
 
@@ -981,14 +980,14 @@ pub fn transform_module_to_init_function<'a>(
         range: TextRange::default(),
     };
 
-    Ok(ast_builder::statements::function_def(
+    ast_builder::statements::function_def(
         init_func_name,
         parameters,
         body,
         vec![], // No decorator for non-cache mode
         None,   // No return type annotation
         false,  // Not async
-    ))
+    )
 }
 
 /// Transform an expression to use module attributes for module-level variables
@@ -2425,9 +2424,9 @@ pub fn transform_module_to_cache_init_function(
     ctx: &ModuleTransformContext,
     ast: ModModule,
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
-) -> Result<Stmt> {
+) -> Stmt {
     // Call the regular transform_module_to_init_function to get the function
-    let stmt = transform_module_to_init_function(bundler, ctx, ast, symbol_renames)?;
+    let stmt = transform_module_to_init_function(bundler, ctx, ast, symbol_renames);
 
     // Add the @functools.cache decorator
     if let Stmt::FunctionDef(mut func_def) = stmt {
@@ -2440,7 +2439,7 @@ pub fn transform_module_to_cache_init_function(
                 ExprContext::Load,
             ),
         }];
-        return Ok(Stmt::FunctionDef(func_def));
+        return Stmt::FunctionDef(func_def);
     }
 
     // Should not happen
@@ -2451,7 +2450,7 @@ pub fn transform_module_to_cache_init_function(
 pub fn sort_wrapper_modules_by_dependencies(
     wrapper_modules: &[(String, ModModule, PathBuf, String)],
     graph: &crate::cribo_graph::CriboGraph,
-) -> Result<Vec<(String, ModModule, PathBuf, String)>> {
+) -> Vec<(String, ModModule, PathBuf, String)> {
     // Extract module names
     let wrapper_names: Vec<String> = wrapper_modules
         .iter()
@@ -2472,12 +2471,12 @@ pub fn sort_wrapper_modules_by_dependencies(
         .collect();
 
     // Map sorted names back to full modules
-    let sorted_modules = sorted_names
+    
+
+    sorted_names
         .into_iter()
         .filter_map(|module_name| module_map.get(&module_name).cloned())
-        .collect();
-
-    Ok(sorted_modules)
+        .collect()
 }
 
 /// Process wrapper modules: sort them, handle globals, and generate init functions
@@ -2488,12 +2487,12 @@ pub fn process_wrapper_modules(
     symbol_renames: &FxIndexMap<String, FxIndexMap<String, String>>,
     semantic_ctx: &SemanticContext,
     python_version: u8,
-) -> Result<Vec<Stmt>> {
+) -> Vec<Stmt> {
     let mut result = Vec::new();
 
     // Sort wrapper modules by dependencies
     let sorted_wrapper_modules =
-        sort_wrapper_modules_by_dependencies(wrapper_modules, semantic_ctx.graph)?;
+        sort_wrapper_modules_by_dependencies(wrapper_modules, semantic_ctx.graph);
 
     // Process globals for all wrapper modules
     let mut module_globals = FxIndexMap::default();
@@ -2546,7 +2545,7 @@ pub fn process_wrapper_modules(
 
         // Always use cached init functions to ensure modules are only initialized once
         let init_function =
-            transform_module_to_cache_init_function(bundler, &ctx, ast.clone(), symbol_renames)?;
+            transform_module_to_cache_init_function(bundler, &ctx, ast.clone(), symbol_renames);
 
         result.push(init_function);
     }
@@ -2554,5 +2553,5 @@ pub fn process_wrapper_modules(
     // Generate module registries and hook (always using module cache for wrapper modules)
     result.extend(module_registry::generate_registries_and_hook());
 
-    Ok(result)
+    result
 }
