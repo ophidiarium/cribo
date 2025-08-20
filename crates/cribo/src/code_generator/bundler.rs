@@ -2,10 +2,11 @@
 
 use std::path::PathBuf;
 
+use cow_utils::CowUtils;
 use log::debug;
 use ruff_python_ast::{
     Alias, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier,
-    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, StmtImport,
+    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtExpr, StmtFunctionDef, StmtImport,
     StmtImportFrom, visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
@@ -75,6 +76,8 @@ pub struct Bundler<'a> {
     pub(crate) stdlib_import_from_map: FxIndexMap<String, FxIndexMap<String, Option<String>>>,
     /// Regular import statements (import module)
     pub(crate) stdlib_import_statements: Vec<Stmt>,
+    /// Track all stdlib modules that need to be imported (from graph + dynamic requirements)
+    pub(crate) stdlib_modules_to_import: FxIndexSet<String>,
     /// Track which modules have been bundled
     pub(crate) bundled_modules: FxIndexSet<String>,
     /// Modules that were inlined (not wrapper modules)
@@ -147,6 +150,9 @@ pub struct Bundler<'a> {
     /// Global cache of all kept symbols for O(1) lookup
     /// Populated from `tree_shaking_keep_symbols` for efficient symbol existence checks
     pub(crate) kept_symbols_global: Option<FxIndexSet<String>>,
+    /// Reference to the semantic bundler for semantic analysis
+    /// This is set during `bundle_modules` and used by import transformers
+    pub(crate) semantic_bundler: Option<&'a crate::semantic_bundler::SemanticBundler>,
 }
 
 impl std::fmt::Debug for Bundler<'_> {
@@ -230,6 +236,7 @@ impl<'a> Bundler<'a> {
             future_imports: FxIndexSet::default(),
             stdlib_import_from_map: FxIndexMap::default(),
             stdlib_import_statements: Vec::new(),
+            stdlib_modules_to_import: FxIndexSet::default(),
             bundled_modules: FxIndexSet::default(),
             inlined_modules: FxIndexSet::default(),
             entry_path: None,
@@ -261,6 +268,7 @@ impl<'a> Bundler<'a> {
             symbols_populated_after_deferred: FxIndexSet::default(),
             modules_with_accessed_all: FxIndexSet::default(),
             kept_symbols_global: None,
+            semantic_bundler: None,
         }
     }
 
@@ -2099,6 +2107,12 @@ impl<'a> Bundler<'a> {
         // Store the graph reference for use in transformation methods
         self.graph = Some(params.graph);
 
+        // Store the semantic bundler reference for use in transformations
+        self.semantic_bundler = Some(params.semantic_bundler);
+
+        // Initialize stdlib modules from the dependency graph
+        self.initialize_stdlib_modules_from_graph(params.graph);
+
         // Initialize bundler settings and collect preliminary data
         self.initialize_bundler(params);
 
@@ -2222,7 +2236,7 @@ impl<'a> Bundler<'a> {
 
         if needs_types_for_inlined_imports {
             log::debug!("Adding types import for inlined module imports in entry module");
-            import_deduplicator::add_stdlib_import(self, "types");
+            self.require_stdlib_module("types");
         }
 
         // Collect imports from ALL modules (after normalization) for hoisting
@@ -2235,20 +2249,21 @@ impl<'a> Bundler<'a> {
         // If we have wrapper modules, inject types as stdlib dependency.
         // Also add functools, as wrapper init functions are cached with @functools.cache.
         if !wrapper_modules.is_empty() {
-            log::debug!("Adding types import for wrapper modules");
-            import_deduplicator::add_stdlib_import(self, "types");
+            log::debug!("Adding types and functools imports for wrapper modules");
+            self.require_stdlib_module("types");
+            self.require_stdlib_module("functools");
         }
 
         // If we have namespace imports, inject types as stdlib dependency
         if !self.namespace_imported_modules.is_empty() {
             log::debug!("Adding types import for namespace imports");
-            import_deduplicator::add_stdlib_import(self, "types");
+            self.require_stdlib_module("types");
         }
 
         // If entry module has direct imports or dotted imports that need namespace objects
         if needs_types_for_entry_imports {
             log::debug!("Adding types import for namespace objects in entry module");
-            import_deduplicator::add_stdlib_import(self, "types");
+            self.require_stdlib_module("types");
         }
 
         // We'll add types import later if we actually create namespace objects for importlib
@@ -2303,6 +2318,18 @@ impl<'a> Bundler<'a> {
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
 
+        // Generate stdlib imports if needed (these go at the very top)
+        if !self.stdlib_modules_to_import.is_empty() {
+            log::debug!(
+                "Generating stdlib imports for {} modules",
+                self.stdlib_modules_to_import.len()
+            );
+            self.require_stdlib_module("types"); // Ensure types is imported for SimpleNamespace
+
+            let stdlib_statements = self.generate_stdlib_imports();
+            final_body.extend(stdlib_statements);
+        }
+
         // Now that all namespace requirements have been registered, generate the namespace statements
         // and parent attribute assignments at the beginning of the bundle
         if !self.namespace_registry.is_empty() {
@@ -2310,7 +2337,6 @@ impl<'a> Bundler<'a> {
                 "Generating namespace statements for {} registered namespaces",
                 self.namespace_registry.len()
             );
-            import_deduplicator::add_stdlib_import(self, "types");
 
             // Generate all namespace statements through the centralized method
             // This ensures namespaces exist before any module code that might reference them
@@ -2399,7 +2425,7 @@ impl<'a> Bundler<'a> {
         // transform
         if has_wrapper_modules {
             log::debug!("Adding functools import for module cache decorators");
-            import_deduplicator::add_stdlib_import(self, "functools");
+            self.require_stdlib_module("functools");
         }
 
         if use_module_cache_for_wrappers {
@@ -2593,7 +2619,7 @@ impl<'a> Bundler<'a> {
                             if is_safe_stdlib_module(imported_name) && alias.asname.is_none() {
                                 // This is a normalized stdlib import (no alias), ensure it's
                                 // hoisted
-                                import_deduplicator::add_stdlib_import(self, imported_name);
+                                self.require_stdlib_module(imported_name);
                             }
                         }
                     }
@@ -2685,7 +2711,7 @@ impl<'a> Bundler<'a> {
                 // Use centralized namespace_manager for consistency
                 // This ensures proper tracking and deduplication
                 // Ensure 'types' is available for SimpleNamespace construction (idempotent)
-                import_deduplicator::add_stdlib_import(self, "types");
+                self.require_stdlib_module("types");
                 for inlined_submodule in sorted_submodules {
                     log::debug!(
                         "Registering early namespace for inlined submodule '{inlined_submodule}'"
@@ -3345,7 +3371,7 @@ impl<'a> Bundler<'a> {
                             .check_module_has_forward_references(module_name, module_rename_map);
 
                         // Ensure 'types' is imported for SimpleNamespace creation
-                        import_deduplicator::add_stdlib_import(self, "types");
+                        self.require_stdlib_module("types");
 
                         // Create a SimpleNamespace for this module only if it doesn't exist
                         let namespace_stmts =
@@ -3449,7 +3475,7 @@ impl<'a> Bundler<'a> {
                                                 "Found stdlib import in wrapper module \
                                                  {module_name}: {module}"
                                             );
-                                            import_deduplicator::add_stdlib_import(self, module);
+                                            self.require_stdlib_module(module);
                                         }
                                     }
                                 }
@@ -3471,9 +3497,7 @@ impl<'a> Bundler<'a> {
                                             );
                                             // For from imports, we need to add the base module
                                             // import
-                                            import_deduplicator::add_stdlib_import(
-                                                self, module_str,
-                                            );
+                                            self.require_stdlib_module(module_str);
                                         }
                                     }
                                 }
@@ -4211,7 +4235,7 @@ impl<'a> Bundler<'a> {
             // Track if namespace objects were created
             if created_namespace_objects {
                 log::debug!("Namespace objects were created, adding types import");
-                import_deduplicator::add_stdlib_import(self, "types");
+                self.require_stdlib_module("types");
             }
 
             // If importlib was transformed, remove importlib import
@@ -4710,7 +4734,7 @@ impl<'a> Bundler<'a> {
 
         // If we're generating any namespace statements, ensure types is imported
         if !namespace_statements.is_empty() {
-            import_deduplicator::add_stdlib_import(self, "types");
+            self.require_stdlib_module("types");
         }
 
         // Add hoisted imports at the beginning of final_body
@@ -4823,6 +4847,147 @@ impl<'a> Bundler<'a> {
     /// Check if a namespace is already registered
     pub fn is_namespace_registered(&self, sanitized_name: &str) -> bool {
         self.namespace_registry.contains_key(sanitized_name)
+    }
+
+    /// Initialize stdlib modules from the dependency graph
+    fn initialize_stdlib_modules_from_graph(&mut self, graph: &CriboGraph) {
+        // Collect all stdlib imports from the dependency graph
+        for (_module_id, module) in &graph.modules {
+            for (_item_id, item_data) in &module.items {
+                // Add all stdlib imports from this item to our set
+                for stdlib_import in &item_data.stdlib_imports {
+                    self.stdlib_modules_to_import.insert(stdlib_import.clone());
+                }
+            }
+        }
+
+        log::debug!(
+            "Found {} stdlib imports from dependency graph",
+            self.stdlib_modules_to_import.len()
+        );
+    }
+
+    /// Generate the stdlib import statements and _cribo namespace assignments
+    fn generate_stdlib_imports(&mut self) -> Vec<Stmt> {
+        let mut statements = Vec::new();
+
+        // Skip if no stdlib imports
+        if self.stdlib_modules_to_import.is_empty() {
+            log::debug!("No stdlib imports to generate");
+            return statements;
+        }
+
+        // Always ensure 'types' is included for SimpleNamespace
+        self.stdlib_modules_to_import.insert("types".to_string());
+
+        log::debug!(
+            "Generating stdlib imports for: {:?}",
+            self.stdlib_modules_to_import
+        );
+
+        // Sort stdlib imports for deterministic output
+        let mut sorted_imports: Vec<_> = self.stdlib_modules_to_import.iter().cloned().collect();
+        sorted_imports.sort();
+
+        // First, generate all import statements with aliases
+        for module_name in &sorted_imports {
+            // Generate alias name: _cribo_module_name
+            let alias_name = format!("_cribo_{}", module_name.cow_replace(".", "_"));
+
+            // Generate: import module_name as _cribo_module_name
+            let import_stmt = StmtImport {
+                node_index: AtomicNodeIndex::dummy(),
+                names: vec![ruff_python_ast::Alias {
+                    node_index: AtomicNodeIndex::dummy(),
+                    name: Identifier::new(module_name, TextRange::default()),
+                    asname: Some(Identifier::new(&alias_name, TextRange::default())),
+                    range: TextRange::default(),
+                }],
+                range: TextRange::default(),
+            };
+            statements.push(Stmt::Import(import_stmt));
+        }
+
+        // Then create the _cribo namespace
+        // For modules with dots in their names (e.g., collections.abc), we can't use them as keyword arguments
+        // So we'll create the namespace first, then set attributes
+        let mut simple_modules = Vec::new();
+        let mut dotted_modules = Vec::new();
+
+        for module_name in &sorted_imports {
+            if module_name.contains('.') {
+                dotted_modules.push(module_name.clone());
+            } else {
+                simple_modules.push(module_name.clone());
+            }
+        }
+
+        // Build keyword arguments for simple modules (no dots)
+        let mut keywords = vec![Keyword {
+            node_index: AtomicNodeIndex::dummy(),
+            arg: Some(Identifier::new("__name__", TextRange::default())),
+            value: expressions::string_literal("_cribo"),
+            range: TextRange::default(),
+        }];
+
+        for module_name in &simple_modules {
+            let alias_name = format!("_cribo_{}", module_name.cow_replace(".", "_"));
+            keywords.push(Keyword {
+                node_index: AtomicNodeIndex::dummy(),
+                arg: Some(Identifier::new(module_name, TextRange::default())),
+                value: expressions::name(&alias_name, ExprContext::Load),
+                range: TextRange::default(),
+            });
+        }
+
+        // Create: _cribo = _cribo_types.SimpleNamespace(__name__='_cribo', os=_cribo_os, ...)
+        let cribo_namespace = statements::assign(
+            vec![expressions::name("_cribo", ExprContext::Store)],
+            expressions::call(
+                expressions::attribute(
+                    expressions::name("_cribo_types", ExprContext::Load),
+                    "SimpleNamespace",
+                    ExprContext::Load,
+                ),
+                vec![],
+                keywords,
+            ),
+        );
+        statements.push(cribo_namespace);
+
+        // Add dotted modules as attributes after namespace creation
+        for module_name in &dotted_modules {
+            let alias_name = format!("_cribo_{}", module_name.cow_replace(".", "_"));
+            // Generate: setattr(_cribo, 'module.name', _cribo_module_name)
+            let setattr_call = expressions::call(
+                expressions::name("setattr", ExprContext::Load),
+                vec![
+                    expressions::name("_cribo", ExprContext::Load),
+                    expressions::string_literal(module_name),
+                    expressions::name(&alias_name, ExprContext::Load),
+                ],
+                vec![],
+            );
+            statements.push(Stmt::Expr(StmtExpr {
+                node_index: AtomicNodeIndex::dummy(),
+                value: Box::new(setattr_call),
+                range: TextRange::default(),
+            }));
+        }
+
+        statements
+    }
+
+    /// Register an additional stdlib module requirement (e.g., 'types' for `SimpleNamespace`)
+    pub fn require_stdlib_module(&mut self, module_name: &str) {
+        log::debug!("Adding dynamic stdlib requirement: {module_name}");
+        self.stdlib_modules_to_import
+            .insert(module_name.to_string());
+    }
+
+    /// Get the rewritten path for a stdlib module (e.g., "json" -> "_cribo.json")
+    pub fn get_rewritten_stdlib_path(module_name: &str) -> String {
+        format!("_cribo.{module_name}")
     }
 
     /// Generate all registered namespaces at once

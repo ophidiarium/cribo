@@ -7,6 +7,8 @@ input_file: crates/cribo/tests/fixtures/circular_import_function_reference/main.
 # https://github.com/ophidiarium/cribo
 
 import types
+import types as _cribo_types
+_cribo = _cribo_types.SimpleNamespace(__name__='_cribo', types=_cribo_types)
 class BaseModel:
     """Base model class."""
 
@@ -43,14 +45,14 @@ BaseModel.__module__ = 'pkg.models'
 """Models module that creates part of the circular chain."""
 Adapter.__module__ = 'pkg.adapters'
 """Adapters module that imports a function from auth."""
-pkg = types.SimpleNamespace(__name__='pkg')
-pkg_auth = types.SimpleNamespace(__name__='pkg.auth')
+pkg = _cribo.types.SimpleNamespace(__name__='pkg')
+pkg_auth = _cribo.types.SimpleNamespace(__name__='pkg.auth')
 pkg.auth = pkg_auth
-pkg_utils = types.SimpleNamespace(__name__='pkg.utils')
+pkg_utils = _cribo.types.SimpleNamespace(__name__='pkg.utils')
 pkg.utils = pkg_utils
-pkg_models = types.SimpleNamespace(__name__='pkg.models')
+pkg_models = _cribo.types.SimpleNamespace(__name__='pkg.models')
 pkg.models = pkg_models
-pkg_adapters = types.SimpleNamespace(__name__='pkg.adapters')
+pkg_adapters = _cribo.types.SimpleNamespace(__name__='pkg.adapters')
 pkg.adapters = pkg_adapters
 adapters = pkg_adapters
 auth = pkg_auth

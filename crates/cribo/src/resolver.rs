@@ -29,6 +29,51 @@ pub fn is_stdlib_module(module_name: &str, python_version: u8) -> bool {
     }
 }
 
+/// Check if a module path is a known stdlib submodule that needs separate importing
+pub fn is_known_stdlib_submodule(module_path: &str) -> bool {
+    // Check if this is a stdlib module itself (not just an attribute)
+    match module_path {
+        // Known stdlib submodules that need separate imports
+        "http.cookiejar"
+        | "http.cookies"
+        | "http.server"
+        | "http.client"
+        | "urllib.parse"
+        | "urllib.request"
+        | "urllib.response"
+        | "urllib.error"
+        | "urllib.robotparser"
+        | "xml.etree"
+        | "xml.etree.ElementTree"
+        | "xml.dom"
+        | "xml.sax"
+        | "xml.parsers"
+        | "email.mime"
+        | "email.parser"
+        | "email.message"
+        | "email.utils"
+        | "collections.abc"
+        | "concurrent.futures"
+        | "importlib.util"
+        | "importlib.machinery"
+        | "importlib.resources"
+        | "multiprocessing.pool"
+        | "multiprocessing.managers"
+        | "os.path" => true,
+        _ => {
+            // For other cases, check if it's a known stdlib module
+            let root = module_path.split('.').next().unwrap_or(module_path);
+            if sys::is_known_standard_library(10, root) {
+                // If the root is stdlib and the full path is also recognized as stdlib,
+                // it's likely a submodule
+                sys::is_known_standard_library(10, module_path)
+            } else {
+                false
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportType {
     FirstParty,

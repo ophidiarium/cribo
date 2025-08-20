@@ -5,6 +5,8 @@ input_file: crates/cribo/tests/fixtures/circular_import_function_reference/main.
 RuffLintResults {
     f401_violations: [],
     f404_violations: [],
-    other_violations: [],
-    total_violations: 0,
+    other_violations: [
+        "Line 5: unused-import - `types` imported but unused",
+    ],
+    total_violations: 1,
 }

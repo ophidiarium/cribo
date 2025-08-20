@@ -19,7 +19,6 @@ pub mod orchestrator;
 pub mod resolver;
 pub mod semantic_bundler;
 pub mod side_effects;
-pub mod stdlib_normalization;
 pub mod transformation_context;
 pub mod tree_shaking;
 pub mod types;

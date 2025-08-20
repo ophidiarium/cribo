@@ -7,7 +7,8 @@ use std::path::PathBuf;
 
 use log::{debug, trace, warn};
 use ruff_python_ast::{
-    AtomicNodeIndex, Expr, ExprContext, Identifier, Keyword, ModModule, Stmt, StmtImportFrom,
+    AtomicNodeIndex, Expr, ExprContext, Identifier, Keyword, ModModule, Stmt, StmtImport,
+    StmtImportFrom,
 };
 use ruff_text_size::TextRange;
 
@@ -56,6 +57,7 @@ pub enum NamespaceContext {
     #[allow(dead_code)]
     CircularDependencyWrapper,
     ImportedSubmodule,
+    StdlibModule,
 }
 
 impl NamespaceContext {
@@ -67,6 +69,7 @@ impl NamespaceContext {
             Self::InlinedModule => 2,
             Self::CircularDependencyWrapper => 3,
             Self::ImportedSubmodule => 4,
+            Self::StdlibModule => 5,
         }
     }
 }
@@ -689,7 +692,12 @@ pub fn require_namespace(
     let sanitized_name = if let Some(existing) = bundler.path_to_sanitized_name.get(path) {
         existing.clone()
     } else {
-        let sanitized = sanitize_module_name_for_identifier(path);
+        let sanitized = if context == NamespaceContext::StdlibModule {
+            // For stdlib modules, use _cribo_modulename format
+            format!("_cribo_{}", sanitize_module_name_for_identifier(path))
+        } else {
+            sanitize_module_name_for_identifier(path)
+        };
         bundler
             .path_to_sanitized_name
             .insert(path.to_string(), sanitized.clone());
@@ -977,27 +985,46 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
             continue;
         }
 
-        // a. Generate the namespace creation statement with __name__ as keyword
-        let keywords = vec![Keyword {
-            node_index: AtomicNodeIndex::dummy(),
-            arg: Some(Identifier::new("__name__", TextRange::default())),
-            value: expressions::string_literal(&info.original_path),
-            range: TextRange::default(),
-        }];
+        // a. Generate the namespace creation statement or import statement based on context
+        let creation_stmt = if info.context == NamespaceContext::StdlibModule {
+            // For stdlib modules, generate: import module
+            // Then we'll assign: _cribo.module = module
+            let import_stmt = StmtImport {
+                node_index: AtomicNodeIndex::dummy(),
+                names: vec![ruff_python_ast::Alias {
+                    node_index: AtomicNodeIndex::dummy(),
+                    name: Identifier::new(&info.original_path, TextRange::default()),
+                    asname: None, // No alias, we'll assign to _cribo.module separately
+                    range: TextRange::default(),
+                }],
+                range: TextRange::default(),
+            };
+            Stmt::Import(import_stmt)
+        } else {
+            // For other namespaces, generate types.SimpleNamespace with __name__ as keyword
+            let keywords = vec![Keyword {
+                node_index: AtomicNodeIndex::dummy(),
+                arg: Some(Identifier::new("__name__", TextRange::default())),
+                value: expressions::string_literal(&info.original_path),
+                range: TextRange::default(),
+            }];
 
-        let creation_stmt = statements::assign(
-            vec![expressions::name(sanitized_name, ExprContext::Store)],
-            expressions::call(
-                expressions::attribute(
-                    expressions::name("types", ExprContext::Load),
-                    "SimpleNamespace",
-                    ExprContext::Load,
-                ),
-                vec![],
-                keywords,
-            ),
-        );
+            statements::assign(
+                vec![expressions::name(sanitized_name, ExprContext::Store)],
+                expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
+            )
+        };
         statements.push(creation_stmt);
+
+        // For stdlib modules, also add assignment to _cribo namespace
+        if info.context == NamespaceContext::StdlibModule {
+            // Generate: _cribo.module = module
+            statements.push(statements::assign_attribute(
+                "_cribo",
+                &info.original_path,
+                expressions::name(&info.original_path, ExprContext::Load),
+            ));
+        }
 
         // b. Track that this needs to be marked as created (defer mutation)
         namespaces_to_mark_created.push(sanitized_name.clone());

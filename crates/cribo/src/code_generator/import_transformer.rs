@@ -240,6 +240,29 @@ impl<'a> RecursiveImportTransformer<'a> {
         None
     }
 
+    /// Check if this is a stdlib import that should be normalized
+    fn should_normalize_stdlib_import(&self, module_name: &str) -> bool {
+        // Check if it's a safe stdlib module
+        crate::side_effects::is_safe_stdlib_module(module_name)
+    }
+
+    /// Build a mapping of stdlib imports to their rewritten paths
+    /// This mapping is used during expression rewriting
+    fn build_stdlib_rename_map(
+        &mut self,
+        imports: &[(String, Option<String>)],
+    ) -> FxIndexMap<String, String> {
+        let mut rename_map = FxIndexMap::default();
+
+        for (module_name, alias) in imports {
+            let local_name = alias.as_ref().unwrap_or(module_name);
+            let rewritten_path = Bundler::get_rewritten_stdlib_path(module_name);
+            rename_map.insert(local_name.clone(), rewritten_path);
+        }
+
+        rename_map
+    }
+
     /// Transform a module recursively, handling all imports at any depth
     pub(crate) fn transform_module(&mut self, module: &mut ModModule) {
         log::debug!(
@@ -553,8 +576,51 @@ impl<'a> RecursiveImportTransformer<'a> {
                 if is_hoisted {
                     vec![stmt.clone()]
                 } else {
-                    // Track import aliases before rewriting
+                    // Check if this is a stdlib import that should be normalized
+                    let mut stdlib_imports = Vec::new();
+                    let mut non_stdlib_imports = Vec::new();
+
                     for alias in &import_stmt.names {
+                        let module_name = alias.name.as_str();
+
+                        // Only normalize stdlib imports without user-defined aliases
+                        // Imports like "import json as j" should be kept as-is
+                        if self.should_normalize_stdlib_import(module_name)
+                            && alias.asname.is_none()
+                        {
+                            stdlib_imports.push((
+                                module_name.to_string(),
+                                alias.asname.as_ref().map(|n| n.as_str().to_string()),
+                            ));
+                        } else {
+                            non_stdlib_imports.push(alias.clone());
+                        }
+                    }
+
+                    // Handle stdlib imports (only those without aliases)
+                    if !stdlib_imports.is_empty() {
+                        // Build rename map for expression rewriting
+                        let rename_map = self.build_stdlib_rename_map(&stdlib_imports);
+
+                        // Track these renames for expression rewriting
+                        for (local_name, rewritten_path) in rename_map {
+                            self.import_aliases.insert(local_name, rewritten_path);
+                        }
+                    }
+
+                    // If all imports were stdlib without aliases, return empty to remove the statement
+                    if non_stdlib_imports.is_empty() {
+                        return Vec::new();
+                    }
+
+                    // Otherwise, create a new import with only non-stdlib imports
+                    let new_import = StmtImport {
+                        names: non_stdlib_imports,
+                        ..import_stmt.clone()
+                    };
+
+                    // Track import aliases before rewriting
+                    for alias in &new_import.names {
                         let module_name = alias.name.as_str();
                         let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
 
@@ -578,7 +644,7 @@ impl<'a> RecursiveImportTransformer<'a> {
 
                     let result = rewrite_import_with_renames(
                         self.bundler,
-                        import_stmt.clone(),
+                        new_import,
                         self.symbol_renames,
                         &mut self.populated_modules,
                     );
@@ -742,6 +808,32 @@ impl<'a> RecursiveImportTransformer<'a> {
                 .map(|a| a.name.as_str())
                 .collect::<Vec<_>>()
         );
+
+        // Check if this is a stdlib module that should be normalized
+        if let Some(module) = &import_from.module {
+            let module_str = module.as_str();
+            if import_from.level == 0 && self.should_normalize_stdlib_import(module_str) {
+                // Extract the root module for stdlib imports
+                let _root_module = module_str.split('.').next().unwrap_or(module_str);
+                // Track renaming for imported symbols
+                for alias in &import_from.names {
+                    let imported_name = alias.name.as_str();
+                    if imported_name == "*" {
+                        continue; // Skip star imports
+                    }
+
+                    let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+                    let full_path = format!("_cribo.{module_str}.{imported_name}");
+
+                    // Track this renaming for expression rewriting
+                    self.import_aliases
+                        .insert(local_name.to_string(), full_path);
+                }
+
+                // Return empty to remove the import statement
+                return Vec::new();
+            }
+        }
 
         // Resolve relative imports
         let resolved_module = if import_from.level > 0 {
@@ -2062,9 +2154,41 @@ impl<'a> RecursiveImportTransformer<'a> {
                     });
                 }
             }
-            // Check if Name expressions need to be rewritten for wrapper module imports
+            // Check if Name expressions need to be rewritten for wrapper module imports or stdlib imports
             Expr::Name(name_expr) => {
                 let name = name_expr.id.as_str();
+
+                // Check if this name is a stdlib import alias that needs rewriting
+                // Only rewrite if it's not shadowed by a local variable
+                if let Some(rewritten_path) = self.import_aliases.get(name) {
+                    // Check if this is a stdlib module reference (starts with _cribo.)
+                    if rewritten_path.starts_with("_cribo.") {
+                        // Use semantic analysis to check if this is shadowed by a local variable
+                        let is_shadowed =
+                            if let Some(_semantic_bundler) = self.bundler.semantic_bundler {
+                                // Try to find the module in the semantic bundler
+                                // This is a simplified check - in reality we'd need to know the exact scope
+                                // For now, we'll skip the semantic check if we don't have proper module info
+                                false // TODO: Implement proper semantic check using SemanticModel
+                            } else {
+                                false
+                            };
+
+                        if !is_shadowed {
+                            log::debug!(
+                                "Rewriting stdlib reference '{name}' to '{rewritten_path}'"
+                            );
+
+                            // Parse the rewritten path to create attribute access
+                            // e.g., "_cribo.json" becomes _cribo.json
+                            let parts: Vec<&str> = rewritten_path.split('.').collect();
+                            if parts.len() >= 2 {
+                                *expr = expressions::dotted_name(&parts, name_expr.ctx);
+                                return;
+                            }
+                        }
+                    }
+                }
 
                 // Check if this name was imported from a wrapper module and needs rewriting
                 if let Some((wrapper_module, imported_name)) = self.wrapper_module_imports.get(name)

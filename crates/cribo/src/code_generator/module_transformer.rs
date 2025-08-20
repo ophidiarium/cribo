@@ -291,11 +291,7 @@ pub fn transform_module_to_init_function<'a>(
         body.push(ast_builder::statements::simple_assign(
             symbol_name,
             ast_builder::expressions::call(
-                ast_builder::expressions::attribute(
-                    ast_builder::expressions::name("types", ExprContext::Load),
-                    "SimpleNamespace",
-                    ExprContext::Load,
-                ),
+                ast_builder::expressions::simple_namespace_ctor(),
                 vec![],
                 vec![],
             ),
@@ -2428,13 +2424,17 @@ pub fn transform_module_to_cache_init_function(
     // Call the regular transform_module_to_init_function to get the function
     let stmt = transform_module_to_init_function(bundler, ctx, ast, symbol_renames);
 
-    // Add the @functools.cache decorator
+    // Add the @_cribo.functools.cache decorator
     if let Stmt::FunctionDef(mut func_def) = stmt {
         func_def.decorator_list = vec![Decorator {
             range: TextRange::default(),
             node_index: AtomicNodeIndex::dummy(),
             expression: ast_builder::expressions::attribute(
-                ast_builder::expressions::name("functools", ExprContext::Load),
+                ast_builder::expressions::attribute(
+                    ast_builder::expressions::name("_cribo", ExprContext::Load),
+                    "functools",
+                    ExprContext::Load,
+                ),
                 "cache",
                 ExprContext::Load,
             ),

@@ -162,10 +162,6 @@ struct ProcessedModule {
     ast: ModModule,
     /// The original source code (needed for semantic analysis and code generation)
     source: String,
-    /// Normalized imports map (alias -> canonical)
-    normalized_imports: FxIndexMap<String, String>,
-    /// Modules created by stdlib normalization (e.g., "abc", "collections")
-    normalized_modules: crate::types::FxIndexSet<String>,
     /// Module ID if already added to dependency graph
     module_id: Option<crate::cribo_graph::ModuleId>,
 }
@@ -254,8 +250,6 @@ impl BundleOrchestrator {
             return Ok(ProcessedModule {
                 ast: cached.ast.clone(),
                 source: cached.source.clone(),
-                normalized_imports: cached.normalized_imports.clone(),
-                normalized_modules: cached.normalized_modules.clone(),
                 module_id,
             });
         }
@@ -272,7 +266,7 @@ impl BundleOrchestrator {
 
         let parsed = ruff_python_parser::parse_module(&source)
             .with_context(|| format!("Failed to parse Python file: {}", module_path.display()))?;
-        let mut ast = parsed.into_syntax();
+        let ast = parsed.into_syntax();
 
         // Step 2: Add to graph and perform semantic analysis (if graph provided)
         let module_id = if let Some(graph) = graph {
@@ -295,23 +289,10 @@ impl BundleOrchestrator {
             None
         };
 
-        // Step 3: Stdlib normalization (transforms AST)
-        let normalization_result = crate::stdlib_normalization::normalize_stdlib_imports(&mut ast);
-        debug!(
-            "Normalized imports for {module_name}: {:?}",
-            normalization_result.alias_to_canonical
-        );
-        debug!(
-            "Normalized modules for {module_name}: {:?}",
-            normalization_result.normalized_modules
-        );
-
-        // Step 4: Cache the result
+        // Step 3: Cache the result
         let processed = ProcessedModule {
             ast: ast.clone(),
             source: source.clone(),
-            normalized_imports: normalization_result.alias_to_canonical.clone(),
-            normalized_modules: normalization_result.normalized_modules.clone(),
             module_id,
         };
 
@@ -326,8 +307,6 @@ impl BundleOrchestrator {
         Ok(ProcessedModule {
             ast,
             source,
-            normalized_imports: normalization_result.alias_to_canonical,
-            normalized_modules: normalization_result.normalized_modules,
             module_id,
         })
     }
@@ -1001,8 +980,7 @@ impl BundleOrchestrator {
             // Build dependency graph BEFORE no-ops removal
             if let Some(module) = params.graph.get_module_by_name_mut(&module_name) {
                 let mut builder = crate::graph_builder::GraphBuilder::new(module);
-                builder
-                    .set_normalized_modules(processed.normalized_modules.iter().cloned().collect());
+                // No longer setting normalized_modules as we handle stdlib normalization later
                 builder.build_from_ast(&processed.ast)?;
             }
 

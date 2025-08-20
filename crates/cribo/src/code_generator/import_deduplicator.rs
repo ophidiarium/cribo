@@ -115,7 +115,7 @@ pub(super) fn stmt_uses_importlib(stmt: &Stmt) -> bool {
 }
 
 /// Check if a statement is a hoisted import
-pub(super) fn is_hoisted_import(bundler: &Bundler, stmt: &Stmt) -> bool {
+pub(super) fn is_hoisted_import(_bundler: &Bundler, stmt: &Stmt) -> bool {
     match stmt {
         Stmt::ImportFrom(import_from) => {
             if let Some(ref module) = import_from.module {
@@ -124,49 +124,29 @@ pub(super) fn is_hoisted_import(bundler: &Bundler, stmt: &Stmt) -> bool {
                 if module_name == "__future__" {
                     return true;
                 }
-                // Check if this is a stdlib import that we've hoisted
+                // Check if this is a stdlib import (all stdlib imports are hoisted)
                 if crate::side_effects::is_safe_stdlib_module(module_name) {
-                    // Check if this exact import is in our hoisted stdlib imports
-                    return is_import_in_hoisted_stdlib(bundler, module_name);
+                    return true;
                 }
-                // We no longer hoist third-party imports, so they should never be considered
-                // hoisted Only stdlib and __future__ imports are hoisted
             }
             false
         }
         Stmt::Import(import_stmt) => {
-            // Check if any of the imported modules are hoisted (stdlib or third-party)
+            // Only hoist stdlib imports without user-defined aliases
+            // Imports like "import json as j" should not be hoisted
             import_stmt.names.iter().any(|alias| {
                 let module_name = alias.name.as_str();
-                // Check stdlib imports
-                if crate::side_effects::is_safe_stdlib_module(module_name) {
-                    bundler.stdlib_import_statements.iter().any(|hoisted| {
-                        matches!(hoisted, Stmt::Import(hoisted_import)
-                            if hoisted_import.names.iter().any(|h| h.name == alias.name))
-                    })
+                // Only hoist if it's stdlib AND has no user-defined alias
+                let is_hoisted = crate::side_effects::is_safe_stdlib_module(module_name)
+                    && alias.asname.is_none();
+                if is_hoisted {
+                    log::debug!("Import {module_name} is a hoisted stdlib import");
                 }
-                // We no longer hoist third-party imports
-                else {
-                    false
-                }
+                is_hoisted
             })
         }
         _ => false,
     }
-}
-
-/// Check if a specific module is in our hoisted stdlib imports
-pub(super) fn is_import_in_hoisted_stdlib(bundler: &Bundler, module_name: &str) -> bool {
-    // Check if module is in our from imports map
-    if bundler.stdlib_import_from_map.contains_key(module_name) {
-        return true;
-    }
-
-    // Check if module is in our regular import statements
-    bundler.stdlib_import_statements.iter().any(|hoisted| {
-        matches!(hoisted, Stmt::Import(hoisted_import)
-            if hoisted_import.names.iter().any(|alias| alias.name.as_str() == module_name))
-    })
 }
 
 /// Add a regular stdlib import (e.g., "sys", "types")
