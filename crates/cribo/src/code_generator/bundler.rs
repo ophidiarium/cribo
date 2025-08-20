@@ -22,7 +22,9 @@ use crate::{
         },
         expression_handlers, import_deduplicator,
         import_transformer::{RecursiveImportTransformer, RecursiveImportTransformerParams},
-        module_registry::{INIT_RESULT_VAR, MODULE_VAR, sanitize_module_name_for_identifier},
+        module_registry::{
+            INIT_RESULT_VAR, MODULE_VAR, is_init_function, sanitize_module_name_for_identifier,
+        },
         module_transformer, namespace_manager,
         namespace_manager::{NamespaceContext, NamespaceInfo},
     },
@@ -887,9 +889,7 @@ impl<'a> Bundler<'a> {
                             && assign.targets.len() == 1
                             && let Expr::Call(call) = &assign.value.as_ref()
                             && let Expr::Name(func_name) = &call.func.as_ref()
-                            && crate::code_generator::module_registry::is_init_function(
-                                func_name.id.as_str(),
-                            )
+                            && is_init_function(func_name.id.as_str())
                         {
                             // Check if the target matches our module
                             match &assign.targets[0] {
@@ -985,7 +985,7 @@ impl<'a> Bundler<'a> {
         ruff_python_stdlib::identifiers::is_identifier(name)
     }
 
-    /// Check if a symbol is re-exported from an inlined submodule  
+    /// Check if a symbol is re-exported from an inlined submodule
     pub(crate) fn is_symbol_from_inlined_submodule(
         &self,
         module_name: &str,
@@ -1420,9 +1420,7 @@ impl<'a> Bundler<'a> {
                         // These need to happen before any attribute accesses
                         if let Expr::Call(call) = assign.value.as_ref()
                             && let Expr::Name(func_name) = call.func.as_ref()
-                            && crate::code_generator::module_registry::is_init_function(
-                                func_name.id.as_str(),
-                            )
+                            && is_init_function(func_name.id.as_str())
                         {
                             log::debug!(
                                 "Found wrapper module initialization: {}.{} = {}()",
@@ -3923,9 +3921,7 @@ impl<'a> Bundler<'a> {
                         && let Expr::Call(call) = &expr_stmt.value.as_ref()
                         && let Expr::Name(name) = &call.func.as_ref()
                     {
-                        return !crate::code_generator::module_registry::is_init_function(
-                            name.id.as_str(),
-                        );
+                        return !is_init_function(name.id.as_str());
                     }
                     true
                 })
@@ -4341,9 +4337,7 @@ impl<'a> Bundler<'a> {
                                     // Check if this is a module init assignment
                                     if let Expr::Call(call) = &assign.value.as_ref()
                                         && let Expr::Name(func_name) = &call.func.as_ref()
-                                        && crate::code_generator::module_registry::is_init_function(
-                                            func_name.id.as_str(),
-                                        )
+                                        && is_init_function(func_name.id.as_str())
                                     {
                                         // Check in final_body for same module init
                                         final_body.iter().any(|stmt| {
@@ -4355,12 +4349,12 @@ impl<'a> Bundler<'a> {
                                                     &existing.value.as_ref()
                                                 && let Expr::Name(existing_func) =
                                                     &existing_call.func.as_ref()
-                                                && crate::code_generator::module_registry::is_init_function(
-                                                    existing_func.id.as_str()
-                                                )
+                                                && is_init_function(existing_func.id.as_str())
                                             {
                                                 let existing_path =
-                                                    expression_handlers::extract_attribute_path(existing_attr);
+                                                    expression_handlers::extract_attribute_path(
+                                                        existing_attr,
+                                                    );
                                                 if existing_path == target_path {
                                                     log::debug!(
                                                         "Found duplicate module init in \
@@ -4558,9 +4552,7 @@ impl<'a> Bundler<'a> {
                             // Check if this is a module init assignment
                             if let Expr::Call(call) = &assign.value.as_ref()
                                 && let Expr::Name(func_name) = &call.func.as_ref()
-                                && crate::code_generator::module_registry::is_init_function(
-                                    func_name.id.as_str(),
-                                )
+                                && is_init_function(func_name.id.as_str())
                             {
                                 // Check against existing deferred imports for same module init
                                 all_deferred_imports.iter().any(|existing| {
@@ -4572,9 +4564,7 @@ impl<'a> Bundler<'a> {
                                             &existing_assign.value.as_ref()
                                         && let Expr::Name(existing_func) =
                                             &existing_call.func.as_ref()
-                                        && crate::code_generator::module_registry::is_init_function(
-                                            existing_func.id.as_str(),
-                                        )
+                                        && is_init_function(existing_func.id.as_str())
                                     {
                                         let existing_path =
                                             expression_handlers::extract_attribute_path(
@@ -4693,9 +4683,7 @@ impl<'a> Bundler<'a> {
                         && let Expr::Call(call) = &expr_stmt.value.as_ref()
                         && let Expr::Name(name) = &call.func.as_ref()
                     {
-                        return !crate::code_generator::module_registry::is_init_function(
-                            name.id.as_str(),
-                        );
+                        return !is_init_function(name.id.as_str());
                     }
                     true
                 })
@@ -7420,7 +7408,7 @@ impl Bundler<'_> {
                         && let Expr::Attribute(attr) = &assign.targets[0]
                         && let Expr::Call(call) = assign.value.as_ref()
                         && let Expr::Name(func_name) = call.func.as_ref()
-                        && func_name.id.starts_with("__cribo_init_")
+                        && is_init_function(func_name.id.as_str())
                     {
                         // Extract the namespace path (e.g., "mypkg.compat")
                         let namespace_path = expr_to_dotted_name(&Expr::Attribute(attr.clone()));
@@ -7633,7 +7621,7 @@ impl Bundler<'_> {
         for (idx, stmt) in statements.iter().enumerate() {
             // Track namespace init function definitions
             if let Stmt::FunctionDef(func_def) = stmt
-                && func_def.name.starts_with("__cribo_init_")
+                && is_init_function(func_def.name.as_str())
             {
                 namespace_functions.insert(func_def.name.to_string(), idx);
             }
@@ -7642,7 +7630,7 @@ impl Bundler<'_> {
                 && assign.targets.len() == 1
                 && let Expr::Call(call) = assign.value.as_ref()
                 && let Expr::Name(func_name) = call.func.as_ref()
-                && func_name.id.starts_with("__cribo_init_")
+                && is_init_function(func_name.id.as_str())
             {
                 if let Expr::Attribute(attr) = &assign.targets[0] {
                     let namespace_path = expr_to_dotted_name(&Expr::Attribute(attr.clone()));

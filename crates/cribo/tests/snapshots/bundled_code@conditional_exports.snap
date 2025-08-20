@@ -16,32 +16,32 @@ BaseError.__module__ = 'exceptions_module'
 """Module that uses imports from compat_module (like requests.exceptions)."""
 exceptions_module = types.SimpleNamespace(__name__='exceptions_module', BaseError=BaseError)
 @functools.cache
-def __cribo_init___cribo_244765_compat_module():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'compat_module'
+def _cribo_init___cribo_244765_compat_module():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'compat_module'
     """\nModule that mimics requests.compat structure.\nNo __all__ defined, so all non-underscore symbols should be exported.\n"""
     _ver = sys.version_info
-    __cribo_module._ver = _ver
+    _cribo_module._ver = _ver
     is_py2 = _ver[0] == 2
-    __cribo_module.is_py2 = is_py2
+    _cribo_module.is_py2 = is_py2
     is_py3 = _ver[0] == 3
-    __cribo_module.is_py3 = is_py3
+    _cribo_module.is_py3 = is_py3
     has_simplejson = False
-    __cribo_module.has_simplejson = has_simplejson
+    _cribo_module.has_simplejson = has_simplejson
     try:
         import simplejson as json
-        __cribo_module.json = json
+        _cribo_module.json = json
         has_simplejson = True
-        __cribo_module.has_simplejson = has_simplejson
+        _cribo_module.has_simplejson = has_simplejson
     except ImportError:
         import json
-        __cribo_module.json = json
+        _cribo_module.json = json
     if has_simplejson:
         from simplejson import JSONDecodeError
-        __cribo_module.JSONDecodeError = JSONDecodeError
+        _cribo_module.JSONDecodeError = JSONDecodeError
     else:
         from json import JSONDecodeError
-        __cribo_module.JSONDecodeError = JSONDecodeError
+        _cribo_module.JSONDecodeError = JSONDecodeError
 
     def _resolve_char_detection():
         """Find supported character detection libraries."""
@@ -53,23 +53,23 @@ def __cribo_init___cribo_244765_compat_module():
                 except ImportError:
                     pass
         return chardet
-    __cribo_module._resolve_char_detection = _resolve_char_detection
+    _cribo_module._resolve_char_detection = _resolve_char_detection
     chardet = _resolve_char_detection()
-    __cribo_module.chardet = chardet
+    _cribo_module.chardet = chardet
     builtin_str = str
-    __cribo_module.builtin_str = builtin_str
+    _cribo_module.builtin_str = builtin_str
     basestring = str, bytes
-    __cribo_module.basestring = basestring
+    _cribo_module.basestring = basestring
     _internal_cache = {}
-    __cribo_module._internal_cache = _internal_cache
+    _cribo_module._internal_cache = _internal_cache
 
     def get_encoding_from_headers(headers):
         """Dummy function to test function exports."""
         return "utf-8"
-    __cribo_module.get_encoding_from_headers = get_encoding_from_headers
-    return __cribo_module
+    _cribo_module.get_encoding_from_headers = get_encoding_from_headers
+    return _cribo_module
 """Test conditional imports and exports without explicit __all__."""
-compat_module = __cribo_init___cribo_244765_compat_module()
+compat_module = _cribo_init___cribo_244765_compat_module()
 print("compat_module has JSONDecodeError:", hasattr(compat_module, "JSONDecodeError"))
 if hasattr(compat_module, "JSONDecodeError"):
     print("✓ Can access compat_module.JSONDecodeError")

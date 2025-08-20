@@ -13,9 +13,9 @@ import tempfile
 import types
 mypackage = types.SimpleNamespace(__name__='mypackage')
 @functools.cache
-def __cribo_init___cribo_7c69fc_mypackage_utils():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'mypackage.utils'
+def _cribo_init___cribo_7c69fc_mypackage_utils():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'mypackage.utils'
     """Utils module with contextlib decorator.\n\nThis module must have side effects to become a wrapper module,\nand uses contextlib as a decorator which should be preserved in\nthe init function but currently isn't.\n"""
     print("Loading utils module")
 
@@ -31,20 +31,20 @@ def __cribo_init___cribo_7c69fc_mypackage_utils():
         except BaseException:
             os.remove(tmp_name)
             raise
-    __cribo_module.atomic_open = atomic_open
-    return __cribo_module
+    _cribo_module.atomic_open = atomic_open
+    return _cribo_module
 @functools.cache
-def __cribo_init___cribo_41b947_mypackage():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'mypackage'
+def _cribo_init___cribo_41b947_mypackage():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'mypackage'
     """Package init file."""
-    mypackage.utils = __cribo_init___cribo_7c69fc_mypackage_utils()
+    mypackage.utils = _cribo_init___cribo_7c69fc_mypackage_utils()
     utils = mypackage.utils
-    __cribo_module.utils = utils
+    _cribo_module.utils = utils
     print("Loading mypackage")
-    return __cribo_module
+    return _cribo_module
 """Test contextlib import missing in wrapper module init functions.\n\nThis test reproduces the bug found when bundling requests where contextlib\nis used as @contextlib.contextmanager decorator but not imported in the\ngenerated init function for wrapper modules with side effects.\n"""
-__cribo_init_result = __cribo_init___cribo_41b947_mypackage()
+__cribo_init_result = _cribo_init___cribo_41b947_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))

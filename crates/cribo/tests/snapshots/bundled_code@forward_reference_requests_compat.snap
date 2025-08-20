@@ -21,40 +21,40 @@ class InvalidJSONError(RequestException):
     """A JSON error occurred."""
     pass
 @functools.cache
-def __cribo_init___cribo_5ad29b_myrequests_compat():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'myrequests.compat'
+def _cribo_init___cribo_5ad29b_myrequests_compat():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'myrequests.compat'
     urlparse = urllib.parse.urlparse
-    __cribo_module.urlparse = urlparse
+    _cribo_module.urlparse = urlparse
     urlunparse = urllib.parse.urlunparse
-    __cribo_module.urlunparse = urlunparse
+    _cribo_module.urlunparse = urlunparse
     urljoin = urllib.parse.urljoin
-    __cribo_module.urljoin = urljoin
+    _cribo_module.urljoin = urljoin
     cookielib = http.cookiejar
-    __cribo_module.cookielib = cookielib
+    _cribo_module.cookielib = cookielib
     MutableMapping = collections.abc.MutableMapping
-    __cribo_module.MutableMapping = MutableMapping
+    _cribo_module.MutableMapping = MutableMapping
     Mapping = collections.abc.Mapping
-    __cribo_module.Mapping = Mapping
+    _cribo_module.Mapping = Mapping
     """Compat module that provides base classes and utilities used by other modules."""
     try:
         import simplejson as json
-        __cribo_module.json = json
+        _cribo_module.json = json
     except ImportError:
         import json
-        __cribo_module.json = json
+        _cribo_module.json = json
     if hasattr(json, "JSONDecodeError"):
         JSONDecodeError = json.JSONDecodeError
-        __cribo_module.JSONDecodeError = JSONDecodeError
+        _cribo_module.JSONDecodeError = JSONDecodeError
     else:
         JSONDecodeError = ValueError
-        __cribo_module.JSONDecodeError = JSONDecodeError
+        _cribo_module.JSONDecodeError = JSONDecodeError
     builtin_str = str
-    __cribo_module.builtin_str = builtin_str
+    _cribo_module.builtin_str = builtin_str
     basestring = str, bytes
-    __cribo_module.basestring = basestring
-    return __cribo_module
-myrequests.compat = __cribo_init___cribo_5ad29b_myrequests_compat()
+    _cribo_module.basestring = basestring
+    return _cribo_module
+myrequests.compat = _cribo_init___cribo_5ad29b_myrequests_compat()
 class JSONDecodeError(InvalidJSONError, myrequests.compat.JSONDecodeError):
     """Couldn't decode the text into json."""
     pass
@@ -111,7 +111,7 @@ myrequests_exceptions = types.SimpleNamespace(__name__='myrequests.exceptions')
 myrequests.exceptions = myrequests_exceptions
 myrequests_cookies = types.SimpleNamespace(__name__='myrequests.cookies')
 myrequests.cookies = myrequests_cookies
-myrequests.compat = __cribo_init___cribo_5ad29b_myrequests_compat()
+myrequests.compat = _cribo_init___cribo_5ad29b_myrequests_compat()
 CompatJSONDecodeError = myrequests.compat.JSONDecodeError
 cookielib = myrequests.compat.cookielib
 MutableMapping = myrequests.compat.MutableMapping

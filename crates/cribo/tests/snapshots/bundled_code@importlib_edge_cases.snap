@@ -9,17 +9,17 @@ input_file: crates/cribo/tests/fixtures/importlib_edge_cases/main.py
 import functools
 import types
 @functools.cache
-def __cribo_init___cribo_332fbf_my_module():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'my-module'
+def _cribo_init___cribo_332fbf_my_module():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'my-module'
     value = 42
-    __cribo_module.value = value
+    _cribo_module.value = value
 
     def get_value():
-        return __cribo_module.value
-    __cribo_module.get_value = get_value
-    return __cribo_module
-mod = __cribo_init___cribo_332fbf_my_module()
+        return _cribo_module.value
+    _cribo_module.get_value = get_value
+    return _cribo_module
+mod = _cribo_init___cribo_332fbf_my_module()
 print(f"Value: {mod.value}")
 print(f"Function result: {mod.get_value()}")
 assert mod.value == 42

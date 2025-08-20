@@ -10,10 +10,10 @@ import functools
 import types
 yaml_pkg = types.SimpleNamespace(__name__='yaml_pkg')
 @functools.cache
-def __cribo_init___cribo_6d74f2_yaml_pkg_base():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'yaml_pkg.base'
-    __cribo_module.YAMLObjectMetaclass = YAMLObjectMetaclass
+def _cribo_init___cribo_6d74f2_yaml_pkg_base():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'yaml_pkg.base'
+    _cribo_module.YAMLObjectMetaclass = YAMLObjectMetaclass
 
     class YAMLObject(metaclass=YAMLObjectMetaclass):
         """An object with a metaclass"""
@@ -22,8 +22,8 @@ def __cribo_init___cribo_6d74f2_yaml_pkg_base():
         def __str__(self):
             return f"YAMLObject(tag={self.yaml_tag})"
     YAMLObject.__module__ = 'yaml_pkg.base'
-    __cribo_module.YAMLObject = YAMLObject
-    return __cribo_module
+    _cribo_module.YAMLObject = YAMLObject
+    return _cribo_module
 class YAMLObjectMetaclass(type):
     """Metaclass that adds yaml_tag"""
 
@@ -34,7 +34,7 @@ class YAMLObjectMetaclass(type):
 YAMLObjectMetaclass.__module__ = 'yaml_pkg.meta'
 yaml_pkg_meta = types.SimpleNamespace(__name__='yaml_pkg.meta')
 yaml_pkg.meta = yaml_pkg_meta
-yaml_pkg.base = __cribo_init___cribo_6d74f2_yaml_pkg_base()
+yaml_pkg.base = _cribo_init___cribo_6d74f2_yaml_pkg_base()
 yaml_pkg_meta.YAMLObjectMetaclass = YAMLObjectMetaclass
 yaml_pkg.YO = yaml_pkg.base.YAMLObject
 obj = yaml_pkg.YO()

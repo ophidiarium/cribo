@@ -11,31 +11,31 @@ import re
 import types
 pkg = types.SimpleNamespace(__name__='pkg')
 @functools.cache
-def __cribo_init___cribo_73cafd_pkg__internal():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'pkg._internal'
+def _cribo_init___cribo_73cafd_pkg__internal():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'pkg._internal'
     """Internal module with private variables."""
     _VALID_HEADER_NAME_RE_BYTE = re.compile(rb"^[^:\s][^:\r\n]*$")
-    __cribo_module._VALID_HEADER_NAME_RE_BYTE = _VALID_HEADER_NAME_RE_BYTE
+    _cribo_module._VALID_HEADER_NAME_RE_BYTE = _VALID_HEADER_NAME_RE_BYTE
     _VALID_HEADER_NAME_RE_STR = re.compile(r"^[^:\s][^:\r\n]*$")
-    __cribo_module._VALID_HEADER_NAME_RE_STR = _VALID_HEADER_NAME_RE_STR
+    _cribo_module._VALID_HEADER_NAME_RE_STR = _VALID_HEADER_NAME_RE_STR
     _VALID_HEADER_VALUE_RE_BYTE = re.compile(rb"^\S[^\r\n]*$|^$")
-    __cribo_module._VALID_HEADER_VALUE_RE_BYTE = _VALID_HEADER_VALUE_RE_BYTE
+    _cribo_module._VALID_HEADER_VALUE_RE_BYTE = _VALID_HEADER_VALUE_RE_BYTE
     _VALID_HEADER_VALUE_RE_STR = re.compile(r"^\S[^\r\n]*$|^$")
-    __cribo_module._VALID_HEADER_VALUE_RE_STR = _VALID_HEADER_VALUE_RE_STR
+    _cribo_module._VALID_HEADER_VALUE_RE_STR = _VALID_HEADER_VALUE_RE_STR
     _HEADER_VALIDATORS_STR = _VALID_HEADER_NAME_RE_STR, _VALID_HEADER_VALUE_RE_STR
-    __cribo_module._HEADER_VALIDATORS_STR = _HEADER_VALIDATORS_STR
+    _cribo_module._HEADER_VALIDATORS_STR = _HEADER_VALIDATORS_STR
     _HEADER_VALIDATORS_BYTE = _VALID_HEADER_NAME_RE_BYTE, _VALID_HEADER_VALUE_RE_BYTE
-    __cribo_module._HEADER_VALIDATORS_BYTE = _HEADER_VALIDATORS_BYTE
+    _cribo_module._HEADER_VALIDATORS_BYTE = _HEADER_VALIDATORS_BYTE
     HEADER_VALIDATORS = {bytes: _HEADER_VALIDATORS_BYTE, str: _HEADER_VALIDATORS_STR}
-    __cribo_module.HEADER_VALIDATORS = HEADER_VALIDATORS
+    _cribo_module.HEADER_VALIDATORS = HEADER_VALIDATORS
 
     def process_headers(headers):
         """Example function that uses the validators."""
         return f"Processing {len(headers)} headers with validators"
-    __cribo_module.process_headers = process_headers
-    return __cribo_module
-pkg._internal = __cribo_init___cribo_73cafd_pkg__internal()
+    _cribo_module.process_headers = process_headers
+    return _cribo_module
+pkg._internal = _cribo_init___cribo_73cafd_pkg__internal()
 def get_validators():
     """Return the validators."""
     assert pkg._internal._HEADER_VALIDATORS_BYTE is not None

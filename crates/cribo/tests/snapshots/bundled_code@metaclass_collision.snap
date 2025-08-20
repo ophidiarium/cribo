@@ -13,13 +13,13 @@ pkg_submodule = types.SimpleNamespace(__name__='pkg.submodule')
 pkg.submodule = pkg_submodule
 def create_object():
     """Factory function that imports from parent."""
-    pkg = __cribo_init___cribo_9c0ae3_pkg()
+    pkg = _cribo_init___cribo_9c0ae3_pkg()
     return pkg.MyObject()
 @functools.cache
-def __cribo_init___cribo_9c0ae3_pkg():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'pkg'
-    __cribo_module.create_object = create_object
+def _cribo_init___cribo_9c0ae3_pkg():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'pkg'
+    _cribo_module.create_object = create_object
 
     class MyMetaclass(type):
         """The metaclass."""
@@ -29,7 +29,7 @@ def __cribo_init___cribo_9c0ae3_pkg():
             if hasattr(cls, "tag"):
                 print(f"Metaclass initialized {name} with tag {cls.tag}")
     MyMetaclass.__module__ = 'pkg'
-    __cribo_module.MyMetaclass = MyMetaclass
+    _cribo_module.MyMetaclass = MyMetaclass
 
     class MyObject(metaclass=MyMetaclass):
         """An object with metaclass."""
@@ -41,11 +41,11 @@ def __cribo_init___cribo_9c0ae3_pkg():
         def __repr__(self):
             return f"MyObject(value={self.value})"
     MyObject.__module__ = 'pkg'
-    __cribo_module.MyObject = MyObject
-    __cribo_module.submodule = pkg_submodule
-    return __cribo_module
+    _cribo_module.MyObject = MyObject
+    _cribo_module.submodule = pkg_submodule
+    return _cribo_module
 pkg_submodule.create_object = create_object
-pkg = __cribo_init___cribo_9c0ae3_pkg()
+pkg = _cribo_init___cribo_9c0ae3_pkg()
 MyObject = pkg.MyObject
 create_object = create_object
 obj = create_object()
