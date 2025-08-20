@@ -20,9 +20,17 @@ import types as _cribo_types
 import urllib.parse as _cribo_urllib_parse
 import xml.etree.ElementTree as _cribo_xml_etree_ElementTree
 _cribo = _cribo_types.SimpleNamespace(__name__='_cribo', datetime=_cribo_datetime, json=_cribo_json, math=_cribo_math, os=_cribo_os, random=_cribo_random, sys=_cribo_sys, types=_cribo_types)
-setattr(_cribo, 'collections.abc', _cribo_collections_abc)
-setattr(_cribo, 'urllib.parse', _cribo_urllib_parse)
-setattr(_cribo, 'xml.etree.ElementTree', _cribo_xml_etree_ElementTree)
+if not hasattr(_cribo, 'collections'):
+    setattr(_cribo, 'collections', _cribo_types.SimpleNamespace())
+setattr(_cribo.collections, 'abc', _cribo_collections_abc)
+if not hasattr(_cribo, 'urllib'):
+    setattr(_cribo, 'urllib', _cribo_types.SimpleNamespace())
+setattr(_cribo.urllib, 'parse', _cribo_urllib_parse)
+if not hasattr(_cribo, 'xml'):
+    setattr(_cribo, 'xml', _cribo_types.SimpleNamespace())
+if not hasattr(_cribo.xml, 'etree'):
+    setattr(_cribo.xml, 'etree', _cribo_types.SimpleNamespace())
+setattr(_cribo.xml.etree, 'ElementTree', _cribo_xml_etree_ElementTree)
 DEFAULT_CONFIG = {"debug": True, "timeout": 30}
 class UtilityClass:
     """A simple utility class."""
@@ -51,10 +59,6 @@ utils_config.get_config = get_config
 utils_helpers.UtilityClass = UtilityClass
 utils_helpers.helper_function = helper_function
 '''\nTest fixture for regular import statements with aliases (non-"from" imports).\nThis exercises the code path in ast_rewriter.rs around lines 216-228.\n'''
-import json as j
-import collections.abc as abc_collections
-import urllib.parse as url_parser
-import xml.etree.ElementTree as xml_tree
 helper_utils = _cribo.types.SimpleNamespace()
 helper_utils.UtilityClass = UtilityClass
 helper_utils.helper_function = helper_function
@@ -65,14 +69,14 @@ def main():
     """Test function that uses the imported modules with aliases."""
     print("Current working directory: /test/working/directory")
     data = {"test": "value"}
-    json_str = j.dumps(data)
+    json_str = _cribo.json.dumps(data)
     print("JSON string:", json_str)
     print("Python version: sys.version_info(major=3, minor=13, micro=3, releaselevel='final', serial=0)")
-    print("ABC module available:", hasattr(abc_collections, "ABC"))
-    parsed_url = url_parser.urlparse("https://example.com/path")
+    print("ABC module available:", hasattr(_cribo.collections.abc, "ABC"))
+    parsed_url = _cribo.urllib.parse.urlparse("https://example.com/path")
     print("Parsed URL:", parsed_url.netloc)
-    root = xml_tree.Element("root")
-    xml_tree.SubElement(root, "child")
+    root = _cribo.xml.etree.ElementTree.Element("root")
+    _cribo.xml.etree.ElementTree.SubElement(root, "child")
     print("XML element tag:", root.tag)
     result = helper_utils.helper_function()
     print("Helper result:", result)

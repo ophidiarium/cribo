@@ -15,7 +15,7 @@ import sys as _cribo_sys
 import types as _cribo_types
 import typing as _cribo_typing
 _cribo = _cribo_types.SimpleNamespace(__name__='_cribo', abc=_cribo_abc, functools=_cribo_functools, sys=_cribo_sys, types=_cribo_types, typing=_cribo_typing)
-pkg = types.SimpleNamespace(__name__='pkg')
+pkg = _cribo.types.SimpleNamespace(__name__='pkg')
 @_cribo.functools.cache
 def _cribo_init___cribo_2353ad_pkg_pretty():
     _cribo_module = _cribo.types.SimpleNamespace()

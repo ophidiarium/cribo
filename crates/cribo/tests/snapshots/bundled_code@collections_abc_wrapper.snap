@@ -11,7 +11,9 @@ import collections.abc as _cribo_collections_abc
 import functools as _cribo_functools
 import types as _cribo_types
 _cribo = _cribo_types.SimpleNamespace(__name__='_cribo', functools=_cribo_functools, types=_cribo_types)
-setattr(_cribo, 'collections.abc', _cribo_collections_abc)
+if not hasattr(_cribo, 'collections'):
+    setattr(_cribo, 'collections', _cribo_types.SimpleNamespace())
+setattr(_cribo.collections, 'abc', _cribo_collections_abc)
 @_cribo.functools.cache
 def _cribo_init___cribo_f0aa89_compat():
     _cribo_module = _cribo.types.SimpleNamespace()

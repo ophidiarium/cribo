@@ -10,11 +10,11 @@ import types
 import functools as _cribo_functools
 import types as _cribo_types
 _cribo = _cribo_types.SimpleNamespace(__name__='_cribo', functools=_cribo_functools, types=_cribo_types)
-core = types.SimpleNamespace(__name__='core')
-models = types.SimpleNamespace(__name__='models')
-services = types.SimpleNamespace(__name__='services')
-core_database = types.SimpleNamespace(__name__='core.database')
-services_auth = types.SimpleNamespace(__name__='services.auth')
+core = _cribo.types.SimpleNamespace(__name__='core')
+models = _cribo.types.SimpleNamespace(__name__='models')
+services = _cribo.types.SimpleNamespace(__name__='services')
+core_database = _cribo.types.SimpleNamespace(__name__='core.database')
+services_auth = _cribo.types.SimpleNamespace(__name__='services.auth')
 core.database = core_database
 services.auth = services_auth
 process_count = 0

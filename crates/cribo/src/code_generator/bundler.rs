@@ -6,8 +6,8 @@ use cow_utils::CowUtils;
 use log::debug;
 use ruff_python_ast::{
     Alias, AtomicNodeIndex, ExceptHandler, Expr, ExprAttribute, ExprContext, ExprName, Identifier,
-    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtExpr, StmtFunctionDef, StmtImport,
-    StmtImportFrom, visitor::source_order::SourceOrderVisitor,
+    Keyword, ModModule, Stmt, StmtAssign, StmtClassDef, StmtExpr, StmtFunctionDef, StmtIf,
+    StmtImport, StmtImportFrom, UnaryOp, visitor::source_order::SourceOrderVisitor,
 };
 use ruff_text_size::TextRange;
 
@@ -2320,6 +2320,12 @@ impl<'a> Bundler<'a> {
 
         // Save wrapper modules for later processing
         let wrapper_modules_saved = wrapper_modules;
+
+        // If we have any namespace objects to create, we need types
+        if !self.namespace_registry.is_empty() {
+            log::debug!("Adding types import for namespace objects");
+            self.require_stdlib_module("types");
+        }
 
         // Generate stdlib imports if needed (these go at the very top)
         if !self.stdlib_modules_to_import.is_empty() {
@@ -4887,14 +4893,14 @@ impl<'a> Bundler<'a> {
     fn generate_stdlib_imports(&mut self) -> Vec<Stmt> {
         let mut statements = Vec::new();
 
+        // Always ensure 'types' is included for SimpleNamespace
+        self.stdlib_modules_to_import.insert("types".to_string());
+
         // Skip if no stdlib imports
         if self.stdlib_modules_to_import.is_empty() {
             log::debug!("No stdlib imports to generate");
             return statements;
         }
-
-        // Always ensure 'types' is included for SimpleNamespace
-        self.stdlib_modules_to_import.insert("types".to_string());
 
         log::debug!(
             "Generating stdlib imports for: {:?}",
@@ -4971,15 +4977,107 @@ impl<'a> Bundler<'a> {
         );
         statements.push(cribo_namespace);
 
-        // Add dotted modules as attributes after namespace creation
+        // Add dotted modules by creating proper nested namespace structure
+        // We need to ensure parent namespaces exist before setting nested attributes
+        let mut processed_parents = FxIndexSet::default();
         for module_name in &dotted_modules {
             let alias_name = format!("_cribo_{}", module_name.cow_replace(".", "_"));
-            // Generate: setattr(_cribo, 'module.name', _cribo_module_name)
+
+            // Split the module name into parts
+            let parts: Vec<&str> = module_name.split('.').collect();
+
+            // Ensure all parent namespaces exist
+            let mut current_path = "_cribo".to_string();
+            for i in 0..parts.len() - 1 {
+                let parent_attr = parts[i];
+                let parent_path = if i == 0 {
+                    format!("_cribo.{parent_attr}")
+                } else {
+                    format!("{current_path}.{parent_attr}")
+                };
+
+                // Only create parent namespace if we haven't already
+                if !processed_parents.contains(&parent_path) {
+                    // Check if attribute exists, if not create it
+                    // Generate: if not hasattr(parent, attr): parent.attr = _cribo_types.SimpleNamespace()
+                    let parent_expr = if i == 0 {
+                        expressions::name("_cribo", ExprContext::Load)
+                    } else {
+                        // Build nested attribute access
+                        let mut expr = expressions::name("_cribo", ExprContext::Load);
+                        for j in 0..i {
+                            expr = expressions::attribute(expr, parts[j], ExprContext::Load);
+                        }
+                        expr
+                    };
+
+                    // Create the check and assignment
+                    let hasattr_check = expressions::call(
+                        expressions::name("hasattr", ExprContext::Load),
+                        vec![
+                            parent_expr.clone(),
+                            expressions::string_literal(parent_attr),
+                        ],
+                        vec![],
+                    );
+
+                    let namespace_create = expressions::call(
+                        expressions::attribute(
+                            expressions::name("_cribo_types", ExprContext::Load),
+                            "SimpleNamespace",
+                            ExprContext::Load,
+                        ),
+                        vec![],
+                        vec![],
+                    );
+
+                    let setattr_stmt = Stmt::Expr(StmtExpr {
+                        node_index: AtomicNodeIndex::dummy(),
+                        value: Box::new(expressions::call(
+                            expressions::name("setattr", ExprContext::Load),
+                            vec![
+                                parent_expr,
+                                expressions::string_literal(parent_attr),
+                                namespace_create,
+                            ],
+                            vec![],
+                        )),
+                        range: TextRange::default(),
+                    });
+
+                    let if_stmt = Stmt::If(StmtIf {
+                        node_index: AtomicNodeIndex::dummy(),
+                        test: Box::new(expressions::unary_op(UnaryOp::Not, hasattr_check)),
+                        body: vec![setattr_stmt],
+                        elif_else_clauses: vec![],
+                        range: TextRange::default(),
+                    });
+
+                    statements.push(if_stmt);
+                    processed_parents.insert(parent_path.clone());
+                }
+
+                current_path = parent_path;
+            }
+
+            // Now set the final attribute to the imported module
+            // Build the parent expression for the final attribute
+            let parent_expr = if parts.len() == 1 {
+                expressions::name("_cribo", ExprContext::Load)
+            } else {
+                let mut expr = expressions::name("_cribo", ExprContext::Load);
+                for i in 0..parts.len() - 1 {
+                    expr = expressions::attribute(expr, parts[i], ExprContext::Load);
+                }
+                expr
+            };
+
+            let final_attr = parts[parts.len() - 1];
             let setattr_call = expressions::call(
                 expressions::name("setattr", ExprContext::Load),
                 vec![
-                    expressions::name("_cribo", ExprContext::Load),
-                    expressions::string_literal(module_name),
+                    parent_expr,
+                    expressions::string_literal(final_attr),
                     expressions::name(&alias_name, ExprContext::Load),
                 ],
                 vec![],

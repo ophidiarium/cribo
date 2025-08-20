@@ -42,11 +42,11 @@ User.__module__ = 'models.user'
 """User model for the test project."""
 """Utils package initialization."""
 """Utility functions for the test project."""
-models = types.SimpleNamespace(__name__='models')
-models_user = types.SimpleNamespace(__name__='models.user')
+models = _cribo.types.SimpleNamespace(__name__='models')
+models_user = _cribo.types.SimpleNamespace(__name__='models.user')
 models.user = models_user
-utils = types.SimpleNamespace(__name__='utils')
-utils_helpers = types.SimpleNamespace(__name__='utils.helpers')
+utils = _cribo.types.SimpleNamespace(__name__='utils')
+utils_helpers = _cribo.types.SimpleNamespace(__name__='utils.helpers')
 utils.helpers = utils_helpers
 models_user.User = User
 utils_helpers.greet = greet

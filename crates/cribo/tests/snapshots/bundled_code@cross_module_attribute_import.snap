@@ -10,7 +10,7 @@ import types
 import functools as _cribo_functools
 import types as _cribo_types
 _cribo = _cribo_types.SimpleNamespace(__name__='_cribo', functools=_cribo_functools, types=_cribo_types)
-mypackage = types.SimpleNamespace(__name__='mypackage')
+mypackage = _cribo.types.SimpleNamespace(__name__='mypackage')
 @_cribo.functools.cache
 def _cribo_init___cribo_35f1d1_mypackage_utils():
     _cribo_module = _cribo.types.SimpleNamespace()

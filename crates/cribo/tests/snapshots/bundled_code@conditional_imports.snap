@@ -13,7 +13,11 @@ import sys as _cribo_sys
 import types as _cribo_types
 import xml.etree.ElementTree as _cribo_xml_etree_ElementTree
 _cribo = _cribo_types.SimpleNamespace(__name__='_cribo', functools=_cribo_functools, json=_cribo_json, sys=_cribo_sys, types=_cribo_types)
-setattr(_cribo, 'xml.etree.ElementTree', _cribo_xml_etree_ElementTree)
+if not hasattr(_cribo, 'xml'):
+    setattr(_cribo, 'xml', _cribo_types.SimpleNamespace())
+if not hasattr(_cribo.xml, 'etree'):
+    setattr(_cribo.xml, 'etree', _cribo_types.SimpleNamespace())
+setattr(_cribo.xml.etree, 'ElementTree', _cribo_xml_etree_ElementTree)
 @_cribo.functools.cache
 def _cribo_init___cribo_17f1ec_try_except_module():
     _cribo_module = _cribo.types.SimpleNamespace()

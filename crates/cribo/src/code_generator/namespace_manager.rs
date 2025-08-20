@@ -411,18 +411,33 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
 
                     // Check namespace_registry instead of created_namespaces since namespaces
                     // might be registered but not created yet at this point
-                    if bundler.namespace_registry.contains_key(&sanitized_module) {
-                        // This module will have a namespace variable, assign it
-                        debug!(
-                            "Assigning namespace variable: {parent}.{attr} = {sanitized_module}"
-                        );
+                    if let Some(namespace_info) = bundler.namespace_registry.get(&sanitized_module)
+                    {
+                        // Check if parent assignment was already done
+                        if namespace_info.parent_assignment_done {
+                            debug!(
+                                "Skipping namespace assignment for {parent}.{attr} = {sanitized_module} - parent assignment already done"
+                            );
+                        } else {
+                            // This module will have a namespace variable, assign it
+                            debug!(
+                                "Assigning namespace variable: {parent}.{attr} = {sanitized_module}"
+                            );
 
-                        let assignment = statements::assign_attribute(
-                            &parent,
-                            &attr,
-                            expressions::name(&sanitized_module, ExprContext::Load),
-                        );
-                        final_body.push(assignment);
+                            let assignment = statements::assign_attribute(
+                                &parent,
+                                &attr,
+                                expressions::name(&sanitized_module, ExprContext::Load),
+                            );
+                            final_body.push(assignment);
+
+                            // Mark the parent assignment as done
+                            if let Some(info) =
+                                bundler.namespace_registry.get_mut(&sanitized_module)
+                            {
+                                info.parent_assignment_done = true;
+                            }
+                        }
                     } else {
                         // Check if this would be a redundant self-assignment
                         let full_target = format!("{parent}.{attr}");

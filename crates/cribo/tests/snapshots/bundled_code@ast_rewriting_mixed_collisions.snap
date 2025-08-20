@@ -13,10 +13,10 @@ import os as _cribo_os
 import types as _cribo_types
 import typing as _cribo_typing
 _cribo = _cribo_types.SimpleNamespace(__name__='_cribo', functools=_cribo_functools, os=_cribo_os, types=_cribo_types, typing=_cribo_typing)
-models = types.SimpleNamespace(__name__='models')
-services = types.SimpleNamespace(__name__='services')
-models_base = types.SimpleNamespace(__name__='models.base')
-services_auth = types.SimpleNamespace(__name__='services.auth')
+models = _cribo.types.SimpleNamespace(__name__='models')
+services = _cribo.types.SimpleNamespace(__name__='services')
+models_base = _cribo.types.SimpleNamespace(__name__='models.base')
+services_auth = _cribo.types.SimpleNamespace(__name__='services.auth')
 models.base = models_base
 services.auth = services_auth
 result_2 = "base_result"
