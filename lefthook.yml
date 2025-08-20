@@ -52,6 +52,9 @@ pre-commit:
     release-please:
       glob: release-please-config.json
       run: uvx check-jsonschema --schemafile https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json release-please-config.json
+    commitlint-config:
+      glob: '.commitlintrc.yaml'
+      run: uvx check-jsonschema --schemafile https://json.schemastore.org/commitlintrc.json .commitlintrc.yaml
 
 commit-msg:
   commands:
