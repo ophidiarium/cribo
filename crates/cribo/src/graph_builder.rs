@@ -162,12 +162,8 @@ impl<'a> GraphBuilder<'a> {
                 var_decls.insert(local_name.to_string());
             } else if module_name.contains('.') {
                 // import xml.etree.ElementTree
-                // Imported: xml.etree.ElementTree, Declared: xml.etree.ElementTree
-                // But we also need to track that "xml" is the actual variable used
+                // Imported: xml.etree.ElementTree, Declared: xml (root variable)
                 imported_names.insert(module_name.to_string());
-                var_decls.insert(module_name.to_string());
-
-                // Also track the root module name as a variable
                 let root_module = module_name
                     .split('.')
                     .next()
