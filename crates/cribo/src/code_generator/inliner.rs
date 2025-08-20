@@ -68,7 +68,7 @@ impl Bundler<'_> {
         mut ast: ModModule,
         module_path: &Path,
         ctx: &mut InlineContext,
-    ) -> Vec<Stmt> {
+    ) {
         let mut module_renames = FxIndexMap::default();
 
         // Apply hard dependency rewriting BEFORE import transformation
@@ -265,7 +265,7 @@ impl Bundler<'_> {
                 .insert(module_name.to_string(), module_renames);
         }
 
-        Vec::new() // Statements are accumulated in ctx.inlined_stmts
+        // Statements are accumulated in ctx.inlined_stmts
     }
 
     /// Rewrite a class argument expression (base class or keyword value)
