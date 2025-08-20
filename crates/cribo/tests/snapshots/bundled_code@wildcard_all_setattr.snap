@@ -30,26 +30,26 @@ package__subpackage.module_b = package__subpackage_module_b
 package__subpackage_module_a = types.SimpleNamespace(__name__='package._subpackage.module_a')
 package__subpackage.module_a = package__subpackage_module_a
 @functools.cache
-def __cribo_init___cribo_cca96f_package():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'package'
+def _cribo_init___cribo_cca96f_package():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'package'
     global MyClass, my_function
-    __cribo_module.MyClass = MyClass
-    __cribo_module.my_function = my_function
+    _cribo_module.MyClass = MyClass
+    _cribo_module.my_function = my_function
     """Package using wildcard imports and setattr pattern like httpx."""
     __all__ = ["MyClass", "my_function"]
-    __locals = vars(__cribo_module)
-    __cribo_module.__locals = __locals
+    __locals = vars(_cribo_module)
+    _cribo_module.__locals = __locals
     for __name in __all__:
         if not __name.startswith("__"):
             setattr(__locals[__name], "__module__", "package")
-    __cribo_module._subpackage = package__subpackage
-    return __cribo_module
-package = __cribo_init___cribo_cca96f_package()
+    _cribo_module._subpackage = package__subpackage
+    return _cribo_module
+package = _cribo_init___cribo_cca96f_package()
 package__subpackage_module_b.my_function = my_function
 package__subpackage_module_a.MyClass = MyClass
 """Test wildcard imports with __all__ and setattr pattern."""
-package = __cribo_init___cribo_cca96f_package()
+package = _cribo_init___cribo_cca96f_package()
 MyClass = package.MyClass
 my_function = package.my_function
 obj = MyClass()

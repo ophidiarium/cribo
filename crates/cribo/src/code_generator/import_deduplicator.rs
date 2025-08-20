@@ -10,8 +10,8 @@ use ruff_python_ast::{Alias, Expr, ModModule, Stmt, StmtImport, StmtImportFrom};
 
 use super::{bundler::Bundler, expression_handlers};
 use crate::{
-    cribo_graph::CriboGraph as DependencyGraph, side_effects::is_safe_stdlib_module,
-    tree_shaking::TreeShaker, types::FxIndexSet,
+    code_generator::module_registry::is_init_function, cribo_graph::CriboGraph as DependencyGraph,
+    side_effects::is_safe_stdlib_module, tree_shaking::TreeShaker, types::FxIndexSet,
 };
 
 /// Check if a statement uses importlib
@@ -423,7 +423,7 @@ pub(super) fn deduplicate_deferred_imports_with_existing(
                     && let Expr::Name(name) = &call.func.as_ref()
                 {
                     let func_name = name.id.as_str();
-                    if crate::code_generator::module_registry::is_init_function(func_name) {
+                    if is_init_function(func_name) {
                         // Use just the target path as the key for module init assignments
                         let key = target_path.clone();
                         log::debug!("Found existing module init assignment: {key} = {func_name}");
@@ -479,7 +479,7 @@ pub(super) fn deduplicate_deferred_imports_with_existing(
                 if let Expr::Call(call) = &expr_stmt.value.as_ref() {
                     if let Expr::Name(name) = &call.func.as_ref() {
                         let func_name = name.id.as_str();
-                        if crate::code_generator::module_registry::is_init_function(func_name) {
+                        if is_init_function(func_name) {
                             if seen_init_calls.insert(func_name.to_string()) {
                                 result.push(stmt);
                             } else {
@@ -509,7 +509,7 @@ pub(super) fn deduplicate_deferred_imports_with_existing(
                         && let Expr::Name(name) = &call.func.as_ref()
                     {
                         let func_name = name.id.as_str();
-                        if crate::code_generator::module_registry::is_init_function(func_name) {
+                        if is_init_function(func_name) {
                             // For module init assignments, just check the target path
                             // since the same module should only be initialized once
                             let key = target_path.clone();

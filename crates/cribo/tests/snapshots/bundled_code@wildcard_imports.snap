@@ -52,19 +52,19 @@ SharedClass_2.__qualname__ = 'SharedClass'
 SafeClass.__module__ = 'explicit_all'
 """Module with no side-effects and explicit __all__."""
 @functools.cache
-def __cribo_init___cribo_9a9871_with_side_effects():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'with_side_effects'
+def _cribo_init___cribo_9a9871_with_side_effects():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'with_side_effects'
     """Module with side-effects and no explicit __all__."""
     print("Loading with_side_effects module")
     _module_state = []
-    __cribo_module._module_state = _module_state
+    _cribo_module._module_state = _module_state
     _module_state.append("initialized")
 
     def effect_function():
         """Function from module with side-effects."""
         return "effect_function_result"
-    __cribo_module.effect_function = effect_function
+    _cribo_module.effect_function = effect_function
 
     class EffectClass:
         """Class from module with side-effects."""
@@ -76,34 +76,34 @@ def __cribo_init___cribo_9a9871_with_side_effects():
         def method(self):
             return "EffectClass.method_result"
     EffectClass.__module__ = 'with_side_effects'
-    __cribo_module.EffectClass = EffectClass
+    _cribo_module.EffectClass = EffectClass
     EFFECT_CONSTANT = "EFFECT_VALUE"
-    __cribo_module.EFFECT_CONSTANT = EFFECT_CONSTANT
+    _cribo_module.EFFECT_CONSTANT = EFFECT_CONSTANT
     _registry = {}
-    __cribo_module._registry = _registry
+    _cribo_module._registry = _registry
 
     def register(name):
         """Decorator with side-effects."""
 
         def decorator(func):
-            __cribo_module._registry[name] = func
+            _cribo_module._registry[name] = func
             return func
         return decorator
-    __cribo_module.register = register
+    _cribo_module.register = register
 
     @register("sample")
     def registered_function():
         """Function registered as a side-effect."""
         return "registered_result"
-    __cribo_module.registered_function = registered_function
+    _cribo_module.registered_function = registered_function
     if len(_module_state) > 0:
         print(f"Module state initialized with {len(_module_state)} items")
-    return __cribo_module
+    return _cribo_module
 """Main module demonstrating various wildcard import patterns."""
 safe_function = safe_function
 SafeClass = SafeClass
 SAFE_CONSTANT = SAFE_CONSTANT
-with_side_effects = __cribo_init___cribo_9a9871_with_side_effects()
+with_side_effects = _cribo_init___cribo_9a9871_with_side_effects()
 EFFECT_CONSTANT = with_side_effects.EFFECT_CONSTANT
 EffectClass = with_side_effects.EffectClass
 effect_function = with_side_effects.effect_function

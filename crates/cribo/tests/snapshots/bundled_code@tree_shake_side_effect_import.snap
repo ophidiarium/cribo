@@ -17,29 +17,29 @@ class CustomError(Exception):
     pass
 CustomError.__module__ = 'mypackage.exceptions'
 @functools.cache
-def __cribo_init___cribo_ddd935_mypackage():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'mypackage'
+def _cribo_init___cribo_ddd935_mypackage():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'mypackage'
     print("mypackage initialized")
-    __cribo_module.exceptions = mypackage_exceptions
-    return __cribo_module
+    _cribo_module.exceptions = mypackage_exceptions
+    return _cribo_module
 @functools.cache
-def __cribo_init___cribo_09b9b3_mypackage_utils():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'mypackage.utils'
-    __cribo_module.CustomError = CustomError
+def _cribo_init___cribo_09b9b3_mypackage_utils():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'mypackage.utils'
+    _cribo_module.CustomError = CustomError
     DEFAULT_PATH = os.environ.get("DEFAULT_PATH", "/tmp")
-    __cribo_module.DEFAULT_PATH = DEFAULT_PATH
+    _cribo_module.DEFAULT_PATH = DEFAULT_PATH
 
     def process_data(data):
         """Process data, raising CustomError if data is None."""
         if data is None:
             raise CustomError("Data cannot be None")
         return f"Processed: {data}"
-    __cribo_module.process_data = process_data
-    return __cribo_module
-mypackage.utils = __cribo_init___cribo_09b9b3_mypackage_utils()
-__cribo_init_result = __cribo_init___cribo_ddd935_mypackage()
+    _cribo_module.process_data = process_data
+    return _cribo_module
+mypackage.utils = _cribo_init___cribo_09b9b3_mypackage_utils()
+__cribo_init_result = _cribo_init___cribo_ddd935_mypackage()
 for attr in dir(__cribo_init_result):
     if not attr.startswith('_'):
         setattr(mypackage, attr, getattr(__cribo_init_result, attr))

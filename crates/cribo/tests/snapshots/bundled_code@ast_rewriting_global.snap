@@ -21,35 +21,35 @@ module_global_keyword = types.SimpleNamespace(__name__='module_global_keyword', 
 _cribo_module_mixed_patterns_foo = None
 _cribo_module_mixed_patterns_counter = None
 @functools.cache
-def __cribo_init___cribo_c75306_module_mixed_patterns():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'module_mixed_patterns'
+def _cribo_init___cribo_c75306_module_mixed_patterns():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'module_mixed_patterns'
     """Module demonstrating mixed global access patterns."""
     foo = "module3_foo"
-    __cribo_module.foo = foo
+    _cribo_module.foo = foo
     bar = "module3_bar"
-    __cribo_module.bar = bar
+    _cribo_module.bar = bar
     counter = 0
-    __cribo_module.counter = counter
+    _cribo_module.counter = counter
 
     def get_values():
         """Get module globals using different methods."""
-        direct_foo = __cribo_module.foo
-        dict_bar = __cribo_module.__dict__["bar"]
-        counter_val = __cribo_module.__dict__.get("counter", -1)
+        direct_foo = _cribo_module.foo
+        dict_bar = _cribo_module.__dict__["bar"]
+        counter_val = _cribo_module.__dict__.get("counter", -1)
         return {"foo": direct_foo, "bar": dict_bar, "counter": counter_val}
-    __cribo_module.get_values = get_values
+    _cribo_module.get_values = get_values
 
     def modify_all():
         """Modify globals using different patterns."""
         global _cribo_module_mixed_patterns_foo, _cribo_module_mixed_patterns_counter
         _cribo_module_mixed_patterns_foo = "module3_foo_modified"
-        __cribo_module.foo = _cribo_module_mixed_patterns_foo
+        _cribo_module.foo = _cribo_module_mixed_patterns_foo
         _cribo_module_mixed_patterns_counter += 1
-        __cribo_module.counter = _cribo_module_mixed_patterns_counter
-        __cribo_module.__dict__["bar"] = "module3_bar_modified"
-        __cribo_module.__dict__["new_var"] = "dynamically_added"
-    __cribo_module.modify_all = modify_all
+        _cribo_module.counter = _cribo_module_mixed_patterns_counter
+        _cribo_module.__dict__["bar"] = "module3_bar_modified"
+        _cribo_module.__dict__["new_var"] = "dynamically_added"
+    _cribo_module.modify_all = modify_all
 
     def complex_global_usage():
         """Demonstrate complex global usage patterns."""
@@ -61,62 +61,62 @@ def __cribo_init___cribo_c75306_module_mixed_patterns():
         def increment():
             global _cribo_module_mixed_patterns_counter
             _cribo_module_mixed_patterns_counter += 1
-            __cribo_module.counter = _cribo_module_mixed_patterns_counter
+            _cribo_module.counter = _cribo_module_mixed_patterns_counter
             return _cribo_module_mixed_patterns_counter
-        global_keys = [k for k in __cribo_module.__dict__ if not k.startswith("_")]
+        global_keys = [k for k in _cribo_module.__dict__ if not k.startswith("_")]
         return {"original": original, "after_loop": _cribo_module_mixed_patterns_counter, "increment_func": increment, "global_count": len(global_keys)}
-    __cribo_module.complex_global_usage = complex_global_usage
-    __cribo_module.__dict__["initialized_via_globals"] = True
-    exec("exec_created_var = 'created_via_exec'", __cribo_module.__dict__)
+    _cribo_module.complex_global_usage = complex_global_usage
+    _cribo_module.__dict__["initialized_via_globals"] = True
+    exec("exec_created_var = 'created_via_exec'", _cribo_module.__dict__)
     global _cribo_module_mixed_patterns_foo
     _cribo_module_mixed_patterns_foo = foo
     global _cribo_module_mixed_patterns_counter
     _cribo_module_mixed_patterns_counter = counter
-    return __cribo_module
+    return _cribo_module
 @functools.cache
-def __cribo_init___cribo_5101f4_module_globals_dict():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'module_globals_dict'
+def _cribo_init___cribo_5101f4_module_globals_dict():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'module_globals_dict'
     """Module demonstrating globals() dictionary access."""
     bar = "module2_bar"
-    __cribo_module.bar = bar
+    _cribo_module.bar = bar
     baz = 42
-    __cribo_module.baz = baz
+    _cribo_module.baz = baz
 
     def get_bar():
         """Get bar using globals() dict."""
-        return __cribo_module.__dict__["bar"]
-    __cribo_module.get_bar = get_bar
+        return _cribo_module.__dict__["bar"]
+    _cribo_module.get_bar = get_bar
 
     def modify_bar():
         """Modify bar using globals() dict."""
-        __cribo_module.__dict__["bar"] = "module2_bar_modified"
-    __cribo_module.modify_bar = modify_bar
+        _cribo_module.__dict__["bar"] = "module2_bar_modified"
+    _cribo_module.modify_bar = modify_bar
 
     def set_dynamic_global(name, value):
         """Set a global variable dynamically using globals()."""
-        __cribo_module.__dict__[name] = value
-    __cribo_module.set_dynamic_global = set_dynamic_global
+        _cribo_module.__dict__[name] = value
+    _cribo_module.set_dynamic_global = set_dynamic_global
 
     def get_dynamic_global(name, default=None):
         """Get a global variable dynamically."""
-        return __cribo_module.__dict__.get(name, default)
-    __cribo_module.get_dynamic_global = get_dynamic_global
+        return _cribo_module.__dict__.get(name, default)
+    _cribo_module.get_dynamic_global = get_dynamic_global
 
     def list_module_globals():
         """List all non-built-in globals in this module."""
-        return {k: v for k, v in __cribo_module.__dict__.items() if not k.startswith("__") and k not in ["get_bar", "modify_bar", "set_dynamic_global", "get_dynamic_global", "list_module_globals"]}
-    __cribo_module.list_module_globals = list_module_globals
+        return {k: v for k, v in _cribo_module.__dict__.items() if not k.startswith("__") and k not in ["get_bar", "modify_bar", "set_dynamic_global", "get_dynamic_global", "list_module_globals"]}
+    _cribo_module.list_module_globals = list_module_globals
     set_dynamic_global("dynamic1", "created_via_globals")
     set_dynamic_global("dynamic2", [1, 2, 3])
-    return __cribo_module
+    return _cribo_module
 """Test global namespace isolation between modules."""
 foo_1 = "main_foo"
 foo = foo_1
 bar_1 = "main_bar"
 bar = bar_1
-module_globals_dict = __cribo_init___cribo_5101f4_module_globals_dict()
-module_mixed_patterns = __cribo_init___cribo_c75306_module_mixed_patterns()
+module_globals_dict = _cribo_init___cribo_5101f4_module_globals_dict()
+module_mixed_patterns = _cribo_init___cribo_c75306_module_mixed_patterns()
 assert foo_1 == "main_foo"
 assert bar_1 == "main_bar"
 print("Module with global keyword:", module_global_keyword.get_foo())

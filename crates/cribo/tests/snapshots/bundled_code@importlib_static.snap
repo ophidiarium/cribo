@@ -9,9 +9,9 @@ input_file: crates/cribo/tests/fixtures/importlib_static/main.py
 import functools
 import types
 @functools.cache
-def __cribo_init___cribo_5687a6__2024_config():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = '2024-config'
+def _cribo_init___cribo_5687a6__2024_config():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = '2024-config'
     """Module starting with a number - can't be imported with regular import."""
 
     class Config2024:
@@ -23,20 +23,20 @@ def __cribo_init___cribo_5687a6__2024_config():
         def get_config(cls):
             return {"year": cls.YEAR, "version": cls.VERSION, "features": cls.FEATURES}
     Config2024.__module__ = '2024-config'
-    __cribo_module.Config2024 = Config2024
+    _cribo_module.Config2024 = Config2024
 
     def load_yearly_config():
         return Config2024()
-    __cribo_module.load_yearly_config = load_yearly_config
+    _cribo_module.load_yearly_config = load_yearly_config
     SUPPORTED_YEARS = [2022, 2023, 2024]
-    __cribo_module.SUPPORTED_YEARS = SUPPORTED_YEARS
+    _cribo_module.SUPPORTED_YEARS = SUPPORTED_YEARS
     CONFIG_PREFIX = "config-"
-    __cribo_module.CONFIG_PREFIX = CONFIG_PREFIX
-    return __cribo_module
+    _cribo_module.CONFIG_PREFIX = CONFIG_PREFIX
+    return _cribo_module
 @functools.cache
-def __cribo_init___cribo_ec6681_for_():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'for'
+def _cribo_init___cribo_ec6681_for_():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'for'
     """Module named 'for' - a Python keyword for loops."""
 
     class ForLoop:
@@ -51,20 +51,20 @@ def __cribo_init___cribo_ec6681_for_():
                 results.append(f"Processing: {item}")
             return results
     ForLoop.__module__ = 'for'
-    __cribo_module.ForLoop = ForLoop
+    _cribo_module.ForLoop = ForLoop
 
     def create_loop(items):
         return ForLoop(items)
-    __cribo_module.create_loop = create_loop
+    _cribo_module.create_loop = create_loop
     LOOP_TYPES = ["for", "while", "comprehension"]
-    __cribo_module.LOOP_TYPES = LOOP_TYPES
+    _cribo_module.LOOP_TYPES = LOOP_TYPES
     MAX_ITERATIONS = 1000
-    __cribo_module.MAX_ITERATIONS = MAX_ITERATIONS
-    return __cribo_module
+    _cribo_module.MAX_ITERATIONS = MAX_ITERATIONS
+    return _cribo_module
 @functools.cache
-def __cribo_init___cribo_944eb6_def_():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'def'
+def _cribo_init___cribo_944eb6_def_():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'def'
     """Module named 'def' - another Python keyword."""
 
     class FunctionDefinition:
@@ -77,20 +77,20 @@ def __cribo_init___cribo_944eb6_def_():
             params_str = ", ".join(self.params)
             return f"def {self.name}({params_str})"
     FunctionDefinition.__module__ = 'def'
-    __cribo_module.FunctionDefinition = FunctionDefinition
+    _cribo_module.FunctionDefinition = FunctionDefinition
 
     def define_function(name, *args):
         return FunctionDefinition(name, list(args))
-    __cribo_module.define_function = define_function
+    _cribo_module.define_function = define_function
     BUILTIN_FUNCTIONS = ["print", "len", "range", "sorted"]
-    __cribo_module.BUILTIN_FUNCTIONS = BUILTIN_FUNCTIONS
+    _cribo_module.BUILTIN_FUNCTIONS = BUILTIN_FUNCTIONS
     DEFINITION_TEMPLATE = "def {}(): pass"
-    __cribo_module.DEFINITION_TEMPLATE = DEFINITION_TEMPLATE
-    return __cribo_module
+    _cribo_module.DEFINITION_TEMPLATE = DEFINITION_TEMPLATE
+    return _cribo_module
 @functools.cache
-def __cribo_init___cribo_004e55_class_():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'class'
+def _cribo_init___cribo_004e55_class_():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'class'
     """Module named 'class' - a Python keyword that can't be used in import statements."""
 
     class MetaClass:
@@ -102,20 +102,20 @@ def __cribo_init___cribo_004e55_class_():
         def describe(self):
             return f"This is a {self.type} named {self.name}"
     MetaClass.__module__ = 'class'
-    __cribo_module.MetaClass = MetaClass
+    _cribo_module.MetaClass = MetaClass
 
     def create_class_instance(class_name):
         return MetaClass(class_name)
-    __cribo_module.create_class_instance = create_class_instance
+    _cribo_module.create_class_instance = create_class_instance
     CLASS_TYPES = ["abstract", "concrete", "meta"]
-    __cribo_module.CLASS_TYPES = CLASS_TYPES
+    _cribo_module.CLASS_TYPES = CLASS_TYPES
     DEFAULT_CLASS_NAME = "KeywordModule"
-    __cribo_module.DEFAULT_CLASS_NAME = DEFAULT_CLASS_NAME
-    return __cribo_module
+    _cribo_module.DEFAULT_CLASS_NAME = DEFAULT_CLASS_NAME
+    return _cribo_module
 @functools.cache
-def __cribo_init___cribo_64c186_api_client():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'api-client'
+def _cribo_init___cribo_64c186_api_client():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'api-client'
     """Another module with hyphen - demonstrating API client functionality."""
 
     class APIClient:
@@ -127,20 +127,20 @@ def __cribo_init___cribo_64c186_api_client():
         def make_request(self, endpoint):
             return f"Making request to {self.base_url}/{endpoint}"
     APIClient.__module__ = 'api-client'
-    __cribo_module.APIClient = APIClient
+    _cribo_module.APIClient = APIClient
 
     def create_client(url=None):
         return APIClient(url) if url else APIClient()
-    __cribo_module.create_client = create_client
+    _cribo_module.create_client = create_client
     API_VERSION = "2.0-stable"
-    __cribo_module.API_VERSION = API_VERSION
+    _cribo_module.API_VERSION = API_VERSION
     SUPPORTED_ENDPOINTS = ["users", "posts", "comments"]
-    __cribo_module.SUPPORTED_ENDPOINTS = SUPPORTED_ENDPOINTS
-    return __cribo_module
+    _cribo_module.SUPPORTED_ENDPOINTS = SUPPORTED_ENDPOINTS
+    return _cribo_module
 @functools.cache
-def __cribo_init___cribo_d8297b_data_processor():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'data-processor'
+def _cribo_init___cribo_d8297b_data_processor():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'data-processor'
     """Module with hyphen in name - can't be imported with regular import statement."""
 
     class DataProcessor:
@@ -151,21 +151,21 @@ def __cribo_init___cribo_d8297b_data_processor():
         def process(self, data):
             return f"Processing {data} with hyphenated module"
     DataProcessor.__module__ = 'data-processor'
-    __cribo_module.DataProcessor = DataProcessor
+    _cribo_module.DataProcessor = DataProcessor
 
     def get_processor_info():
         return "This is a data processor from a module with a hyphen"
-    __cribo_module.get_processor_info = get_processor_info
+    _cribo_module.get_processor_info = get_processor_info
     PROCESSOR_VERSION = "1.0-hyphenated"
-    __cribo_module.PROCESSOR_VERSION = PROCESSOR_VERSION
-    return __cribo_module
+    _cribo_module.PROCESSOR_VERSION = PROCESSOR_VERSION
+    return _cribo_module
 """Main module demonstrating importlib usage with static string literals."""
-data_processor = __cribo_init___cribo_d8297b_data_processor()
-api_client = __cribo_init___cribo_64c186_api_client()
-class_module = __cribo_init___cribo_004e55_class_()
-def_module = __cribo_init___cribo_944eb6_def_()
-for_module = __cribo_init___cribo_ec6681_for_()
-config_2024 = __cribo_init___cribo_5687a6__2024_config()
+data_processor = _cribo_init___cribo_d8297b_data_processor()
+api_client = _cribo_init___cribo_64c186_api_client()
+class_module = _cribo_init___cribo_004e55_class_()
+def_module = _cribo_init___cribo_944eb6_def_()
+for_module = _cribo_init___cribo_ec6681_for_()
+config_2024 = _cribo_init___cribo_5687a6__2024_config()
 def main():
     processor = data_processor.DataProcessor()
     print(f"Processor: {processor.name}")

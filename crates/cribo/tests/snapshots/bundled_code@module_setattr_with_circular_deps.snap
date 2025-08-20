@@ -18,28 +18,28 @@ pkg._models = pkg__models
 pkg__types = types.SimpleNamespace(__name__='pkg._types')
 pkg._types = pkg__types
 @functools.cache
-def __cribo_init___cribo_1fb248_pkg():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'pkg'
+def _cribo_init___cribo_1fb248_pkg():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'pkg'
     global AsyncStream, SyncStream
-    __cribo_module.AsyncStream = AsyncStream
-    __cribo_module.SyncStream = SyncStream
+    _cribo_module.AsyncStream = AsyncStream
+    _cribo_module.SyncStream = SyncStream
     """Package that sets __module__ on all exported items, like httpx does."""
-    __cribo_module.Client = Client
-    __cribo_module.Request = Request
-    __cribo_module.Response = Response
-    __cribo_module.main = main
+    _cribo_module.Client = Client
+    _cribo_module.Request = Request
+    _cribo_module.Response = Response
+    _cribo_module.main = main
     __all__ = ["AsyncStream", "SyncStream", "Client", "Request", "Response", "main"]
-    __locals = vars(__cribo_module)
-    __cribo_module.__locals = __locals
+    __locals = vars(_cribo_module)
+    _cribo_module.__locals = __locals
     for __name in __all__:
         if not __name.startswith("__"):
             setattr(__locals[__name], "__module__", "pkg")
-    __cribo_module._main = pkg__main
-    __cribo_module._models = pkg__models
-    __cribo_module._client = pkg__client
-    __cribo_module._types = pkg__types
-    return __cribo_module
+    _cribo_module._main = pkg__main
+    _cribo_module._models = pkg__models
+    _cribo_module._client = pkg__client
+    _cribo_module._types = pkg__types
+    return _cribo_module
 class Request:
     """Request model."""
 
@@ -83,7 +83,7 @@ Client.__module__ = 'pkg._client'
 AsyncStream.__module__ = 'pkg._types'
 SyncStream.__module__ = 'pkg._types'
 """Types module with stream classes."""
-pkg = __cribo_init___cribo_1fb248_pkg()
+pkg = _cribo_init___cribo_1fb248_pkg()
 pkg__main.main = main
 pkg__models.Request = Request
 pkg__models.Response = Response
@@ -91,7 +91,7 @@ pkg__client.Client = Client
 pkg__types.AsyncStream = AsyncStream
 pkg__types.SyncStream = SyncStream
 """Test module attribute setting on wildcard imports with circular dependencies."""
-pkg = __cribo_init___cribo_1fb248_pkg()
+pkg = _cribo_init___cribo_1fb248_pkg()
 stream_a = pkg.AsyncStream()
 stream_s = pkg.SyncStream()
 print(f"AsyncStream: {stream_a.read()}")

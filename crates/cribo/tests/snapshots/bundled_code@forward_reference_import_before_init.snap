@@ -14,19 +14,19 @@ class BaseException(Exception):
     """Base exception class"""
     pass
 @functools.cache
-def __cribo_init___cribo_4089db_mypkg_compat():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'mypkg.compat'
+def _cribo_init___cribo_4089db_mypkg_compat():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'mypkg.compat'
     try:
         from fakejson import JSONDecodeError
-        __cribo_module.JSONDecodeError = JSONDecodeError
+        _cribo_module.JSONDecodeError = JSONDecodeError
     except ImportError:
         from json import JSONDecodeError
-        __cribo_module.JSONDecodeError = JSONDecodeError
+        _cribo_module.JSONDecodeError = JSONDecodeError
     MutableMapping = collections.abc.MutableMapping
-    __cribo_module.MutableMapping = MutableMapping
-    return __cribo_module
-mypkg.compat = __cribo_init___cribo_4089db_mypkg_compat()
+    _cribo_module.MutableMapping = MutableMapping
+    return _cribo_module
+mypkg.compat = _cribo_init___cribo_4089db_mypkg_compat()
 class CustomJSONError(BaseException, mypkg.compat.JSONDecodeError):
     """Custom JSON error that inherits from compat's JSONDecodeError"""
 
@@ -40,7 +40,7 @@ BaseException.__module__ = 'mypkg.exceptions'
 CustomJSONError.__module__ = 'mypkg.exceptions'
 mypkg_exceptions = types.SimpleNamespace(__name__='mypkg.exceptions')
 mypkg.exceptions = mypkg_exceptions
-mypkg.compat = __cribo_init___cribo_4089db_mypkg_compat()
+mypkg.compat = _cribo_init___cribo_4089db_mypkg_compat()
 JSONDecodeError = mypkg.compat.JSONDecodeError
 mypkg_exceptions.BaseException = BaseException
 mypkg_exceptions.CustomJSONError = CustomJSONError

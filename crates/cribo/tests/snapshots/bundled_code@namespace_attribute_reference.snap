@@ -13,12 +13,12 @@ class MyError(Exception):
     """Base exception class"""
     pass
 @functools.cache
-def __cribo_init___cribo_19d82f_mypkg_compat():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'mypkg.compat'
+def _cribo_init___cribo_19d82f_mypkg_compat():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'mypkg.compat'
     try:
         from json import JSONDecodeError
-        __cribo_module.JSONDecodeError = JSONDecodeError
+        _cribo_module.JSONDecodeError = JSONDecodeError
     except ImportError:
 
         class JSONDecodeError(ValueError):
@@ -29,11 +29,11 @@ def __cribo_init___cribo_19d82f_mypkg_compat():
                 self.doc = doc
                 self.pos = pos
     bytes = __import__('builtins').bytes
-    __cribo_module.bytes = bytes
+    _cribo_module.bytes = bytes
     basestring = str
-    __cribo_module.basestring = basestring
-    return __cribo_module
-mypkg.compat = __cribo_init___cribo_19d82f_mypkg_compat()
+    _cribo_module.basestring = basestring
+    return _cribo_module
+mypkg.compat = _cribo_init___cribo_19d82f_mypkg_compat()
 class MyJSONError(MyError, mypkg.compat.JSONDecodeError):
     """JSON error that inherits from compat JSONDecodeError"""
 
@@ -44,7 +44,7 @@ MyError.__module__ = 'mypkg.exceptions'
 MyJSONError.__module__ = 'mypkg.exceptions'
 mypkg_exceptions = types.SimpleNamespace(__name__='mypkg.exceptions')
 mypkg.exceptions = mypkg_exceptions
-mypkg.compat = __cribo_init___cribo_19d82f_mypkg_compat()
+mypkg.compat = _cribo_init___cribo_19d82f_mypkg_compat()
 exceptions = mypkg_exceptions
 mypkg_exceptions.MyError = MyError
 mypkg_exceptions.MyJSONError = MyJSONError

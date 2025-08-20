@@ -10,19 +10,19 @@ import functools
 import types
 mypackage = types.SimpleNamespace(__name__='mypackage')
 @functools.cache
-def __cribo_init___cribo_35f1d1_mypackage_utils():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'mypackage.utils'
+def _cribo_init___cribo_35f1d1_mypackage_utils():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'mypackage.utils'
     """Utils module that imports from __version__ module and uses it at module level."""
-    __cribo_module.__version__ = __version__
+    _cribo_module.__version__ = __version__
     VERSION_PREFIX = f"v{__version__}"
-    __cribo_module.VERSION_PREFIX = VERSION_PREFIX
+    _cribo_module.VERSION_PREFIX = VERSION_PREFIX
 
     def get_version_info():
         """Return version information using the imported __version__ variable."""
-        return __cribo_module.VERSION_PREFIX
-    __cribo_module.get_version_info = get_version_info
-    return __cribo_module
+        return _cribo_module.VERSION_PREFIX
+    _cribo_module.get_version_info = get_version_info
+    return _cribo_module
 __version__ = "1.0.0"
 def get_full_info():
     """Combine version and processed data."""
@@ -38,7 +38,7 @@ mypackage_core = types.SimpleNamespace(__name__='mypackage.core')
 mypackage.core = mypackage_core
 mypackage___version__ = types.SimpleNamespace(__name__='mypackage.__version__')
 mypackage.__version__ = mypackage___version__
-mypackage.utils = __cribo_init___cribo_35f1d1_mypackage_utils()
+mypackage.utils = _cribo_init___cribo_35f1d1_mypackage_utils()
 mypackage_core.process_data = process_data
 mypackage___version__.__version__ = __version__
 """Test cross-module attribute import with circular dependencies that require init functions."""

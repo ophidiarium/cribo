@@ -12,11 +12,11 @@ import types
 import typing
 schemas = types.SimpleNamespace(__name__='schemas')
 @functools.cache
-def __cribo_init___cribo_f275a8_schemas_user():
-    __cribo_module = types.SimpleNamespace()
-    __cribo_module.__name__ = 'schemas.user'
+def _cribo_init___cribo_f275a8_schemas_user():
+    _cribo_module = types.SimpleNamespace()
+    _cribo_module.__name__ = 'schemas.user'
     Optional = typing.Optional
-    __cribo_module.Optional = Optional
+    _cribo_module.Optional = Optional
     """User schema definitions using Pydantic."""
     from pydantic import BaseModel, EmailStr, Field
 
@@ -33,7 +33,7 @@ def __cribo_init___cribo_f275a8_schemas_user():
             json_encoders = {}
             json_schema_extra = {"example": {"name": "John Doe", "email": "john@example.com", "age": 30, "is_active": True, "bio": "Software developer"}}
     UserSchema.__module__ = 'schemas.user'
-    __cribo_module.UserSchema = UserSchema
+    _cribo_module.UserSchema = UserSchema
 
     class CreateUserRequest(BaseModel):
         """Request model for creating a new user."""
@@ -42,7 +42,7 @@ def __cribo_init___cribo_f275a8_schemas_user():
         age: typing.Optional[int] = Field(default=None, ge=0, le=150)
         bio: typing.Optional[str] = Field(default=None, max_length=500)
     CreateUserRequest.__module__ = 'schemas.user'
-    __cribo_module.CreateUserRequest = CreateUserRequest
+    _cribo_module.CreateUserRequest = CreateUserRequest
 
     class UserResponse(BaseModel):
         """Response model for user data."""
@@ -53,9 +53,9 @@ def __cribo_init___cribo_f275a8_schemas_user():
         is_active: bool
         bio: typing.Optional[str] = None
     UserResponse.__module__ = 'schemas.user'
-    __cribo_module.UserResponse = UserResponse
-    return __cribo_module
-schemas.user = __cribo_init___cribo_f275a8_schemas_user()
+    _cribo_module.UserResponse = UserResponse
+    return _cribo_module
+schemas.user = _cribo_init___cribo_f275a8_schemas_user()
 def validate_email(email: str) -> bool:
     """Simple email validation."""
     pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
