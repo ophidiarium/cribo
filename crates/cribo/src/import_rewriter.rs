@@ -397,8 +397,16 @@ impl ImportRewriter {
             if let Stmt::FunctionDef(func_def) = stmt {
                 let func_name = func_def.name.to_string();
 
-                if let Some(imports) = imports_by_function.get(&func_name) {
-                    self.add_imports_to_function_body(func_def, imports.as_slice());
+                // Combine wildcard ("*") imports with function-specific imports
+                let mut combined: Vec<&MovableImport> = Vec::new();
+                if let Some(all) = imports_by_function.get("*") {
+                    combined.extend_from_slice(all);
+                }
+                if let Some(specific) = imports_by_function.get(&func_name) {
+                    combined.extend_from_slice(specific);
+                }
+                if !combined.is_empty() {
+                    self.add_imports_to_function_body(func_def, &combined);
                 }
             }
         }
@@ -410,8 +418,43 @@ impl ImportRewriter {
         func_def: &mut StmtFunctionDef,
         imports: &[&MovableImport],
     ) {
+        // First, collect existing imports in the function to avoid duplicates
+        let mut existing_imports = FxHashSet::default();
+        for stmt in &func_def.body {
+            match stmt {
+                Stmt::Import(import_stmt) => {
+                    for alias in &import_stmt.names {
+                        existing_imports.insert(ImportStatement::Import {
+                            module: alias.name.to_string(),
+                            alias: alias.asname.as_ref().map(std::string::ToString::to_string),
+                        });
+                    }
+                }
+                Stmt::ImportFrom(from_stmt) => {
+                    if let Some(module) = &from_stmt.module {
+                        let names: Vec<(String, Option<String>)> = from_stmt
+                            .names
+                            .iter()
+                            .map(|alias| {
+                                (
+                                    alias.name.to_string(),
+                                    alias.asname.as_ref().map(std::string::ToString::to_string),
+                                )
+                            })
+                            .collect();
+                        existing_imports.insert(ImportStatement::FromImport {
+                            module: Some(module.to_string()),
+                            names,
+                            level: from_stmt.level,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+
         // Deduplicate imports based on their ImportStatement
-        let mut seen_imports = FxHashSet::default();
+        let mut seen_imports = existing_imports; // Start with existing imports
         let mut import_stmts = Vec::new();
 
         for movable_import in imports {
@@ -422,11 +465,15 @@ impl ImportRewriter {
             }
         }
 
-        // Insert imports at the beginning of the function body
+        // Insert imports at the beginning of the function body, but after any docstring
         match self.dedup_strategy {
             ImportDeduplicationStrategy::FunctionStart => {
-                // Insert all imports at the start
-                func_def.body.splice(0..0, import_stmts);
+                // Insert imports after a leading docstring, if present
+                let insert_at = usize::from(func_def
+                    .body
+                    .first()
+                    .is_some_and(ruff_python_ast::helpers::is_docstring_stmt));
+                func_def.body.splice(insert_at..insert_at, import_stmts);
             }
         }
     }
