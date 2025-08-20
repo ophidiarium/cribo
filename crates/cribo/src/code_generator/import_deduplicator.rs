@@ -132,13 +132,11 @@ pub(super) fn is_hoisted_import(_bundler: &Bundler, stmt: &Stmt) -> bool {
             false
         }
         Stmt::Import(import_stmt) => {
-            // Only hoist stdlib imports without user-defined aliases
-            // Imports like "import json as j" should not be hoisted
+            // Hoist ALL stdlib imports, including those with aliases
             import_stmt.names.iter().any(|alias| {
                 let module_name = alias.name.as_str();
-                // Only hoist if it's stdlib AND has no user-defined alias
-                let is_hoisted = crate::side_effects::is_safe_stdlib_module(module_name)
-                    && alias.asname.is_none();
+                // Hoist if it's a stdlib module
+                let is_hoisted = crate::side_effects::is_safe_stdlib_module(module_name);
                 if is_hoisted {
                     log::debug!("Import {module_name} is a hoisted stdlib import");
                 }
@@ -246,11 +244,27 @@ pub(super) fn collect_imports_from_module(
             }
             Stmt::Import(import_stmt) => {
                 // Track regular import statements for stdlib modules
-                if import_stmt.names.iter().any(|alias| {
+                // Collect ALL stdlib imports including those with aliases
+                for alias in &import_stmt.names {
                     let imported_module_name = alias.name.as_str();
-                    is_safe_stdlib_module(imported_module_name) && alias.asname.is_none()
-                }) {
-                    bundler.stdlib_import_statements.push(stmt.clone());
+                    if is_safe_stdlib_module(imported_module_name) {
+                        // Add to the set of stdlib modules that need to be imported
+                        bundler
+                            .stdlib_modules_to_import
+                            .insert(imported_module_name.to_string());
+
+                        // Track the module and its alias
+                        if let Some(alias_name) = alias.asname.as_ref() {
+                            bundler.stdlib_module_aliases.insert(
+                                alias_name.as_str().to_string(),
+                                imported_module_name.to_string(),
+                            );
+                        }
+                        // Add to statements if not aliased (aliased ones are handled separately)
+                        if alias.asname.is_none() {
+                            bundler.stdlib_import_statements.push(stmt.clone());
+                        }
+                    }
                 }
             }
             _ => {}

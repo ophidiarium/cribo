@@ -78,6 +78,8 @@ pub struct Bundler<'a> {
     pub(crate) stdlib_import_statements: Vec<Stmt>,
     /// Track all stdlib modules that need to be imported (from graph + dynamic requirements)
     pub(crate) stdlib_modules_to_import: FxIndexSet<String>,
+    /// Track stdlib module aliases (e.g., "j" -> "json") for expression transformation
+    pub(crate) stdlib_module_aliases: FxIndexMap<String, String>,
     /// Track which modules have been bundled
     pub(crate) bundled_modules: FxIndexSet<String>,
     /// Modules that were inlined (not wrapper modules)
@@ -237,6 +239,7 @@ impl<'a> Bundler<'a> {
             stdlib_import_from_map: FxIndexMap::default(),
             stdlib_import_statements: Vec::new(),
             stdlib_modules_to_import: FxIndexSet::default(),
+            stdlib_module_aliases: FxIndexMap::default(),
             bundled_modules: FxIndexSet::default(),
             inlined_modules: FxIndexSet::default(),
             entry_path: None,
@@ -4203,6 +4206,19 @@ impl<'a> Bundler<'a> {
                         python_version,
                     },
                 );
+
+                // Pre-populate hoisted stdlib module aliases for the entry module
+                // This allows the transformer to rewrite expressions like j.dumps to _cribo.json.dumps
+                for (alias_name, module_name) in &self.stdlib_module_aliases {
+                    let rewritten_path = Self::get_rewritten_stdlib_path(module_name);
+                    log::debug!(
+                        "Pre-populating stdlib module alias for entry module: \
+                         {alias_name} -> {rewritten_path}"
+                    );
+                    transformer
+                        .import_aliases
+                        .insert(alias_name.clone(), rewritten_path);
+                }
 
                 // Pre-populate hoisted importlib aliases for the entry module
                 if let Some(importlib_imports) = self.stdlib_import_from_map.get("importlib") {

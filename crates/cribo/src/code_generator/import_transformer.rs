@@ -583,11 +583,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                     for alias in &import_stmt.names {
                         let module_name = alias.name.as_str();
 
-                        // Only normalize stdlib imports without user-defined aliases
-                        // Imports like "import json as j" should be kept as-is
-                        if self.should_normalize_stdlib_import(module_name)
-                            && alias.asname.is_none()
-                        {
+                        // Normalize ALL stdlib imports, including those with aliases
+                        if self.should_normalize_stdlib_import(module_name) {
                             stdlib_imports.push((
                                 module_name.to_string(),
                                 alias.asname.as_ref().map(|n| n.as_str().to_string()),
@@ -1782,6 +1779,47 @@ impl<'a> RecursiveImportTransformer<'a> {
                                         range: attr_expr.range,
                                     })
                                 };
+                                *expr = new_expr;
+                                return;
+                            }
+                        }
+                        // Check if the base is a stdlib import alias (e.g., j for json)
+                        else if let Some(stdlib_path) = self.import_aliases.get(&base) {
+                            // This is accessing an attribute on a stdlib module alias
+                            // Transform j.dumps to _cribo.json.dumps
+                            if attr_path.len() == 1 {
+                                let attr_name = &attr_path[0];
+                                log::debug!(
+                                    "Transforming {base}.{attr_name} to {stdlib_path}.{attr_name} \
+                                     (stdlib import alias)"
+                                );
+
+                                // Create dotted name expression like _cribo.json.dumps
+                                let full_path = format!("{stdlib_path}.{attr_name}");
+                                let parts: Vec<&str> = full_path.split('.').collect();
+                                let new_expr = crate::ast_builder::expressions::dotted_name(
+                                    &parts,
+                                    attr_expr.ctx,
+                                );
+                                *expr = new_expr;
+                                return;
+                            } else {
+                                // For deeper paths like j.decoder.JSONDecoder, build the full path
+                                let mut full_path = stdlib_path.clone();
+                                for part in &attr_path {
+                                    full_path.push('.');
+                                    full_path.push_str(part);
+                                }
+                                log::debug!(
+                                    "Transforming {base}.{} to {full_path} (stdlib import alias, deep path)",
+                                    attr_path.join(".")
+                                );
+
+                                let parts: Vec<&str> = full_path.split('.').collect();
+                                let new_expr = crate::ast_builder::expressions::dotted_name(
+                                    &parts,
+                                    attr_expr.ctx,
+                                );
                                 *expr = new_expr;
                                 return;
                             }
