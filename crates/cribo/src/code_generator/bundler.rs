@@ -7635,7 +7635,7 @@ impl Bundler<'_> {
         for (idx, stmt) in statements.iter().enumerate() {
             // Track namespace init function definitions
             if let Stmt::FunctionDef(func_def) = stmt
-                && is_init_function(&func_def.name)
+                && is_init_function(func_def.name.as_str())
             {
                 namespace_functions.insert(func_def.name.to_string(), idx);
             }
