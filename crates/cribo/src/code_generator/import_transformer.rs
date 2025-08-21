@@ -676,7 +676,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         let rename_map = self.build_stdlib_rename_map(&stdlib_imports);
 
                         // Track these renames for expression rewriting
-                        for (local_name, rewritten_path) in rename_map.clone() {
+                        for (local_name, rewritten_path) in rename_map {
                             self.import_aliases.insert(local_name, rewritten_path);
                         }
 
