@@ -5028,14 +5028,46 @@ impl<'a> Bundler<'a> {
         }
 
         // For symbols not in __all__ (or if no __all__ is defined), check tree-shaking
-        if !self.is_symbol_kept_by_tree_shaking(module_name, symbol_name) {
+        let is_kept_by_tree_shaking = self.is_symbol_kept_by_tree_shaking(module_name, symbol_name);
+        if !is_kept_by_tree_shaking {
             log::debug!(
                 "Symbol '{symbol_name}' from module '{module_name}' was removed by tree-shaking; not exporting"
             );
             return false;
         }
 
-        // No __all__ defined or symbol not in __all__, use default Python visibility rules
+        // When tree-shaking is enabled, if a symbol is kept it means it's imported/used somewhere
+        // For private symbols (starting with _), we should export them if tree-shaking kept them
+        // This handles the case where a private symbol is imported by another module
+        if self.tree_shaking_keep_symbols.is_some() {
+            // Tree-shaking is enabled and the symbol was kept, so export it
+            log::debug!(
+                "Symbol '{symbol_name}' from module '{module_name}' kept by tree-shaking, exporting despite visibility"
+            );
+            return true;
+        }
+
+        // Special case: if a symbol is imported by another module in the bundle, export it
+        // even if it starts with underscore. This is necessary for symbols like _is_single_cell_widths
+        // in rich.cells that are imported by rich.segment
+        if symbol_name.starts_with('_') {
+            log::debug!(
+                "Checking if private symbol '{symbol_name}' from module '{module_name}' is imported by other modules"
+            );
+            if let Some(module_asts) = &self.module_asts
+                && crate::analyzers::ImportAnalyzer::is_symbol_imported_by_other_modules(
+                    module_asts,
+                    module_name,
+                    symbol_name,
+                ) {
+                    log::debug!(
+                        "Private symbol '{symbol_name}' from module '{module_name}' is imported by other modules, exporting"
+                    );
+                    return true;
+                }
+        }
+
+        // No tree-shaking or no __all__ defined, use default Python visibility rules
         // Export all symbols that don't start with underscore
         let result = !symbol_name.starts_with('_');
         log::debug!(

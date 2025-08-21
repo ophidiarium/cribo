@@ -62,7 +62,7 @@ def _cribo_init___cribo_cca96f_package():
     _cribo_module.__locals = __locals
     for __name in __all__:
         if not __name.startswith("__"):
-            setattr(__locals[__name], "__module__", "package")
+            setattr(_cribo_module.__locals[__name], "__module__", "package")
     _cribo_module._subpackage = package__subpackage
     return _cribo_module
 package = _cribo_init___cribo_cca96f_package()

@@ -863,24 +863,43 @@ pub fn transform_module_to_init_function<'a>(
 
                     // Also set as module attribute if it should be exported (for non-lifted vars)
                     if let Expr::Name(target) = ann_assign.target.as_ref() {
+                        debug!(
+                            "Checking annotated assignment '{}' in module '{}'",
+                            target.id, ctx.module_name
+                        );
                         // Check if this is NOT a lifted variable
                         let is_lifted = lifted_names
                             .as_ref()
                             .is_some_and(|names| names.contains_key(target.id.as_str()));
 
-                        if !is_lifted
-                            && should_include_symbol(
+                        if is_lifted {
+                            debug!(
+                                "Annotated assignment '{}' is a lifted variable, skipping module attribute",
+                                target.id
+                            );
+                        } else {
+                            debug!("module_scope_symbols is: {module_scope_symbols:?}");
+                            let should_export = should_include_symbol(
                                 bundler,
                                 &target.id,
                                 ctx.module_name,
                                 module_scope_symbols,
-                            )
-                        {
-                            body.push(
-                                crate::code_generator::module_registry::create_module_attr_assignment(
-                                    MODULE_VAR, &target.id,
-                                ),
                             );
+                            debug!(
+                                "Annotated assignment '{}' should_include_symbol returned: {}",
+                                target.id, should_export
+                            );
+                            if should_export {
+                                debug!(
+                                    "Adding module attribute for annotated assignment '{}'",
+                                    target.id
+                                );
+                                body.push(
+                                    crate::code_generator::module_registry::create_module_attr_assignment(
+                                        MODULE_VAR, &target.id,
+                                    ),
+                                );
+                            }
                         }
                     }
                 } else {
@@ -2178,10 +2197,38 @@ fn should_include_symbol(
     module_name: &str,
     module_scope_symbols: Option<&rustc_hash::FxHashSet<String>>,
 ) -> bool {
-    module_scope_symbols.map_or_else(
-        || bundler.should_export_symbol(symbol_name, module_name),
-        |symbols| symbols.contains(symbol_name),
-    )
+    // If we have module_scope_symbols, check if the symbol is in that set
+    // But also check special cases
+    if let Some(symbols) = module_scope_symbols {
+        if symbols.contains(symbol_name) {
+            return true;
+        }
+        // Even if not in module_scope_symbols, check if it's a private symbol imported by others
+        if symbol_name.starts_with('_')
+            && let Some(module_asts) = &bundler.module_asts
+                && crate::analyzers::ImportAnalyzer::is_symbol_imported_by_other_modules(
+                    module_asts,
+                    module_name,
+                    symbol_name,
+                ) {
+                    log::debug!(
+                        "Private symbol '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but is imported by other modules, including"
+                    );
+                    return true;
+                }
+        // Also include all-caps constants as they're often used internally in comprehensions
+        // and other module-level code
+        if symbol_name.chars().all(|c| c.is_uppercase() || c == '_') && symbol_name.len() > 1 {
+            log::debug!(
+                "Constant '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but including as it appears to be a constant"
+            );
+            return true;
+        }
+        false
+    } else {
+        // No module_scope_symbols provided, use bundler's should_export_symbol
+        bundler.should_export_symbol(symbol_name, module_name)
+    }
 }
 
 /// Add module attribute assignment if the symbol should be exported

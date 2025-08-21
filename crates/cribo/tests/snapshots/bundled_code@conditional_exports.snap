@@ -43,9 +43,9 @@ def _cribo_init___cribo_244765_compat_module():
     _cribo_module.sys = sys
     _ver = _cribo.sys.version_info
     _cribo_module._ver = _ver
-    is_py2 = _ver[0] == 2
+    is_py2 = _cribo_module._ver[0] == 2
     _cribo_module.is_py2 = is_py2
-    is_py3 = _ver[0] == 3
+    is_py3 = _cribo_module._ver[0] == 3
     _cribo_module.is_py3 = is_py3
     has_simplejson = False
     _cribo_module.has_simplejson = has_simplejson

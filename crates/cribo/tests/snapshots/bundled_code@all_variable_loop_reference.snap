@@ -49,7 +49,7 @@ def _cribo_init___cribo_4c9561_mypkg():
     _cribo_module.__locals = __locals
     for __name in __all__:
         if not __name.startswith("__"):
-            setattr(__locals[__name], "__module__", "mypkg")
+            setattr(_cribo_module.__locals[__name], "__module__", "mypkg")
     _cribo_module._internal = mypkg__internal
     return _cribo_module
 mypkg__internal.MyClass = MyClass
