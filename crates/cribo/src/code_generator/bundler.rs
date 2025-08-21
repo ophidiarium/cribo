@@ -4174,17 +4174,60 @@ impl<'a> Bundler<'a> {
                     },
                 );
 
-                // Pre-populate hoisted stdlib module aliases for the entry module
-                // This allows the transformer to rewrite expressions like j.dumps to _cribo.json.dumps
-                for (alias_name, module_name) in &self.stdlib_module_aliases {
-                    let rewritten_path = Self::get_rewritten_stdlib_path(module_name);
-                    log::debug!(
-                        "Pre-populating stdlib module alias for entry module: \
-                         {alias_name} -> {rewritten_path}"
-                    );
+                // Pre-populate stdlib aliases that are defined in the ENTRY module only
+                // to avoid leaking aliases from other modules.
+                let mut entry_stdlib_aliases: FxIndexMap<String, String> = FxIndexMap::default();
+                for stmt in &ast.body {
+                    match stmt {
+                        Stmt::Import(import_stmt) => {
+                            for alias in &import_stmt.names {
+                                let imported = alias.name.as_str();
+                                let root = imported.split('.').next().unwrap_or(imported);
+                                if ruff_python_stdlib::sys::is_known_standard_library(
+                                    python_version,
+                                    root,
+                                ) {
+                                    let local = alias
+                                        .asname
+                                        .as_ref()
+                                        .map_or(imported, ruff_python_ast::Identifier::as_str);
+                                    entry_stdlib_aliases
+                                        .insert(local.to_string(), imported.to_string());
+                                }
+                            }
+                        }
+                        Stmt::ImportFrom(import_from) => {
+                            if import_from.level == 0
+                                && let Some(module) = &import_from.module
+                            {
+                                let module_str = module.as_str();
+                                if module_str != "__future__" {
+                                    let root = module_str.split('.').next().unwrap_or(module_str);
+                                    if ruff_python_stdlib::sys::is_known_standard_library(
+                                        python_version,
+                                        root,
+                                    ) {
+                                        for alias in &import_from.names {
+                                            if let Some(asname) = &alias.asname {
+                                                entry_stdlib_aliases.insert(
+                                                    asname.as_str().to_string(),
+                                                    module_str.to_string(),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                for (alias_name, module_name) in entry_stdlib_aliases {
+                    let rewritten_path = Self::get_rewritten_stdlib_path(&module_name);
+                    log::debug!("Entry stdlib alias: {alias_name} -> {rewritten_path}");
                     transformer
                         .import_aliases
-                        .insert(alias_name.clone(), rewritten_path);
+                        .insert(alias_name, rewritten_path);
                 }
 
                 // With proxy approach, we don't need to pre-populate importlib aliases
