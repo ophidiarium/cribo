@@ -1233,12 +1233,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                         );
 
                         // Create assignment: local_name = parent.submodule
-                        let module_expr = if full_module_path.contains('.') {
-                            let parts: Vec<&str> = full_module_path.split('.').collect();
-                            expressions::dotted_name(&parts, ExprContext::Load)
-                        } else {
-                            expressions::name(&full_module_path, ExprContext::Load)
-                        };
+                        let module_expr =
+                            expressions::module_reference(&full_module_path, ExprContext::Load);
 
                         result_stmts.push(statements::simple_assign(local_name, module_expr));
 
