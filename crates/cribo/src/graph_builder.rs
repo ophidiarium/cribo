@@ -406,17 +406,23 @@ impl<'a> GraphBuilder<'a> {
         for stmt in &class_def.body {
             match stmt {
                 Stmt::FunctionDef(method_def) => {
-                    // Collect variables from method decorators (execute at class body time)
+                    // Collect variables from method decorators
+                    // While decorators execute at class definition time, they don't affect
+                    // the ordering of the class itself - only the methods
                     for decorator in &method_def.decorator_list {
-                        self.collect_vars_in_expr(&decorator.expression, &mut read_vars);
+                        self.collect_vars_in_expr(&decorator.expression, &mut method_read_vars);
                     }
 
                     // Collect variables from method parameter annotations and defaults
-                    self.collect_function_parameter_vars(&method_def.parameters, &mut read_vars);
+                    // These don't affect class definition ordering
+                    self.collect_function_parameter_vars(
+                        &method_def.parameters,
+                        &mut method_read_vars,
+                    );
 
                     // Collect variables from return type annotation
                     if let Some(returns) = &method_def.returns {
-                        self.collect_vars_in_expr(returns, &mut read_vars);
+                        self.collect_vars_in_expr(returns, &mut method_read_vars);
                     }
 
                     // Collect variables used in the method body (these are eventual dependencies)
