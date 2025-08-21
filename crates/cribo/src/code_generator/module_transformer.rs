@@ -2206,19 +2206,25 @@ fn should_include_symbol(
         // Even if not in module_scope_symbols, check if it's a private symbol imported by others
         if symbol_name.starts_with('_')
             && let Some(module_asts) = &bundler.module_asts
-                && crate::analyzers::ImportAnalyzer::is_symbol_imported_by_other_modules(
-                    module_asts,
-                    module_name,
-                    symbol_name,
-                ) {
-                    log::debug!(
-                        "Private symbol '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but is imported by other modules, including"
-                    );
-                    return true;
-                }
+            && crate::analyzers::ImportAnalyzer::is_symbol_imported_by_other_modules(
+                module_asts,
+                module_name,
+                symbol_name,
+            )
+        {
+            log::debug!(
+                "Private symbol '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but is imported by other modules, including"
+            );
+            return true;
+        }
         // Also include all-caps constants as they're often used internally in comprehensions
-        // and other module-level code
-        if symbol_name.chars().all(|c| c.is_uppercase() || c == '_') && symbol_name.len() > 1 {
+        // and other module-level code. Include digits to handle constants like HTTP2, TLS1_3, etc.
+        let is_constant_like = symbol_name.len() > 1
+            && symbol_name.starts_with(|c: char| c.is_ascii_uppercase() || c == '_')
+            && symbol_name
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+        if is_constant_like {
             log::debug!(
                 "Constant '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but including as it appears to be a constant"
             );

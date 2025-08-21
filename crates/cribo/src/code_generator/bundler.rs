@@ -5059,12 +5059,13 @@ impl<'a> Bundler<'a> {
                     module_asts,
                     module_name,
                     symbol_name,
-                ) {
-                    log::debug!(
-                        "Private symbol '{symbol_name}' from module '{module_name}' is imported by other modules, exporting"
-                    );
-                    return true;
-                }
+                )
+            {
+                log::debug!(
+                    "Private symbol '{symbol_name}' from module '{module_name}' is imported by other modules, exporting"
+                );
+                return true;
+            }
         }
 
         // No tree-shaking or no __all__ defined, use default Python visibility rules
