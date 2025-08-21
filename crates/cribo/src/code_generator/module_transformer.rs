@@ -600,20 +600,15 @@ pub fn transform_module_to_init_function<'a>(
                     ast_builder::expressions::string_literal(ctx.module_name),
                 ));
 
-                // Set as module attribute - include all module-scope symbols
-                if should_include_symbol(
+                // Set as module attribute via centralized helper
+                emit_module_attr_if_exportable(
                     bundler,
                     &symbol_name,
                     ctx.module_name,
+                    &mut body,
                     module_scope_symbols,
-                ) {
-                    body.push(
-                        crate::code_generator::module_registry::create_module_attr_assignment(
-                            MODULE_VAR,
-                            &symbol_name,
-                        ),
-                    );
-                }
+                    None, // not a lifted var
+                );
             }
             Stmt::FunctionDef(func_def) => {
                 // Clone the function for transformation
@@ -632,21 +627,16 @@ pub fn transform_module_to_init_function<'a>(
                 // Add transformed function definition
                 body.push(Stmt::FunctionDef(func_def_clone));
 
-                // Set as module attribute - include all module-scope symbols
+                // Set as module attribute via centralized helper
                 let symbol_name = func_def.name.to_string();
-                if should_include_symbol(
+                emit_module_attr_if_exportable(
                     bundler,
                     &symbol_name,
                     ctx.module_name,
+                    &mut body,
                     module_scope_symbols,
-                ) {
-                    body.push(
-                        crate::code_generator::module_registry::create_module_attr_assignment(
-                            MODULE_VAR,
-                            &symbol_name,
-                        ),
-                    );
-                }
+                    None, // not a lifted var
+                );
             }
             Stmt::Assign(assign) => {
                 // Handle __all__ assignments - skip unless it's referenced elsewhere
