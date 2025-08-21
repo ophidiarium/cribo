@@ -535,7 +535,10 @@ pub fn transform_module_to_init_function<'a>(
     // But we'll initialize them later after the original variables are defined
     if let Some(ref lifted_names) = lifted_names {
         // Declare all lifted globals once (sorted) for deterministic output
-        let mut lifted: Vec<&str> = lifted_names.values().map(std::string::String::as_str).collect();
+        let mut lifted: Vec<&str> = lifted_names
+            .values()
+            .map(std::string::String::as_str)
+            .collect();
         lifted.sort_unstable();
         body.push(ast_builder::statements::global(lifted));
     }
@@ -911,9 +914,12 @@ pub fn transform_module_to_init_function<'a>(
                 } else {
                     rustc_hash::FxHashSet::default()
                 };
-                transform_stmt_for_module_vars(
+                transform_stmt_for_module_vars_with_bundler(
                     &mut stmt_clone,
+                    bundler,
                     &module_level_vars,
+                    ctx.global_info.as_ref().map(|g| &g.global_declarations),
+                    lifted_names.as_ref(),
                     ctx.python_version,
                 );
                 body.push(stmt_clone);
@@ -1552,6 +1558,39 @@ fn transform_stmt_for_module_vars(
             // These statement types don't contain expressions that need transformation
         }
     }
+}
+
+/// Transform a statement to use module attributes for module-level variables,
+/// with awareness of lifted globals for nested functions
+fn transform_stmt_for_module_vars_with_bundler(
+    stmt: &mut Stmt,
+    bundler: &Bundler,
+    module_level_vars: &rustc_hash::FxHashSet<String>,
+    global_declarations: Option<&rustc_hash::FxHashMap<String, Vec<ruff_text_size::TextRange>>>,
+    lifted_names: Option<&FxIndexMap<String, String>>,
+    python_version: u8,
+) {
+    if let Stmt::FunctionDef(nested_func) = stmt {
+        // For function definitions, use the global-aware transformation
+        if let Some(globals_map) = global_declarations {
+            bundler.transform_nested_function_for_module_vars_with_global_info(
+                nested_func,
+                module_level_vars,
+                globals_map,
+                lifted_names,
+            );
+        } else {
+            // Fallback to legacy path when no global info is available
+            transform_nested_function_for_module_vars(
+                nested_func,
+                module_level_vars,
+                python_version,
+            );
+        }
+        return;
+    }
+    // Non-function statements: reuse the existing traversal
+    transform_stmt_for_module_vars(stmt, module_level_vars, python_version);
 }
 
 /// Transform nested function to use module attributes for module-level variables
