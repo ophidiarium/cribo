@@ -673,14 +673,15 @@ impl ImportAnalyzer {
     ) -> bool {
         for stmt in &ast.body {
             if let Stmt::ImportFrom(import_from) = stmt
-                && Self::import_matches_module(import_from, importing_module, target_module) {
-                    // Check if the symbol is being imported
-                    for alias in &import_from.names {
-                        if alias.name.as_str() == symbol_name {
-                            return true;
-                        }
+                && Self::import_matches_module(import_from, importing_module, target_module)
+            {
+                // Check if the symbol is being imported
+                for alias in &import_from.names {
+                    if alias.name.as_str() == symbol_name {
+                        return true;
                     }
                 }
+            }
         }
         false
     }
@@ -699,19 +700,29 @@ impl ImportAnalyzer {
                 // Absolute import: "from rich.cells import ..."
                 import_module_str == target_module
             } else {
-                // Relative import: "from .cells import ..."
+                // Relative import: "from .cells import ...", "from ..utils import ...", etc.
                 // Get the package of the importing module
-                if let Some(package_prefix) = importing_module.rsplit_once('.').map(|(pkg, _)| pkg)
+                if let Some(mut package_prefix) = importing_module
+                    .rsplit_once('.')
+                    .map(|(pkg, _)| pkg.to_string())
                 {
-                    let resolved_module = if import_from.level == 1 {
-                        // from .cells import ... -> rich.cells
-                        format!("{package_prefix}.{import_module_str}")
-                    } else {
-                        // Handle higher levels if needed
-                        String::new()
-                    };
+                    // For relative imports with level > 1, traverse up the package hierarchy
+                    // level 1: from .foo import ... (stay at current package)
+                    // level 2: from ..foo import ... (go up one level)
+                    // level 3: from ...foo import ... (go up two levels)
+                    for _ in 1..import_from.level {
+                        if let Some((parent, _)) = package_prefix.rsplit_once('.') {
+                            package_prefix = parent.to_string();
+                        } else {
+                            // Attempted to go above top-level package
+                            return false;
+                        }
+                    }
+
+                    let resolved_module = format!("{package_prefix}.{import_module_str}");
                     resolved_module == target_module
                 } else {
+                    // The importing module is a top-level module, can't do relative imports
                     false
                 }
             }
