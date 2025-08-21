@@ -2062,9 +2062,6 @@ impl<'a> Bundler<'a> {
         // Store the semantic bundler reference for use in transformations
         self.semantic_bundler = Some(params.semantic_bundler);
 
-        // Initialize stdlib modules from the dependency graph
-        // Stdlib modules are now handled by _cribo proxy, no initialization needed
-
         // Initialize bundler settings and collect preliminary data
         self.initialize_bundler(params);
 
