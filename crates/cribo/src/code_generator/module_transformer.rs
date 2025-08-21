@@ -2230,6 +2230,23 @@ fn should_include_symbol(
             );
             return true;
         }
+
+        // Include common dunder variables that are often expected to be visible on modules
+        const COMMON_DUNDERS: &[&str] = &[
+            "__version__",
+            "__author__",
+            "__license__",
+            "__description__",
+            "__doc__",
+            "__all__",
+        ];
+        if COMMON_DUNDERS.contains(&symbol_name) {
+            log::debug!(
+                "Common dunder '{symbol_name}' from module '{module_name}' is not in module_scope_symbols but including as it's a standard module attribute"
+            );
+            return true;
+        }
+
         false
     } else {
         // No module_scope_symbols provided, use bundler's should_export_symbol
