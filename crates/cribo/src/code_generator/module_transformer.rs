@@ -730,62 +730,56 @@ pub fn transform_module_to_init_function<'a>(
                     }
 
                     // Skip further module attribute handling if this was a lifted variable
-                    if !lifted_var_handled {
-                        // Check if this assignment came from a transformed import
-                        if let Some(name) =
-                            expression_handlers::extract_simple_assign_target(assign)
-                        {
-                            debug!(
-                                "Checking assignment '{}' in module '{}' (inlined_import_bindings: {:?})",
-                                name, ctx.module_name, inlined_import_bindings
-                            );
-                            if inlined_import_bindings.contains(&name) {
-                                // This was imported from an inlined module
-                                // Module attributes for imports are now handled by import_transformer
-                                // to ensure correct value assignment (original_name vs local_name)
-                                debug!(
-                                    "Skipping module attribute for imported symbol '{name}' - handled by import_transformer"
-                                );
-                            } else if let Some(name) =
-                                expression_handlers::extract_simple_assign_target(assign)
-                            {
-                                // Check if this variable is used by exported functions
-                                if vars_used_by_exported_functions.contains(&name) {
-                                    // Use a special case: if no scope info available, include vars used
-                                    // by exported functions
-                                    let should_include = module_scope_symbols
-                                        .is_none_or(|symbols| symbols.contains(&name));
+                    if lifted_var_handled {
+                        // Already handled as a lifted variable
+                    } else if let Some(name) =
+                        expression_handlers::extract_simple_assign_target(assign)
+                    {
+                        debug!(
+                            "Checking assignment '{}' in module '{}' (inlined_import_bindings: {:?})",
+                            name, ctx.module_name, inlined_import_bindings
+                        );
 
-                                    if should_include {
-                                        debug!(
-                                            "Exporting '{name}' as it's used by exported functions"
-                                        );
-                                        body.push(crate::code_generator::module_registry::create_module_attr_assignment(
-                                            MODULE_VAR,
-                                            &name,
-                                        ));
-                                    }
-                                } else {
-                                    // Regular assignment, use the normal export logic
-                                    add_module_attr_if_exported(
-                                        bundler,
-                                        assign,
-                                        ctx.module_name,
-                                        &mut body,
-                                        module_scope_symbols,
-                                    );
-                                }
-                            } else {
-                                // Not a simple assignment
-                                add_module_attr_if_exported(
-                                    bundler,
-                                    assign,
-                                    ctx.module_name,
-                                    &mut body,
-                                    module_scope_symbols,
-                                );
+                        if inlined_import_bindings.contains(&name) {
+                            // This was imported from an inlined module
+                            // Module attributes for imports are now handled by import_transformer
+                            // to ensure correct value assignment (original_name vs local_name)
+                            debug!(
+                                "Skipping module attribute for imported symbol '{name}' - handled by import_transformer"
+                            );
+                        } else if vars_used_by_exported_functions.contains(&name) {
+                            // Check if this variable is used by exported functions
+                            // Use a special case: if no scope info available, include vars used
+                            // by exported functions
+                            let should_include =
+                                module_scope_symbols.is_none_or(|symbols| symbols.contains(&name));
+
+                            if should_include {
+                                debug!("Exporting '{name}' as it's used by exported functions");
+                                body.push(crate::code_generator::module_registry::create_module_attr_assignment(
+                                    MODULE_VAR,
+                                    &name,
+                                ));
                             }
+                        } else {
+                            // Regular assignment, use the normal export logic
+                            add_module_attr_if_exported(
+                                bundler,
+                                assign,
+                                ctx.module_name,
+                                &mut body,
+                                module_scope_symbols,
+                            );
                         }
+                    } else {
+                        // Not a simple assignment
+                        add_module_attr_if_exported(
+                            bundler,
+                            assign,
+                            ctx.module_name,
+                            &mut body,
+                            module_scope_symbols,
+                        );
                     }
                 }
             }
