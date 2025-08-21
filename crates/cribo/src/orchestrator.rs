@@ -1635,9 +1635,9 @@ impl BundleOrchestrator {
         let empty_parsed = get_empty_parsed_module();
         let stylist = ruff_python_codegen::Stylist::from_tokens(empty_parsed.tokens(), "");
 
-        log::debug!("Bundled AST has {} statements", bundled_ast.body.len());
+        log::trace!("Bundled AST has {} statements", bundled_ast.body.len());
         if !bundled_ast.body.is_empty() {
-            log::debug!(
+            log::trace!(
                 "First statement type in bundled AST: {:?}",
                 std::mem::discriminant(&bundled_ast.body[0])
             );
@@ -1646,7 +1646,7 @@ impl BundleOrchestrator {
         let mut code_parts = Vec::new();
         for (i, stmt) in bundled_ast.body.iter().enumerate() {
             if i < 3 {
-                log::debug!(
+                log::trace!(
                     "Processing statement {}: type = {:?}",
                     i,
                     std::mem::discriminant(stmt)
