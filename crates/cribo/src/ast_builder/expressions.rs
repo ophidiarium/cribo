@@ -217,7 +217,10 @@ pub fn unary_op(op: UnaryOp, operand: Expr) -> Expr {
 #[inline]
 pub(crate) fn simple_namespace_ctor() -> Expr {
     // Use the hoisted version when stdlib imports are hoisted
-    dotted_name(&["_cribo", "types", "SimpleNamespace"], ExprContext::Load)
+    dotted_name(
+        &[super::CRIBO_PREFIX, "types", "SimpleNamespace"],
+        ExprContext::Load,
+    )
 }
 
 /// Extracts the original flags from an f-string value.

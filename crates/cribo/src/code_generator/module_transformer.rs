@@ -2496,7 +2496,10 @@ pub fn transform_module_to_cache_init_function(
             node_index: AtomicNodeIndex::dummy(),
             expression: ast_builder::expressions::attribute(
                 ast_builder::expressions::attribute(
-                    ast_builder::expressions::name("_cribo", ExprContext::Load),
+                    ast_builder::expressions::name(
+                        crate::ast_builder::CRIBO_PREFIX,
+                        ExprContext::Load,
+                    ),
                     "functools",
                     ExprContext::Load,
                 ),

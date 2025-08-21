@@ -52,12 +52,14 @@ use crate::ast_builder::{expressions, statements};
 
 /// Constants for the proxy implementation
 const SYS_MODULE: &str = "sys";
+use super::CRIBO_PREFIX;
+
 const SYS_ALIAS: &str = "_sys";
 const IMPORTLIB_MODULE: &str = "importlib";
 const IMPORTLIB_ALIAS: &str = "_importlib";
 const CRIBO_MODULE_CLASS: &str = "_CriboModule";
 const CRIBO_CLASS: &str = "_Cribo";
-const CRIBO_INSTANCE: &str = "_cribo";
+const CRIBO_INSTANCE: &str = CRIBO_PREFIX;
 
 /// Helper to create simple function parameters
 fn make_params(names: &[&str]) -> Parameters {

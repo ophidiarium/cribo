@@ -1031,7 +1031,7 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
         if info.context == NamespaceContext::StdlibModule {
             // Generate: _cribo.module = module
             statements.push(statements::assign_attribute(
-                "_cribo",
+                crate::ast_builder::CRIBO_PREFIX,
                 &info.original_path,
                 expressions::name(&info.original_path, ExprContext::Load),
             ));

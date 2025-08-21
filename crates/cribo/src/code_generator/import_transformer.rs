@@ -87,7 +87,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                         Expr::Attribute(inner_attr) => {
                             // Handle _cribo.typing.TYPE_CHECKING
                             inner_attr.attr.as_str() == "typing"
-                                && matches!(&*inner_attr.value, Expr::Name(name) if name.id.as_str() == "_cribo")
+                                && matches!(&*inner_attr.value, Expr::Name(name) if name.id.as_str() == crate::ast_builder::CRIBO_PREFIX)
                         }
                         _ => false,
                     }
@@ -1924,7 +1924,7 @@ impl<'a> RecursiveImportTransformer<'a> {
                                     node_index: AtomicNodeIndex::dummy(),
                                     value: Box::new(Expr::Name(ExprName {
                                         node_index: AtomicNodeIndex::dummy(),
-                                        id: "_cribo".into(),
+                                        id: crate::ast_builder::CRIBO_PREFIX.into(),
                                         ctx: ExprContext::Load,
                                         range: TextRange::default(),
                                     })),
