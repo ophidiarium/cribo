@@ -252,7 +252,7 @@ impl<'a> RecursiveImportTransformer<'a> {
     /// Build a mapping of stdlib imports to their rewritten paths
     /// This mapping is used during expression rewriting
     fn build_stdlib_rename_map(
-        &mut self,
+        &self,
         imports: &[(String, Option<String>)],
     ) -> FxIndexMap<String, String> {
         let mut rename_map = FxIndexMap::default();
