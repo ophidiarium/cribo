@@ -5480,6 +5480,7 @@ impl<'a> Bundler<'a> {
         func_def: &mut StmtFunctionDef,
         module_level_vars: &rustc_hash::FxHashSet<String>,
         global_declarations: &rustc_hash::FxHashMap<String, Vec<ruff_text_size::TextRange>>,
+        lifted_names: Option<&FxIndexMap<String, String>>,
     ) {
         // First, collect all global declarations in this function
         // These variables should NOT be transformed to module attributes
@@ -5498,17 +5499,17 @@ impl<'a> Bundler<'a> {
                         global_vars.insert(var_name.clone());
                     }
 
-                    // Also check if this is a lifted name by looking for the original
-                    // The lifted name pattern is "_cribo_<module>_<original_name>"
-                    // We need to find if any original name in global_declarations maps to this lifted name
-                    for original_name in global_declarations.keys() {
-                        // Check if var_name looks like a lifted version of original_name
-                        // This is a heuristic: lifted names typically contain the original name at the end
-                        if var_name.ends_with(&format!("_{original_name}")) {
-                            global_vars.insert(original_name.clone());
-                            // Also insert the lifted name itself to ensure it's not transformed
-                            global_vars.insert(var_name.clone());
-                            break;
+                    // Also check if this is a lifted name by looking in the lifted_names map
+                    if let Some(lifted_map) = lifted_names {
+                        // Check if var_name is a lifted name (appears as a value in the map)
+                        for (original_name, lifted_name) in lifted_map {
+                            if lifted_name == &var_name {
+                                // This is a lifted global - both the original and lifted names
+                                // should be excluded from transformation
+                                global_vars.insert(original_name.clone());
+                                global_vars.insert(lifted_name.clone());
+                                break;
+                            }
                         }
                     }
                 }

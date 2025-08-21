@@ -620,6 +620,7 @@ pub fn transform_module_to_init_function<'a>(
                         &mut func_def_clone,
                         &global_info.module_level_vars,
                         &global_info.global_declarations,
+                        lifted_names.as_ref(),
                     );
                 }
 
