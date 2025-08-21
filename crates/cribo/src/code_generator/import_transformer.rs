@@ -967,9 +967,6 @@ impl<'a> RecursiveImportTransformer<'a> {
         if let Some(module) = &import_from.module {
             let module_str = module.as_str();
             if import_from.level == 0 && self.should_normalize_stdlib_import(module_str) {
-                // Extract the root module for stdlib imports
-                let _root_module = module_str.split('.').next().unwrap_or(module_str);
-
                 // If we're in a wrapper module, create local assignments
                 if self.is_wrapper_init {
                     let mut assignments = Vec::new();
@@ -977,7 +974,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                     for alias in &import_from.names {
                         let imported_name = alias.name.as_str();
                         if imported_name == "*" {
-                            continue; // Skip star imports
+                            // Preserve wildcard imports from stdlib to avoid incorrect symbol drops
+                            return vec![Stmt::ImportFrom(import_from.clone())];
                         }
 
                         let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
@@ -1019,7 +1017,8 @@ impl<'a> RecursiveImportTransformer<'a> {
                     for alias in &import_from.names {
                         let imported_name = alias.name.as_str();
                         if imported_name == "*" {
-                            continue; // Skip star imports
+                            // Preserve wildcard imports from stdlib to avoid incorrect symbol drops
+                            return vec![Stmt::ImportFrom(import_from.clone())];
                         }
 
                         let local_name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
