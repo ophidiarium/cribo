@@ -89,6 +89,10 @@ pub fn transform_module_to_init_function<'a>(
     // Track ALL imported symbols to avoid overwriting them with submodule namespaces
     let mut imported_symbols = FxIndexSet::default();
 
+    // Track stdlib symbols that need to be added to the module namespace
+    // Use a stable set to dedup and preserve insertion order
+    let mut stdlib_reexports: FxIndexSet<(String, String)> = FxIndexSet::default();
+
     for stmt in &ast.body {
         if let Stmt::ImportFrom(import_from) = stmt {
             // Collect ALL imported symbols (not just from inlined modules)
@@ -129,6 +133,48 @@ pub fn transform_module_to_init_function<'a>(
             };
 
             if let Some(ref module) = resolved_module {
+                // Check if this is a stdlib module
+                let root_module = module.split('.').next().unwrap_or(module);
+                let is_stdlib = ruff_python_stdlib::sys::is_known_standard_library(
+                    ctx.python_version,
+                    root_module,
+                );
+
+                if is_stdlib && import_from.level == 0 {
+                    // Track stdlib imports for re-export
+                    for alias in &import_from.names {
+                        let imported_name = alias.name.as_str();
+                        if imported_name != "*" {
+                            let local_name = alias
+                                .asname
+                                .as_ref()
+                                .map_or(imported_name, ruff_python_ast::Identifier::as_str);
+
+                            // Check if this symbol should be re-exported (in __all__ or no __all__)
+                            let should_reexport = if let Some(Some(export_list)) =
+                                bundler.module_exports.get(ctx.module_name)
+                            {
+                                export_list.contains(&local_name.to_string())
+                            } else {
+                                // No explicit __all__, re-export all public symbols
+                                !local_name.starts_with('_')
+                            };
+
+                            if should_reexport {
+                                let proxy_path = format!(
+                                    "{}.{module}.{imported_name}",
+                                    crate::ast_builder::CRIBO_PREFIX
+                                );
+                                debug!(
+                                    "Tracking stdlib re-export in wrapper module '{}': {} -> {}",
+                                    ctx.module_name, local_name, &proxy_path
+                                );
+                                stdlib_reexports.insert((local_name.to_string(), proxy_path));
+                            }
+                        }
+                    }
+                }
+
                 // Check if the module is inlined (NOT wrapper modules)
                 // Only inlined modules have their symbols in global scope
                 let is_inlined = bundler.inlined_modules.contains(module);
@@ -291,11 +337,7 @@ pub fn transform_module_to_init_function<'a>(
         body.push(ast_builder::statements::simple_assign(
             symbol_name,
             ast_builder::expressions::call(
-                ast_builder::expressions::attribute(
-                    ast_builder::expressions::name("types", ExprContext::Load),
-                    "SimpleNamespace",
-                    ExprContext::Load,
-                ),
+                ast_builder::expressions::simple_namespace_ctor(),
                 vec![],
                 vec![],
             ),
@@ -928,6 +970,28 @@ pub fn transform_module_to_init_function<'a>(
     }
 
     // Skip __all__ generation - it has no meaning for types.SimpleNamespace objects
+
+    // Add stdlib re-exports to the module namespace
+    for (local_name, proxy_path) in stdlib_reexports {
+        // Create: _cribo_module.local_name = _cribo.module.symbol
+        // Parse the proxy path to create the attribute access expression
+        let parts: Vec<&str> = proxy_path.split('.').collect();
+        let value_expr = ast_builder::expressions::dotted_name(&parts, ExprContext::Load);
+
+        body.push(ast_builder::statements::assign(
+            vec![ast_builder::expressions::attribute(
+                ast_builder::expressions::name(MODULE_VAR, ExprContext::Load),
+                &local_name,
+                ExprContext::Store,
+            )],
+            value_expr,
+        ));
+
+        debug!(
+            "Added stdlib re-export to wrapper module '{}': {} = {}",
+            ctx.module_name, local_name, proxy_path
+        );
+    }
 
     // For explicit imports from inlined modules that don't create assignments,
     // we still need to set them as module attributes if they're exported
@@ -2428,13 +2492,20 @@ pub fn transform_module_to_cache_init_function(
     // Call the regular transform_module_to_init_function to get the function
     let stmt = transform_module_to_init_function(bundler, ctx, ast, symbol_renames);
 
-    // Add the @functools.cache decorator
+    // Add the @_cribo.functools.cache decorator
     if let Stmt::FunctionDef(mut func_def) = stmt {
         func_def.decorator_list = vec![Decorator {
             range: TextRange::default(),
             node_index: AtomicNodeIndex::dummy(),
             expression: ast_builder::expressions::attribute(
-                ast_builder::expressions::name("functools", ExprContext::Load),
+                ast_builder::expressions::attribute(
+                    ast_builder::expressions::name(
+                        crate::ast_builder::CRIBO_PREFIX,
+                        ExprContext::Load,
+                    ),
+                    "functools",
+                    ExprContext::Load,
+                ),
                 "cache",
                 ExprContext::Load,
             ),

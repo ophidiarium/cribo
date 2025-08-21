@@ -47,6 +47,10 @@
 
 pub mod expressions;
 pub mod other;
+pub mod proxy_generator;
 pub mod statements;
+
+/// Internal namespace prefix used for hoisted stdlib access.
+pub const CRIBO_PREFIX: &str = "_cribo";
 
 // Re-export commonly used functions for convenience

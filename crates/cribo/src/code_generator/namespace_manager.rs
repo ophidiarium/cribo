@@ -14,9 +14,7 @@ use ruff_text_size::TextRange;
 use crate::{
     analyzers::symbol_analyzer::SymbolAnalyzer,
     ast_builder::{self, expressions, statements},
-    code_generator::{
-        bundler::Bundler, import_deduplicator, module_registry::sanitize_module_name_for_identifier,
-    },
+    code_generator::{bundler::Bundler, module_registry::sanitize_module_name_for_identifier},
     types::{FxIndexMap, FxIndexSet},
 };
 
@@ -47,14 +45,8 @@ pub struct NamespaceInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NamespaceContext {
     TopLevel,
-    Attribute {
-        parent: String,
-    },
-    // TODO: These variants will be used in Phase 2 of the migration
-    #[allow(dead_code)]
+    Attribute { parent: String },
     InlinedModule,
-    #[allow(dead_code)]
-    CircularDependencyWrapper,
     ImportedSubmodule,
 }
 
@@ -65,8 +57,7 @@ impl NamespaceContext {
             Self::TopLevel => 0,
             Self::Attribute { .. } => 1,
             Self::InlinedModule => 2,
-            Self::CircularDependencyWrapper => 3,
-            Self::ImportedSubmodule => 4,
+            Self::ImportedSubmodule => 3,
         }
     }
 }
@@ -322,9 +313,8 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
         }
 
         debug!("Creating top-level namespace: {namespace}");
-        // Ensure types module is imported
-        import_deduplicator::add_stdlib_import(bundler, "types");
         // Create: namespace = types.SimpleNamespace(__name__='namespace')
+        // Note: types module is accessed via _cribo proxy, no explicit import needed
         let keywords = vec![Keyword {
             node_index: AtomicNodeIndex::dummy(),
             arg: Some(Identifier::new("__name__", TextRange::default())),
@@ -408,18 +398,33 @@ pub(super) fn generate_submodule_attributes_with_exclusions(
 
                     // Check namespace_registry instead of created_namespaces since namespaces
                     // might be registered but not created yet at this point
-                    if bundler.namespace_registry.contains_key(&sanitized_module) {
-                        // This module will have a namespace variable, assign it
-                        debug!(
-                            "Assigning namespace variable: {parent}.{attr} = {sanitized_module}"
-                        );
+                    if let Some(namespace_info) = bundler.namespace_registry.get(&sanitized_module)
+                    {
+                        // Check if parent assignment was already done
+                        if namespace_info.parent_assignment_done {
+                            debug!(
+                                "Skipping namespace assignment for {parent}.{attr} = {sanitized_module} - parent assignment already done"
+                            );
+                        } else {
+                            // This module will have a namespace variable, assign it
+                            debug!(
+                                "Assigning namespace variable: {parent}.{attr} = {sanitized_module}"
+                            );
 
-                        let assignment = statements::assign_attribute(
-                            &parent,
-                            &attr,
-                            expressions::name(&sanitized_module, ExprContext::Load),
-                        );
-                        final_body.push(assignment);
+                            let assignment = statements::assign_attribute(
+                                &parent,
+                                &attr,
+                                expressions::name(&sanitized_module, ExprContext::Load),
+                            );
+                            final_body.push(assignment);
+
+                            // Mark the parent assignment as done
+                            if let Some(info) =
+                                bundler.namespace_registry.get_mut(&sanitized_module)
+                            {
+                                info.parent_assignment_done = true;
+                            }
+                        }
                     } else {
                         // Check if this would be a redundant self-assignment
                         let full_target = format!("{parent}.{attr}");
@@ -638,7 +643,7 @@ impl NamespaceParams {
         }
     }
 
-    /// Create params for immediate generation with attributes  
+    /// Create params for immediate generation with attributes
     pub fn immediate_with_attributes(attributes: Vec<(String, Expr)>) -> Self {
         Self {
             immediate: true,
@@ -776,8 +781,7 @@ pub fn require_namespace(
             }
         }
 
-        // Ensure types module is imported before using SimpleNamespace
-        crate::code_generator::import_deduplicator::add_stdlib_import(bundler, "types");
+        // Note: types module is accessed via _cribo proxy, no explicit import needed
 
         // Check namespace info and gather necessary data before mutable borrow
         let namespace_info = bundler
@@ -977,7 +981,8 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
             continue;
         }
 
-        // a. Generate the namespace creation statement with __name__ as keyword
+        // a. Generate the namespace creation statement
+        // Generate types.SimpleNamespace with __name__ as keyword
         let keywords = vec![Keyword {
             node_index: AtomicNodeIndex::dummy(),
             arg: Some(Identifier::new("__name__", TextRange::default())),
@@ -987,15 +992,7 @@ pub fn generate_required_namespaces(bundler: &mut Bundler) -> Vec<Stmt> {
 
         let creation_stmt = statements::assign(
             vec![expressions::name(sanitized_name, ExprContext::Store)],
-            expressions::call(
-                expressions::attribute(
-                    expressions::name("types", ExprContext::Load),
-                    "SimpleNamespace",
-                    ExprContext::Load,
-                ),
-                vec![],
-                keywords,
-            ),
+            expressions::call(expressions::simple_namespace_ctor(), vec![], keywords),
         );
         statements.push(creation_stmt);
 

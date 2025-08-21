@@ -5,7 +5,6 @@ use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 
 use crate::{
     cribo_graph::{ItemData, ItemType, ModuleDepGraph},
-    side_effects::is_safe_stdlib_module,
     types::{FxIndexMap, FxIndexSet},
     visitors::ExpressionSideEffectDetector,
 };
@@ -26,9 +25,7 @@ pub struct GraphBuilder<'a> {
     /// Maps local name -> module path (e.g., "il" -> "importlib", "im" ->
     /// "`importlib.import_module`")
     import_aliases: FxIndexMap<String, String>,
-    /// Track which modules were created by stdlib normalization
-    /// This helps with tree-shaking normalized imports
-    normalized_modules: FxIndexSet<String>,
+    python_version: u8,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -39,18 +36,13 @@ enum ScopeType {
 }
 
 impl<'a> GraphBuilder<'a> {
-    pub fn new(graph: &'a mut ModuleDepGraph) -> Self {
+    pub fn new(graph: &'a mut ModuleDepGraph, python_version: u8) -> Self {
         Self {
             graph,
             current_scope: ScopeType::Module,
             import_aliases: FxIndexMap::default(),
-            normalized_modules: FxIndexSet::default(),
+            python_version,
         }
-    }
-
-    /// Set the modules that were created by stdlib normalization
-    pub fn set_normalized_modules(&mut self, modules: FxIndexSet<String>) {
-        self.normalized_modules = modules;
     }
 
     /// Build the graph from an AST
@@ -176,12 +168,6 @@ impl<'a> GraphBuilder<'a> {
                 var_decls.insert(local_name.to_string());
             }
 
-            // Check if this import was created by stdlib normalization
-            let is_normalized = self.normalized_modules.contains(module_name);
-            if is_normalized {
-                log::debug!("Import '{module_name}' is a normalized stdlib import");
-            }
-
             let item_data = ItemData {
                 item_type: ItemType::Import {
                     module: module_name.to_string(),
@@ -192,13 +178,15 @@ impl<'a> GraphBuilder<'a> {
                 eventual_read_vars: FxIndexSet::default(),
                 write_vars: FxIndexSet::default(),
                 eventual_write_vars: FxIndexSet::default(),
-                has_side_effects: crate::side_effects::import_has_side_effects(module_name),
+                has_side_effects: crate::side_effects::import_has_side_effects(
+                    module_name,
+                    self.python_version,
+                ),
                 imported_names,
                 reexported_names: FxIndexSet::default(),
                 defined_symbols: FxIndexSet::default(),
                 symbol_dependencies: FxIndexMap::default(),
                 attribute_accesses: FxIndexMap::default(),
-                is_normalized_import: is_normalized,
             };
 
             self.graph.add_item(item_data);
@@ -289,13 +277,15 @@ impl<'a> GraphBuilder<'a> {
             eventual_read_vars: FxIndexSet::default(),
             write_vars: FxIndexSet::default(),
             eventual_write_vars: FxIndexSet::default(),
-            has_side_effects: crate::side_effects::from_import_has_side_effects(import_from),
+            has_side_effects: crate::side_effects::from_import_has_side_effects(
+                import_from,
+                self.python_version,
+            ),
             imported_names,
             reexported_names,
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -359,7 +349,6 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: [func_name].into_iter().collect(),
             symbol_dependencies,
             attribute_accesses: eventual_attribute_accesses,
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -462,7 +451,6 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: [class_name].into_iter().collect(),
             symbol_dependencies,
             attribute_accesses: method_attribute_accesses,
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -537,7 +525,6 @@ impl<'a> GraphBuilder<'a> {
                     defined_symbols: [target.clone()].into_iter().collect(),
                     symbol_dependencies: FxIndexMap::default(),
                     attribute_accesses: FxIndexMap::default(),
-                    is_normalized_import: false,
                 };
 
                 self.graph.add_item(item_data);
@@ -560,20 +547,8 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
 
-            // Check if this assignment is from a safe stdlib module attribute access
-            // e.g., ABC = abc.ABC where 'abc' is a safe stdlib module
-            let mut is_safe_stdlib_attribute_access = false;
-            if let Expr::Attribute(attr_expr) = assign.value.as_ref()
-                && let Expr::Name(name_expr) = attr_expr.value.as_ref()
-            {
-                let module_name = name_expr.id.as_str();
-                if is_safe_stdlib_module(module_name) {
-                    is_safe_stdlib_attribute_access = true;
-                    log::debug!(
-                        "Assignment from safe stdlib module '{module_name}' attribute access"
-                    );
-                }
-            }
+            // With the proxy approach, stdlib modules are handled dynamically,
+            // so we treat all attribute accesses conservatively for side effects
 
             let item_data = ItemData {
                 item_type: ItemType::Assignment {
@@ -585,18 +560,12 @@ impl<'a> GraphBuilder<'a> {
                                                                * read" */
                 write_vars: FxIndexSet::default(),
                 eventual_write_vars: FxIndexSet::default(),
-                // Attribute access on safe stdlib modules doesn't have side effects
-                has_side_effects: if is_safe_stdlib_attribute_access {
-                    false
-                } else {
-                    Self::expression_has_side_effects(&assign.value)
-                },
+                has_side_effects: Self::expression_has_side_effects(&assign.value),
                 imported_names: FxIndexSet::default(),
                 reexported_names,
                 defined_symbols: var_decls,
                 symbol_dependencies: FxIndexMap::default(),
                 attribute_accesses,
-                is_normalized_import: false,
             };
 
             self.graph.add_item(item_data);
@@ -639,7 +608,6 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: var_decls,
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -682,7 +650,6 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses,
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -724,7 +691,6 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses,
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -751,7 +717,6 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -800,7 +765,6 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -836,7 +800,6 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -875,7 +838,6 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -923,7 +885,6 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses,
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -949,7 +910,6 @@ impl<'a> GraphBuilder<'a> {
             defined_symbols: FxIndexSet::default(),
             symbol_dependencies: FxIndexMap::default(),
             attribute_accesses: FxIndexMap::default(),
-            is_normalized_import: false,
         };
 
         self.graph.add_item(item_data);
@@ -987,7 +947,6 @@ impl<'a> GraphBuilder<'a> {
                     defined_symbols: FxIndexSet::default(),
                     symbol_dependencies: FxIndexMap::default(),
                     attribute_accesses,
-                    is_normalized_import: false,
                 };
                 self.graph.add_item(item_data);
             }
