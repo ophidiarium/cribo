@@ -206,17 +206,17 @@ pub fn unary_op(op: UnaryOp, operand: Expr) -> Expr {
 /// Creates a types.SimpleNamespace constructor expression.
 ///
 /// This is a common pattern used throughout the bundling process for creating
-/// namespace objects. When stdlib hoisting is enabled, this will use
-/// `_cribo.types.SimpleNamespace` instead of `types.SimpleNamespace`.
+/// namespace objects. With the stdlib proxy, this always uses
+/// `_cribo.types.SimpleNamespace` (resolved lazily at runtime).
 ///
 /// # Example
 /// ```rust
-/// // Creates: `_cribo.types.SimpleNamespace` (when hoisted)
+/// // Creates: `_cribo.types.SimpleNamespace` (via proxy)
 /// let ctor = simple_namespace_ctor();
 /// ```
 #[inline]
 pub(crate) fn simple_namespace_ctor() -> Expr {
-    // Use the hoisted version when stdlib imports are hoisted
+    // Resolve via the runtime stdlib proxy
     dotted_name(
         &[super::CRIBO_PREFIX, "types", "SimpleNamespace"],
         ExprContext::Load,
