@@ -101,7 +101,7 @@ def test_bundled_module_loading(bundled_requests):
 def test_bundled_get_request(bundled_requests):
     """Test basic GET request with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
-        resp = requests.get("https://httpbin.org/get", timeout=DEFAULT_TIMEOUT)
+        resp = requests.get("https://httpbingo.org/get", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         data = resp.json()
         assert "headers" in data
@@ -112,7 +112,7 @@ def test_bundled_post_request(bundled_requests):
     """Test POST request with JSON data using bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
         test_data = {"key": "value", "number": 42}
-        resp = requests.post("https://httpbin.org/post", json=test_data, timeout=DEFAULT_TIMEOUT)
+        resp = requests.post("https://httpbingo.org/post", json=test_data, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         response_data = resp.json()
         assert response_data["json"] == test_data
@@ -122,37 +122,38 @@ def test_bundled_custom_headers(bundled_requests):
     """Test custom headers with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
         headers = {"User-Agent": "cribo-test/1.0", "X-Test-Header": "test-value"}
-        resp = requests.get("https://httpbin.org/headers", headers=headers, timeout=DEFAULT_TIMEOUT)
+        resp = requests.get("https://httpbingo.org/headers", headers=headers, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         response_headers = resp.json()["headers"]
-        assert response_headers.get("User-Agent") == "cribo-test/1.0"
-        assert response_headers.get("X-Test-Header") == "test-value"
+        assert response_headers.get("User-Agent") == ["cribo-test/1.0"]
+        assert response_headers.get("X-Test-Header") == ["test-value"]
 
 
 def test_bundled_query_params(bundled_requests):
     """Test query parameters with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
         params = {"foo": "bar", "baz": "123"}
-        resp = requests.get("https://httpbin.org/get", params=params, timeout=DEFAULT_TIMEOUT)
+        resp = requests.get("https://httpbingo.org/get", params=params, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         args = resp.json()["args"]
-        assert args == params
+        assert args["foo"] == [params["foo"]]
+        assert args["baz"] == [params["baz"]]
 
 
 def test_bundled_timeout(bundled_requests):
     """Test timeout handling with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
         with pytest.raises(requests.exceptions.Timeout):
-            requests.get("https://httpbin.org/delay/10", timeout=1)
+            requests.get("https://httpbingo.org/delay/10", timeout=1)
 
 
 def test_bundled_status_codes(bundled_requests):
     """Test various status codes with bundled requests."""
     with load_bundled_module(bundled_requests, "requests_bundled") as requests:
-        resp = requests.get("https://httpbin.org/status/404", timeout=DEFAULT_TIMEOUT)
+        resp = requests.get("https://httpbingo.org/status/404", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 404
 
-        resp = requests.get("https://httpbin.org/status/500", timeout=DEFAULT_TIMEOUT)
+        resp = requests.get("https://httpbingo.org/status/500", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 500
 
 

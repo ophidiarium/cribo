@@ -118,7 +118,7 @@ def test_bundled_get_request(bundled_httpx):
     """Test basic GET request with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         # httpx uses synchronous requests with increased timeout
-        resp = httpx.get("https://httpbin.org/get", timeout=DEFAULT_TIMEOUT)
+        resp = httpx.get("https://httpbingo.org/get", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         data = resp.json()
         assert "headers" in data
@@ -129,7 +129,7 @@ def test_bundled_post_request(bundled_httpx):
     """Test POST request with JSON data using bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         test_data = {"key": "value", "number": 42}
-        resp = httpx.post("https://httpbin.org/post", json=test_data, timeout=DEFAULT_TIMEOUT)
+        resp = httpx.post("https://httpbingo.org/post", json=test_data, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         response_data = resp.json()
         assert response_data["json"] == test_data
@@ -139,21 +139,22 @@ def test_bundled_custom_headers(bundled_httpx):
     """Test custom headers with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         headers = {"User-Agent": "cribo-test/1.0", "X-Test-Header": "test-value"}
-        resp = httpx.get("https://httpbin.org/headers", headers=headers, timeout=DEFAULT_TIMEOUT)
+        resp = httpx.get("https://httpbingo.org/headers", headers=headers, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         response_headers = resp.json()["headers"]
-        assert response_headers.get("User-Agent") == "cribo-test/1.0"
-        assert response_headers.get("X-Test-Header") == "test-value"
+        assert response_headers.get("User-Agent") == ["cribo-test/1.0"]
+        assert response_headers.get("X-Test-Header") == ["test-value"]
 
 
 def test_bundled_query_params(bundled_httpx):
     """Test query parameters with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         params = {"foo": "bar", "baz": "123"}
-        resp = httpx.get("https://httpbin.org/get", params=params, timeout=DEFAULT_TIMEOUT)
+        resp = httpx.get("https://httpbingo.org/get", params=params, timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         args = resp.json()["args"]
-        assert args == params
+        assert args["foo"] == [params["foo"]]
+        assert args["baz"] == [params["baz"]]
 
 
 def test_bundled_client_usage(bundled_httpx):
@@ -161,14 +162,14 @@ def test_bundled_client_usage(bundled_httpx):
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         # Test using Client context manager with increased timeout
         with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
-            resp = client.get("https://httpbin.org/get")
+            resp = client.get("https://httpbingo.org/get")
             assert resp.status_code == 200
 
             # Test persistent headers with client
             client.headers.update({"X-Client-Header": "test"})
-            resp = client.get("https://httpbin.org/headers")
+            resp = client.get("https://httpbingo.org/headers")
             headers = resp.json()["headers"]
-            assert headers.get("X-Client-Header") == "test"
+            assert headers.get("X-Client-Header") == ["test"]
 
 
 def test_bundled_timeout(bundled_httpx):
@@ -176,16 +177,16 @@ def test_bundled_timeout(bundled_httpx):
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
         # httpx uses different timeout API than requests
         with pytest.raises(httpx.TimeoutException):
-            httpx.get("https://httpbin.org/delay/10", timeout=2)
+            httpx.get("https://httpbingo.org/delay/10", timeout=2)
 
 
 def test_bundled_status_codes(bundled_httpx):
     """Test various status codes with bundled httpx."""
     with load_bundled_module(bundled_httpx, "httpx_bundled") as httpx:
-        resp = httpx.get("https://httpbin.org/status/404", timeout=DEFAULT_TIMEOUT)
+        resp = httpx.get("https://httpbingo.org/status/404", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 404
 
-        resp = httpx.get("https://httpbin.org/status/500", timeout=DEFAULT_TIMEOUT)
+        resp = httpx.get("https://httpbingo.org/status/500", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 500
 
 
@@ -197,7 +198,7 @@ def test_bundled_async_client(bundled_httpx):
 
         async def async_test():
             async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-                resp = await client.get("https://httpbin.org/get")
+                resp = await client.get("https://httpbingo.org/get")
                 assert resp.status_code == 200
                 data = resp.json()
                 assert "headers" in data

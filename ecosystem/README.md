@@ -165,7 +165,7 @@ def run_smoke_tests(<package>: "ModuleType | <package>_type"):
     
     # Example for httpx:
     # client = <package>.Client()
-    # response = client.get("https://httpbin.org/get")
+    # response = client.get("https://httpbingo.org/get")
     # assert response.status_code == 200
     
     print("\n✅ All smoke tests passed!")
